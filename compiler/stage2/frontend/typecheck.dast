@@ -34,6 +34,19 @@ struct ConstSig {
     typ: i32,
 }
 
+fn reexport_kind_struct() -> i32 { return 1 }
+fn reexport_kind_enum() -> i32 { return 2 }
+fn reexport_kind_const() -> i32 { return 3 }
+fn reexport_kind_func() -> i32 { return 4 }
+
+struct ReExport {
+    module: String,
+    name: String,
+    target: String,
+    kind: i32,
+    vis: Visibility,
+}
+
 struct ModuleAlias {
     alias: String,
     module: String,
@@ -68,6 +81,7 @@ struct TypeContext {
     imports: [ImportDecl],
     module_aliases: [ModuleAlias],
     import_items: [ImportItem],
+    reexports: [ReExport],
     current_module: String,
     builtins: [String],
     errors: [ParseError],
@@ -239,6 +253,123 @@ fn ctx_set_current_module(ctx: &mut TypeContext, module: String) {
     ctx.current_module = module
     ctx.module_aliases = module_aliases_from_imports(ctx.imports, module)
     ctx.import_items = import_items_from_imports(ctx.imports, module)
+}
+
+fn find_reexport(ctx: &TypeContext, module: String, name: String, kind: i32) -> i32 {
+    let mut i = 0
+    while i < len(ctx.reexports) {
+        let r = ctx.reexports[i]
+        if r.module == module && r.name == name && r.kind == kind {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn resolve_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32) -> String {
+    let idx = find_reexport(ctx, module, name, kind)
+    if idx < 0 { return "" }
+    let r = ctx.reexports[idx]
+    if !visibility_allows(r.vis, r.module, ctx.current_module) {
+        let label = name
+        if kind == reexport_kind_struct() { add_type_error(ctx, "struct '" + label + "' is private") }
+        if kind == reexport_kind_enum() { add_type_error(ctx, "enum '" + label + "' is private") }
+        if kind == reexport_kind_const() { add_type_error(ctx, "const '" + label + "' is private") }
+        if kind == reexport_kind_func() { add_type_error(ctx, "function '" + label + "' is private") }
+        return ""
+    }
+    return r.target
+}
+
+fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
+    let mut out = reexport_list_new()
+    let mut i = 0
+    while i < len(prog.imports) {
+        let imp = prog.imports[i]
+        let mut eligible = true
+        if imp.vis.kind != vis_pub() && imp.vis.kind != vis_pub_crate() && imp.vis.kind != vis_pub_super() {
+            eligible = false
+        }
+        if !imp.has_items {
+            eligible = false
+        }
+        if eligible {
+            let module = imp.module
+            let target_mod = module_join(module, imp.path)
+            let structs = ctx.structs
+            let enums = ctx.enums
+            let consts = ctx.consts
+            let mut j = 0
+            while j < len(imp.items) {
+                let name = imp.items[j]
+                let mut do_item = true
+                if name == "" {
+                    do_item = false
+                }
+                if do_item {
+                    if find_reexport(ctx, module, name, reexport_kind_struct()) >= 0 ||
+                       find_reexport(ctx, module, name, reexport_kind_enum()) >= 0 ||
+                       find_reexport(ctx, module, name, reexport_kind_const()) >= 0 ||
+                       find_reexport(ctx, module, name, reexport_kind_func()) >= 0 {
+                        add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        do_item = false
+                    }
+                }
+                if do_item {
+                    let mut found = false
+                    let sidx = find_struct_in_module(&structs, target_mod, name)
+                    if sidx >= 0 {
+                        let decl = structs[sidx]
+                        if !visibility_allows(decl.vis, decl.module, module) {
+                            add_type_error(ctx, "cannot reexport private struct '" + name + "'")
+                        } else {
+                            push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_struct(), vis: imp.vis })
+                        }
+                        found = true
+                    }
+                    let eidx = find_enum_in_module(&enums, target_mod, name)
+                    if !found && eidx >= 0 {
+                        let decl = enums[eidx]
+                        if !visibility_allows(decl.vis, decl.module, module) {
+                            add_type_error(ctx, "cannot reexport private enum '" + name + "'")
+                        } else {
+                            push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_enum(), vis: imp.vis })
+                        }
+                        found = true
+                    }
+                    let cidx = find_const_in_module(&consts, target_mod, name)
+                    if !found && cidx >= 0 {
+                        let decl = consts[cidx]
+                        if !visibility_allows(decl.vis, decl.module, module) {
+                            add_type_error(ctx, "cannot reexport private const '" + name + "'")
+                        } else {
+                            push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_const(), vis: imp.vis })
+                        }
+                        found = true
+                    }
+                    if !found {
+                        let fidx = find_func_in_module(ctx, target_mod, name)
+                        if fidx >= 0 {
+                            let decl = ctx.funcs[fidx]
+                            if !visibility_allows(decl.vis, decl.module, module) {
+                                add_type_error(ctx, "cannot reexport private function '" + name + "'")
+                            } else {
+                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_func(), vis: imp.vis })
+                            }
+                            found = true
+                        }
+                    }
+                    if !found {
+                        add_type_error(ctx, "reexport '" + name + "' not found in module '" + target_mod + "'")
+                    }
+                }
+                j = j + 1
+            }
+        }
+        i = i + 1
+    }
+    ctx.reexports = out
 }
 
 fn type_make(types: &mut TypeTable, kind: i32, name: String, is_ref: bool, is_mut: bool, elem: i32) -> i32 {
@@ -601,6 +732,11 @@ fn method_sig_list_new() -> [MethodSig] {
 
 fn const_sig_list_new() -> [ConstSig] {
     let mut items: [ConstSig] = []
+    return items
+}
+
+fn reexport_list_new() -> [ReExport] {
+    let mut items: [ReExport] = []
     return items
 }
 
@@ -1051,6 +1187,8 @@ fn resolve_struct_name(ctx: &mut TypeContext, name: String) -> String {
             add_type_error(ctx, "struct '" + name + "' is private")
             return ""
         }
+        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_struct())
+        if reexp != "" { return reexp }
         add_type_error(ctx, "imported '" + name + "' is not a struct")
     }
     return ""
@@ -1073,6 +1211,8 @@ fn resolve_enum_name(ctx: &mut TypeContext, name: String) -> String {
             add_type_error(ctx, "enum '" + name + "' is private")
             return ""
         }
+        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_enum())
+        if reexp != "" { return reexp }
         add_type_error(ctx, "imported '" + name + "' is not an enum")
     }
     return ""
@@ -1095,6 +1235,8 @@ fn resolve_const_name(ctx: &mut TypeContext, name: String) -> String {
             add_type_error(ctx, "const '" + name + "' is private")
             return ""
         }
+        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_const())
+        if reexp != "" { return reexp }
         add_type_error(ctx, "imported '" + name + "' is not a const")
     }
     return ""
@@ -1116,6 +1258,8 @@ fn resolve_func_name(ctx: &mut TypeContext, name: String) -> String {
             add_type_error(ctx, "function '" + name + "' is private")
             return ""
         }
+        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_func())
+        if reexp != "" { return reexp }
         add_type_error(ctx, "imported '" + name + "' is not a function")
     }
     return ""
@@ -1635,6 +1779,25 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     i = i + 1
                                 }
                                 return sig.ret
+                            }
+                            let rq = resolve_reexport(ctx, alias_mod, m.method, reexport_kind_func())
+                            if rq != "" {
+                                let fidx2 = find_func_qname(ctx, rq)
+                                if fidx2 >= 0 {
+                                    let sig2 = ctx.funcs[fidx2]
+                                    if len(m.args) != len(sig2.params) {
+                                        add_type_error(ctx, "function argument count mismatch")
+                                    }
+                                    let mut i2 = 0
+                                    while i2 < len(m.args) && i2 < len(sig2.params) {
+                                        let at2 = check_expr(ctx, m.args[i2])
+                                        if !ctx_type_assignable(ctx, at2, sig2.params[i2]) && at2 != 0 && sig2.params[i2] != 0 {
+                                            add_type_error(ctx, "function argument type mismatch")
+                                        }
+                                        i2 = i2 + 1
+                                    }
+                                    return sig2.ret
+                                }
                             }
                         }
                         let eq = resolve_enum_name(ctx, id.name)
@@ -2225,6 +2388,7 @@ fn check_program(prog: Program) -> TypeContext {
         imports: prog.imports,
         module_aliases: alias_list_new(),
         import_items: import_entry_list_new(),
+        reexports: reexport_list_new(),
         current_module: "",
         builtins: builtin_list(),
         errors: parse_error_list_new(),
@@ -2249,6 +2413,7 @@ fn check_program(prog: Program) -> TypeContext {
     collect_consts(&mut ctx, prog)
     collect_func_sigs(&mut ctx, prog)
     collect_method_sigs(&mut ctx, prog)
+    collect_reexports(&mut ctx, prog)
     let mut i = 0
     while i < len(prog.functions) {
         check_function(&mut ctx, prog.functions[i])

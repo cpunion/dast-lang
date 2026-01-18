@@ -1,0 +1,9 @@
+import { Token } from parser
+import parser as p
+
+fn main() {
+    let t = Token { value: 7 }
+    let v = p.make_token(3)
+    println("t", t.value)
+    println("v", v.value)
+}

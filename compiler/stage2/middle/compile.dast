@@ -96,6 +96,13 @@ fn compiler_resolve_const_name(c: &mut Compiler, name: String) -> String {
     return q
 }
 
+fn compiler_resolve_reexport_func(c: &mut Compiler, module: String, name: String) -> String {
+    let mut tctx = c.tctx
+    let q = resolve_reexport(&mut tctx, module, name, reexport_kind_func())
+    c.tctx = tctx
+    return q
+}
+
 fn compiler_resolve_type_name(c: &mut Compiler, name: String, self_name: String) -> String {
     let mut tctx = c.tctx
     let q = ctx_resolve_type_name(&mut tctx, name, self_name)
@@ -784,6 +791,10 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
                     if fidx >= 0 {
                         let sig = tctx.funcs[fidx]
                         return MethodResolution { callee: qualify_name(sig.module, sig.name), with_self: false, is_enum: false, enum_name: "", method_name: method }
+                    }
+                    let rq = compiler_resolve_reexport_func(c, alias_mod, method)
+                    if rq != "" {
+                        return MethodResolution { callee: rq, with_self: false, is_enum: false, enum_name: "", method_name: method }
                     }
                 }
                 let eq = compiler_resolve_enum_name(c, id.name)
