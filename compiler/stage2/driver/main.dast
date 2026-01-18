@@ -38,6 +38,11 @@ fn import_list_new() -> [ImportDecl] {
     return items
 }
 
+fn driver_string_list_new() -> [String] {
+    let mut items: [String] = []
+    return items
+}
+
 fn program_empty() -> Program {
     return Program {
         imports: import_list_new(),
@@ -142,6 +147,110 @@ fn append_program(dst: &mut Program, src: Program) {
     dst.impls = impls
 }
 
+fn driver_list_contains(list: [String], value: String) -> bool {
+    let mut i = 0
+    while i < len(list) {
+        if list[i] == value {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn driver_path_dir(path: String) -> String {
+    let mut last = -1
+    let mut i = 0
+    while i < len(path) {
+        if char_at(path, i) == 47 {
+            last = i
+        }
+        i = i + 1
+    }
+    if last < 0 {
+        return "."
+    }
+    if last == 0 {
+        return "/"
+    }
+    return substr(path, 0, last)
+}
+
+fn driver_path_join(dir: String, rel: String) -> String {
+    if dir == "" || dir == "." {
+        return rel
+    }
+    if char_at(dir, len(dir) - 1) == 47 {
+        return dir + rel
+    }
+    return dir + "/" + rel
+}
+
+fn driver_replace_dots(path: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(path) {
+        let c = char_at(path, i)
+        if c == 46 {
+            out = out + "/"
+        } else {
+            out = out + substr(path, i, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn driver_module_path_to_file(base_dir: String, mod_path: String) -> String {
+    let rel = driver_replace_dots(mod_path) + ".dast"
+    return driver_path_join(base_dir, rel)
+}
+
+struct LoadState {
+    merged: Program,
+    errors: [ParseError],
+    loaded: [String],
+}
+
+fn load_state_new() -> LoadState {
+    return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new() }
+}
+
+fn load_file_recursive(path: String, state: &mut LoadState) {
+    if driver_list_contains(state.loaded, path) {
+        return
+    }
+    let mut loaded = state.loaded
+    push(&mut loaded, path)
+    state.loaded = loaded
+
+    let src = read_file(path)
+    let mut lex = lexer_new(src)
+    let mut local_errs: [ParseError] = []
+    let prog = parse_program(src, &mut lex, &mut local_errs)
+    let mut merged = state.merged
+    append_program(&mut merged, prog)
+    state.merged = merged
+    let mut errs = state.errors
+    let mut i = 0
+    while i < len(local_errs) {
+        push(&mut errs, local_errs[i])
+        i = i + 1
+    }
+    state.errors = errs
+
+    let base = driver_path_dir(path)
+    let mut j = 0
+    while j < len(prog.imports) {
+        let imp = prog.imports[j]
+        if imp.path != "" {
+            let child = driver_module_path_to_file(base, imp.path)
+            load_file_recursive(child, state)
+        }
+        j = j + 1
+    }
+}
+
 fn print_errors(errors: [ParseError]) {
     let mut i = 0
     while i < len(errors) {
@@ -194,7 +303,13 @@ fn main() {
         }
         return
     }
-    let parse_res = parse_files(split.files)
+    let mut state = load_state_new()
+    let mut i = 0
+    while i < len(split.files) {
+        load_file_recursive(split.files[i], &mut state)
+        i = i + 1
+    }
+    let parse_res = ParseResult { prog: state.merged, errors: state.errors }
     if len(parse_res.errors) > 0 {
         print_errors(parse_res.errors)
         return
