@@ -7,6 +7,7 @@ import (
 	"dastlang/internal/compile"
 	"dastlang/internal/diag"
 	"dastlang/internal/interp"
+	"dastlang/internal/ir"
 	"dastlang/internal/parser"
 	"dastlang/internal/typecheck"
 )
@@ -22,6 +23,8 @@ func main() {
 		run(os.Args[2:])
 	case "ir":
 		dumpIR(os.Args[2:])
+	case "ir-run":
+		runIR(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -36,6 +39,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...]")
+	fmt.Fprintln(os.Stderr, "  dast ir-run <file.ir> [-- args...]")
 }
 
 func run(args []string) {
@@ -121,6 +125,42 @@ func dumpIR(args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(irProg.Format())
+}
+
+func runIR(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "missing input file")
+		usage()
+		os.Exit(1)
+	}
+	files, progArgs := splitArgs(args)
+	if len(files) != 1 {
+		fmt.Fprintln(os.Stderr, "ir-run expects exactly one .ir file")
+		usage()
+		os.Exit(1)
+	}
+	src, err := os.ReadFile(files[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read %s: %v\n", files[0], err)
+		os.Exit(1)
+	}
+	irProg, err := ir.Parse(string(src))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := irProg.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	rt := interp.New(irProg)
+	if len(progArgs) > 0 {
+		rt.Args = progArgs
+	}
+	if _, err := rt.Run(irProg.Entry); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
 
 func splitArgs(args []string) ([]string, []string) {

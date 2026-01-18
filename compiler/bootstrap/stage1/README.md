@@ -14,4 +14,14 @@ From repo root:
 ./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/*.dast -- run examples/hello.dast
 ```
 
+## IR v0
+
+```bash
+# compile to IR (stdout)
+./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/*.dast -- ir examples/hello.dast > /tmp/hello.ir
+
+# run IR
+./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/*.dast -- ir-run /tmp/hello.ir
+```
+
 Current stage1 supports the same Stage0 feature set: multi-file single module, `struct/enum/const/impl/self`, arrays/refs, `if/while/match`, implicit tail return, IR v0 lowering, and IR interpreter builtins.

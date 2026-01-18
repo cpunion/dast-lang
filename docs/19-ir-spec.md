@@ -46,6 +46,78 @@ Block {
 }
 ```
 
+## IR v0 文本格式（ir_program_format）
+
+> 该文本格式是 **stage0/stage1 的互操作桥梁**：
+>
+> - `dast ir` 输出此格式  
+> - `dast ir-run` 读取并解释执行  
+> - stage2 可直接生成该格式，交给 stage1/stage0 运行
+
+### 顶层结构
+
+```
+ir v0
+fn <name>(<param0>, <param1>, ...)
+  block <label>:
+    <instr>
+    <term>
+
+fn <name>(...)
+  block <label>:
+    ...
+```
+
+- 以 `ir v0` 开头  
+- 每个函数以 `fn name(params)` 开始  
+- 每个 block 以 `block label:` 开始  
+- 指令/终结符是缩进行  
+- 函数之间用空行分隔  
+
+### 指令文本形态（与 v0 指令一一对应）
+
+```
+tN = const <value>
+tN = load <name>
+store <name>, tN
+tN = addr_of <name>
+tN = load_ref tM
+store_ref tM, tN
+tN = <op> tA, tB
+tN = <op> tA              # 一元
+tN = call <callee>(tA, tB)
+call <callee>(tA, tB)      # 无返回值
+tN = array [tA, tB]
+tN = index tA[tB]
+set_index tA[tB] = tC
+tN = struct <Name> { field: tA, other: tB }
+tN = get_field tA.field
+set_field tA.field = tB
+tN = enum <Name>.<Variant>(tA)
+tN = enum <Name>.<Variant>
+tN = enum_tag tA
+tN = enum_payload tA
+```
+
+终结符：
+
+```
+jump <label>
+branch tA, <then>, <else>
+return
+return tA
+```
+
+常量 `value`：
+- `int`（十进制）
+- `true` / `false`
+- `"string"`（**不做转义**，保持原样）
+- `unit`
+- `&N` / `struct#N` / `enum#N` / `array#N`（仅用于调试输出）
+
+> 注意：文本格式不转义字符串内容，若字符串包含换行/引号，会破坏行结构；  
+> v0 规范建议 **避免在 IR 文本中出现换行或引号字符**。
+
 ## 值模型（Value）
 
 v0 仅支持 8 种运行时值：
@@ -192,4 +264,3 @@ meta {
 
 - stage0 只支持 `version = v0`。
 - stage1 若启用新特性，必须**先降为 v0**；无法降解的特性应报告 “需要 v1 IR”。
-

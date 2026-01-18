@@ -18,6 +18,16 @@ go build -o dast-stage0 ./cmd/dast
 ./dast-stage0 run examples/array.dast
 ```
 
+## IR v0
+
+```bash
+# compile to IR (stdout)
+./dast-stage0 ir examples/hello.dast > /tmp/hello.ir
+
+# run IR
+./dast-stage0 ir-run /tmp/hello.ir
+```
+
 ## Run Stage1 (Dast)
 
 From repo root:
