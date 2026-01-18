@@ -1,0 +1,26 @@
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build outputs
+target/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Rust
+Cargo.lock
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# Temporary files
+*.tmp
+*.log
