@@ -635,6 +635,7 @@ fn is_builtin_name(name: String) -> bool {
     if name == "push" { return true }
     if name == "pop" { return true }
     if name == "read_file" { return true }
+    if name == "read_dir" { return true }
     if name == "write_file" { return true }
     if name == "args" { return true }
     if name == "char_at" { return true }
@@ -712,6 +713,19 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         if args[0].kind != ir_kind_string() { runtime_error(rt, "read_file expects string path"); return ir_value_unit() }
         let data = read_file(args[0].str)
         return ir_value_string(data)
+    }
+    if name == "read_dir" {
+        if len(args) != 1 { runtime_error(rt, "read_dir expects 1 argument"); return ir_value_unit() }
+        if args[0].kind != ir_kind_string() { runtime_error(rt, "read_dir expects string path"); return ir_value_unit() }
+        let names = read_dir(args[0].str)
+        let mut elems: [IrValue] = []
+        let mut i = 0
+        while i < len(names) {
+            push(&mut elems, ir_value_string(names[i]))
+            i = i + 1
+        }
+        let arr_idx = array_alloc(rt, IrArrayValue { elems: elems })
+        return ir_value_array(arr_idx)
     }
     if name == "write_file" {
         if len(args) != 2 { runtime_error(rt, "write_file expects 2 arguments"); return ir_value_unit() }

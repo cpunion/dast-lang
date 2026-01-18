@@ -5,7 +5,7 @@ STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
 STAGE1_FILES := compiler/bootstrap/stage1/token.dast compiler/bootstrap/stage1/lexer.dast compiler/bootstrap/stage1/ast.dast compiler/bootstrap/stage1/parser.dast compiler/bootstrap/stage1/typecheck.dast compiler/bootstrap/stage1/ir.dast compiler/bootstrap/stage1/compile.dast compiler/bootstrap/stage1/interp.dast compiler/bootstrap/stage1/main.dast
 STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' | sort)
 STAGE1_IR := compiler/bootstrap/stage1/stage1.ir
-EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*.dast)
+EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 
 .PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test clean
 

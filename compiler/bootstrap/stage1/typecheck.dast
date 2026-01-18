@@ -733,6 +733,7 @@ fn builtin_list() -> [String] {
     push(&mut b, "push")
     push(&mut b, "pop")
     push(&mut b, "read_file")
+    push(&mut b, "read_dir")
     push(&mut b, "write_file")
     push(&mut b, "args")
     push(&mut b, "char_at")
@@ -1078,6 +1079,18 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 }
                             }
                             return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
+                        if id.name == "read_dir" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "read_dir expects 1 argument")
+                            } else {
+                                let pt = check_expr(ctx, c.args[0])
+                                if !ctx_is_string(ctx, pt) && pt != 0 {
+                                    add_type_error(ctx, "read_dir expects string path")
+                                }
+                            }
+                            let elem = ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 7, "", false, false, elem)
                         }
                         if id.name == "write_file" {
                             if len(c.args) != 2 {

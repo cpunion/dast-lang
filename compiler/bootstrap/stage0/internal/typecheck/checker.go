@@ -35,7 +35,7 @@ func Check(prog *ast.Program) *diag.Bag {
 		diag:     &diag.Bag{},
 		funcs:    map[string]*FuncSig{},
 		methods:  map[string]map[string]*MethodSig{},
-		builtins: map[string]struct{}{"print": {}, "println": {}, "len": {}, "push": {}, "read_file": {}, "write_file": {}, "args": {}, "char_at": {}, "substr": {}, "pop": {}},
+		builtins: map[string]struct{}{"print": {}, "println": {}, "len": {}, "push": {}, "read_file": {}, "read_dir": {}, "write_file": {}, "args": {}, "char_at": {}, "substr": {}, "pop": {}},
 		consts:   map[string]ConstInfo{},
 		structs:  map[string]*ast.StructDecl{},
 		enums:    map[string]*ast.EnumDecl{},

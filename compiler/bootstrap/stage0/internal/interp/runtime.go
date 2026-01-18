@@ -28,6 +28,7 @@ func New(prog *ir.Program) *Runtime {
 		"len":        rt.builtinLen(),
 		"push":       rt.builtinPush(),
 		"read_file":  rt.builtinReadFile(),
+		"read_dir":   rt.builtinReadDir(),
 		"write_file": rt.builtinWriteFile(),
 		"args":       rt.builtinArgs(),
 		"char_at":    rt.builtinCharAt(),

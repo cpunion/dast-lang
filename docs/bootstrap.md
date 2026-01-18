@@ -28,14 +28,13 @@ stage0 (Go) -> stage1 (Dast 源码，多文件) -> stage2 (Dast，完整规范)
 
 ```
 # stage0 编译 stage1（源码多文件）
-./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/*.dast -- run examples/hello.dast
+./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/*.dast -- run compiler/bootstrap/stage0/examples/hello/main.dast
 
 # 用 stage1 编译 stage2，生成 IR v0 快照
 make build-stage1-ir
 
 # stage0 运行 stage1 快照（IR v0 单文件）
-./compiler/bootstrap/stage0/dast-stage0 ir-run compiler/bootstrap/stage1/stage1.ir -- run examples/hello.dast
+./compiler/bootstrap/stage0/dast-stage0 ir-run compiler/bootstrap/stage1/stage1.ir -- run compiler/bootstrap/stage0/examples/hello/main.dast
 ```
 
 > 注意：`compiler/bootstrap/stage1/stage1.ir` 是**阶段性快照**，只有在升级 stage2 语法时才生成与更新。
-

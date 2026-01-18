@@ -201,9 +201,30 @@ fn driver_replace_dots(path: String) -> String {
     return out
 }
 
-fn driver_module_path_to_file(base_dir: String, mod_path: String) -> String {
-    let rel = driver_replace_dots(mod_path) + ".dast"
+fn driver_module_path_to_dir(base_dir: String, mod_path: String) -> String {
+    let rel = driver_replace_dots(mod_path)
     return driver_path_join(base_dir, rel)
+}
+
+fn driver_string_ends_with(text: String, suffix: String) -> bool {
+    if len(text) < len(suffix) { return false }
+    let start = len(text) - len(suffix)
+    return substr(text, start, len(suffix)) == suffix
+}
+
+fn driver_list_dast_files(dir: String) -> [String] {
+    let mut files: [String] = []
+    let names = read_dir(dir)
+    let mut i = 0
+    while i < len(names) {
+        let name = names[i]
+        if driver_string_ends_with(name, ".dast") {
+            let full = driver_path_join(dir, name)
+            push(&mut files, full)
+        }
+        i = i + 1
+    }
+    return files
 }
 
 struct LoadState {
@@ -244,10 +265,19 @@ fn load_file_recursive(path: String, state: &mut LoadState) {
     while j < len(prog.imports) {
         let imp = prog.imports[j]
         if imp.path != "" {
-            let child = driver_module_path_to_file(base, imp.path)
-            load_file_recursive(child, state)
+            let child_dir = driver_module_path_to_dir(base, imp.path)
+            load_dir_recursive(child_dir, state)
         }
         j = j + 1
+    }
+}
+
+fn load_dir_recursive(dir: String, state: &mut LoadState) {
+    let files = driver_list_dast_files(dir)
+    let mut i = 0
+    while i < len(files) {
+        load_file_recursive(files[i], state)
+        i = i + 1
     }
 }
 
@@ -306,7 +336,8 @@ fn main() {
     let mut state = load_state_new()
     let mut i = 0
     while i < len(split.files) {
-        load_file_recursive(split.files[i], &mut state)
+        let dir = driver_path_dir(split.files[i])
+        load_dir_recursive(dir, &mut state)
         i = i + 1
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }

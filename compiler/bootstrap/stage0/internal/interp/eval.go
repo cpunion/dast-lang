@@ -226,6 +226,27 @@ func (rt *Runtime) builtinReadFile() Builtin {
 	}
 }
 
+func (rt *Runtime) builtinReadDir() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("read_dir expects 1 argument")
+		}
+		pathVal := args[0]
+		if pathVal.Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("read_dir expects string path")
+		}
+		entries, err := os.ReadDir(pathVal.Str)
+		if err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		elems := make([]ir.Value, 0, len(entries))
+		for _, entry := range entries {
+			elems = append(elems, ir.Value{Kind: ir.KindString, Str: entry.Name()})
+		}
+		return ir.Value{Kind: ir.KindArray, Array: &ir.ArrayValue{Elems: elems}}, nil
+	}
+}
+
 func (rt *Runtime) builtinCharAt() Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		if len(args) != 2 {

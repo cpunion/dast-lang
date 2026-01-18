@@ -12,11 +12,10 @@ Stage1 can compile stage2 into a **single IR v0 file**. That IR file can replace
 
 ## Module loading (current)
 
-- `import foo` resolves to `foo.dast` (relative to the importing file)
-- `import a.b` resolves to `a/b.dast`
-- `mod name` is treated like `import name`
-
-`mod.dast` resolution is planned but not implemented yet.
+- 同目录下的 `*.dast` 视为同一模块（无需 `mod.dast`）
+- `import foo` 解析为目录 `foo/`（相对于当前文件所在目录）
+- `import a.b` 解析为目录 `a/b/`
+- `mod name` 等价于 `import name`
 
 ## Build Stage1 IR snapshot from Stage2
 
@@ -26,5 +25,5 @@ From repo root:
 make build-stage1-ir
 
 # run stage1 snapshot
-./compiler/bootstrap/stage0/dast-stage0 ir-run compiler/bootstrap/stage1/stage1.ir -- run examples/hello.dast
+./compiler/bootstrap/stage0/dast-stage0 ir-run compiler/bootstrap/stage1/stage1.ir -- run compiler/bootstrap/stage0/examples/hello/main.dast
 ```

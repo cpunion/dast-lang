@@ -13,16 +13,16 @@ go build -o dast-stage0 ./cmd/dast
 ## Run examples
 
 ```bash
-./dast-stage0 run examples/hello.dast
-./dast-stage0 run examples/struct_enum.dast
-./dast-stage0 run examples/array.dast
+./dast-stage0 run examples/hello/main.dast
+./dast-stage0 run examples/struct_enum/main.dast
+./dast-stage0 run examples/array/main.dast
 ```
 
 ## IR v0
 
 ```bash
 # compile to IR (stdout)
-./dast-stage0 ir examples/hello.dast > /tmp/hello.ir
+./dast-stage0 ir examples/hello/main.dast > /tmp/hello.ir
 
 # run IR
 ./dast-stage0 ir-run /tmp/hello.ir

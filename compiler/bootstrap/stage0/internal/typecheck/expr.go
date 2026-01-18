@@ -246,6 +246,16 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					c.diag.Add(e.Args[0].Span(), "read_file expects string path")
 				}
 				return Type{Kind: TypeString, Name: "string"}
+			case "read_dir":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "read_dir expects 1 argument")
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "read_dir expects string path")
+				}
+				elem := Type{Kind: TypeString, Name: "string"}
+				return Type{Kind: TypeArray, Elem: &elem}
 			case "write_file":
 				if len(e.Args) != 2 {
 					c.diag.Add(e.Span(), "write_file expects 2 arguments")
