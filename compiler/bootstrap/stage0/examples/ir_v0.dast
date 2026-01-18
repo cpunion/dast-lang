@@ -1,0 +1,70 @@
+const MAGIC = 3
+
+@repr(u32)
+enum OptionI32 {
+    Some(i32) = 1,
+    None = 2,
+}
+
+struct Counter {
+    value: i32,
+}
+
+impl Counter {
+    fn add(self: &mut Counter, delta: i32) -> i32 {
+        self.value = self.value + delta
+        self.value
+    }
+}
+
+fn inc(x: i32) -> i32 { x + 1 }
+
+fn is_even(x: i32) -> bool { x % 2 == 0 }
+
+fn main() {
+    let mut c = Counter { value: 1 }
+    let v = (&mut c).add(2)
+    println("v", v)
+
+    let mut x = 10
+    let r = &mut x;
+    *r = *r + 1
+    println("x", x)
+
+    let mut arr = [1, 2, 3]
+    arr[1] = arr[0] + MAGIC
+    push(&mut arr, 4)
+    let last = pop(&mut arr)
+    println("last", last)
+
+    let s = "hi"
+    let s2 = s + "!"
+    let ch = char_at(s2, 1)
+    let sub = substr(s2, 0, 1)
+    println("ch", ch, "sub", sub, "len", len(s2))
+
+    let argv = args()
+    println("argc", len(argv))
+
+    let opt = OptionI32.Some(inc(41))
+    match opt {
+        .Some(v) => { println("some", v) }
+        .None => { println("none") }
+    }
+
+    if is_even(x) && true || false {
+        println("even")
+    } else {
+        println("odd")
+    }
+
+    let mut i = 0
+    while i < 2 {
+        i = i + 1
+    }
+
+    let path = "/tmp/dast_ir_v0.txt"
+    write_file(path, "ok")
+    let data = read_file(path)
+    println("data", data)
+}

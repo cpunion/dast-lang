@@ -194,8 +194,7 @@ func (p *Parser) parseConstValue() ast.ConstValue {
 }
 
 func (p *Parser) parseImplDecl() ast.Item {
-	start := p.peek().Span
-	p.advance()
+	start := p.prev().Span
 	typeTok := p.expect(lexer.TokenIdent, "expected type name after impl")
 	impl := &ast.ImplDecl{TypeName: typeTok.Lexeme, SpanInfo: mergeSpan(start, typeTok.Span)}
 	p.expect(lexer.TokenLBrace, "expected '{' after impl type")
