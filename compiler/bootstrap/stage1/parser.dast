@@ -188,7 +188,7 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
 
 fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let k = peek_kind(lex)
-    if k == tk_ident() {
+    if k == tk_ident() || k == tk_self() {
         let name = next_lexeme(src, lex)
         if looks_like_struct_lit(lex) {
             lexer_next(lex)

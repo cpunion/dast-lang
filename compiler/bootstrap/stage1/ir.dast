@@ -29,8 +29,11 @@ fn int_to_string(x: i32) -> String {
     let mut i = len(digits) - 1
     while i >= 0 {
         out = out + substr("0123456789", digits[i], 1)
-        if i == 0 { break }
-        i = i - 1
+        if i == 0 {
+            i = -1
+        } else {
+            i = i - 1
+        }
     }
     return out
 }
@@ -200,6 +203,12 @@ struct IrGetField {
     field: String,
 }
 
+struct IrSetField {
+    src: i32,
+    field: String,
+    value: i32,
+}
+
 struct IrMakeEnum {
     dst: i32,
     name: String,
@@ -232,6 +241,7 @@ enum IrInstr {
     SetIndex(IrSetIndex),
     MakeStruct(IrMakeStruct),
     GetField(IrGetField),
+    SetField(IrSetField),
     MakeEnum(IrMakeEnum),
     EnumTag(IrEnumTag),
     EnumPayload(IrEnumPayload),
@@ -263,4 +273,127 @@ enum IrTerm {
 
 fn ir_term_none() -> IrTerm {
     return IrTerm.None(IrNoTerm {})
+}
+
+fn ir_value_stringify(v: IrValue) -> String {
+    if v.kind == ir_kind_int() { return int_to_string(v.int) }
+    if v.kind == ir_kind_bool() {
+        if v.bool { return "true" }
+        return "false"
+    }
+    if v.kind == ir_kind_string() { return "\"" + v.str + "\"" }
+    if v.kind == ir_kind_ref() { return "&" + int_to_string(v.ref) }
+    if v.kind == ir_kind_struct() { return "struct#" + int_to_string(v.obj) }
+    if v.kind == ir_kind_enum() { return "enum#" + int_to_string(v.obj) }
+    if v.kind == ir_kind_array() { return "array#" + int_to_string(v.obj) }
+    return "unit"
+}
+
+fn ir_instr_string(inst: IrInstr) -> String {
+    match inst {
+        .Const(i) => { return "t" + int_to_string(i.dst) + " = const " + ir_value_stringify(i.value) }
+        .LoadVar(i) => { return "t" + int_to_string(i.dst) + " = load " + i.name }
+        .StoreVar(i) => { return "store " + i.name + ", t" + int_to_string(i.src) }
+        .AddrOf(i) => { return "t" + int_to_string(i.dst) + " = addr_of " + i.name }
+        .LoadRef(i) => { return "t" + int_to_string(i.dst) + " = load_ref t" + int_to_string(i.src) }
+        .StoreRef(i) => { return "store_ref t" + int_to_string(i.ref) + ", t" + int_to_string(i.src) }
+        .BinOp(i) => {
+            return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.lhs) + ", t" + int_to_string(i.rhs)
+        }
+        .UnaryOp(i) => { return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.src) }
+        .Call(i) => {
+            let mut args = ""
+            let mut j = 0
+            while j < len(i.args) {
+                if j > 0 { args = args + ", " }
+                args = args + "t" + int_to_string(i.args[j])
+                j = j + 1
+            }
+            if i.dst >= 0 {
+                return "t" + int_to_string(i.dst) + " = call " + i.callee + "(" + args + ")"
+            }
+            return "call " + i.callee + "(" + args + ")"
+        }
+        .MakeArray(i) => {
+            let mut elems = ""
+            let mut j = 0
+            while j < len(i.elems) {
+                if j > 0 { elems = elems + ", " }
+                elems = elems + "t" + int_to_string(i.elems[j])
+                j = j + 1
+            }
+            return "t" + int_to_string(i.dst) + " = array [" + elems + "]"
+        }
+        .Index(i) => { return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
+        .SetIndex(i) => { return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) }
+        .MakeStruct(i) => {
+            let mut fields = ""
+            let mut j = 0
+            while j < len(i.fields) {
+                if j > 0 { fields = fields + ", " }
+                fields = fields + i.fields[j].name + ": t" + int_to_string(i.fields[j].src)
+                j = j + 1
+            }
+            return "t" + int_to_string(i.dst) + " = struct " + i.name + " { " + fields + " }"
+        }
+        .GetField(i) => { return "t" + int_to_string(i.dst) + " = get_field t" + int_to_string(i.src) + "." + i.field }
+        .SetField(i) => { return "set_field t" + int_to_string(i.src) + "." + i.field + " = t" + int_to_string(i.value) }
+        .MakeEnum(i) => {
+            if i.payload >= 0 {
+                return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant + "(t" + int_to_string(i.payload) + ")"
+            }
+            return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant
+        }
+        .EnumTag(i) => { return "t" + int_to_string(i.dst) + " = enum_tag t" + int_to_string(i.src) }
+        .EnumPayload(i) => { return "t" + int_to_string(i.dst) + " = enum_payload t" + int_to_string(i.src) }
+    }
+    return ""
+}
+
+fn ir_term_string(term: IrTerm) -> String {
+    match term {
+        .None(_) => { return "" }
+        .Jump(t) => { return "jump " + t.target }
+        .Branch(t) => {
+            return "branch t" + int_to_string(t.cond) + ", " + t.then_label + ", " + t.else_label
+        }
+        .Return(t) => {
+            if !t.has_value { return "return" }
+            return "return t" + int_to_string(t.value)
+        }
+    }
+}
+
+fn ir_program_format(p: IrProgram) -> String {
+    let mut out = "ir " + p.version + "\n"
+    let mut i = 0
+    while i < len(p.functions) {
+        let f = p.functions[i]
+        let mut params = ""
+        let mut j = 0
+        while j < len(f.params) {
+            if j > 0 { params = params + ", " }
+            params = params + f.params[j]
+            j = j + 1
+        }
+        out = out + "fn " + f.name + "(" + params + ")\n"
+        let mut b = 0
+        while b < len(f.blocks) {
+            let blk = f.blocks[b]
+            out = out + "  block " + blk.label + ":\n"
+            let mut k = 0
+            while k < len(blk.instrs) {
+                out = out + "    " + ir_instr_string(blk.instrs[k]) + "\n"
+                k = k + 1
+            }
+            let term = ir_term_string(blk.term)
+            if term != "" {
+                out = out + "    " + term + "\n"
+            }
+            b = b + 1
+        }
+        out = out + "\n"
+        i = i + 1
+    }
+    return out
 }

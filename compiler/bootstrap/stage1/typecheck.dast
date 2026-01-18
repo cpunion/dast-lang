@@ -1,11 +1,3 @@
-struct TypeInfo {
-    kind: i32,
-    name: String,
-    ref: bool,
-    mut: bool,
-    elem: i32,
-}
-
 struct TypeTable {
     kinds: [i32],
     names: [String],
@@ -84,13 +76,24 @@ fn type_table_new() -> TypeTable {
     return TypeTable { kinds: kinds, names: names, refs: refs, muts: muts, elems: elems }
 }
 
-fn type_make(types: &mut TypeTable, kind: i32, name: String, ref: bool, mut: bool, elem: i32) -> i32 {
-    push(&mut types.kinds, kind)
-    push(&mut types.names, name)
-    push(&mut types.refs, ref)
-    push(&mut types.muts, mut)
-    push(&mut types.elems, elem)
-    return len(types.kinds) - 1
+fn type_make(types: &mut TypeTable, kind: i32, name: String, is_ref: bool, is_mut: bool, elem: i32) -> i32 {
+    let mut kinds = types.kinds
+    let mut names = types.names
+    let mut refs = types.refs
+    let mut muts = types.muts
+    let mut elems = types.elems
+    push(&mut kinds, kind)
+    push(&mut names, name)
+    push(&mut refs, is_ref)
+    push(&mut muts, is_mut)
+    push(&mut elems, elem)
+    let idx = len(kinds) - 1
+    types.kinds = kinds
+    types.names = names
+    types.refs = refs
+    types.muts = muts
+    types.elems = elems
+    return idx
 }
 
 fn type_is_ref(types: &TypeTable, t: i32) -> bool {
@@ -140,6 +143,26 @@ fn type_equal(types: &TypeTable, a: i32, b: i32) -> bool {
     return true
 }
 
+fn type_base_equal(types: &TypeTable, a: i32, b: i32) -> bool {
+    if a == 0 || b == 0 { return false }
+    if type_kind(types, a) != type_kind(types, b) { return false }
+    if type_kind(types, a) == 5 || type_kind(types, a) == 6 {
+        return type_name(types, a) == type_name(types, b)
+    }
+    if type_kind(types, a) == 7 {
+        return type_base_equal(types, type_elem(types, a), type_elem(types, b))
+    }
+    return true
+}
+
+fn type_assignable(types: &TypeTable, actual: i32, expected: i32) -> bool {
+    if type_equal(types, actual, expected) { return true }
+    if type_is_ref(types, actual) && type_is_ref(types, expected) && !types.muts[expected] && types.muts[actual] {
+        return type_base_equal(types, actual, expected)
+    }
+    return false
+}
+
 fn type_string(types: &TypeTable, t: i32) -> String {
     if t == 0 {
         return "invalid"
@@ -174,26 +197,43 @@ fn env_new() -> Env {
 }
 
 fn env_push(env: &mut Env) {
-    push(&mut env.scopes, len(env.names))
+    let mut scopes = env.scopes
+    let names = env.names
+    push(&mut scopes, len(names))
+    env.scopes = scopes
 }
 
 fn env_pop(env: &mut Env) {
-    if len(env.scopes) == 0 {
+    let mut scopes = env.scopes
+    let mut names = env.names
+    let mut types = env.types
+    let mut muts = env.muts
+    if len(scopes) == 0 {
         return
     }
-    let idx = env.scopes[len(env.scopes)-1]
-    env.scopes = env.scopes[0:len(env.scopes)-1]
-    while len(env.names) > idx {
-        env.names = env.names[0:len(env.names)-1]
-        env.types = env.types[0:len(env.types)-1]
-        env.muts = env.muts[0:len(env.muts)-1]
+    let idx = scopes[len(scopes)-1]
+    pop(&mut scopes)
+    while len(names) > idx {
+        pop(&mut names)
+        pop(&mut types)
+        pop(&mut muts)
     }
+    env.scopes = scopes
+    env.names = names
+    env.types = types
+    env.muts = muts
 }
 
 fn env_declare(env: &mut Env, name: String, typ: i32, mutable: bool) {
-    push(&mut env.names, name)
-    push(&mut env.types, typ)
-    push(&mut env.muts, mutable)
+    let mut names = env.names
+    let mut types = env.types
+    let mut muts = env.muts
+    push(&mut names, name)
+    push(&mut types, typ)
+    push(&mut muts, mutable)
+    env.names = names
+    env.types = types
+    env.muts = muts
 }
 
 fn env_lookup(env: &Env, name: String) -> VarEntry {
@@ -203,7 +243,7 @@ fn env_lookup(env: &Env, name: String) -> VarEntry {
             return VarEntry { name: name, typ: env.types[i], mutable: env.muts[i] }
         }
         if i == 0 {
-            break
+            return VarEntry { name: "", typ: 0, mutable: false }
         }
         i = i - 1
     }
@@ -211,7 +251,187 @@ fn env_lookup(env: &Env, name: String) -> VarEntry {
 }
 
 fn add_type_error(ctx: &mut TypeContext, msg: String) {
-    push(&mut ctx.errors, ParseError { pos: 0, msg: msg })
+    let mut errors = ctx.errors
+    push(&mut errors, ParseError { pos: 0, msg: msg })
+    ctx.errors = errors
+}
+
+fn ctx_type_make(ctx: &mut TypeContext, kind: i32, name: String, is_ref: bool, is_mut: bool, elem: i32) -> i32 {
+    let mut types = ctx.types
+    let t = type_make(&mut types, kind, name, is_ref, is_mut, elem)
+    ctx.types = types
+    return t
+}
+
+fn ctx_type_for_const_value(ctx: &mut TypeContext, v: ConstValue) -> i32 {
+    let mut types = ctx.types
+    let t = type_for_const_value(&mut types, v)
+    ctx.types = types
+    return t
+}
+
+fn ctx_parse_type(ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
+    let structs = ctx.structs
+    let enums = ctx.enums
+    let mut types = ctx.types
+    let t = parse_type_from_text(&mut types, &structs, &enums, text, self_name)
+    ctx.types = types
+    return t
+}
+
+fn ctx_type_is_ref(ctx: &TypeContext, t: i32) -> bool {
+    let types = ctx.types
+    return type_is_ref(&types, t)
+}
+
+fn ctx_type_kind(ctx: &TypeContext, t: i32) -> i32 {
+    let types = ctx.types
+    return type_kind(&types, t)
+}
+
+fn ctx_type_name(ctx: &TypeContext, t: i32) -> String {
+    let types = ctx.types
+    return type_name(&types, t)
+}
+
+fn ctx_type_elem(ctx: &TypeContext, t: i32) -> i32 {
+    let types = ctx.types
+    return type_elem(&types, t)
+}
+
+fn ctx_type_equal(ctx: &TypeContext, a: i32, b: i32) -> bool {
+    let types = ctx.types
+    return type_equal(&types, a, b)
+}
+
+fn ctx_type_assignable(ctx: &TypeContext, actual: i32, expected: i32) -> bool {
+    let types = ctx.types
+    return type_assignable(&types, actual, expected)
+}
+
+fn ctx_type_string(ctx: &TypeContext, t: i32) -> String {
+    let types = ctx.types
+    return type_string(&types, t)
+}
+
+fn ctx_deref_type(ctx: &mut TypeContext, t: i32) -> i32 {
+    let mut types = ctx.types
+    let base = deref_type(&mut types, t)
+    ctx.types = types
+    return base
+}
+
+fn ctx_is_int(ctx: &TypeContext, t: i32) -> bool {
+    let types = ctx.types
+    return is_int(&types, t)
+}
+
+fn ctx_is_bool(ctx: &TypeContext, t: i32) -> bool {
+    let types = ctx.types
+    return is_bool(&types, t)
+}
+
+fn ctx_is_string(ctx: &TypeContext, t: i32) -> bool {
+    let types = ctx.types
+    return is_string(&types, t)
+}
+
+fn ctx_find_struct(ctx: &TypeContext, name: String) -> i32 {
+    let structs = ctx.structs
+    return find_struct(&structs, name)
+}
+
+fn ctx_find_enum(ctx: &TypeContext, name: String) -> i32 {
+    let enums = ctx.enums
+    return find_enum(&enums, name)
+}
+
+fn ctx_find_const(ctx: &TypeContext, name: String) -> i32 {
+    let consts = ctx.consts
+    return find_const(&consts, name)
+}
+
+fn ctx_env_lookup(ctx: &TypeContext, name: String) -> VarEntry {
+    let env = ctx.env
+    return env_lookup(&env, name)
+}
+
+fn ctx_env_push(ctx: &mut TypeContext) {
+    let mut env = ctx.env
+    env_push(&mut env)
+    ctx.env = env
+}
+
+fn ctx_env_pop(ctx: &mut TypeContext) {
+    let mut env = ctx.env
+    env_pop(&mut env)
+    ctx.env = env
+}
+
+fn ctx_env_declare(ctx: &mut TypeContext, name: String, typ: i32, mutable: bool) {
+    let mut env = ctx.env
+    env_declare(&mut env, name, typ, mutable)
+    ctx.env = env
+}
+
+fn ctx_push_func(ctx: &mut TypeContext, sig: FuncSig) {
+    let mut funcs = ctx.funcs
+    push(&mut funcs, sig)
+    ctx.funcs = funcs
+}
+
+fn ctx_push_method(ctx: &mut TypeContext, sig: MethodSig) {
+    let mut methods = ctx.methods
+    push(&mut methods, sig)
+    ctx.methods = methods
+}
+
+fn ctx_push_const(ctx: &mut TypeContext, sig: ConstSig) {
+    let mut consts = ctx.consts
+    push(&mut consts, sig)
+    ctx.consts = consts
+}
+
+fn ctx_set_func_ret(ctx: &mut TypeContext, idx: i32, ret: i32) {
+    let mut funcs = ctx.funcs
+    if idx < 0 || idx >= len(funcs) {
+        return
+    }
+    let mut sig = funcs[idx]
+    sig.ret = ret
+    funcs[idx] = sig
+    ctx.funcs = funcs
+}
+
+fn ctx_set_method_ret(ctx: &mut TypeContext, idx: i32, ret: i32) {
+    let mut methods = ctx.methods
+    if idx < 0 || idx >= len(methods) {
+        return
+    }
+    let mut sig = methods[idx]
+    sig.ret = ret
+    methods[idx] = sig
+    ctx.methods = methods
+}
+
+fn func_sig_list_new() -> [FuncSig] {
+    let mut items: [FuncSig] = []
+    return items
+}
+
+fn method_sig_list_new() -> [MethodSig] {
+    let mut items: [MethodSig] = []
+    return items
+}
+
+fn const_sig_list_new() -> [ConstSig] {
+    let mut items: [ConstSig] = []
+    return items
+}
+
+fn parse_error_list_new() -> [ParseError] {
+    let mut items: [ParseError] = []
+    return items
 }
 
 fn is_int(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 1 && !type_is_ref(types, t) }
@@ -225,40 +445,57 @@ fn parse_type_from_text(types: &mut TypeTable, structs: & [StructDecl], enums: &
 
 fn parse_type_text_inner(types: &mut TypeTable, structs: & [StructDecl], enums: & [EnumDecl], text: String, self_name: String, idx: &mut i32) -> i32 {
     // skip spaces
-    while *idx < len(text) && char_at(text, *idx) == 32 {
-        *idx = *idx + 1
+    let mut scanning = true
+    while *idx < len(text) && scanning {
+        if char_at(text, *idx) == 32 {
+            *idx = *idx + 1
+        } else {
+            scanning = false
+        }
     }
     let mut is_ref = false
     let mut is_mut = false
-    if *idx < len(text) && char_at(text, *idx) == 38 {
-        is_ref = true
-        *idx = *idx + 1
-        if *idx + 3 < len(text) {
-            if substr(text, *idx, 3) == "mut" {
-                is_mut = true
-                *idx = *idx + 3
-                if *idx < len(text) && char_at(text, *idx) == 32 {
-                    *idx = *idx + 1
+    if *idx < len(text) {
+        let c = char_at(text, *idx)
+        if c == 38 {
+            is_ref = true;
+            *idx = *idx + 1
+            if *idx + 3 < len(text) {
+                if substr(text, *idx, 3) == "mut" {
+                    is_mut = true;
+                    *idx = *idx + 3
+                    if *idx < len(text) {
+                        if char_at(text, *idx) == 32 {
+                            *idx = *idx + 1
+                        }
+                    }
                 }
             }
         }
     }
-    if *idx < len(text) && char_at(text, *idx) == 91 {
-        *idx = *idx + 1
-        let elem = parse_type_text_inner(types, structs, enums, text, self_name, idx)
-        if *idx < len(text) && char_at(text, *idx) == 93 {
+    if *idx < len(text) {
+        let c = char_at(text, *idx)
+        if c == 91 {
             *idx = *idx + 1
+            let elem = parse_type_text_inner(types, structs, enums, text, self_name, idx)
+            if *idx < len(text) {
+                if char_at(text, *idx) == 93 {
+                    *idx = *idx + 1
+                }
+            }
+            let t = type_make(types, 7, "", is_ref, is_mut, elem)
+            return t
         }
-        let t = type_make(types, 7, "", is_ref, is_mut, elem)
-        return t
     }
     let mut start = *idx
-    while *idx < len(text) {
+    scanning = true
+    while *idx < len(text) && scanning {
         let c = char_at(text, *idx)
         if c == 32 || c == 93 {
-            break
+            scanning = false
+        } else {
+            *idx = *idx + 1
         }
-        *idx = *idx + 1
     }
     let mut name = substr(text, start, *idx - start)
     if name == "Self" && self_name != "" {
@@ -368,26 +605,25 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
-        if find_const(&ctx.consts, f.name) >= 0 {
+        if ctx_find_const(ctx, f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by const")
-            i = i + 1
-            continue
+        } else {
+            let mut params: [i32] = []
+            let mut j = 0
+            while j < len(f.params) {
+                let p = f.params[j]
+                let t = ctx_parse_type(ctx, p.typ, "")
+                push(&mut params, t)
+                j = j + 1
+            }
+            let mut ret = 0
+            let mut explicit = false
+            if f.has_return {
+                ret = ctx_parse_type(ctx, f.ret, "")
+                explicit = true
+            }
+            ctx_push_func(ctx, FuncSig { name: f.name, params: params, ret: ret, ret_explicit: explicit })
         }
-        let mut params: [i32] = []
-        let mut j = 0
-        while j < len(f.params) {
-            let p = f.params[j]
-            let t = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, p.typ, "")
-            push(&mut params, t)
-            j = j + 1
-        }
-        let mut ret = 0
-        let mut explicit = false
-        if f.has_return {
-            ret = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, f.ret, "")
-            explicit = true
-        }
-        push(&mut ctx.funcs, FuncSig { name: f.name, params: params, ret: ret, ret_explicit: explicit })
         i = i + 1
     }
 }
@@ -396,26 +632,25 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.consts) {
         let c = prog.consts[i]
-        if find_const(&ctx.consts, c.name) >= 0 {
+        if ctx_find_const(ctx, c.name) >= 0 {
             add_type_error(ctx, "duplicate const '" + c.name + "'")
-            i = i + 1
-            continue
-        }
-        if find_struct(&ctx.structs, c.name) >= 0 {
-            add_type_error(ctx, "name '" + c.name + "' already used by struct")
-        }
-        if find_enum(&ctx.enums, c.name) >= 0 {
-            add_type_error(ctx, "name '" + c.name + "' already used by enum")
-        }
-        let val_t = type_for_const_value(&mut ctx.types, c.value)
-        let mut decl_t = val_t
-        if c.has_type {
-            decl_t = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, c.typ, "")
-            if !type_equal(&ctx.types, decl_t, val_t) && decl_t != 0 && val_t != 0 {
-                add_type_error(ctx, "const '" + c.name + "' type mismatch")
+        } else {
+            if ctx_find_struct(ctx, c.name) >= 0 {
+                add_type_error(ctx, "name '" + c.name + "' already used by struct")
             }
+            if ctx_find_enum(ctx, c.name) >= 0 {
+                add_type_error(ctx, "name '" + c.name + "' already used by enum")
+            }
+            let val_t = ctx_type_for_const_value(ctx, c.value)
+            let mut decl_t = val_t
+            if c.has_type {
+                decl_t = ctx_parse_type(ctx, c.typ, "")
+                if !ctx_type_equal(ctx, decl_t, val_t) && decl_t != 0 && val_t != 0 {
+                    add_type_error(ctx, "const '" + c.name + "' type mismatch")
+                }
+            }
+            ctx_push_const(ctx, ConstSig { name: c.name, typ: decl_t })
         }
-        push(&mut ctx.consts, ConstSig { name: c.name, typ: decl_t })
         i = i + 1
     }
 }
@@ -429,39 +664,38 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
             let f = imp.methods[j]
             if find_method(ctx, imp.type_name, f.name) >= 0 {
                 add_type_error(ctx, "duplicate method '" + f.name + "' for '" + imp.type_name + "'")
-                j = j + 1
-                continue
-            }
-            let mut params: [i32] = []
-            let mut k = 0
-            while k < len(f.params) {
-                let p = f.params[k]
-                if p.name == "self" && k != 0 {
-                    add_type_error(ctx, "self must be first parameter")
+            } else {
+                let mut params: [i32] = []
+                let mut k = 0
+                while k < len(f.params) {
+                    let p = f.params[k]
+                    if p.name == "self" && k != 0 {
+                        add_type_error(ctx, "self must be first parameter")
+                    }
+                    let t = ctx_parse_type(ctx, p.typ, imp.type_name)
+                    push(&mut params, t)
+                    k = k + 1
                 }
-                let t = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, p.typ, imp.type_name)
-                push(&mut params, t)
-                k = k + 1
+                let mut ret = 0
+                let mut explicit = false
+                if f.has_return {
+                    ret = ctx_parse_type(ctx, f.ret, imp.type_name)
+                    explicit = true
+                }
+                let mut has_self = false
+                if len(f.params) > 0 && f.params[0].name == "self" {
+                    has_self = true
+                }
+                ctx_push_method(ctx, MethodSig {
+                    type_name: imp.type_name,
+                    name: f.name,
+                    func_name: imp.type_name + "." + f.name,
+                    params: params,
+                    ret: ret,
+                    ret_explicit: explicit,
+                    has_self: has_self,
+                })
             }
-            let mut ret = 0
-            let mut explicit = false
-            if f.has_return {
-                ret = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, f.ret, imp.type_name)
-                explicit = true
-            }
-            let mut has_self = false
-            if len(f.params) > 0 && f.params[0].name == "self" {
-                has_self = true
-            }
-            push(&mut ctx.methods, MethodSig {
-                type_name: imp.type_name,
-                name: f.name,
-                func_name: imp.type_name + "." + f.name,
-                params: params,
-                ret: ret,
-                ret_explicit: explicit,
-                has_self: has_self,
-            })
             j = j + 1
         }
         i = i + 1
@@ -517,50 +751,50 @@ fn is_builtin(ctx: &TypeContext, name: String) -> bool {
     return false
 }
 
-fn deref_type(types: &TypeTable, t: i32) -> i32 {
+fn deref_type(types: &mut TypeTable, t: i32) -> i32 {
     if t == 0 { return 0 }
     let kind = type_kind(types, t)
     let name = type_name(types, t)
     let elem = type_elem(types, t)
-    return type_make(&mut types, kind, name, false, false, elem)
+    return type_make(types, kind, name, false, false, elem)
 }
 
 fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
     match expr {
         .Ident(x) => {
-            let v = env_lookup(&ctx.env, x.name)
+            let v = ctx_env_lookup(ctx, x.name)
             if v.name != "" {
                 return v.typ
             }
-            let cidx = find_const(&ctx.consts, x.name)
+            let cidx = ctx_find_const(ctx, x.name)
             if cidx >= 0 {
                 return ctx.consts[cidx].typ
             }
-            if find_enum(&ctx.enums, x.name) >= 0 {
-                return type_make(&mut ctx.types, 6, x.name, false, false, -1)
+            if ctx_find_enum(ctx, x.name) >= 0 {
+                return ctx_type_make(ctx, 6, x.name, false, false, -1)
             }
-            if find_struct(&ctx.structs, x.name) >= 0 {
-                return type_make(&mut ctx.types, 5, x.name, false, false, -1)
+            if ctx_find_struct(ctx, x.name) >= 0 {
+                return ctx_type_make(ctx, 5, x.name, false, false, -1)
             }
             add_type_error(ctx, "undefined variable '" + x.name + "'")
             return 0
         }
-        .IntLit(_) => { return type_make(&mut ctx.types, 1, "int", false, false, -1) }
-        .StringLit(_) => { return type_make(&mut ctx.types, 3, "string", false, false, -1) }
-        .BoolLit(_) => { return type_make(&mut ctx.types, 2, "bool", false, false, -1) }
+        .IntLit(_) => { return ctx_type_make(ctx, 1, "int", false, false, -1) }
+        .StringLit(_) => { return ctx_type_make(ctx, 3, "string", false, false, -1) }
+        .BoolLit(_) => { return ctx_type_make(ctx, 2, "bool", false, false, -1) }
         .Unary(u) => {
             let t = check_expr(ctx, u.expr)
             if u.op == tk_minus() {
-                if !is_int(&ctx.types, t) && t != 0 {
+                if !ctx_is_int(ctx, t) && t != 0 {
                     add_type_error(ctx, "unary '-' requires int")
                 }
-                return type_make(&mut ctx.types, 1, "int", false, false, -1)
+                return ctx_type_make(ctx, 1, "int", false, false, -1)
             }
             if u.op == tk_bang() {
-                if !is_bool(&ctx.types, t) && t != 0 {
+                if !ctx_is_bool(ctx, t) && t != 0 {
                     add_type_error(ctx, "unary '!' requires bool")
                 }
-                return type_make(&mut ctx.types, 2, "bool", false, false, -1)
+                return ctx_type_make(ctx, 2, "bool", false, false, -1)
             }
             return 0
         }
@@ -568,48 +802,48 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             let lt = check_expr(ctx, b.left)
             let rt = check_expr(ctx, b.right)
             if b.op == tk_plus() {
-                if is_int(&ctx.types, lt) && is_int(&ctx.types, rt) {
-                    return type_make(&mut ctx.types, 1, "int", false, false, -1)
+                if ctx_is_int(ctx, lt) && ctx_is_int(ctx, rt) {
+                    return ctx_type_make(ctx, 1, "int", false, false, -1)
                 }
-                if is_string(&ctx.types, lt) && is_string(&ctx.types, rt) {
-                    return type_make(&mut ctx.types, 3, "string", false, false, -1)
+                if ctx_is_string(ctx, lt) && ctx_is_string(ctx, rt) {
+                    return ctx_type_make(ctx, 3, "string", false, false, -1)
                 }
                 add_type_error(ctx, "'+' requires int or string")
                 return 0
             }
             if b.op == tk_minus() || b.op == tk_star() || b.op == tk_slash() || b.op == tk_percent() {
-                if !is_int(&ctx.types, lt) || !is_int(&ctx.types, rt) {
+                if !ctx_is_int(ctx, lt) || !ctx_is_int(ctx, rt) {
                     add_type_error(ctx, "arithmetic requires int")
                     return 0
                 }
-                return type_make(&mut ctx.types, 1, "int", false, false, -1)
+                return ctx_type_make(ctx, 1, "int", false, false, -1)
             }
             if b.op == tk_eqeq() || b.op == tk_noteq() {
-                if !type_equal(&ctx.types, lt, rt) && lt != 0 && rt != 0 {
+                if !ctx_type_equal(ctx, lt, rt) && lt != 0 && rt != 0 {
                     add_type_error(ctx, "equality operands must have same type")
                 }
-                return type_make(&mut ctx.types, 2, "bool", false, false, -1)
+                return ctx_type_make(ctx, 2, "bool", false, false, -1)
             }
             if b.op == tk_lt() || b.op == tk_lte() || b.op == tk_gt() || b.op == tk_gte() {
-                if !is_int(&ctx.types, lt) || !is_int(&ctx.types, rt) {
+                if !ctx_is_int(ctx, lt) || !ctx_is_int(ctx, rt) {
                     add_type_error(ctx, "comparison requires int")
                 }
-                return type_make(&mut ctx.types, 2, "bool", false, false, -1)
+                return ctx_type_make(ctx, 2, "bool", false, false, -1)
             }
             if b.op == tk_andand() || b.op == tk_oror() {
-                if !is_bool(&ctx.types, lt) || !is_bool(&ctx.types, rt) {
+                if !ctx_is_bool(ctx, lt) || !ctx_is_bool(ctx, rt) {
                     add_type_error(ctx, "logical op requires bool")
                 }
-                return type_make(&mut ctx.types, 2, "bool", false, false, -1)
+                return ctx_type_make(ctx, 2, "bool", false, false, -1)
             }
             return 0
         }
         .Ref(r) => {
             match r.expr {
                 .Ident(id) => {
-                    let v = env_lookup(&ctx.env, id.name)
+                    let v = ctx_env_lookup(ctx, id.name)
                     if v.name == "" {
-                        if find_const(&ctx.consts, id.name) >= 0 {
+                        if ctx_find_const(ctx, id.name) >= 0 {
                             add_type_error(ctx, "cannot take reference to const '" + id.name + "'")
                         } else {
                             add_type_error(ctx, "undefined variable '" + id.name + "'")
@@ -620,10 +854,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                         add_type_error(ctx, "cannot take &mut of immutable '" + id.name + "'")
                     }
                     let base = v.typ
-                    let kind = type_kind(&ctx.types, base)
-                    let name = type_name(&ctx.types, base)
-                    let elem = type_elem(&ctx.types, base)
-                    return type_make(&mut ctx.types, kind, name, true, r.mutable, elem)
+                    let kind = ctx_type_kind(ctx, base)
+                    let name = ctx_type_name(ctx, base)
+                    let elem = ctx_type_elem(ctx, base)
+                    return ctx_type_make(ctx, kind, name, true, r.mutable, elem)
                 }
                 _ => {
                     add_type_error(ctx, "reference target must be identifier")
@@ -633,52 +867,52 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         }
         .Deref(d) => {
             let t = check_expr(ctx, d.expr)
-            if !type_is_ref(&ctx.types, t) {
+            if !ctx_type_is_ref(ctx, t) {
                 add_type_error(ctx, "deref requires reference")
                 return 0
             }
-            let kind = type_kind(&ctx.types, t)
-            let name = type_name(&ctx.types, t)
-            let elem = type_elem(&ctx.types, t)
-            return type_make(&mut ctx.types, kind, name, false, false, elem)
+            let kind = ctx_type_kind(ctx, t)
+            let name = ctx_type_name(ctx, t)
+            let elem = ctx_type_elem(ctx, t)
+            return ctx_type_make(ctx, kind, name, false, false, elem)
         }
         .ArrayLit(a) => {
             if len(a.elems) == 0 {
                 let invalid_elem = 0
-                return type_make(&mut ctx.types, 7, "", false, false, invalid_elem)
+                return ctx_type_make(ctx, 7, "", false, false, invalid_elem)
             }
             let elem_t = check_expr(ctx, a.elems[0])
             let mut i = 1
             while i < len(a.elems) {
                 let t = check_expr(ctx, a.elems[i])
-                if !type_equal(&ctx.types, t, elem_t) && t != 0 && elem_t != 0 {
+                if !ctx_type_equal(ctx, t, elem_t) && t != 0 && elem_t != 0 {
                     add_type_error(ctx, "array element type mismatch")
                 }
                 i = i + 1
             }
-            return type_make(&mut ctx.types, 7, "", false, false, elem_t)
+            return ctx_type_make(ctx, 7, "", false, false, elem_t)
         }
         .Index(ix) => {
             let recv_t = check_expr(ctx, ix.recv)
             let idx_t = check_expr(ctx, ix.index)
-            if !is_int(&ctx.types, idx_t) && idx_t != 0 {
+            if !ctx_is_int(ctx, idx_t) && idx_t != 0 {
                 add_type_error(ctx, "index requires int")
             }
             let mut base = recv_t
-            if type_is_ref(&ctx.types, base) {
-                let kind = type_kind(&ctx.types, base)
-                let name = type_name(&ctx.types, base)
-                let elem = type_elem(&ctx.types, base)
-                base = type_make(&mut ctx.types, kind, name, false, false, elem)
+            if ctx_type_is_ref(ctx, base) {
+                let kind = ctx_type_kind(ctx, base)
+                let name = ctx_type_name(ctx, base)
+                let elem = ctx_type_elem(ctx, base)
+                base = ctx_type_make(ctx, kind, name, false, false, elem)
             }
-            if type_kind(&ctx.types, base) != 7 {
+            if ctx_type_kind(ctx, base) != 7 {
                 add_type_error(ctx, "index requires array")
                 return 0
             }
-            return type_elem(&ctx.types, base)
+            return ctx_type_elem(ctx, base)
         }
         .StructLit(s) => {
-            let idx = find_struct(&ctx.structs, s.name)
+            let idx = ctx_find_struct(ctx, s.name)
             if idx < 0 {
                 add_type_error(ctx, "unknown struct '" + s.name + "'")
                 return 0
@@ -692,9 +926,9 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     add_type_error(ctx, "unknown field '" + f.name + "'")
                 } else {
                     let field = decl.fields[find_field(decl, f.name)]
-                    let ft = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, field.typ, "")
+                    let ft = ctx_parse_type(ctx, field.typ, "")
                     let vt = check_expr(ctx, f.value)
-                    if !type_equal(&ctx.types, ft, vt) && ft != 0 && vt != 0 {
+                    if !ctx_type_assignable(ctx, vt, ft) && ft != 0 && vt != 0 {
                         add_type_error(ctx, "field type mismatch")
                     }
                 }
@@ -717,13 +951,13 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 }
                 j = j + 1
             }
-            return type_make(&mut ctx.types, 5, s.name, false, false, -1)
+            return ctx_type_make(ctx, 5, s.name, false, false, -1)
         }
         .Field(f) => {
             match f.recv {
                 .Ident(id) => {
-                    if env_lookup(&ctx.env, id.name).name == "" {
-                        let eidx = find_enum(&ctx.enums, id.name)
+                    if ctx_env_lookup(ctx, id.name).name == "" {
+                        let eidx = ctx_find_enum(ctx, id.name)
                         if eidx >= 0 {
                             let en = ctx.enums[eidx]
                             let vidx = find_variant(en, f.name)
@@ -734,7 +968,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             if en.variants[vidx].has_payload {
                                 add_type_error(ctx, "variant requires payload")
                             }
-                            return type_make(&mut ctx.types, 6, id.name, false, false, -1)
+                            return ctx_type_make(ctx, 6, id.name, false, false, -1)
                         }
                     }
                 }
@@ -742,17 +976,17 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             }
             let recv_t = check_expr(ctx, f.recv)
             let mut base = recv_t
-            if type_is_ref(&ctx.types, base) {
-                let kind = type_kind(&ctx.types, base)
-                let name = type_name(&ctx.types, base)
-                let elem = type_elem(&ctx.types, base)
-                base = type_make(&mut ctx.types, kind, name, false, false, elem)
+            if ctx_type_is_ref(ctx, base) {
+                let kind = ctx_type_kind(ctx, base)
+                let name = ctx_type_name(ctx, base)
+                let elem = ctx_type_elem(ctx, base)
+                base = ctx_type_make(ctx, kind, name, false, false, elem)
             }
-            if type_kind(&ctx.types, base) != 5 {
+            if ctx_type_kind(ctx, base) != 5 {
                 add_type_error(ctx, "field access requires struct")
                 return 0
             }
-            let sidx = find_struct(&ctx.structs, type_name(&ctx.types, base))
+            let sidx = ctx_find_struct(ctx, ctx_type_name(ctx, base))
             if sidx < 0 {
                 add_type_error(ctx, "unknown struct")
                 return 0
@@ -763,7 +997,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 add_type_error(ctx, "unknown field '" + f.name + "'")
                 return 0
             }
-            let ft = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, decl.fields[find].typ, "")
+            let ft = ctx_parse_type(ctx, decl.fields[find].typ, "")
             return ft
         }
         .Call(c) => {
@@ -778,7 +1012,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                         let mut i = 0
                         while i < len(c.args) && i < len(sig.params) {
                             let at = check_expr(ctx, c.args[i])
-                            if !type_equal(&ctx.types, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
+                            if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
                                 add_type_error(ctx, "argument type mismatch")
                             }
                             i = i + 1
@@ -786,19 +1020,127 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                         return sig.ret
                     }
                     if is_builtin(ctx, id.name) {
-                        // builtins modeled on stage0
-                        if id.name == "len" { return type_make(&mut ctx.types, 1, "int", false, false, -1) }
-                        if id.name == "char_at" { return type_make(&mut ctx.types, 1, "int", false, false, -1) }
-                        if id.name == "substr" { return type_make(&mut ctx.types, 3, "string", false, false, -1) }
-                        if id.name == "read_file" { return type_make(&mut ctx.types, 3, "string", false, false, -1) }
-                        if id.name == "write_file" { return type_make(&mut ctx.types, 4, "unit", false, false, -1) }
-                        if id.name == "args" {
-                            let elem = type_make(&mut ctx.types, 3, "string", false, false, -1)
-                            return type_make(&mut ctx.types, 7, "", false, false, elem)
+                        if id.name == "len" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "len expects 1 argument")
+                            } else {
+                                let mut at = check_expr(ctx, c.args[0])
+                                if ctx_type_is_ref(ctx, at) {
+                                    at = ctx_deref_type(ctx, at)
+                                }
+                                if ctx_type_kind(ctx, at) != 3 && ctx_type_kind(ctx, at) != 7 && at != 0 {
+                                    add_type_error(ctx, "len expects string or array")
+                                }
+                            }
+                            return ctx_type_make(ctx, 1, "int", false, false, -1)
                         }
-                        if id.name == "push" { return type_make(&mut ctx.types, 4, "unit", false, false, -1) }
-                        if id.name == "pop" { return 0 }
-                        return type_make(&mut ctx.types, 4, "unit", false, false, -1)
+                        if id.name == "char_at" {
+                            if len(c.args) != 2 {
+                                add_type_error(ctx, "char_at expects 2 arguments")
+                            } else {
+                                let st = check_expr(ctx, c.args[0])
+                                let it = check_expr(ctx, c.args[1])
+                                if !ctx_is_string(ctx, st) && st != 0 {
+                                    add_type_error(ctx, "char_at expects string")
+                                }
+                                if !ctx_is_int(ctx, it) && it != 0 {
+                                    add_type_error(ctx, "char_at expects int index")
+                                }
+                            }
+                            return ctx_type_make(ctx, 1, "int", false, false, -1)
+                        }
+                        if id.name == "substr" {
+                            if len(c.args) != 3 {
+                                add_type_error(ctx, "substr expects 3 arguments")
+                            } else {
+                                let st = check_expr(ctx, c.args[0])
+                                let it = check_expr(ctx, c.args[1])
+                                let lt = check_expr(ctx, c.args[2])
+                                if !ctx_is_string(ctx, st) && st != 0 {
+                                    add_type_error(ctx, "substr expects string")
+                                }
+                                if !ctx_is_int(ctx, it) && it != 0 {
+                                    add_type_error(ctx, "substr expects int start")
+                                }
+                                if !ctx_is_int(ctx, lt) && lt != 0 {
+                                    add_type_error(ctx, "substr expects int length")
+                                }
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
+                        if id.name == "read_file" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "read_file expects 1 argument")
+                            } else {
+                                let pt = check_expr(ctx, c.args[0])
+                                if !ctx_is_string(ctx, pt) && pt != 0 {
+                                    add_type_error(ctx, "read_file expects string path")
+                                }
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
+                        if id.name == "write_file" {
+                            if len(c.args) != 2 {
+                                add_type_error(ctx, "write_file expects 2 arguments")
+                            } else {
+                                let pt = check_expr(ctx, c.args[0])
+                                let dt = check_expr(ctx, c.args[1])
+                                if !ctx_is_string(ctx, pt) && pt != 0 {
+                                    add_type_error(ctx, "write_file expects string path")
+                                }
+                                if !ctx_is_string(ctx, dt) && dt != 0 {
+                                    add_type_error(ctx, "write_file expects string data")
+                                }
+                            }
+                            return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                        }
+                        if id.name == "args" {
+                            if len(c.args) != 0 {
+                                add_type_error(ctx, "args expects no arguments")
+                            }
+                            let elem = ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 7, "", false, false, elem)
+                        }
+                        if id.name == "push" {
+                            if len(c.args) != 2 {
+                                add_type_error(ctx, "push expects 2 arguments")
+                                return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                            }
+                            let t0 = check_expr(ctx, c.args[0])
+                            if !ctx_type_is_ref(ctx, t0) || !ctx.types.muts[t0] {
+                                add_type_error(ctx, "push expects &mut array")
+                                return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                            }
+                            let base = ctx_deref_type(ctx, t0)
+                            if ctx_type_kind(ctx, base) != 7 {
+                                add_type_error(ctx, "push expects &mut [T]")
+                                return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                            }
+                            let vt = check_expr(ctx, c.args[1])
+                            let elem = ctx_type_elem(ctx, base)
+                            if !ctx_type_assignable(ctx, vt, elem) && vt != 0 && elem != 0 {
+                                add_type_error(ctx, "push expects element type")
+                            }
+                            return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                        }
+                        if id.name == "pop" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "pop expects 1 argument")
+                                return 0
+                            }
+                            let t0 = check_expr(ctx, c.args[0])
+                            if !ctx_type_is_ref(ctx, t0) || !ctx.types.muts[t0] {
+                                add_type_error(ctx, "pop expects &mut array")
+                                return 0
+                            }
+                            let base = ctx_deref_type(ctx, t0)
+                            if ctx_type_kind(ctx, base) != 7 {
+                                add_type_error(ctx, "pop expects &mut [T]")
+                                return 0
+                            }
+                            return ctx_type_elem(ctx, base)
+                        }
+                        return ctx_type_make(ctx, 4, "unit", false, false, -1)
                     }
                     add_type_error(ctx, "undefined function '" + id.name + "'")
                     return 0
@@ -806,7 +1148,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 .Field(f) => {
                     match f.recv {
                         .Ident(id) => {
-                            let eidx = find_enum(&ctx.enums, id.name)
+                            let eidx = ctx_find_enum(ctx, id.name)
                             if eidx >= 0 {
                                 let en = ctx.enums[eidx]
                                 let vidx = find_variant(en, f.name)
@@ -818,16 +1160,16 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     if len(c.args) != 1 {
                                         add_type_error(ctx, "variant expects payload")
                                     } else {
-                                        let payload_t = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, en.variants[vidx].payload, "")
+                                        let payload_t = ctx_parse_type(ctx, en.variants[vidx].payload, "")
                                         let at = check_expr(ctx, c.args[0])
-                                        if !type_equal(&ctx.types, at, payload_t) && at != 0 && payload_t != 0 {
+                                        if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
                                             add_type_error(ctx, "variant payload type mismatch")
                                         }
                                     }
                                 } else if len(c.args) != 0 {
                                     add_type_error(ctx, "variant has no payload")
                                 }
-                                return type_make(&mut ctx.types, 6, id.name, false, false, -1)
+                                return ctx_type_make(ctx, 6, id.name, false, false, -1)
                             }
                         }
                         _ => {}
@@ -844,8 +1186,8 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         .MethodCall(m) => {
             match m.recv {
                 .Ident(id) => {
-                    if env_lookup(&ctx.env, id.name).name == "" {
-                        let eidx = find_enum(&ctx.enums, id.name)
+                    if ctx_env_lookup(ctx, id.name).name == "" {
+                        let eidx = ctx_find_enum(ctx, id.name)
                         if eidx >= 0 {
                             let en = ctx.enums[eidx]
                             let vidx = find_variant(en, m.method)
@@ -854,16 +1196,16 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     if len(m.args) != 1 {
                                         add_type_error(ctx, "variant expects payload")
                                     } else {
-                                        let payload_t = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, en.variants[vidx].payload, "")
+                                        let payload_t = ctx_parse_type(ctx, en.variants[vidx].payload, "")
                                         let at = check_expr(ctx, m.args[0])
-                                        if !type_equal(&ctx.types, at, payload_t) && at != 0 && payload_t != 0 {
+                                        if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
                                             add_type_error(ctx, "variant payload type mismatch")
                                         }
                                     }
                                 } else if len(m.args) != 0 {
                                     add_type_error(ctx, "variant has no payload")
                                 }
-                                return type_make(&mut ctx.types, 6, id.name, false, false, -1)
+                                return ctx_type_make(ctx, 6, id.name, false, false, -1)
                             }
                         }
                         let midx = find_method(ctx, id.name, m.method)
@@ -878,7 +1220,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             let mut i = 0
                             while i < len(m.args) && i < len(sig.params) {
                                 let at = check_expr(ctx, m.args[i])
-                                if !type_equal(&ctx.types, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
+                                if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
                                     add_type_error(ctx, "method argument type mismatch")
                                 }
                                 i = i + 1
@@ -891,19 +1233,19 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             }
             let recv_t = check_expr(ctx, m.recv)
             let mut base = recv_t
-            if type_is_ref(&ctx.types, base) {
-                let kind = type_kind(&ctx.types, base)
-                let name = type_name(&ctx.types, base)
-                let elem = type_elem(&ctx.types, base)
-                base = type_make(&mut ctx.types, kind, name, false, false, elem)
+            if ctx_type_is_ref(ctx, base) {
+                let kind = ctx_type_kind(ctx, base)
+                let name = ctx_type_name(ctx, base)
+                let elem = ctx_type_elem(ctx, base)
+                base = ctx_type_make(ctx, kind, name, false, false, elem)
             }
-            if type_kind(&ctx.types, base) != 5 && type_kind(&ctx.types, base) != 6 {
+            if ctx_type_kind(ctx, base) != 5 && ctx_type_kind(ctx, base) != 6 {
                 if base != 0 {
                     add_type_error(ctx, "method call requires struct or enum receiver")
                 }
                 return 0
             }
-            let midx = find_method(ctx, type_name(&ctx.types, base), m.method)
+            let midx = find_method(ctx, ctx_type_name(ctx, base), m.method)
             if midx < 0 {
                 add_type_error(ctx, "unknown method '" + m.method + "'")
                 return 0
@@ -913,7 +1255,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 add_type_error(ctx, "method requires no self; call as Type.method()")
                 return sig.ret
             }
-            if len(sig.params) == 0 || !type_equal(&ctx.types, recv_t, sig.params[0]) {
+            if len(sig.params) == 0 || !ctx_type_assignable(ctx, recv_t, sig.params[0]) {
                 add_type_error(ctx, "receiver type mismatch")
             }
             let expected = len(sig.params) - 1
@@ -923,7 +1265,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             let mut i = 0
             while i < len(m.args) && i + 1 < len(sig.params) {
                 let at = check_expr(ctx, m.args[i])
-                if !type_equal(&ctx.types, at, sig.params[i + 1]) && at != 0 && sig.params[i + 1] != 0 {
+                if !ctx_type_assignable(ctx, at, sig.params[i + 1]) && at != 0 && sig.params[i + 1] != 0 {
                     add_type_error(ctx, "method argument type mismatch")
                 }
                 i = i + 1
@@ -936,9 +1278,9 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
 fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
     match target {
         .Ident(id) => {
-            let v = env_lookup(&ctx.env, id.name)
+            let v = ctx_env_lookup(ctx, id.name)
             if v.name == "" {
-                if find_const(&ctx.consts, id.name) >= 0 {
+                if ctx_find_const(ctx, id.name) >= 0 {
                     add_type_error(ctx, "cannot assign to const '" + id.name + "'")
                 } else {
                     add_type_error(ctx, "undefined variable '" + id.name + "'")
@@ -949,49 +1291,94 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 add_type_error(ctx, "cannot assign to immutable '" + id.name + "'")
             }
             let vt = check_expr(ctx, value)
-            if !type_equal(&ctx.types, vt, v.typ) && vt != 0 && v.typ != 0 {
+            if !ctx_type_assignable(ctx, vt, v.typ) && vt != 0 && v.typ != 0 {
                 add_type_error(ctx, "assignment type mismatch")
             }
         }
         .Deref(d) => {
             let rt = check_expr(ctx, d.expr)
-            if !type_is_ref(&ctx.types, rt) {
+            if !ctx_type_is_ref(ctx, rt) {
                 add_type_error(ctx, "assignment requires mutable reference")
                 return
             }
             if !ctx.types.muts[rt] {
                 add_type_error(ctx, "assignment through & requires &mut")
             }
-            let base = deref_type(&ctx.types, rt)
+            let base = ctx_deref_type(ctx, rt)
             let vt = check_expr(ctx, value)
-            if !type_equal(&ctx.types, vt, base) && vt != 0 && base != 0 {
+            if !ctx_type_assignable(ctx, vt, base) && vt != 0 && base != 0 {
                 add_type_error(ctx, "assignment type mismatch")
             }
         }
         .Index(ix) => {
             let recv_t = check_expr(ctx, ix.recv)
             let idx_t = check_expr(ctx, ix.index)
-            if !is_int(&ctx.types, idx_t) && idx_t != 0 {
+            if !ctx_is_int(ctx, idx_t) && idx_t != 0 {
                 add_type_error(ctx, "index requires int")
             }
             let mut base = recv_t
-            if type_is_ref(&ctx.types, base) {
+            if ctx_type_is_ref(ctx, base) {
                 if !ctx.types.muts[base] {
                     add_type_error(ctx, "assignment through & requires &mut")
                 }
-                let kind = type_kind(&ctx.types, base)
-                let name = type_name(&ctx.types, base)
-                let elem = type_elem(&ctx.types, base)
-                base = type_make(&mut ctx.types, kind, name, false, false, elem)
+                let kind = ctx_type_kind(ctx, base)
+                let name = ctx_type_name(ctx, base)
+                let elem = ctx_type_elem(ctx, base)
+                base = ctx_type_make(ctx, kind, name, false, false, elem)
             }
-            if type_kind(&ctx.types, base) != 7 {
+            if ctx_type_kind(ctx, base) != 7 {
                 add_type_error(ctx, "index assignment requires array")
                 return
             }
             let vt = check_expr(ctx, value)
-            let elem = type_elem(&ctx.types, base)
-            if !type_equal(&ctx.types, vt, elem) && vt != 0 && elem != 0 {
+            let elem = ctx_type_elem(ctx, base)
+            if !ctx_type_assignable(ctx, vt, elem) && vt != 0 && elem != 0 {
                 add_type_error(ctx, "index assignment type mismatch")
+            }
+        }
+        .Field(f) => {
+            let recv_t = check_expr(ctx, f.recv)
+            let mut base = recv_t
+            if ctx_type_is_ref(ctx, base) {
+                if !ctx.types.muts[base] {
+                    add_type_error(ctx, "assignment through & requires &mut")
+                }
+                let kind = ctx_type_kind(ctx, base)
+                let name = ctx_type_name(ctx, base)
+                let elem = ctx_type_elem(ctx, base)
+                base = ctx_type_make(ctx, kind, name, false, false, elem)
+            } else {
+                match f.recv {
+                    .Ident(id) => {
+                        let v = ctx_env_lookup(ctx, id.name)
+                        if v.name != "" && !v.mutable {
+                            add_type_error(ctx, "cannot assign through immutable '" + id.name + "'")
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if ctx_type_kind(ctx, base) != 5 {
+                if base != 0 {
+                    add_type_error(ctx, "field assignment requires struct")
+                }
+                return
+            }
+            let sidx = ctx_find_struct(ctx, ctx_type_name(ctx, base))
+            if sidx < 0 {
+                add_type_error(ctx, "unknown struct")
+                return
+            }
+            let decl = ctx.structs[sidx]
+            let find = find_field(decl, f.name)
+            if find < 0 {
+                add_type_error(ctx, "unknown field '" + f.name + "'")
+                return
+            }
+            let ft = ctx_parse_type(ctx, decl.fields[find].typ, "")
+            let vt = check_expr(ctx, value)
+            if !ctx_type_assignable(ctx, vt, ft) && vt != 0 && ft != 0 {
+                add_type_error(ctx, "field assignment type mismatch")
             }
         }
         _ => {
@@ -1010,40 +1397,40 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
             let init_t = check_expr(ctx, s.init)
             let mut decl_t = init_t
             if s.has_type {
-                decl_t = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, s.typ, "")
+                decl_t = ctx_parse_type(ctx, s.typ, "")
                 match s.init {
                     .ArrayLit(a) => {
-                        if len(a.elems) == 0 && type_kind(&ctx.types, decl_t) == 7 {
+                        if len(a.elems) == 0 && ctx_type_kind(ctx, decl_t) == 7 {
                             // allow empty array with explicit type
-                        } else if !type_equal(&ctx.types, init_t, decl_t) && init_t != 0 && decl_t != 0 {
-                            add_type_error(ctx, "cannot assign " + type_string(&ctx.types, init_t) + " to " + type_string(&ctx.types, decl_t))
+                        } else if !ctx_type_assignable(ctx, init_t, decl_t) && init_t != 0 && decl_t != 0 {
+                            add_type_error(ctx, "cannot assign " + ctx_type_string(ctx, init_t) + " to " + ctx_type_string(ctx, decl_t))
                         }
                     }
                     _ => {
-                        if !type_equal(&ctx.types, init_t, decl_t) && init_t != 0 && decl_t != 0 {
-                            add_type_error(ctx, "cannot assign " + type_string(&ctx.types, init_t) + " to " + type_string(&ctx.types, decl_t))
+                        if !ctx_type_assignable(ctx, init_t, decl_t) && init_t != 0 && decl_t != 0 {
+                            add_type_error(ctx, "cannot assign " + ctx_type_string(ctx, init_t) + " to " + ctx_type_string(ctx, decl_t))
                         }
                     }
                 }
             }
-            env_declare(&mut ctx.env, s.name, decl_t, s.mutable)
+            ctx_env_declare(ctx, s.name, decl_t, s.mutable)
         }
         .Return(r) => {
             if ctx.current_ret_explicit {
                 if !r.has_value {
-                    if ctx.current_ret != 0 && type_kind(&ctx.types, ctx.current_ret) != 4 {
+                    if ctx.current_ret != 0 && ctx_type_kind(ctx, ctx.current_ret) != 4 {
                         add_type_error(ctx, "returning unit from non-unit function")
                     }
                     return
                 }
                 let vt = check_expr(ctx, r.value)
-                if type_kind(&ctx.types, ctx.current_ret) == 4 {
-                    if vt != 0 && type_kind(&ctx.types, vt) != 4 {
+                if ctx_type_kind(ctx, ctx.current_ret) == 4 {
+                    if vt != 0 && ctx_type_kind(ctx, vt) != 4 {
                         add_type_error(ctx, "returning value from unit function")
                     }
                     return
                 }
-                if !type_equal(&ctx.types, vt, ctx.current_ret) && vt != 0 && ctx.current_ret != 0 {
+                if !ctx_type_assignable(ctx, vt, ctx.current_ret) && vt != 0 && ctx.current_ret != 0 {
                     add_type_error(ctx, "return type mismatch")
                 }
                 return
@@ -1059,7 +1446,7 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
                 ctx.has_return = true
                 return
             }
-            if !type_equal(&ctx.types, vt, ctx.inferred_type) {
+            if !ctx_type_assignable(ctx, vt, ctx.inferred_type) {
                 add_type_error(ctx, "return type mismatch")
             }
         }
@@ -1071,7 +1458,7 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
         }
         .If(s) => {
             let ct = check_expr(ctx, s.cond)
-            if !is_bool(&ctx.types, ct) && ct != 0 {
+            if !ctx_is_bool(ctx, ct) && ct != 0 {
                 add_type_error(ctx, "if condition must be bool")
             }
             check_block(ctx, s.then_block)
@@ -1081,7 +1468,7 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
         }
         .While(s) => {
             let ct = check_expr(ctx, s.cond)
-            if !is_bool(&ctx.types, ct) && ct != 0 {
+            if !ctx_is_bool(ctx, ct) && ct != 0 {
                 add_type_error(ctx, "while condition must be bool")
             }
             check_block(ctx, s.body)
@@ -1090,16 +1477,17 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
             check_match(ctx, m)
         }
     }
+    return
 }
 
 fn check_block(ctx: &mut TypeContext, block: Block) {
-    env_push(&mut ctx.env)
+    ctx_env_push(ctx)
     let mut i = 0
     while i < len(block.stmts) {
         check_stmt(ctx, block.stmts[i])
         i = i + 1
     }
-    env_pop(&mut ctx.env)
+    ctx_env_pop(ctx)
 }
 
 fn check_tail_block(ctx: &mut TypeContext, block: Block, allow_implicit: bool) {
@@ -1107,7 +1495,7 @@ fn check_tail_block(ctx: &mut TypeContext, block: Block, allow_implicit: bool) {
         check_block(ctx, block)
         return
     }
-    env_push(&mut ctx.env)
+    ctx_env_push(ctx)
     let mut i = 0
     while i < len(block.stmts) {
         if i == len(block.stmts) - 1 {
@@ -1117,7 +1505,7 @@ fn check_tail_block(ctx: &mut TypeContext, block: Block, allow_implicit: bool) {
         }
         i = i + 1
     }
-    env_pop(&mut ctx.env)
+    ctx_env_pop(ctx)
 }
 
 fn check_tail_stmt(ctx: &mut TypeContext, stmt: Stmt, allow_implicit: bool) {
@@ -1135,12 +1523,12 @@ fn check_tail_stmt(ctx: &mut TypeContext, stmt: Stmt, allow_implicit: bool) {
 
 fn check_tail_if(ctx: &mut TypeContext, s: IfStmt, allow_implicit: bool) {
     let ct = check_expr(ctx, s.cond)
-    if !is_bool(&ctx.types, ct) && ct != 0 {
+    if !ctx_is_bool(ctx, ct) && ct != 0 {
         add_type_error(ctx, "if condition must be bool")
     }
     if !s.has_else {
         check_block(ctx, s.then_block)
-        if allow_implicit && ctx.current_ret_explicit && type_kind(&ctx.types, ctx.current_ret) != 4 {
+        if allow_implicit && ctx.current_ret_explicit && ctx_type_kind(ctx, ctx.current_ret) != 4 {
             add_type_error(ctx, "tail if requires else to return value")
         }
         return
@@ -1152,14 +1540,14 @@ fn check_tail_if(ctx: &mut TypeContext, s: IfStmt, allow_implicit: bool) {
 fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
     let scrut = check_expr(ctx, m.expr)
     let mut enum_name = ""
-    if type_kind(&ctx.types, scrut) == 6 {
-        enum_name = type_name(&ctx.types, scrut)
+    if ctx_type_kind(ctx, scrut) == 6 {
+        enum_name = ctx_type_name(ctx, scrut)
     } else if scrut != 0 {
         add_type_error(ctx, "match requires enum expression")
     }
     let mut i = 0
     while i < len(m.arms) {
-        env_push(&mut ctx.env)
+        ctx_env_push(ctx)
         let pat = m.arms[i].pattern
         match pat {
             .Wildcard(_) => {}
@@ -1171,7 +1559,7 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
                 if pat_enum == "" {
                     add_type_error(ctx, "cannot resolve enum for pattern")
                 } else {
-                    let eidx = find_enum(&ctx.enums, pat_enum)
+                    let eidx = ctx_find_enum(ctx, pat_enum)
                     if eidx < 0 {
                         add_type_error(ctx, "unknown enum '" + pat_enum + "'")
                     } else {
@@ -1183,8 +1571,8 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
                             if !decl.variants[vidx].has_payload {
                                 add_type_error(ctx, "variant has no payload to bind")
                             } else {
-                                let pt = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, decl.variants[vidx].payload, "")
-                                env_declare(&mut ctx.env, vp.binding, pt, false)
+                                let pt = ctx_parse_type(ctx, decl.variants[vidx].payload, "")
+                                ctx_env_declare(ctx, vp.binding, pt, false)
                             }
                         }
                     }
@@ -1192,7 +1580,7 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
             }
         }
         check_block(ctx, m.arms[i].body)
-        env_pop(&mut ctx.env)
+        ctx_env_pop(ctx)
         i = i + 1
     }
 }
@@ -1200,14 +1588,14 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
 fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
     let scrut = check_expr(ctx, m.expr)
     let mut enum_name = ""
-    if type_kind(&ctx.types, scrut) == 6 {
-        enum_name = type_name(&ctx.types, scrut)
+    if ctx_type_kind(ctx, scrut) == 6 {
+        enum_name = ctx_type_name(ctx, scrut)
     } else if scrut != 0 {
         add_type_error(ctx, "match requires enum expression")
     }
     let mut i = 0
     while i < len(m.arms) {
-        env_push(&mut ctx.env)
+        ctx_env_push(ctx)
         let pat = m.arms[i].pattern
         match pat {
             .Wildcard(_) => {}
@@ -1219,7 +1607,7 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
                 if pat_enum == "" {
                     add_type_error(ctx, "cannot resolve enum for pattern")
                 } else {
-                    let eidx = find_enum(&ctx.enums, pat_enum)
+                    let eidx = ctx_find_enum(ctx, pat_enum)
                     if eidx < 0 {
                         add_type_error(ctx, "unknown enum '" + pat_enum + "'")
                     } else {
@@ -1231,8 +1619,8 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
                             if !decl.variants[vidx].has_payload {
                                 add_type_error(ctx, "variant has no payload to bind")
                             } else {
-                                let pt = parse_type_from_text(&mut ctx.types, &ctx.structs, &ctx.enums, decl.variants[vidx].payload, "")
-                                env_declare(&mut ctx.env, vp.binding, pt, false)
+                                let pt = ctx_parse_type(ctx, decl.variants[vidx].payload, "")
+                                ctx_env_declare(ctx, vp.binding, pt, false)
                             }
                         }
                     }
@@ -1240,7 +1628,7 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
             }
         }
         check_tail_block(ctx, m.arms[i].body, allow_implicit)
-        env_pop(&mut ctx.env)
+        ctx_env_pop(ctx)
         i = i + 1
     }
 }
@@ -1260,29 +1648,30 @@ fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
     ctx.has_bare_return = false
 
     ctx.env = env_new()
-    env_push(&mut ctx.env)
+    ctx_env_push(ctx)
     let mut i = 0
     while i < len(f.params) {
-        env_declare(&mut ctx.env, f.params[i].name, sig.params[i], false)
+        ctx_env_declare(ctx, f.params[i].name, sig.params[i], false)
         i = i + 1
     }
 
-    let allow_implicit = ctx.infer_return || (ctx.current_ret_explicit && type_kind(&ctx.types, ctx.current_ret) != 4)
+    let allow_implicit = ctx.infer_return || (ctx.current_ret_explicit && ctx_type_kind(ctx, ctx.current_ret) != 4)
     check_tail_block(ctx, f.body, allow_implicit)
 
     if ctx.infer_return {
         if ctx.has_return {
             if ctx.inferred_type != 0 {
-                ctx.funcs[fidx].ret = ctx.inferred_type
+                ctx_set_func_ret(ctx, fidx, ctx.inferred_type)
             }
-            if ctx.has_bare_return && type_kind(&ctx.types, ctx.funcs[fidx].ret) != 4 {
+            let ret_t = ctx.funcs[fidx].ret
+            if ctx.has_bare_return && ctx_type_kind(ctx, ret_t) != 4 {
                 add_type_error(ctx, "mixing 'return' and 'return value' in inferred function")
             }
         } else {
-            ctx.funcs[fidx].ret = type_make(&mut ctx.types, 4, "unit", false, false, -1)
+            ctx_set_func_ret(ctx, fidx, ctx_type_make(ctx, 4, "unit", false, false, -1))
         }
     }
-    env_pop(&mut ctx.env)
+    ctx_env_pop(ctx)
 }
 
 fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
@@ -1297,15 +1686,15 @@ fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
         } else {
             let self_t = sig.params[0]
             let mut base = self_t
-            if type_is_ref(&ctx.types, base) {
-                let kind = type_kind(&ctx.types, base)
-                let name = type_name(&ctx.types, base)
-                let elem = type_elem(&ctx.types, base)
-                base = type_make(&mut ctx.types, kind, name, false, false, elem)
+            if ctx_type_is_ref(ctx, base) {
+                let kind = ctx_type_kind(ctx, base)
+                let name = ctx_type_name(ctx, base)
+                let elem = ctx_type_elem(ctx, base)
+                base = ctx_type_make(ctx, kind, name, false, false, elem)
             }
-            if type_kind(&ctx.types, base) != 5 && type_kind(&ctx.types, base) != 6 {
+            if ctx_type_kind(ctx, base) != 5 && ctx_type_kind(ctx, base) != 6 {
                 add_type_error(ctx, "self must be Self, &Self, or &mut Self")
-            } else if type_name(&ctx.types, base) != type_name {
+            } else if ctx_type_name(ctx, base) != type_name {
                 add_type_error(ctx, "self type must be Self")
             }
         }
@@ -1321,43 +1710,44 @@ fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
     ctx.self_type = type_name
 
     ctx.env = env_new()
-    env_push(&mut ctx.env)
+    ctx_env_push(ctx)
     let mut i = 0
     while i < len(f.params) {
-        env_declare(&mut ctx.env, f.params[i].name, sig.params[i], false)
+        ctx_env_declare(ctx, f.params[i].name, sig.params[i], false)
         i = i + 1
     }
 
-    let allow_implicit = ctx.infer_return || (ctx.current_ret_explicit && type_kind(&ctx.types, ctx.current_ret) != 4)
+    let allow_implicit = ctx.infer_return || (ctx.current_ret_explicit && ctx_type_kind(ctx, ctx.current_ret) != 4)
     check_tail_block(ctx, f.body, allow_implicit)
 
     if ctx.infer_return {
         if ctx.has_return {
             if ctx.inferred_type != 0 {
-                ctx.methods[midx].ret = ctx.inferred_type
+                ctx_set_method_ret(ctx, midx, ctx.inferred_type)
             }
-            if ctx.has_bare_return && type_kind(&ctx.types, ctx.methods[midx].ret) != 4 {
+            let ret_t = ctx.methods[midx].ret
+            if ctx.has_bare_return && ctx_type_kind(ctx, ret_t) != 4 {
                 add_type_error(ctx, "mixing 'return' and 'return value' in inferred function")
             }
         } else {
-            ctx.methods[midx].ret = type_make(&mut ctx.types, 4, "unit", false, false, -1)
+            ctx_set_method_ret(ctx, midx, ctx_type_make(ctx, 4, "unit", false, false, -1))
         }
     }
 
-    env_pop(&mut ctx.env)
+    ctx_env_pop(ctx)
     ctx.self_type = ""
 }
 
 fn check_program(prog: Program) -> TypeContext {
     let mut ctx = TypeContext {
         types: type_table_new(),
-        funcs: [],
-        methods: [],
-        consts: [],
+        funcs: func_sig_list_new(),
+        methods: method_sig_list_new(),
+        consts: const_sig_list_new(),
         structs: prog.structs,
         enums: prog.enums,
         builtins: builtin_list(),
-        errors: [],
+        errors: parse_error_list_new(),
         env: env_new(),
         infer_return: false,
         inferred_type: 0,

@@ -1,146 +1,192 @@
-fn dump_tokens(src: String, toks: Tokens) {
-    let mut i = 0
-    let total = len(toks.items)
-    while i < total {
-        let tok = toks.items[i]
-        let lexeme = substr(src, tok.start, tok.len)
-        println(tok.kind, lexeme)
-        i = i + 1
+struct ArgSplit {
+    files: [String],
+    rest: [String],
+}
+
+struct ParseResult {
+    prog: Program,
+    errors: [ParseError],
+}
+
+fn struct_list_new() -> [StructDecl] {
+    let mut items: [StructDecl] = []
+    return items
+}
+
+fn enum_list_new() -> [EnumDecl] {
+    let mut items: [EnumDecl] = []
+    return items
+}
+
+fn const_list_new() -> [ConstDecl] {
+    let mut items: [ConstDecl] = []
+    return items
+}
+
+fn func_list_new() -> [FunctionDecl] {
+    let mut items: [FunctionDecl] = []
+    return items
+}
+
+fn impl_list_new() -> [ImplDecl] {
+    let mut items: [ImplDecl] = []
+    return items
+}
+
+fn program_empty() -> Program {
+    return Program {
+        structs: struct_list_new(),
+        enums: enum_list_new(),
+        consts: const_list_new(),
+        functions: func_list_new(),
+        impls: impl_list_new(),
     }
 }
 
-fn dump_program(prog: Program) {
-    let mut si = 0
-    let struct_total = len(prog.structs)
-    while si < struct_total {
-        let s = prog.structs[si]
-        println("struct", s.name)
-        let mut fi = 0
-        let field_total = len(s.fields)
-        while fi < field_total {
-            let f = s.fields[fi]
-            println("  field", f.name, f.typ)
-            fi = fi + 1
-        }
-        si = si + 1
-    }
-    let mut ei = 0
-    let enum_total = len(prog.enums)
-    while ei < enum_total {
-        let e = prog.enums[ei]
-        if e.repr != "" {
-            println("enum", e.name, "repr", e.repr)
-        } else {
-            println("enum", e.name)
-        }
-        let mut vi = 0
-        let var_total = len(e.variants)
-        while vi < var_total {
-            let v = e.variants[vi]
-            if v.has_payload {
-                if v.has_value {
-                    println("  variant", v.name, v.payload, "=", v.value)
-                } else {
-                    println("  variant", v.name, v.payload)
-                }
-            } else {
-                if v.has_value {
-                    println("  variant", v.name, "=", v.value)
-                } else {
-                    println("  variant", v.name)
-                }
-            }
-            vi = vi + 1
-        }
-        ei = ei + 1
-    }
+fn usage() {
+    println("usage:")
+    println("  dast run <file.dast> [more.dast ...] [-- args...]")
+    println("  dast ir <file.dast> [more.dast ...]")
+}
 
-    let mut ci = 0
-    let const_total = len(prog.consts)
-    while ci < const_total {
-        let c = prog.consts[ci]
-        if c.has_type {
-            println("const", c.name, ":", c.typ)
+fn split_args(args: [String], start: i32) -> ArgSplit {
+    let mut files: [String] = []
+    let mut rest: [String] = []
+    let mut i = start
+    let mut done = false
+    while i < len(args) && !done {
+        if args[i] == "--" {
+            i = i + 1
+            done = true
         } else {
-            println("const", c.name)
+            push(&mut files, args[i])
+            i = i + 1
         }
-        ci = ci + 1
     }
-
-    let mut i = 0
-    let total = len(prog.functions)
-    while i < total {
-        let f = prog.functions[i]
-        println("fn", f.name)
-        let mut j = 0
-        let param_count = len(f.params)
-        while j < param_count {
-            let p = f.params[j]
-            println("  param", p.name, p.typ)
-            j = j + 1
-        }
-        if f.has_return {
-            println("  return", f.ret)
-        }
-        let body_count = len(f.body.stmts)
-        println("  stmts", body_count)
+    while i < len(args) {
+        push(&mut rest, args[i])
         i = i + 1
     }
+    return ArgSplit { files: files, rest: rest }
+}
 
-    let mut im = 0
-    let impl_total = len(prog.impls)
-    while im < impl_total {
-        let imp = prog.impls[im]
-        println("impl", imp.type_name)
-        let mut mi = 0
-        let mtotal = len(imp.methods)
-        while mi < mtotal {
-            let m = imp.methods[mi]
-            println("  fn", m.name)
-            let mut pj = 0
-            let pcount = len(m.params)
-            while pj < pcount {
-                let p = m.params[pj]
-                println("    param", p.name, p.typ)
-                pj = pj + 1
-            }
-            if m.has_return {
-                println("    return", m.ret)
-            }
-            let body_count = len(m.body.stmts)
-            println("    stmts", body_count)
-            mi = mi + 1
+fn parse_files(files: [String]) -> ParseResult {
+    let mut merged = program_empty()
+    let mut errs: [ParseError] = []
+    let mut i = 0
+    while i < len(files) {
+        let src = read_file(files[i])
+        let mut lex = lexer_new(src)
+        let mut local_errs: [ParseError] = []
+        let prog = parse_program(src, &mut lex, &mut local_errs)
+        append_program(&mut merged, prog)
+        let mut j = 0
+        while j < len(local_errs) {
+            push(&mut errs, local_errs[j])
+            j = j + 1
         }
-        im = im + 1
+        i = i + 1
+    }
+    return ParseResult { prog: merged, errors: errs }
+}
+
+fn append_program(dst: &mut Program, src: Program) {
+    let mut structs = dst.structs
+    let mut i = 0
+    while i < len(src.structs) {
+        push(&mut structs, src.structs[i])
+        i = i + 1
+    }
+    dst.structs = structs
+    let mut enums = dst.enums
+    i = 0
+    while i < len(src.enums) {
+        push(&mut enums, src.enums[i])
+        i = i + 1
+    }
+    dst.enums = enums
+    let mut consts = dst.consts
+    i = 0
+    while i < len(src.consts) {
+        push(&mut consts, src.consts[i])
+        i = i + 1
+    }
+    dst.consts = consts
+    let mut funcs = dst.functions
+    i = 0
+    while i < len(src.functions) {
+        push(&mut funcs, src.functions[i])
+        i = i + 1
+    }
+    dst.functions = funcs
+    let mut impls = dst.impls
+    i = 0
+    while i < len(src.impls) {
+        push(&mut impls, src.impls[i])
+        i = i + 1
+    }
+    dst.impls = impls
+}
+
+fn print_errors(errors: [ParseError]) {
+    let mut i = 0
+    while i < len(errors) {
+        let e = errors[i]
+        println("error", e.pos, e.msg)
+        i = i + 1
     }
 }
 
 fn main() {
     let argv = args()
     if len(argv) < 1 {
-        println("usage: dastc <file> [--tokens]")
+        usage()
         return
     }
-    let src = read_file(argv[0])
-    let mut lex = lexer_new(src)
-    if len(argv) > 1 {
-        if argv[1] == "--tokens" {
-            dump_tokens(src, lex.toks)
-            return
-        }
-    }
-    let mut errors: [ParseError] = []
-    let prog = parse_program(src, &mut lex, &mut errors)
-    if len(errors) > 0 {
-        let mut i = 0
-        let total = len(errors)
-        while i < total {
-            let e = errors[i]
-            let near = lexeme_at(src, lex.toks, e.pos)
-            println("error", e.pos, e.msg, near)
-            i = i + 1
-        }
+    let cmd = argv[0]
+    if cmd != "run" && cmd != "ir" {
+        usage()
         return
     }
-    dump_program(prog)
+    let mut debug = false
+    let mut start = 1
+    if len(argv) > 1 && argv[1] == "--debug" {
+        debug = true
+        start = 2
+    }
+    if debug { println("stage1: start") }
+    let split = split_args(argv, start)
+    if len(split.files) == 0 {
+        usage()
+        return
+    }
+
+    let parse_res = parse_files(split.files)
+    if len(parse_res.errors) > 0 {
+        print_errors(parse_res.errors)
+        return
+    }
+    if debug { println("stage1: parsed") }
+    let tctx = check_program(parse_res.prog)
+    if len(tctx.errors) > 0 {
+        print_errors(tctx.errors)
+        return
+    }
+    if debug { println("stage1: typechecked") }
+    let comp = compile_program(parse_res.prog, tctx)
+    if len(comp.errors) > 0 {
+        print_errors(comp.errors)
+        return
+    }
+    if debug { println("stage1: compiled") }
+    if cmd == "ir" {
+        print(ir_program_format(comp.prog))
+        return
+    }
+    let mut rt = runtime_new(comp.prog, split.rest)
+    if debug { println("stage1: running") }
+    runtime_run(&mut rt, comp.prog.entry)
+    if rt.error != "" {
+        println("error", rt.error)
+    }
 }
