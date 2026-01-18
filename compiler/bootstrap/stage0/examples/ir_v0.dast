@@ -66,5 +66,6 @@ fn main() {
     let path = "/tmp/dast_ir_v0.txt"
     write_file(path, "ok")
     let data = read_file(path)
-    println("data", data)
+    print("data ")
+    println(data)
 }
