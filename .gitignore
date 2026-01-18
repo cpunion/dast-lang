@@ -27,3 +27,4 @@ Cargo.lock
 
 # Stage0 bootstrap binary
 compiler/bootstrap/stage0/dast
+compiler/bootstrap/stage0/dast-stage0

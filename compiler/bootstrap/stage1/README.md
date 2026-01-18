@@ -8,10 +8,10 @@ From repo root:
 
 ```bash
 # build stage0
-( cd compiler/bootstrap/stage0 && go build ./cmd/dast )
+( cd compiler/bootstrap/stage0 && go build -o dast-stage0 ./cmd/dast )
 
 # run stage1 on a program (multi-file)
-./compiler/bootstrap/stage0/dast run compiler/bootstrap/stage1/*.dast -- run examples/hello.dast
+./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/*.dast -- run examples/hello.dast
 ```
 
 Current stage1 supports the same Stage0 feature set: multi-file single module, `struct/enum/const/impl/self`, arrays/refs, `if/while/match`, implicit tail return, IR v0 lowering, and IR interpreter builtins.

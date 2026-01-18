@@ -7,15 +7,15 @@ Stage0 is the bootstrap compiler/runtime written in Go.
 ```bash
 cd compiler/bootstrap/stage0
 
-go build ./cmd/dast
+go build -o dast-stage0 ./cmd/dast
 ```
 
 ## Run examples
 
 ```bash
-./dast run examples/hello.dast
-./dast run examples/struct_enum.dast
-./dast run examples/array.dast
+./dast-stage0 run examples/hello.dast
+./dast-stage0 run examples/struct_enum.dast
+./dast-stage0 run examples/array.dast
 ```
 
 ## Run Stage1 (Dast)
@@ -23,5 +23,5 @@ go build ./cmd/dast
 From repo root:
 
 ```bash
-./compiler/bootstrap/stage0/dast run compiler/bootstrap/stage1/main.dast compiler/bootstrap/stage1/token.dast compiler/bootstrap/stage1/lexer.dast compiler/bootstrap/stage1/ast.dast compiler/bootstrap/stage1/parser.dast -- compiler/bootstrap/stage1/main.dast
+./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage1/main.dast compiler/bootstrap/stage1/token.dast compiler/bootstrap/stage1/lexer.dast compiler/bootstrap/stage1/ast.dast compiler/bootstrap/stage1/parser.dast -- compiler/bootstrap/stage1/main.dast
 ```
