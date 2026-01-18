@@ -23,7 +23,7 @@ See [docs/00-overview.md](docs/00-overview.md) for the complete design overview.
 See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 
 **Stage 0** (9 months): Bootstrap compiler with minimal feature set for self-hosting
-- Implementation language: Rust
+- Implementation language: Go
 - Target: Self-hosting capability
 
 ## Key Features
@@ -51,3 +51,11 @@ TBD
 
 **Current**: Design phase complete, ready for implementation
 **Next**: Stage 0 bootstrap compiler development
+
+## Implementation Layout
+
+- `compiler/bootstrap/stage0/`: Go bootstrap compiler/runtime (IR + interpreter)
+- `compiler/bootstrap/stage1/`: Dast implementation (bootstrap in progress)
+- `compiler/core/`: Shared compiler modules
+- `compiler/stage2/`: Full language compiler (self-hosting target)
+- `compiler/stage3/`: Tooling + optimization

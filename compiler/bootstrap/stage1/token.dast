@@ -1,0 +1,113 @@
+struct Token {
+    kind: i32,
+    start: i32,
+    len: i32,
+}
+
+struct Tokens {
+    items: [Token],
+}
+
+fn tk_eof() -> i32 { return 0 }
+fn tk_ident() -> i32 { return 1 }
+fn tk_int() -> i32 { return 2 }
+fn tk_string() -> i32 { return 3 }
+fn tk_fn() -> i32 { return 10 }
+fn tk_let() -> i32 { return 11 }
+fn tk_mut() -> i32 { return 12 }
+fn tk_if() -> i32 { return 13 }
+fn tk_else() -> i32 { return 14 }
+fn tk_while() -> i32 { return 15 }
+fn tk_return() -> i32 { return 16 }
+fn tk_struct() -> i32 { return 17 }
+fn tk_enum() -> i32 { return 18 }
+fn tk_match() -> i32 { return 19 }
+fn tk_true() -> i32 { return 20 }
+fn tk_false() -> i32 { return 21 }
+fn tk_impl() -> i32 { return 22 }
+fn tk_self() -> i32 { return 23 }
+fn tk_self_type() -> i32 { return 24 }
+fn tk_const() -> i32 { return 25 }
+
+fn tk_lparen() -> i32 { return 30 }
+fn tk_rparen() -> i32 { return 31 }
+fn tk_lbrace() -> i32 { return 32 }
+fn tk_rbrace() -> i32 { return 33 }
+fn tk_lbracket() -> i32 { return 34 }
+fn tk_rbracket() -> i32 { return 35 }
+fn tk_comma() -> i32 { return 36 }
+fn tk_colon() -> i32 { return 37 }
+fn tk_semi() -> i32 { return 38 }
+fn tk_arrow() -> i32 { return 39 }
+fn tk_fatarrow() -> i32 { return 40 }
+fn tk_dot() -> i32 { return 41 }
+fn tk_at() -> i32 { return 42 }
+
+fn tk_assign() -> i32 { return 50 }
+fn tk_plus() -> i32 { return 51 }
+fn tk_minus() -> i32 { return 52 }
+fn tk_star() -> i32 { return 53 }
+fn tk_slash() -> i32 { return 54 }
+fn tk_percent() -> i32 { return 55 }
+fn tk_bang() -> i32 { return 56 }
+fn tk_amp() -> i32 { return 57 }
+fn tk_pipe() -> i32 { return 58 }
+fn tk_eqeq() -> i32 { return 59 }
+fn tk_noteq() -> i32 { return 60 }
+fn tk_lt() -> i32 { return 61 }
+fn tk_lte() -> i32 { return 62 }
+fn tk_gt() -> i32 { return 63 }
+fn tk_gte() -> i32 { return 64 }
+fn tk_andand() -> i32 { return 65 }
+fn tk_oror() -> i32 { return 66 }
+
+fn single_char_kind(c: i32) -> i32 {
+    if c == 40 { return tk_lparen() }
+    if c == 41 { return tk_rparen() }
+    if c == 123 { return tk_lbrace() }
+    if c == 125 { return tk_rbrace() }
+    if c == 91 { return tk_lbracket() }
+    if c == 93 { return tk_rbracket() }
+    if c == 44 { return tk_comma() }
+    if c == 58 { return tk_colon() }
+    if c == 59 { return tk_semi() }
+    if c == 46 { return tk_dot() }
+    if c == 64 { return tk_at() }
+    if c == 61 { return tk_assign() }
+    if c == 43 { return tk_plus() }
+    if c == 45 { return tk_minus() }
+    if c == 42 { return tk_star() }
+    if c == 47 { return tk_slash() }
+    if c == 37 { return tk_percent() }
+    if c == 33 { return tk_bang() }
+    if c == 38 { return tk_amp() }
+    if c == 124 { return tk_pipe() }
+    if c == 60 { return tk_lt() }
+    if c == 62 { return tk_gt() }
+    return -1
+}
+
+fn token_at(toks: Tokens, i: i32) -> Token {
+    if i < 0 || i >= len(toks.items) {
+        return Token { kind: tk_eof(), start: 0, len: 0 }
+    }
+    return toks.items[i]
+}
+
+fn tok_kind(toks: Tokens, i: i32) -> i32 {
+    return token_at(toks, i).kind
+}
+
+fn tok_start(toks: Tokens, i: i32) -> i32 {
+    return token_at(toks, i).start
+}
+
+fn tok_len(toks: Tokens, i: i32) -> i32 {
+    return token_at(toks, i).len
+}
+
+fn lexeme_at(src: String, toks: Tokens, i: i32) -> String {
+    let start = tok_start(toks, i)
+    let ln = tok_len(toks, i)
+    return substr(src, start, ln)
+}

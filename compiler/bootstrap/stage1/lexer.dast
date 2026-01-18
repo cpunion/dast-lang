@@ -1,0 +1,196 @@
+fn is_space(c: i32) -> bool {
+    return c == 32 || c == 9 || c == 10 || c == 13
+}
+
+fn is_digit(c: i32) -> bool {
+    return c >= 48 && c <= 57
+}
+
+fn is_alpha(c: i32) -> bool {
+    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+}
+
+fn is_alnum(c: i32) -> bool {
+    return is_alpha(c) || is_digit(c)
+}
+
+fn keyword_kind(s: String) -> i32 {
+    if s == "fn" { return tk_fn() }
+    if s == "let" { return tk_let() }
+    if s == "mut" { return tk_mut() }
+    if s == "if" { return tk_if() }
+    if s == "else" { return tk_else() }
+    if s == "while" { return tk_while() }
+    if s == "return" { return tk_return() }
+    if s == "struct" { return tk_struct() }
+    if s == "enum" { return tk_enum() }
+    if s == "match" { return tk_match() }
+    if s == "true" { return tk_true() }
+    if s == "false" { return tk_false() }
+    if s == "impl" { return tk_impl() }
+    if s == "self" { return tk_self() }
+    if s == "Self" { return tk_self_type() }
+    if s == "const" { return tk_const() }
+    return tk_ident()
+}
+
+fn lex(src: String) -> Tokens {
+    let n = len(src)
+    let mut items: [Token] = []
+    let mut i = 0
+    while i < n {
+        let c = char_at(src, i)
+        let mut handled = false
+        if is_space(c) {
+            i = i + 1
+            handled = true
+        }
+        if !handled && c == 47 {
+            if i + 1 < n {
+                if char_at(src, i + 1) == 47 {
+                    i = i + 2
+                    let mut scanning = true
+                    while i < n && scanning {
+                        if char_at(src, i) == 10 {
+                            scanning = false
+                        } else {
+                            i = i + 1
+                        }
+                    }
+                    handled = true
+                }
+            }
+        }
+        if !handled && is_alpha(c) {
+            let start = i
+            i = i + 1
+            let mut scanning = true
+            while i < n && scanning {
+                if !is_alnum(char_at(src, i)) {
+                    scanning = false
+                } else {
+                    i = i + 1
+                }
+            }
+            let lexeme = substr(src, start, i - start)
+            let kind = keyword_kind(lexeme)
+            push(&mut items, Token { kind: kind, start: start, len: i - start })
+            handled = true
+        }
+        if !handled && is_digit(c) {
+            let start = i
+            i = i + 1
+            let mut scanning = true
+            while i < n && scanning {
+                if !is_digit(char_at(src, i)) {
+                    scanning = false
+                } else {
+                    i = i + 1
+                }
+            }
+            push(&mut items, Token { kind: tk_int(), start: start, len: i - start })
+            handled = true
+        }
+        if !handled && c == 34 {
+            let start = i
+            i = i + 1
+            let mut scanning = true
+            while i < n && scanning {
+                if char_at(src, i) == 34 {
+                    scanning = false
+                } else {
+                    i = i + 1
+                }
+            }
+            if i < n {
+                i = i + 1
+            }
+            push(&mut items, Token { kind: tk_string(), start: start, len: i - start })
+            handled = true
+        }
+        if !handled {
+            let start = i
+            let mut next = -1
+            if i + 1 < n {
+                next = char_at(src, i + 1)
+            }
+            if c == 61 && next == 61 {
+                push(&mut items, Token { kind: tk_eqeq(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 61 && next == 62 {
+                push(&mut items, Token { kind: tk_fatarrow(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 45 && next == 62 {
+                push(&mut items, Token { kind: tk_arrow(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 33 && next == 61 {
+                push(&mut items, Token { kind: tk_noteq(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 60 && next == 61 {
+                push(&mut items, Token { kind: tk_lte(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 62 && next == 61 {
+                push(&mut items, Token { kind: tk_gte(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 38 && next == 38 {
+                push(&mut items, Token { kind: tk_andand(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else if c == 124 && next == 124 {
+                push(&mut items, Token { kind: tk_oror(), start: start, len: 2 })
+                i = i + 2
+                handled = true
+            } else {
+                let kind = single_char_kind(c)
+                if kind != -1 {
+                    push(&mut items, Token { kind: kind, start: start, len: 1 })
+                    i = i + 1
+                    handled = true
+                }
+            }
+        }
+        if !handled {
+            i = i + 1
+        }
+    }
+    push(&mut items, Token { kind: tk_eof(), start: n, len: 0 })
+    return Tokens { items: items }
+}
+
+struct Lexer {
+    toks: Tokens,
+    idx: i32,
+}
+
+fn lexer_new(src: String) -> Lexer {
+    let toks = lex(src)
+    return Lexer { toks: toks, idx: 0 }
+}
+
+fn lexer_pos(self: &Lexer) -> i32 {
+    return self.idx
+}
+
+fn lexer_set_pos(self: &mut Lexer, pos: i32) {
+    self.idx = pos
+}
+
+fn lexer_peek(self: &Lexer) -> Token {
+    return token_at(self.toks, self.idx)
+}
+
+fn lexer_peek_n(self: &Lexer, n: i32) -> Token {
+    return token_at(self.toks, self.idx + n)
+}
+
+fn lexer_next(self: &mut Lexer) -> Token {
+    let tok = lexer_peek(self)
+    self.idx = self.idx + 1
+    return tok
+}

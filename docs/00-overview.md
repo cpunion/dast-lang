@@ -64,6 +64,7 @@ C++: 20% → Dast: 99% → Rust: 100%
 | 16 | [platform-support.md](16-platform-support.md) | 平台支持 |
 | 17 | [ffi-interop.md](17-ffi-interop.md) | FFI 与互操作 |
 | 18 | [hot-reload.md](18-hot-reload.md) | 热更新 |
+| 19 | [ir-spec.md](19-ir-spec.md) | IR 规范（稳定核心） |
 
 ### 早期讨论文档 (archive/)
 
@@ -71,7 +72,7 @@ C++: 20% → Dast: 99% → Rust: 100%
 
 ## 实现计划
 
-详见 [实现路线图](../brain/implementation-roadmap.md)
+详见 [实现路线图](implementation-roadmap.md)
 
 **核心策略**: 渐进式自举
 

@@ -1,0 +1,266 @@
+fn ir_kind_int() -> i32 { return 0 }
+fn ir_kind_bool() -> i32 { return 1 }
+fn ir_kind_string() -> i32 { return 2 }
+fn ir_kind_unit() -> i32 { return 3 }
+fn ir_kind_ref() -> i32 { return 4 }
+fn ir_kind_struct() -> i32 { return 5 }
+fn ir_kind_enum() -> i32 { return 6 }
+fn ir_kind_array() -> i32 { return 7 }
+
+fn int_to_string(x: i32) -> String {
+    if x == 0 {
+        return "0"
+    }
+    let mut n = x
+    let mut neg = false
+    if n < 0 {
+        neg = true
+        n = -n
+    }
+    let mut digits: [i32] = []
+    while n > 0 {
+        push(&mut digits, n % 10)
+        n = n / 10
+    }
+    let mut out = ""
+    if neg {
+        out = "-"
+    }
+    let mut i = len(digits) - 1
+    while i >= 0 {
+        out = out + substr("0123456789", digits[i], 1)
+        if i == 0 { break }
+        i = i - 1
+    }
+    return out
+}
+
+struct IrValue {
+    kind: i32,
+    int: i32,
+    bool: bool,
+    str: String,
+    ref: i32,
+    obj: i32,
+}
+
+fn ir_value_unit() -> IrValue {
+    return IrValue { kind: ir_kind_unit(), int: 0, bool: false, str: "", ref: -1, obj: -1 }
+}
+
+fn ir_value_int(v: i32) -> IrValue {
+    return IrValue { kind: ir_kind_int(), int: v, bool: false, str: "", ref: -1, obj: -1 }
+}
+
+fn ir_value_bool(v: bool) -> IrValue {
+    return IrValue { kind: ir_kind_bool(), int: 0, bool: v, str: "", ref: -1, obj: -1 }
+}
+
+fn ir_value_string(v: String) -> IrValue {
+    return IrValue { kind: ir_kind_string(), int: 0, bool: false, str: v, ref: -1, obj: -1 }
+}
+
+fn ir_value_ref(addr: i32) -> IrValue {
+    return IrValue { kind: ir_kind_ref(), int: 0, bool: false, str: "", ref: addr, obj: -1 }
+}
+
+fn ir_value_struct(idx: i32) -> IrValue {
+    return IrValue { kind: ir_kind_struct(), int: 0, bool: false, str: "", ref: -1, obj: idx }
+}
+
+fn ir_value_enum(idx: i32) -> IrValue {
+    return IrValue { kind: ir_kind_enum(), int: 0, bool: false, str: "", ref: -1, obj: idx }
+}
+
+fn ir_value_array(idx: i32) -> IrValue {
+    return IrValue { kind: ir_kind_array(), int: 0, bool: false, str: "", ref: -1, obj: idx }
+}
+
+struct IrStructFieldValue {
+    name: String,
+    value: IrValue,
+}
+
+struct IrStructValue {
+    name: String,
+    fields: [IrStructFieldValue],
+}
+
+struct IrEnumValue {
+    name: String,
+    variant: String,
+    has_payload: bool,
+    payload: IrValue,
+}
+
+struct IrArrayValue {
+    elems: [IrValue],
+}
+
+struct IrProgram {
+    version: String,
+    features: [String],
+    functions: [IrFunction],
+    entry: String,
+}
+
+struct IrFunction {
+    name: String,
+    params: [String],
+    blocks: [IrBlock],
+    temp_count: i32,
+}
+
+struct IrBlock {
+    label: String,
+    instrs: [IrInstr],
+    term: IrTerm,
+}
+
+struct IrConst {
+    dst: i32,
+    value: IrValue,
+}
+
+struct IrLoadVar {
+    dst: i32,
+    name: String,
+}
+
+struct IrStoreVar {
+    name: String,
+    src: i32,
+}
+
+struct IrAddrOf {
+    dst: i32,
+    name: String,
+}
+
+struct IrLoadRef {
+    dst: i32,
+    src: i32,
+}
+
+struct IrStoreRef {
+    ref: i32,
+    src: i32,
+}
+
+struct IrBinOp {
+    dst: i32,
+    op: String,
+    lhs: i32,
+    rhs: i32,
+}
+
+struct IrUnaryOp {
+    dst: i32,
+    op: String,
+    src: i32,
+}
+
+struct IrCall {
+    dst: i32,
+    callee: String,
+    args: [i32],
+}
+
+struct IrMakeArray {
+    dst: i32,
+    elems: [i32],
+}
+
+struct IrIndex {
+    dst: i32,
+    array: i32,
+    index: i32,
+}
+
+struct IrSetIndex {
+    array: i32,
+    index: i32,
+    src: i32,
+}
+
+struct IrStructFieldInit {
+    name: String,
+    src: i32,
+}
+
+struct IrMakeStruct {
+    dst: i32,
+    name: String,
+    fields: [IrStructFieldInit],
+}
+
+struct IrGetField {
+    dst: i32,
+    src: i32,
+    field: String,
+}
+
+struct IrMakeEnum {
+    dst: i32,
+    name: String,
+    variant: String,
+    payload: i32,
+}
+
+struct IrEnumTag {
+    dst: i32,
+    src: i32,
+}
+
+struct IrEnumPayload {
+    dst: i32,
+    src: i32,
+}
+
+enum IrInstr {
+    Const(IrConst),
+    LoadVar(IrLoadVar),
+    StoreVar(IrStoreVar),
+    AddrOf(IrAddrOf),
+    LoadRef(IrLoadRef),
+    StoreRef(IrStoreRef),
+    BinOp(IrBinOp),
+    UnaryOp(IrUnaryOp),
+    Call(IrCall),
+    MakeArray(IrMakeArray),
+    Index(IrIndex),
+    SetIndex(IrSetIndex),
+    MakeStruct(IrMakeStruct),
+    GetField(IrGetField),
+    MakeEnum(IrMakeEnum),
+    EnumTag(IrEnumTag),
+    EnumPayload(IrEnumPayload),
+}
+
+struct IrJump {
+    target: String,
+}
+
+struct IrBranch {
+    cond: i32,
+    then_label: String,
+    else_label: String,
+}
+
+struct IrReturn {
+    has_value: bool,
+    value: i32,
+}
+
+struct IrNoTerm {}
+
+enum IrTerm {
+    None(IrNoTerm),
+    Jump(IrJump),
+    Branch(IrBranch),
+    Return(IrReturn),
+}
+
+fn ir_term_none() -> IrTerm {
+    return IrTerm.None(IrNoTerm {})
+}

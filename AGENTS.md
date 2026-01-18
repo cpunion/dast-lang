@@ -3,6 +3,7 @@
 > This document provides guidelines for AI coding assistants (Claude, GPT, etc.) working on the Dast language project.
 
 See also: [CLAUDE.md](CLAUDE.md) for Claude-specific instructions.
+Key docs: [Overview](docs/00-overview.md) • [Implementation Roadmap](docs/implementation-roadmap.md)
 
 ---
 
@@ -75,24 +76,24 @@ fn test_add() {
 
 ## Implementation Roadmap
 
-See `docs/implementation-roadmap.md` for full details.
+See [docs/implementation-roadmap.md](docs/implementation-roadmap.md) for full details.
 
 ### Stage 0: Bootstrap Compiler (9 months)
 
-**Goal**: Minimal Dast compiler written in Rust, capable of self-hosting.
+**Goal**: Minimal Dast compiler written in Go, capable of self-hosting.
 
 **Minimal Feature Set**:
-- Basic types: `i32`, `i64`, `bool`, `f32`, `f64`, etc.
+- Basic types: `i32`, `i64`, `bool`, `String`, etc.
 - Structs, enums, arrays, references
-- Functions, generics (basic)
+- Functions, `impl`/`self` (basic)
 - Pattern matching
 - Borrow checking (simplified)
-- No: comptime, macros, async, unsafe, advanced generics
+- No: comptime, macros, async, unsafe, generics
 
 **Components**:
-1. Frontend: Lexer → Parser → AST → Type Checker → Borrow Checker
-2. Middle-end: HIR → MIR (SSA) → Basic optimizations
-3. Backend: Cranelift code generation
+1. Frontend: Lexer → Parser → AST → Type Checker → Borrow Checker (simplified)
+2. Middle-end: IR v0 (stable core)
+3. Backend: IR interpreter (bootstrap)
 
 **Commands**:
 ```bash
@@ -103,14 +104,11 @@ dast test
 
 **Self-hosting verification**:
 ```bash
-# Stage 0 (Rust) compiles Dast compiler
-dastc-stage0 compiler/*.dast -o dastc-stage1
+# Stage 0 (Go) compiles Stage 1 (Dast bootstrap compiler)
+dast run compiler/bootstrap/stage1/*.dast
 
-# Stage 1 (Dast) compiles itself
-dastc-stage1 compiler/*.dast -o dastc-stage2
-
-# Verify binary equivalence
-diff dastc-stage1 dastc-stage2
+# Stage 1 (Dast) compiles itself (once feature-parity is reached)
+dastc-stage1 compiler/bootstrap/stage1/*.dast -o dastc-stage1
 ```
 
 ### Tooling (Parallel Development)
@@ -151,9 +149,9 @@ fn longest(x: &str, y: &str) -> &str {
 }
 ```
 
-### When Writing Implementation Code (Rust)
+### When Writing Implementation Code (Go)
 
-Follow standard Rust conventions for the bootstrap compiler.
+Follow standard Go conventions for the bootstrap compiler.
 
 ---
 

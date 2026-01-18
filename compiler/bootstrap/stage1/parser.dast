@@ -1,0 +1,917 @@
+fn peek_kind(lex: &Lexer) -> i32 {
+    return lexer_peek(lex).kind
+}
+
+fn peek_kind_n(lex: &Lexer, n: i32) -> i32 {
+    return lexer_peek_n(lex, n).kind
+}
+
+fn current_lexeme(src: String, lex: &Lexer) -> String {
+    let tok = lexer_peek(lex)
+    return substr(src, tok.start, tok.len)
+}
+
+fn next_lexeme(src: String, lex: &mut Lexer) -> String {
+    let tok = lexer_next(lex)
+    return substr(src, tok.start, tok.len)
+}
+
+fn add_error(errors: &mut [ParseError], pos: i32, msg: String) {
+    push(errors, ParseError { pos: pos, msg: msg })
+}
+
+fn sync_to_top_level(lex: &mut Lexer) {
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_fn() || k == tk_struct() || k == tk_enum() || k == tk_const() || k == tk_at() || k == tk_eof() {
+            done = true
+        } else {
+            lexer_next(lex)
+        }
+    }
+}
+
+fn sync_to_stmt_end(lex: &mut Lexer) {
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_semi() {
+            lexer_next(lex)
+            done = true
+        } else if k == tk_rbrace() || k == tk_eof() {
+            done = true
+        } else {
+            lexer_next(lex)
+        }
+    }
+}
+
+fn dummy_expr() -> Expr {
+    return Expr.IntLit(IntLit { value: "0" })
+}
+
+fn infix_prec(k: i32) -> i32 {
+    if k == tk_oror() { return 1 }
+    if k == tk_andand() { return 2 }
+    if k == tk_eqeq() || k == tk_noteq() { return 3 }
+    if k == tk_lt() || k == tk_lte() || k == tk_gt() || k == tk_gte() { return 4 }
+    if k == tk_plus() || k == tk_minus() { return 5 }
+    if k == tk_star() || k == tk_slash() || k == tk_percent() { return 6 }
+    return -1
+}
+
+fn looks_like_struct_lit(lex: &Lexer) -> bool {
+    if peek_kind(lex) != tk_lbrace() {
+        return false
+    }
+    let k1 = peek_kind_n(lex, 1)
+    if k1 == tk_rbrace() {
+        return true
+    }
+    if k1 == tk_ident() && peek_kind_n(lex, 2) == tk_colon() {
+        return true
+    }
+    return false
+}
+
+fn parse_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError], min_prec: i32) -> Expr {
+    let mut left = parse_unary(src, lex, errors)
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        let prec = infix_prec(k)
+        if prec < min_prec {
+            done = true
+        } else {
+            lexer_next(lex)
+            let right = parse_expr(src, lex, errors, prec + 1)
+            left = Expr.Binary(BinaryExpr { op: k, left: left, right: right })
+        }
+    }
+    return left
+}
+
+fn parse_unary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    let k = peek_kind(lex)
+    if k == tk_minus() || k == tk_bang() {
+        lexer_next(lex)
+        let expr = parse_unary(src, lex, errors)
+        return Expr.Unary(UnaryExpr { op: k, expr: expr })
+    }
+    if k == tk_amp() {
+        lexer_next(lex)
+        let mut mutable = false
+        if peek_kind(lex) == tk_mut() {
+            mutable = true;
+            lexer_next(lex)
+        }
+        let expr = parse_unary(src, lex, errors)
+        return Expr.Ref(RefExpr { mutable: mutable, expr: expr })
+    }
+    if k == tk_star() {
+        lexer_next(lex)
+        let expr = parse_unary(src, lex, errors)
+        return Expr.Deref(DerefExpr { expr: expr })
+    }
+    return parse_postfix(src, lex, errors)
+}
+
+fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    let mut expr = parse_primary(src, lex, errors)
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_dot() {
+            lexer_next(lex)
+            if peek_kind(lex) != tk_ident() {
+                add_error(errors, lexer_pos(lex), "expected field name");
+                lexer_next(lex)
+                expr = Expr.Field(FieldExpr { recv: expr, name: "" })
+            } else {
+                let name = next_lexeme(src, lex)
+                expr = Expr.Field(FieldExpr { recv: expr, name: name })
+            }
+        } else if k == tk_lbracket() {
+            lexer_next(lex)
+            let index = parse_expr(src, lex, errors, 0)
+            if peek_kind(lex) == tk_rbracket() {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected ']'");
+            }
+            expr = Expr.Index(IndexExpr { recv: expr, index: index })
+        } else if k == tk_lparen() {
+            lexer_next(lex)
+            let mut args: [Expr] = []
+            if peek_kind(lex) != tk_rparen() {
+                let mut more = true
+                while more {
+                    let arg = parse_expr(src, lex, errors, 0)
+                    push(&mut args, arg)
+                    if peek_kind(lex) == tk_comma() {
+                        lexer_next(lex)
+                    } else {
+                        more = false
+                    }
+                }
+            }
+            if peek_kind(lex) == tk_rparen() {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected ')'");
+            }
+            match expr {
+                .Ident(_) => {
+                    expr = Expr.Call(CallExpr { callee: expr, args: args })
+                }
+                .Field(f) => {
+                    expr = Expr.MethodCall(MethodCallExpr {
+                        recv: f.recv,
+                        method: f.name,
+                        args: args,
+                        resolved_name: "",
+                        resolved_self: false,
+                        enum_name: "",
+                    })
+                }
+                _ => {
+                    add_error(errors, lexer_pos(lex), "can only call identifiers or field accesses");
+                }
+            }
+        } else {
+            done = true
+        }
+    }
+    return expr
+}
+
+fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    let k = peek_kind(lex)
+    if k == tk_ident() {
+        let name = next_lexeme(src, lex)
+        if looks_like_struct_lit(lex) {
+            lexer_next(lex)
+            let mut fields: [FieldInit] = []
+            let mut done = false
+            while !done {
+                let fk = peek_kind(lex)
+                if fk == tk_rbrace() || fk == tk_eof() {
+                    done = true
+                } else {
+                    if fk != tk_ident() {
+                        add_error(errors, lexer_pos(lex), "expected field name");
+                        lexer_next(lex)
+                    } else {
+                        let fname = next_lexeme(src, lex)
+                        if peek_kind(lex) == tk_colon() {
+                            lexer_next(lex)
+                        } else {
+                            add_error(errors, lexer_pos(lex), "expected ':' in field");
+                        }
+                        let val = parse_expr(src, lex, errors, 0)
+                        push(&mut fields, FieldInit { name: fname, value: val })
+                        if peek_kind(lex) == tk_comma() {
+                            lexer_next(lex)
+                        }
+                    }
+                }
+            }
+            if peek_kind(lex) == tk_rbrace() {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '}'");
+            }
+            return Expr.StructLit(StructLit { name: name, fields: fields })
+        }
+        return Expr.Ident(IdentExpr { name: name })
+    }
+    if k == tk_int() {
+        let val = next_lexeme(src, lex)
+        return Expr.IntLit(IntLit { value: val })
+    }
+    if k == tk_string() {
+        let val = next_lexeme(src, lex)
+        return Expr.StringLit(StringLit { value: val })
+    }
+    if k == tk_true() {
+        lexer_next(lex)
+        return Expr.BoolLit(BoolLit { value: true })
+    }
+    if k == tk_false() {
+        lexer_next(lex)
+        return Expr.BoolLit(BoolLit { value: false })
+    }
+    if k == tk_lparen() {
+        lexer_next(lex)
+        let expr = parse_expr(src, lex, errors, 0)
+        if peek_kind(lex) == tk_rparen() {
+            lexer_next(lex)
+        } else {
+            add_error(errors, lexer_pos(lex), "expected ')'");
+        }
+        return expr
+    }
+    if k == tk_lbracket() {
+        lexer_next(lex)
+        let mut elems: [Expr] = []
+        if peek_kind(lex) != tk_rbracket() {
+            let mut more = true
+            while more {
+                let elem = parse_expr(src, lex, errors, 0)
+                push(&mut elems, elem)
+                if peek_kind(lex) == tk_comma() {
+                    lexer_next(lex)
+                } else {
+                    more = false
+                }
+            }
+        }
+        if peek_kind(lex) == tk_rbracket() {
+            lexer_next(lex)
+        } else {
+            add_error(errors, lexer_pos(lex), "expected ']'");
+        }
+        return Expr.ArrayLit(ArrayLit { elems: elems })
+    }
+    add_error(errors, lexer_pos(lex), "unexpected token in expression");
+    lexer_next(lex)
+    return dummy_expr()
+}
+
+fn parse_ident(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+    if peek_kind(lex) != tk_ident() {
+        add_error(errors, lexer_pos(lex), "expected identifier");
+        lexer_next(lex)
+        return ""
+    }
+    let name = next_lexeme(src, lex)
+    return name
+}
+
+fn parse_param_name(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+    let k = peek_kind(lex)
+    if k != tk_ident() && k != tk_self() {
+        add_error(errors, lexer_pos(lex), "expected parameter name");
+        lexer_next(lex)
+        return ""
+    }
+    let name = next_lexeme(src, lex)
+    return name
+}
+
+fn parse_type(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+    let mut text = ""
+    if peek_kind(lex) == tk_amp() {
+        text = "&";
+        lexer_next(lex)
+        if peek_kind(lex) == tk_mut() {
+            text = "&mut ";
+            lexer_next(lex)
+        }
+    }
+    if peek_kind(lex) == tk_lbracket() {
+        lexer_next(lex)
+        let inner = parse_type(src, lex, errors)
+        if peek_kind(lex) == tk_rbracket() {
+            lexer_next(lex)
+        } else {
+            add_error(errors, lexer_pos(lex), "expected ']' in type");
+        }
+        return text + "[" + inner + "]"
+    }
+    if peek_kind(lex) == tk_self_type() {
+        let name = next_lexeme(src, lex)
+        return text + name
+    }
+    if peek_kind(lex) == tk_ident() {
+        let name = next_lexeme(src, lex)
+        return text + name
+    }
+    add_error(errors, lexer_pos(lex), "expected type");
+    lexer_next(lex)
+    return ""
+}
+
+fn parse_repr_attr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+    let name = parse_ident(src, lex, errors)
+    if name != "repr" {
+        add_error(errors, lexer_pos(lex), "unknown attribute");
+        return ""
+    }
+    if peek_kind(lex) == tk_lparen() {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '(' after repr");
+    }
+    let repr = parse_ident(src, lex, errors)
+    if peek_kind(lex) == tk_rparen() {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected ')'");
+    }
+    return repr
+}
+
+fn parse_const_value(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ConstValue {
+    let k = peek_kind(lex)
+    if k == tk_minus() {
+        lexer_next(lex)
+        if peek_kind(lex) == tk_int() {
+            let val = "-" + next_lexeme(src, lex)
+            return ConstValue { kind: const_kind_int(), int_value: val, str_value: "", bool_value: false }
+        }
+        add_error(errors, lexer_pos(lex), "expected int literal after '-'");
+        return ConstValue { kind: const_kind_int(), int_value: "0", str_value: "", bool_value: false }
+    }
+    if k == tk_int() {
+        let val = next_lexeme(src, lex)
+        return ConstValue { kind: const_kind_int(), int_value: val, str_value: "", bool_value: false }
+    }
+    if k == tk_true() {
+        lexer_next(lex)
+        return ConstValue { kind: const_kind_bool(), int_value: "", str_value: "", bool_value: true }
+    }
+    if k == tk_false() {
+        lexer_next(lex)
+        return ConstValue { kind: const_kind_bool(), int_value: "", str_value: "", bool_value: false }
+    }
+    if k == tk_string() {
+        let val = next_lexeme(src, lex)
+        return ConstValue { kind: const_kind_string(), int_value: "", str_value: val, bool_value: false }
+    }
+    add_error(errors, lexer_pos(lex), "expected const literal");
+    lexer_next(lex)
+    return ConstValue { kind: const_kind_int(), int_value: "0", str_value: "", bool_value: false }
+}
+
+fn parse_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [Param] {
+    let mut params: [Param] = []
+    if peek_kind(lex) == tk_rparen() {
+        return params
+    }
+    let mut done = false
+    while !done {
+        let name = parse_param_name(src, lex, errors)
+        if peek_kind(lex) == tk_colon() {
+            lexer_next(lex)
+        } else {
+            add_error(errors, lexer_pos(lex), "expected ':' in param");
+        }
+        let typ = parse_type(src, lex, errors)
+        push(&mut params, Param { name: name, typ: typ })
+        if peek_kind(lex) == tk_comma() {
+            lexer_next(lex)
+        } else {
+            done = true
+        }
+    }
+    return params
+}
+
+fn parse_const_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ConstDecl {
+    let name = parse_ident(src, lex, errors)
+    let mut has_type = false
+    let mut typ = ""
+    if peek_kind(lex) == tk_colon() {
+        lexer_next(lex)
+        typ = parse_type(src, lex, errors)
+        has_type = true
+    }
+    if peek_kind(lex) == tk_assign() {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '=' in const");
+    }
+    let value = parse_const_value(src, lex, errors)
+    maybe_consume_semi(lex)
+    return ConstDecl { name: name, has_type: has_type, typ: typ, value: value }
+}
+
+fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ImplDecl {
+    lexer_next(lex)
+    let type_name = parse_ident(src, lex, errors)
+    let mut methods: [FunctionDecl] = []
+    if peek_kind(lex) != tk_lbrace() {
+        add_error(errors, lexer_pos(lex), "expected '{' after impl");
+        sync_to_top_level(lex)
+        return ImplDecl { type_name: type_name, methods: methods }
+    }
+    lexer_next(lex)
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_rbrace() || k == tk_eof() {
+            done = true
+        } else if k == tk_fn() {
+            lexer_next(lex)
+            let name = parse_ident(src, lex, errors)
+            let mut params: [Param] = []
+            let mut has_return = false
+            let mut ret = ""
+            let mut body = empty_block()
+            if peek_kind(lex) == tk_lparen() {
+                lexer_next(lex)
+                params = parse_params(src, lex, errors)
+                if peek_kind(lex) == tk_rparen() {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ')'");
+                }
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '(' after fn name");
+            }
+            if peek_kind(lex) == tk_arrow() {
+                lexer_next(lex)
+                ret = parse_type(src, lex, errors)
+                has_return = true
+            }
+            if peek_kind(lex) == tk_lbrace() {
+                body = parse_block(src, lex, errors)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '{' for function body");
+            }
+            push(&mut methods, FunctionDecl {
+                name: name,
+                params: params,
+                has_return: has_return,
+                ret: ret,
+                body: body,
+            })
+        } else {
+            add_error(errors, lexer_pos(lex), "expected method");
+            lexer_next(lex)
+        }
+    }
+    if peek_kind(lex) == tk_rbrace() {
+        lexer_next(lex)
+    }
+    return ImplDecl { type_name: type_name, methods: methods }
+}
+
+fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> StructDecl {
+    lexer_next(lex)
+    let name = parse_ident(src, lex, errors)
+    let mut fields: [Field] = []
+    if peek_kind(lex) != tk_lbrace() {
+        add_error(errors, lexer_pos(lex), "expected '{' after struct");
+        sync_to_top_level(lex)
+        return StructDecl { name: name, fields: fields }
+    }
+    lexer_next(lex)
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_rbrace() || k == tk_eof() {
+            done = true
+        } else {
+            if k != tk_ident() {
+                add_error(errors, lexer_pos(lex), "expected field name");
+                lexer_next(lex)
+            } else {
+                let fname = next_lexeme(src, lex)
+                if peek_kind(lex) == tk_colon() {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ':' in field");
+                }
+                let typ = parse_type(src, lex, errors)
+                push(&mut fields, Field { name: fname, typ: typ })
+                if peek_kind(lex) == tk_comma() {
+                    lexer_next(lex)
+                }
+            }
+        }
+    }
+    if peek_kind(lex) == tk_rbrace() {
+        lexer_next(lex)
+    }
+    return StructDecl { name: name, fields: fields }
+}
+
+fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr: String) -> EnumDecl {
+    lexer_next(lex)
+    let name = parse_ident(src, lex, errors)
+    let mut variants: [Variant] = []
+    if peek_kind(lex) != tk_lbrace() {
+        add_error(errors, lexer_pos(lex), "expected '{' after enum");
+        sync_to_top_level(lex)
+        return EnumDecl { name: name, repr: repr, variants: variants }
+    }
+    lexer_next(lex)
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_rbrace() || k == tk_eof() {
+            done = true
+        } else {
+            if k != tk_ident() {
+                add_error(errors, lexer_pos(lex), "expected variant name");
+                lexer_next(lex)
+            } else {
+                let vname = next_lexeme(src, lex)
+                let mut has_payload = false
+                let mut payload = ""
+                let mut has_value = false
+                let mut value = ""
+                if peek_kind(lex) == tk_lparen() {
+                    lexer_next(lex)
+                    payload = parse_type(src, lex, errors)
+                    has_payload = true
+                    if peek_kind(lex) == tk_rparen() {
+                        lexer_next(lex)
+                    } else {
+                        add_error(errors, lexer_pos(lex), "expected ')' after variant payload");
+                    }
+                }
+                if peek_kind(lex) == tk_assign() {
+                    lexer_next(lex)
+                    let v = parse_const_value(src, lex, errors)
+                    if v.kind != const_kind_int() {
+                        add_error(errors, lexer_pos(lex), "enum discriminant must be int");
+                    } else {
+                        has_value = true
+                        value = v.int_value
+                    }
+                }
+                push(&mut variants, Variant { name: vname, has_payload: has_payload, payload: payload, has_value: has_value, value: value })
+                if peek_kind(lex) == tk_comma() {
+                    lexer_next(lex)
+                }
+            }
+        }
+    }
+    if peek_kind(lex) == tk_rbrace() {
+        lexer_next(lex)
+    }
+    return EnumDecl { name: name, repr: repr, variants: variants }
+}
+
+fn maybe_consume_semi(lex: &mut Lexer) {
+    if peek_kind(lex) == tk_semi() {
+        lexer_next(lex)
+    }
+}
+
+fn empty_block() -> Block {
+    let mut stmts: [Stmt] = []
+    return Block { stmts: stmts }
+}
+
+fn parse_block(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Block {
+    let mut stmts: [Stmt] = []
+    if peek_kind(lex) != tk_lbrace() {
+        add_error(errors, lexer_pos(lex), "expected '{'");
+        sync_to_stmt_end(lex)
+        return Block { stmts: stmts }
+    }
+    lexer_next(lex)
+    while peek_kind(lex) != tk_rbrace() && peek_kind(lex) != tk_eof() {
+        let stmt = parse_stmt(src, lex, errors)
+        push(&mut stmts, stmt)
+    }
+    if peek_kind(lex) == tk_rbrace() {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '}'");
+    }
+    return Block { stmts: stmts }
+}
+
+fn parse_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> LetStmt {
+    lexer_next(lex)
+    let mut mutable = false
+    if peek_kind(lex) == tk_mut() {
+        mutable = true;
+        lexer_next(lex)
+    }
+    let name = parse_ident(src, lex, errors)
+    let mut has_type = false
+    let mut typ = ""
+    if peek_kind(lex) == tk_colon() {
+        lexer_next(lex)
+        typ = parse_type(src, lex, errors)
+        has_type = true
+    }
+    let mut has_init = false
+    let mut init = dummy_expr()
+    if peek_kind(lex) == tk_assign() {
+        lexer_next(lex)
+        init = parse_expr(src, lex, errors, 0)
+        has_init = true
+    }
+    maybe_consume_semi(lex)
+    return LetStmt { name: name, mutable: mutable, has_type: has_type, typ: typ, has_init: has_init, init: init }
+}
+
+fn parse_return(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ReturnStmt {
+    lexer_next(lex)
+    if peek_kind(lex) == tk_semi() || peek_kind(lex) == tk_rbrace() {
+        maybe_consume_semi(lex)
+        return ReturnStmt { has_value: false, value: dummy_expr() }
+    }
+    let expr = parse_expr(src, lex, errors, 0)
+    maybe_consume_semi(lex)
+    return ReturnStmt { has_value: true, value: expr }
+}
+
+fn parse_if(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> IfStmt {
+    lexer_next(lex)
+    let cond = parse_expr(src, lex, errors, 0)
+    let then_block = parse_block(src, lex, errors)
+    let mut has_else = false
+    let mut else_block = empty_block()
+    if peek_kind(lex) == tk_else() {
+        lexer_next(lex)
+        has_else = true;
+        if peek_kind(lex) == tk_if() {
+            let nested = parse_if(src, lex, errors)
+            let mut stmts: [Stmt] = []
+            push(&mut stmts, Stmt.If(nested))
+            else_block = Block { stmts: stmts }
+        } else {
+            else_block = parse_block(src, lex, errors)
+        }
+    }
+    return IfStmt { cond: cond, then_block: then_block, has_else: has_else, else_block: else_block }
+}
+
+fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
+    lexer_next(lex)
+    let cond = parse_expr(src, lex, errors, 0)
+    let body = parse_block(src, lex, errors)
+    return WhileStmt { cond: cond, body: body }
+}
+
+fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pattern {
+    let k = peek_kind(lex)
+    if k == tk_ident() {
+        let name = next_lexeme(src, lex)
+        if name == "_" {
+            return Pattern.Wildcard(WildcardPattern {})
+        }
+        if peek_kind(lex) == tk_dot() {
+            lexer_next(lex)
+            if peek_kind(lex) != tk_ident() {
+                add_error(errors, lexer_pos(lex), "expected variant name");
+                lexer_next(lex)
+                return Pattern.Variant(VariantPattern { enum_name: name, variant: "", has_binding: false, binding: "" })
+            }
+            let variant = next_lexeme(src, lex)
+            let mut has_binding = false
+            let mut binding = ""
+            if peek_kind(lex) == tk_lparen() {
+                lexer_next(lex)
+                if peek_kind(lex) == tk_ident() {
+                    binding = next_lexeme(src, lex)
+                    has_binding = true
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected binding name");
+                }
+                if peek_kind(lex) == tk_rparen() {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ')'");
+                }
+            }
+            return Pattern.Variant(VariantPattern { enum_name: name, variant: variant, has_binding: has_binding, binding: binding })
+        }
+        return Pattern.Variant(VariantPattern { enum_name: "", variant: name, has_binding: false, binding: "" })
+    }
+    if k == tk_dot() {
+        lexer_next(lex)
+        if peek_kind(lex) != tk_ident() {
+            add_error(errors, lexer_pos(lex), "expected variant name");
+            lexer_next(lex)
+            return Pattern.Variant(VariantPattern { enum_name: "", variant: "", has_binding: false, binding: "" })
+        }
+        let variant = next_lexeme(src, lex)
+        let mut has_binding = false
+        let mut binding = ""
+        if peek_kind(lex) == tk_lparen() {
+            lexer_next(lex)
+            if peek_kind(lex) == tk_ident() {
+                binding = next_lexeme(src, lex)
+                has_binding = true
+            } else {
+                add_error(errors, lexer_pos(lex), "expected binding name");
+            }
+            if peek_kind(lex) == tk_rparen() {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected ')'");
+            }
+        }
+        return Pattern.Variant(VariantPattern { enum_name: "", variant: variant, has_binding: has_binding, binding: binding })
+    }
+    add_error(errors, lexer_pos(lex), "unexpected pattern");
+    lexer_next(lex)
+    return Pattern.Wildcard(WildcardPattern {})
+}
+
+fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> MatchStmt {
+    lexer_next(lex)
+    let expr = parse_expr(src, lex, errors, 0)
+    if peek_kind(lex) != tk_lbrace() {
+        add_error(errors, lexer_pos(lex), "expected '{' after match");
+        let mut empty: [MatchArm] = []
+        return MatchStmt { expr: expr, arms: empty }
+    }
+    lexer_next(lex)
+    let mut arms: [MatchArm] = []
+    let mut done = false
+    while !done {
+        let k = peek_kind(lex)
+        if k == tk_rbrace() || k == tk_eof() {
+            done = true
+        } else {
+            let pat = parse_pattern(src, lex, errors)
+            if peek_kind(lex) == tk_fatarrow() {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '=>'");
+            }
+            let mut body = empty_block()
+            if peek_kind(lex) == tk_lbrace() {
+                body = parse_block(src, lex, errors)
+            } else {
+                let expr_body = parse_expr(src, lex, errors, 0)
+                let mut stmts: [Stmt] = []
+                push(&mut stmts, Stmt.Expr(ExprStmt { expr: expr_body }))
+                body = Block { stmts: stmts }
+                maybe_consume_semi(lex)
+            }
+            push(&mut arms, MatchArm { pattern: pat, body: body })
+            if peek_kind(lex) == tk_comma() {
+                lexer_next(lex)
+            }
+        }
+    }
+    if peek_kind(lex) == tk_rbrace() {
+        lexer_next(lex)
+    }
+    return MatchStmt { expr: expr, arms: arms }
+}
+
+fn parse_stmt(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Stmt {
+    let k = peek_kind(lex)
+    if k == tk_let() {
+        return Stmt.Let(parse_let(src, lex, errors))
+    }
+    if k == tk_return() {
+        return Stmt.Return(parse_return(src, lex, errors))
+    }
+    if k == tk_if() {
+        return Stmt.If(parse_if(src, lex, errors))
+    }
+    if k == tk_while() {
+        return Stmt.While(parse_while(src, lex, errors))
+    }
+    if k == tk_match() {
+        return Stmt.Match(parse_match(src, lex, errors))
+    }
+    let expr = parse_expr(src, lex, errors, 0)
+    if peek_kind(lex) == tk_assign() {
+        lexer_next(lex)
+        let value = parse_expr(src, lex, errors, 0)
+        maybe_consume_semi(lex)
+        return Stmt.Assign(AssignStmt { target: expr, value: value })
+    }
+    maybe_consume_semi(lex)
+    return Stmt.Expr(ExprStmt { expr: expr })
+}
+
+fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Program {
+    let mut structs: [StructDecl] = []
+    let mut enums: [EnumDecl] = []
+    let mut consts: [ConstDecl] = []
+    let mut functions: [FunctionDecl] = []
+    let mut impls: [ImplDecl] = []
+    let mut pending_repr = ""
+    while peek_kind(lex) != tk_eof() {
+        let k = peek_kind(lex)
+        if k == tk_at() {
+            lexer_next(lex)
+            let repr = parse_repr_attr(src, lex, errors)
+            if repr != "" {
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "duplicate repr attribute");
+                } else {
+                    pending_repr = repr
+                }
+            }
+        } else if k == tk_struct() {
+            if pending_repr != "" {
+                add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                pending_repr = ""
+            }
+            let decl = parse_struct_decl(src, lex, errors)
+            push(&mut structs, decl)
+        } else if k == tk_enum() {
+            let decl = parse_enum_decl(src, lex, errors, pending_repr)
+            pending_repr = ""
+            push(&mut enums, decl)
+        } else if k == tk_const() {
+            if pending_repr != "" {
+                add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                pending_repr = ""
+            }
+            lexer_next(lex)
+            let decl = parse_const_decl(src, lex, errors)
+            push(&mut consts, decl)
+        } else if k == tk_impl() {
+            if pending_repr != "" {
+                add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                pending_repr = ""
+            }
+            let decl = parse_impl(src, lex, errors)
+            push(&mut impls, decl)
+        } else if k == tk_fn() {
+            if pending_repr != "" {
+                add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                pending_repr = ""
+            }
+            lexer_next(lex)
+            let name = parse_ident(src, lex, errors)
+            let mut params: [Param] = []
+            let mut has_return = false
+            let mut ret = ""
+            let mut body = empty_block()
+            if peek_kind(lex) == tk_lparen() {
+                lexer_next(lex)
+                params = parse_params(src, lex, errors)
+                if peek_kind(lex) == tk_rparen() {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ')'");
+                }
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '(' after fn name");
+            }
+            if peek_kind(lex) == tk_arrow() {
+                lexer_next(lex)
+                ret = parse_type(src, lex, errors)
+                has_return = true
+            }
+            if peek_kind(lex) == tk_lbrace() {
+                body = parse_block(src, lex, errors)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '{' for function body");
+            }
+            push(&mut functions, FunctionDecl {
+                name: name,
+                params: params,
+                has_return: has_return,
+                ret: ret,
+                body: body,
+            })
+        } else {
+            if pending_repr != "" {
+                add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                pending_repr = ""
+            }
+            lexer_next(lex)
+        }
+    }
+    return Program { structs: structs, enums: enums, consts: consts, functions: functions, impls: impls }
+}

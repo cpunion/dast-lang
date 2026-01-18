@@ -1,0 +1,146 @@
+fn dump_tokens(src: String, toks: Tokens) {
+    let mut i = 0
+    let total = len(toks.items)
+    while i < total {
+        let tok = toks.items[i]
+        let lexeme = substr(src, tok.start, tok.len)
+        println(tok.kind, lexeme)
+        i = i + 1
+    }
+}
+
+fn dump_program(prog: Program) {
+    let mut si = 0
+    let struct_total = len(prog.structs)
+    while si < struct_total {
+        let s = prog.structs[si]
+        println("struct", s.name)
+        let mut fi = 0
+        let field_total = len(s.fields)
+        while fi < field_total {
+            let f = s.fields[fi]
+            println("  field", f.name, f.typ)
+            fi = fi + 1
+        }
+        si = si + 1
+    }
+    let mut ei = 0
+    let enum_total = len(prog.enums)
+    while ei < enum_total {
+        let e = prog.enums[ei]
+        if e.repr != "" {
+            println("enum", e.name, "repr", e.repr)
+        } else {
+            println("enum", e.name)
+        }
+        let mut vi = 0
+        let var_total = len(e.variants)
+        while vi < var_total {
+            let v = e.variants[vi]
+            if v.has_payload {
+                if v.has_value {
+                    println("  variant", v.name, v.payload, "=", v.value)
+                } else {
+                    println("  variant", v.name, v.payload)
+                }
+            } else {
+                if v.has_value {
+                    println("  variant", v.name, "=", v.value)
+                } else {
+                    println("  variant", v.name)
+                }
+            }
+            vi = vi + 1
+        }
+        ei = ei + 1
+    }
+
+    let mut ci = 0
+    let const_total = len(prog.consts)
+    while ci < const_total {
+        let c = prog.consts[ci]
+        if c.has_type {
+            println("const", c.name, ":", c.typ)
+        } else {
+            println("const", c.name)
+        }
+        ci = ci + 1
+    }
+
+    let mut i = 0
+    let total = len(prog.functions)
+    while i < total {
+        let f = prog.functions[i]
+        println("fn", f.name)
+        let mut j = 0
+        let param_count = len(f.params)
+        while j < param_count {
+            let p = f.params[j]
+            println("  param", p.name, p.typ)
+            j = j + 1
+        }
+        if f.has_return {
+            println("  return", f.ret)
+        }
+        let body_count = len(f.body.stmts)
+        println("  stmts", body_count)
+        i = i + 1
+    }
+
+    let mut im = 0
+    let impl_total = len(prog.impls)
+    while im < impl_total {
+        let imp = prog.impls[im]
+        println("impl", imp.type_name)
+        let mut mi = 0
+        let mtotal = len(imp.methods)
+        while mi < mtotal {
+            let m = imp.methods[mi]
+            println("  fn", m.name)
+            let mut pj = 0
+            let pcount = len(m.params)
+            while pj < pcount {
+                let p = m.params[pj]
+                println("    param", p.name, p.typ)
+                pj = pj + 1
+            }
+            if m.has_return {
+                println("    return", m.ret)
+            }
+            let body_count = len(m.body.stmts)
+            println("    stmts", body_count)
+            mi = mi + 1
+        }
+        im = im + 1
+    }
+}
+
+fn main() {
+    let argv = args()
+    if len(argv) < 1 {
+        println("usage: dastc <file> [--tokens]")
+        return
+    }
+    let src = read_file(argv[0])
+    let mut lex = lexer_new(src)
+    if len(argv) > 1 {
+        if argv[1] == "--tokens" {
+            dump_tokens(src, lex.toks)
+            return
+        }
+    }
+    let mut errors: [ParseError] = []
+    let prog = parse_program(src, &mut lex, &mut errors)
+    if len(errors) > 0 {
+        let mut i = 0
+        let total = len(errors)
+        while i < total {
+            let e = errors[i]
+            let near = lexeme_at(src, lex.toks, e.pos)
+            println("error", e.pos, e.msg, near)
+            i = i + 1
+        }
+        return
+    }
+    dump_program(prog)
+}

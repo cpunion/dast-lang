@@ -1,0 +1,18 @@
+fn main() {
+    let x = 1
+    let y = 2
+    let sum = x + y
+    println("sum =", sum)
+
+    let mut i = 0
+    while i < 5 {
+        println("i =", i)
+        i = i + 1
+    }
+
+    if sum == 3 {
+        println("ok")
+    } else {
+        println("not ok")
+    }
+}
