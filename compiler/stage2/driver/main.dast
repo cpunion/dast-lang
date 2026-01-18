@@ -212,6 +212,11 @@ fn driver_string_ends_with(text: String, suffix: String) -> bool {
     return substr(text, start, len(suffix)) == suffix
 }
 
+fn driver_string_starts_with(text: String, prefix: String) -> bool {
+    if len(text) < len(prefix) { return false }
+    return substr(text, 0, len(prefix)) == prefix
+}
+
 fn driver_list_dast_files(dir: String) -> [String] {
     let mut files: [String] = []
     let names = read_dir(dir)
@@ -227,6 +232,133 @@ fn driver_list_dast_files(dir: String) -> [String] {
     return files
 }
 
+fn driver_replace_slash(path: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(path) {
+        let c = char_at(path, i)
+        if c == 47 {
+            out = out + "."
+        } else {
+            out = out + substr(path, i, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn driver_path_rel(base: String, path: String) -> String {
+    if base == "" || base == "." {
+        return path
+    }
+    if path == base {
+        return ""
+    }
+    let mut prefix = base
+    if char_at(prefix, len(prefix) - 1) != 47 {
+        prefix = prefix + "/"
+    }
+    if driver_string_starts_with(path, prefix) {
+        return substr(path, len(prefix), len(path) - len(prefix))
+    }
+    return path
+}
+
+fn driver_module_path_from_dir(root_dir: String, dir: String) -> String {
+    let rel = driver_path_rel(root_dir, dir)
+    if rel == "" || rel == "." {
+        return ""
+    }
+    return driver_replace_slash(rel)
+}
+
+fn program_set_module(prog: &mut Program, module: String) {
+    let mut imports: [ImportDecl] = []
+    let mut i = 0
+    while i < len(prog.imports) {
+        let imp = prog.imports[i]
+        push(&mut imports, ImportDecl {
+            vis: imp.vis,
+            module: module,
+            has_items: imp.has_items,
+            items: imp.items,
+            path: imp.path,
+            has_alias: imp.has_alias,
+            alias: imp.alias,
+        })
+        i = i + 1
+    }
+    prog.imports = imports
+
+    let mut structs: [StructDecl] = []
+    i = 0
+    while i < len(prog.structs) {
+        let st = prog.structs[i]
+        push(&mut structs, StructDecl { vis: st.vis, module: module, name: st.name, fields: st.fields })
+        i = i + 1
+    }
+    prog.structs = structs
+
+    let mut enums: [EnumDecl] = []
+    i = 0
+    while i < len(prog.enums) {
+        let en = prog.enums[i]
+        push(&mut enums, EnumDecl { vis: en.vis, module: module, name: en.name, repr: en.repr, variants: en.variants })
+        i = i + 1
+    }
+    prog.enums = enums
+
+    let mut consts: [ConstDecl] = []
+    i = 0
+    while i < len(prog.consts) {
+        let c = prog.consts[i]
+        push(&mut consts, ConstDecl { vis: c.vis, module: module, name: c.name, has_type: c.has_type, typ: c.typ, value: c.value })
+        i = i + 1
+    }
+    prog.consts = consts
+
+    let mut funcs: [FunctionDecl] = []
+    i = 0
+    while i < len(prog.functions) {
+        let f = prog.functions[i]
+        push(&mut funcs, FunctionDecl {
+            vis: f.vis,
+            module: module,
+            name: f.name,
+            params: f.params,
+            has_return: f.has_return,
+            ret: f.ret,
+            body: f.body,
+        })
+        i = i + 1
+    }
+    prog.functions = funcs
+
+    let mut impls: [ImplDecl] = []
+    i = 0
+    while i < len(prog.impls) {
+        let imp = prog.impls[i]
+        let mut methods: [FunctionDecl] = []
+        let mut j = 0
+        while j < len(imp.methods) {
+            let m = imp.methods[j]
+            push(&mut methods, FunctionDecl {
+                vis: m.vis,
+                module: module,
+                name: m.name,
+                params: m.params,
+                has_return: m.has_return,
+                ret: m.ret,
+                body: m.body,
+            })
+            j = j + 1
+        }
+        push(&mut impls, ImplDecl { vis: imp.vis, module: module, type_name: imp.type_name, methods: methods })
+        i = i + 1
+    }
+    prog.impls = impls
+}
+
 struct LoadState {
     merged: Program,
     errors: [ParseError],
@@ -237,7 +369,7 @@ fn load_state_new() -> LoadState {
     return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new() }
 }
 
-fn load_file_recursive(path: String, state: &mut LoadState) {
+fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState) {
     if driver_list_contains(state.loaded, path) {
         return
     }
@@ -248,7 +380,8 @@ fn load_file_recursive(path: String, state: &mut LoadState) {
     let src = read_file(path)
     let mut lex = lexer_new(src)
     let mut local_errs: [ParseError] = []
-    let prog = parse_program(src, &mut lex, &mut local_errs)
+    let mut prog = parse_program(src, &mut lex, &mut local_errs)
+    program_set_module(&mut prog, module_path)
     let mut merged = state.merged
     append_program(&mut merged, prog)
     state.merged = merged
@@ -266,17 +399,18 @@ fn load_file_recursive(path: String, state: &mut LoadState) {
         let imp = prog.imports[j]
         if imp.path != "" {
             let child_dir = driver_module_path_to_dir(base, imp.path)
-            load_dir_recursive(child_dir, state)
+            load_dir_recursive(child_dir, root_dir, state)
         }
         j = j + 1
     }
 }
 
-fn load_dir_recursive(dir: String, state: &mut LoadState) {
+fn load_dir_recursive(dir: String, root_dir: String, state: &mut LoadState) {
+    let module_path = driver_module_path_from_dir(root_dir, dir)
     let files = driver_list_dast_files(dir)
     let mut i = 0
     while i < len(files) {
-        load_file_recursive(files[i], state)
+        load_file_recursive(files[i], root_dir, module_path, state)
         i = i + 1
     }
 }
@@ -337,7 +471,7 @@ fn main() {
     let mut i = 0
     while i < len(split.files) {
         let dir = driver_path_dir(split.files[i])
-        load_dir_recursive(dir, &mut state)
+        load_dir_recursive(dir, dir, &mut state)
         i = i + 1
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }

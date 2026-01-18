@@ -7,6 +7,8 @@ struct TypeTable {
 }
 
 struct FuncSig {
+    module: String,
+    vis: Visibility,
     name: String,
     params: [i32],
     ret: i32,
@@ -14,6 +16,8 @@ struct FuncSig {
 }
 
 struct MethodSig {
+    module: String,
+    vis: Visibility,
     type_name: String,
     name: String,
     func_name: String,
@@ -24,8 +28,21 @@ struct MethodSig {
 }
 
 struct ConstSig {
+    module: String,
+    vis: Visibility,
     name: String,
     typ: i32,
+}
+
+struct ModuleAlias {
+    alias: String,
+    module: String,
+}
+
+struct ImportItem {
+    local: String,
+    module: String,
+    name: String,
 }
 
 struct VarEntry {
@@ -48,7 +65,10 @@ struct TypeContext {
     consts: [ConstSig],
     structs: [StructDecl],
     enums: [EnumDecl],
-    module_aliases: [String],
+    imports: [ImportDecl],
+    module_aliases: [ModuleAlias],
+    import_items: [ImportItem],
+    current_module: String,
     builtins: [String],
     errors: [ParseError],
     env: Env,
@@ -77,8 +97,13 @@ fn type_table_new() -> TypeTable {
     return TypeTable { kinds: kinds, names: names, refs: refs, muts: muts, elems: elems }
 }
 
-fn alias_list_new() -> [String] {
-    let mut items: [String] = []
+fn alias_list_new() -> [ModuleAlias] {
+    let mut items: [ModuleAlias] = []
+    return items
+}
+
+fn import_entry_list_new() -> [ImportItem] {
+    let mut items: [ImportItem] = []
     return items
 }
 
@@ -97,12 +122,71 @@ fn path_last_segment(path: String) -> String {
     return substr(path, last, len(path) - last)
 }
 
-fn module_aliases_from_imports(imports: [ImportDecl]) -> [String] {
+fn qualify_name(module: String, name: String) -> String {
+    if module == "" {
+        return name
+    }
+    return module + "::" + name
+}
+
+fn module_parent(path: String) -> String {
+    let mut last = -1
+    let mut i = 0
+    while i < len(path) {
+        if char_at(path, i) == 46 {
+            last = i
+        }
+        i = i + 1
+    }
+    if last < 0 {
+        return ""
+    }
+    return substr(path, 0, last)
+}
+
+fn module_join(base: String, rel: String) -> String {
+    if base == "" { return rel }
+    if rel == "" { return base }
+    return base + "." + rel
+}
+
+fn module_is_prefix(prefix: String, path: String) -> bool {
+    if prefix == "" {
+        return true
+    }
+    if path == prefix {
+        return true
+    }
+    let want = prefix + "."
+    if len(path) < len(want) {
+        return false
+    }
+    return substr(path, 0, len(want)) == want
+}
+
+fn visibility_allows(vis: Visibility, def_module: String, use_module: String) -> bool {
+    if def_module == use_module {
+        return true
+    }
+    if vis.kind == vis_pub() {
+        return true
+    }
+    if vis.kind == vis_pub_crate() {
+        return true
+    }
+    if vis.kind == vis_pub_super() {
+        let parent = module_parent(def_module)
+        return module_is_prefix(parent, use_module)
+    }
+    return false
+}
+
+fn module_aliases_from_imports(imports: [ImportDecl], module: String) -> [ModuleAlias] {
     let mut aliases = alias_list_new()
     let mut i = 0
     while i < len(imports) {
         let imp = imports[i]
-        if !imp.has_items {
+        if imp.module == module && !imp.has_items {
             let mut name = ""
             if imp.has_alias {
                 name = imp.alias
@@ -110,7 +194,8 @@ fn module_aliases_from_imports(imports: [ImportDecl]) -> [String] {
                 name = path_last_segment(imp.path)
             }
             if name != "" {
-                push(&mut aliases, name)
+                let full = module_join(module, imp.path)
+                push(&mut aliases, ModuleAlias { alias: name, module: full })
             }
         }
         i = i + 1
@@ -118,15 +203,42 @@ fn module_aliases_from_imports(imports: [ImportDecl]) -> [String] {
     return aliases
 }
 
-fn is_module_alias(ctx: &TypeContext, name: String) -> bool {
+fn import_items_from_imports(imports: [ImportDecl], module: String) -> [ImportItem] {
+    let mut items = import_entry_list_new()
     let mut i = 0
-    while i < len(ctx.module_aliases) {
-        if ctx.module_aliases[i] == name {
-            return true
+    while i < len(imports) {
+        let imp = imports[i]
+        if imp.module == module && imp.has_items {
+            let full = module_join(module, imp.path)
+            let mut j = 0
+            while j < len(imp.items) {
+                let name = imp.items[j]
+                if name != "" {
+                    push(&mut items, ImportItem { local: name, module: full, name: name })
+                }
+                j = j + 1
+            }
         }
         i = i + 1
     }
-    return false
+    return items
+}
+
+fn module_alias_module(ctx: &TypeContext, name: String) -> String {
+    let mut i = 0
+    while i < len(ctx.module_aliases) {
+        if ctx.module_aliases[i].alias == name {
+            return ctx.module_aliases[i].module
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fn ctx_set_current_module(ctx: &mut TypeContext, module: String) {
+    ctx.current_module = module
+    ctx.module_aliases = module_aliases_from_imports(ctx.imports, module)
+    ctx.import_items = import_items_from_imports(ctx.imports, module)
 }
 
 fn type_make(types: &mut TypeTable, kind: i32, name: String, is_ref: bool, is_mut: bool, elem: i32) -> i32 {
@@ -324,11 +436,21 @@ fn ctx_type_for_const_value(ctx: &mut TypeContext, v: ConstValue) -> i32 {
 }
 
 fn ctx_parse_type(ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
-    let structs = ctx.structs
-    let enums = ctx.enums
     let mut types = ctx.types
-    let t = parse_type_from_text(&mut types, &structs, &enums, text, self_name)
+    let t = parse_type_from_text(&mut types, ctx, text, self_name)
     ctx.types = types
+    return t
+}
+
+fn ctx_parse_type_in_module(ctx: &mut TypeContext, text: String, self_name: String, module: String) -> i32 {
+    let saved_module = ctx.current_module
+    let saved_aliases = ctx.module_aliases
+    let saved_items = ctx.import_items
+    ctx_set_current_module(ctx, module)
+    let t = ctx_parse_type(ctx, text, self_name)
+    ctx.current_module = saved_module
+    ctx.module_aliases = saved_aliases
+    ctx.import_items = saved_items
     return t
 }
 
@@ -389,19 +511,19 @@ fn ctx_is_string(ctx: &TypeContext, t: i32) -> bool {
     return is_string(&types, t)
 }
 
-fn ctx_find_struct(ctx: &TypeContext, name: String) -> i32 {
+fn ctx_find_struct(ctx: &TypeContext, qname: String) -> i32 {
     let structs = ctx.structs
-    return find_struct(&structs, name)
+    return find_struct_qname(&structs, qname)
 }
 
-fn ctx_find_enum(ctx: &TypeContext, name: String) -> i32 {
+fn ctx_find_enum(ctx: &TypeContext, qname: String) -> i32 {
     let enums = ctx.enums
-    return find_enum(&enums, name)
+    return find_enum_qname(&enums, qname)
 }
 
-fn ctx_find_const(ctx: &TypeContext, name: String) -> i32 {
+fn ctx_find_const(ctx: &TypeContext, qname: String) -> i32 {
     let consts = ctx.consts
-    return find_const(&consts, name)
+    return find_const_qname(&consts, qname)
 }
 
 fn ctx_env_lookup(ctx: &TypeContext, name: String) -> VarEntry {
@@ -491,12 +613,12 @@ fn is_int(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 1 &
 fn is_bool(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 2 && !type_is_ref(types, t) }
 fn is_string(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 3 && !type_is_ref(types, t) }
 
-fn parse_type_from_text(types: &mut TypeTable, structs: & [StructDecl], enums: & [EnumDecl], text: String, self_name: String) -> i32 {
+fn parse_type_from_text(types: &mut TypeTable, ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
     let mut i = 0
-    return parse_type_text_inner(types, structs, enums, text, self_name, &mut i)
+    return parse_type_text_inner(types, ctx, text, self_name, &mut i)
 }
 
-fn parse_type_text_inner(types: &mut TypeTable, structs: & [StructDecl], enums: & [EnumDecl], text: String, self_name: String, idx: &mut i32) -> i32 {
+fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: String, self_name: String, idx: &mut i32) -> i32 {
     // skip spaces
     let mut scanning = true
     while *idx < len(text) && scanning {
@@ -530,7 +652,7 @@ fn parse_type_text_inner(types: &mut TypeTable, structs: & [StructDecl], enums: 
         let c = char_at(text, *idx)
         if c == 91 {
             *idx = *idx + 1
-            let elem = parse_type_text_inner(types, structs, enums, text, self_name, idx)
+            let elem = parse_type_text_inner(types, ctx, text, self_name, idx)
             if *idx < len(text) {
                 if char_at(text, *idx) == 93 {
                     *idx = *idx + 1
@@ -565,18 +687,32 @@ fn parse_type_text_inner(types: &mut TypeTable, structs: & [StructDecl], enums: 
         kind = 3
     } else if name == "unit" || name == "()" {
         kind = 4
-    } else if find_struct(structs, name) >= 0 {
-        kind = 5
-    } else if find_enum(enums, name) >= 0 {
-        kind = 6
+    } else {
+        let resolved = ctx_resolve_type_name(ctx, name, self_name)
+        name = resolved
+        let structs = ctx.structs
+        let enums = ctx.enums
+        if find_struct_qname(&structs, name) >= 0 {
+            kind = 5
+        } else if find_enum_qname(&enums, name) >= 0 {
+            kind = 6
+        }
     }
     return type_make(types, kind, name, is_ref, is_mut, -1)
 }
 
-fn find_struct(structs: & [StructDecl], name: String) -> i32 {
+fn struct_qname(st: StructDecl) -> String {
+    return qualify_name(st.module, st.name)
+}
+
+fn enum_qname(en: EnumDecl) -> String {
+    return qualify_name(en.module, en.name)
+}
+
+fn find_struct_qname(structs: & [StructDecl], qname: String) -> i32 {
     let mut i = 0
     while i < len(structs) {
-        if structs[i].name == name {
+        if struct_qname(structs[i]) == qname {
             return i
         }
         i = i + 1
@@ -584,10 +720,21 @@ fn find_struct(structs: & [StructDecl], name: String) -> i32 {
     return -1
 }
 
-fn find_enum(enums: & [EnumDecl], name: String) -> i32 {
+fn find_struct_in_module(structs: & [StructDecl], module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(structs) {
+        if structs[i].module == module && structs[i].name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn find_enum_qname(enums: & [EnumDecl], qname: String) -> i32 {
     let mut i = 0
     while i < len(enums) {
-        if enums[i].name == name {
+        if enum_qname(enums[i]) == qname {
             return i
         }
         i = i + 1
@@ -595,10 +742,36 @@ fn find_enum(enums: & [EnumDecl], name: String) -> i32 {
     return -1
 }
 
-fn find_const(consts: & [ConstSig], name: String) -> i32 {
+fn find_enum_in_module(enums: & [EnumDecl], module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(enums) {
+        if enums[i].module == module && enums[i].name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn const_qname(c: ConstSig) -> String {
+    return qualify_name(c.module, c.name)
+}
+
+fn find_const_qname(consts: & [ConstSig], qname: String) -> i32 {
     let mut i = 0
     while i < len(consts) {
-        if consts[i].name == name {
+        if const_qname(consts[i]) == qname {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn find_const_in_module(consts: & [ConstSig], module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(consts) {
+        if consts[i].module == module && consts[i].name == name {
             return i
         }
         i = i + 1
@@ -658,8 +831,18 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
-        if ctx_find_const(ctx, f.name) >= 0 {
+        ctx_set_current_module(ctx, f.module)
+        let consts = ctx.consts
+        let structs = ctx.structs
+        let enums = ctx.enums
+        if find_func_in_module(ctx, f.module, f.name) >= 0 {
+            add_type_error(ctx, "duplicate function '" + f.name + "'")
+        } else if find_const_in_module(&consts, f.module, f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by const")
+        } else if find_struct_in_module(&structs, f.module, f.name) >= 0 {
+            add_type_error(ctx, "name '" + f.name + "' already used by struct")
+        } else if find_enum_in_module(&enums, f.module, f.name) >= 0 {
+            add_type_error(ctx, "name '" + f.name + "' already used by enum")
         } else {
             let mut params: [i32] = []
             let mut j = 0
@@ -675,7 +858,14 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
                 ret = ctx_parse_type(ctx, f.ret, "")
                 explicit = true
             }
-            ctx_push_func(ctx, FuncSig { name: f.name, params: params, ret: ret, ret_explicit: explicit })
+            ctx_push_func(ctx, FuncSig {
+                module: f.module,
+                vis: f.vis,
+                name: f.name,
+                params: params,
+                ret: ret,
+                ret_explicit: explicit,
+            })
         }
         i = i + 1
     }
@@ -685,14 +875,21 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.consts) {
         let c = prog.consts[i]
-        if ctx_find_const(ctx, c.name) >= 0 {
+        ctx_set_current_module(ctx, c.module)
+        let consts = ctx.consts
+        let structs = ctx.structs
+        let enums = ctx.enums
+        if find_const_in_module(&consts, c.module, c.name) >= 0 {
             add_type_error(ctx, "duplicate const '" + c.name + "'")
         } else {
-            if ctx_find_struct(ctx, c.name) >= 0 {
+            if find_struct_in_module(&structs, c.module, c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by struct")
             }
-            if ctx_find_enum(ctx, c.name) >= 0 {
+            if find_enum_in_module(&enums, c.module, c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by enum")
+            }
+            if find_func_in_module(ctx, c.module, c.name) >= 0 {
+                add_type_error(ctx, "name '" + c.name + "' already used by function")
             }
             let val_t = ctx_type_for_const_value(ctx, c.value)
             let mut decl_t = val_t
@@ -702,7 +899,7 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
                     add_type_error(ctx, "const '" + c.name + "' type mismatch")
                 }
             }
-            ctx_push_const(ctx, ConstSig { name: c.name, typ: decl_t })
+            ctx_push_const(ctx, ConstSig { module: c.module, vis: c.vis, name: c.name, typ: decl_t })
         }
         i = i + 1
     }
@@ -712,42 +909,48 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.impls) {
         let imp = prog.impls[i]
+        ctx_set_current_module(ctx, imp.module)
+        let type_qname = ctx_resolve_type_name(ctx, imp.type_name, "")
         let mut j = 0
         while j < len(imp.methods) {
             let f = imp.methods[j]
-            if find_method(ctx, imp.type_name, f.name) >= 0 {
-                add_type_error(ctx, "duplicate method '" + f.name + "' for '" + imp.type_name + "'")
-            } else {
-                let mut params: [i32] = []
-                let mut k = 0
-                while k < len(f.params) {
-                    let p = f.params[k]
-                    if p.name == "self" && k != 0 {
-                        add_type_error(ctx, "self must be first parameter")
+            if type_qname != "" {
+                if find_method(ctx, type_qname, f.name) >= 0 {
+                    add_type_error(ctx, "duplicate method '" + f.name + "' for '" + imp.type_name + "'")
+                } else {
+                    let mut params: [i32] = []
+                    let mut k = 0
+                    while k < len(f.params) {
+                        let p = f.params[k]
+                        if p.name == "self" && k != 0 {
+                            add_type_error(ctx, "self must be first parameter")
+                        }
+                        let t = ctx_parse_type(ctx, p.typ, type_qname)
+                        push(&mut params, t)
+                        k = k + 1
                     }
-                    let t = ctx_parse_type(ctx, p.typ, imp.type_name)
-                    push(&mut params, t)
-                    k = k + 1
+                    let mut ret = 0
+                    let mut explicit = false
+                    if f.has_return {
+                        ret = ctx_parse_type(ctx, f.ret, type_qname)
+                        explicit = true
+                    }
+                    let mut has_self = false
+                    if len(f.params) > 0 && f.params[0].name == "self" {
+                        has_self = true
+                    }
+                    ctx_push_method(ctx, MethodSig {
+                        module: imp.module,
+                        vis: f.vis,
+                        type_name: type_qname,
+                        name: f.name,
+                        func_name: type_qname + "." + f.name,
+                        params: params,
+                        ret: ret,
+                        ret_explicit: explicit,
+                        has_self: has_self,
+                    })
                 }
-                let mut ret = 0
-                let mut explicit = false
-                if f.has_return {
-                    ret = ctx_parse_type(ctx, f.ret, imp.type_name)
-                    explicit = true
-                }
-                let mut has_self = false
-                if len(f.params) > 0 && f.params[0].name == "self" {
-                    has_self = true
-                }
-                ctx_push_method(ctx, MethodSig {
-                    type_name: imp.type_name,
-                    name: f.name,
-                    func_name: imp.type_name + "." + f.name,
-                    params: params,
-                    ret: ret,
-                    ret_explicit: explicit,
-                    has_self: has_self,
-                })
             }
             j = j + 1
         }
@@ -755,10 +958,25 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
-fn find_func(ctx: &TypeContext, name: String) -> i32 {
+fn func_qname(f: FuncSig) -> String {
+    return qualify_name(f.module, f.name)
+}
+
+fn find_func_qname(ctx: &TypeContext, qname: String) -> i32 {
     let mut i = 0
     while i < len(ctx.funcs) {
-        if ctx.funcs[i].name == name {
+        if func_qname(ctx.funcs[i]) == qname {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn find_func_in_module(ctx: &TypeContext, module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(ctx.funcs) {
+        if ctx.funcs[i].module == module && ctx.funcs[i].name == name {
             return i
         }
         i = i + 1
@@ -805,6 +1023,123 @@ fn is_builtin(ctx: &TypeContext, name: String) -> bool {
     return false
 }
 
+fn find_import_item(ctx: &TypeContext, name: String) -> i32 {
+    let mut i = 0
+    while i < len(ctx.import_items) {
+        if ctx.import_items[i].local == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn resolve_struct_name(ctx: &mut TypeContext, name: String) -> String {
+    let structs = ctx.structs
+    if find_struct_in_module(&structs, ctx.current_module, name) >= 0 {
+        return qualify_name(ctx.current_module, name)
+    }
+    let idx = find_import_item(ctx, name)
+    if idx >= 0 {
+        let item = ctx.import_items[idx]
+        let sidx = find_struct_in_module(&structs, item.module, item.name)
+        if sidx >= 0 {
+            let decl = structs[sidx]
+            if visibility_allows(decl.vis, decl.module, ctx.current_module) {
+                return qualify_name(decl.module, decl.name)
+            }
+            add_type_error(ctx, "struct '" + name + "' is private")
+            return ""
+        }
+        add_type_error(ctx, "imported '" + name + "' is not a struct")
+    }
+    return ""
+}
+
+fn resolve_enum_name(ctx: &mut TypeContext, name: String) -> String {
+    let enums = ctx.enums
+    if find_enum_in_module(&enums, ctx.current_module, name) >= 0 {
+        return qualify_name(ctx.current_module, name)
+    }
+    let idx = find_import_item(ctx, name)
+    if idx >= 0 {
+        let item = ctx.import_items[idx]
+        let eidx = find_enum_in_module(&enums, item.module, item.name)
+        if eidx >= 0 {
+            let decl = enums[eidx]
+            if visibility_allows(decl.vis, decl.module, ctx.current_module) {
+                return qualify_name(decl.module, decl.name)
+            }
+            add_type_error(ctx, "enum '" + name + "' is private")
+            return ""
+        }
+        add_type_error(ctx, "imported '" + name + "' is not an enum")
+    }
+    return ""
+}
+
+fn resolve_const_name(ctx: &mut TypeContext, name: String) -> String {
+    let consts = ctx.consts
+    if find_const_in_module(&consts, ctx.current_module, name) >= 0 {
+        return qualify_name(ctx.current_module, name)
+    }
+    let idx = find_import_item(ctx, name)
+    if idx >= 0 {
+        let item = ctx.import_items[idx]
+        let cidx = find_const_in_module(&consts, item.module, item.name)
+        if cidx >= 0 {
+            let c = consts[cidx]
+            if visibility_allows(c.vis, c.module, ctx.current_module) {
+                return qualify_name(c.module, c.name)
+            }
+            add_type_error(ctx, "const '" + name + "' is private")
+            return ""
+        }
+        add_type_error(ctx, "imported '" + name + "' is not a const")
+    }
+    return ""
+}
+
+fn resolve_func_name(ctx: &mut TypeContext, name: String) -> String {
+    if find_func_in_module(ctx, ctx.current_module, name) >= 0 {
+        return qualify_name(ctx.current_module, name)
+    }
+    let idx = find_import_item(ctx, name)
+    if idx >= 0 {
+        let item = ctx.import_items[idx]
+        let fidx = find_func_in_module(ctx, item.module, item.name)
+        if fidx >= 0 {
+            let f = ctx.funcs[fidx]
+            if visibility_allows(f.vis, f.module, ctx.current_module) {
+                return qualify_name(f.module, f.name)
+            }
+            add_type_error(ctx, "function '" + name + "' is private")
+            return ""
+        }
+        add_type_error(ctx, "imported '" + name + "' is not a function")
+    }
+    return ""
+}
+
+fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String) -> String {
+    if name == "Self" && self_name != "" {
+        return self_name
+    }
+    if name == "i8" || name == "i16" || name == "i32" || name == "i64" || name == "i128" ||
+       name == "u8" || name == "u16" || name == "u32" || name == "u64" || name == "u128" ||
+       name == "isize" || name == "usize" || name == "int" ||
+       name == "bool" || name == "String" || name == "str" || name == "string" ||
+       name == "unit" || name == "()" {
+        return name
+    }
+    let s = resolve_struct_name(ctx, name)
+    if s != "" { return s }
+    let e = resolve_enum_name(ctx, name)
+    if e != "" { return e }
+    add_type_error(ctx, "unknown type '" + name + "'")
+    return name
+}
+
 fn deref_type(types: &mut TypeTable, t: i32) -> i32 {
     if t == 0 { return 0 }
     let kind = type_kind(types, t)
@@ -820,15 +1155,20 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             if v.name != "" {
                 return v.typ
             }
-            let cidx = ctx_find_const(ctx, x.name)
-            if cidx >= 0 {
-                return ctx.consts[cidx].typ
+            let cq = resolve_const_name(ctx, x.name)
+            if cq != "" {
+                let cidx = ctx_find_const(ctx, cq)
+                if cidx >= 0 {
+                    return ctx.consts[cidx].typ
+                }
             }
-            if ctx_find_enum(ctx, x.name) >= 0 {
-                return ctx_type_make(ctx, 6, x.name, false, false, -1)
+            let eq = resolve_enum_name(ctx, x.name)
+            if eq != "" {
+                return ctx_type_make(ctx, 6, eq, false, false, -1)
             }
-            if ctx_find_struct(ctx, x.name) >= 0 {
-                return ctx_type_make(ctx, 5, x.name, false, false, -1)
+            let sq = resolve_struct_name(ctx, x.name)
+            if sq != "" {
+                return ctx_type_make(ctx, 5, sq, false, false, -1)
             }
             add_type_error(ctx, "undefined variable '" + x.name + "'")
             return 0
@@ -897,7 +1237,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 .Ident(id) => {
                     let v = ctx_env_lookup(ctx, id.name)
                     if v.name == "" {
-                        if ctx_find_const(ctx, id.name) >= 0 {
+                        if resolve_const_name(ctx, id.name) != "" {
                             add_type_error(ctx, "cannot take reference to const '" + id.name + "'")
                         } else {
                             add_type_error(ctx, "undefined variable '" + id.name + "'")
@@ -966,7 +1306,11 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             return ctx_type_elem(ctx, base)
         }
         .StructLit(s) => {
-            let idx = ctx_find_struct(ctx, s.name)
+            let qname = resolve_struct_name(ctx, s.name)
+            if qname == "" {
+                return 0
+            }
+            let idx = ctx_find_struct(ctx, qname)
             if idx < 0 {
                 add_type_error(ctx, "unknown struct '" + s.name + "'")
                 return 0
@@ -980,7 +1324,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     add_type_error(ctx, "unknown field '" + f.name + "'")
                 } else {
                     let field = decl.fields[find_field(decl, f.name)]
-                    let ft = ctx_parse_type(ctx, field.typ, "")
+                    if !visibility_allows(field.vis, decl.module, ctx.current_module) {
+                        add_type_error(ctx, "field '" + f.name + "' is private")
+                    }
+                    let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
                     let vt = check_expr(ctx, f.value)
                     if !ctx_type_assignable(ctx, vt, ft) && ft != 0 && vt != 0 {
                         add_type_error(ctx, "field type mismatch")
@@ -1001,18 +1348,24 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     k = k + 1
                 }
                 if !found {
-                    add_type_error(ctx, "missing field '" + fname + "'")
+                    if !visibility_allows(decl.fields[j].vis, decl.module, ctx.current_module) {
+                        add_type_error(ctx, "field '" + fname + "' is private")
+                    } else {
+                        add_type_error(ctx, "missing field '" + fname + "'")
+                    }
                 }
                 j = j + 1
             }
-            return ctx_type_make(ctx, 5, s.name, false, false, -1)
+            return ctx_type_make(ctx, 5, qname, false, false, -1)
         }
         .Field(f) => {
             match f.recv {
                 .Ident(id) => {
                     if ctx_env_lookup(ctx, id.name).name == "" {
-                        let eidx = ctx_find_enum(ctx, id.name)
-                        if eidx >= 0 {
+                        let eq = resolve_enum_name(ctx, id.name)
+                        if eq != "" {
+                            let eidx = ctx_find_enum(ctx, eq)
+                            if eidx < 0 { return 0 }
                             let en = ctx.enums[eidx]
                             let vidx = find_variant(en, f.name)
                             if vidx < 0 {
@@ -1022,7 +1375,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             if en.variants[vidx].has_payload {
                                 add_type_error(ctx, "variant requires payload")
                             }
-                            return ctx_type_make(ctx, 6, id.name, false, false, -1)
+                            return ctx_type_make(ctx, 6, eq, false, false, -1)
                         }
                     }
                 }
@@ -1051,27 +1404,33 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 add_type_error(ctx, "unknown field '" + f.name + "'")
                 return 0
             }
-            let ft = ctx_parse_type(ctx, decl.fields[find].typ, "")
+            if !visibility_allows(decl.fields[find].vis, decl.module, ctx.current_module) {
+                add_type_error(ctx, "field '" + f.name + "' is private")
+            }
+            let ft = ctx_parse_type_in_module(ctx, decl.fields[find].typ, "", decl.module)
             return ft
         }
         .Call(c) => {
             match c.callee {
                 .Ident(id) => {
-                    let fidx = find_func(ctx, id.name)
-                    if fidx >= 0 {
-                        let sig = ctx.funcs[fidx]
-                        if len(c.args) != len(sig.params) {
-                            add_type_error(ctx, "argument count mismatch")
-                        }
-                        let mut i = 0
-                        while i < len(c.args) && i < len(sig.params) {
-                            let at = check_expr(ctx, c.args[i])
-                            if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
-                                add_type_error(ctx, "argument type mismatch")
+                    let fq = resolve_func_name(ctx, id.name)
+                    if fq != "" {
+                        let fidx = find_func_qname(ctx, fq)
+                        if fidx >= 0 {
+                            let sig = ctx.funcs[fidx]
+                            if len(c.args) != len(sig.params) {
+                                add_type_error(ctx, "argument count mismatch")
                             }
-                            i = i + 1
+                            let mut i = 0
+                            while i < len(c.args) && i < len(sig.params) {
+                                let at = check_expr(ctx, c.args[i])
+                                if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
+                                    add_type_error(ctx, "argument type mismatch")
+                                }
+                                i = i + 1
+                            }
+                            return sig.ret
                         }
-                        return sig.ret
                     }
                     if is_builtin(ctx, id.name) {
                         if id.name == "len" {
@@ -1214,8 +1573,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 .Field(f) => {
                     match f.recv {
                         .Ident(id) => {
-                            let eidx = ctx_find_enum(ctx, id.name)
-                            if eidx >= 0 {
+                            let eq = resolve_enum_name(ctx, id.name)
+                            if eq != "" {
+                                let eidx = ctx_find_enum(ctx, eq)
+                                if eidx < 0 { return 0 }
                                 let en = ctx.enums[eidx]
                                 let vidx = find_variant(en, f.name)
                                 if vidx < 0 {
@@ -1226,7 +1587,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     if len(c.args) != 1 {
                                         add_type_error(ctx, "variant expects payload")
                                     } else {
-                                        let payload_t = ctx_parse_type(ctx, en.variants[vidx].payload, "")
+                                        let payload_t = ctx_parse_type_in_module(ctx, en.variants[vidx].payload, "", en.module)
                                         let at = check_expr(ctx, c.args[0])
                                         if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
                                             add_type_error(ctx, "variant payload type mismatch")
@@ -1235,7 +1596,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 } else if len(c.args) != 0 {
                                     add_type_error(ctx, "variant has no payload")
                                 }
-                                return ctx_type_make(ctx, 6, id.name, false, false, -1)
+                                return ctx_type_make(ctx, 6, eq, false, false, -1)
                             }
                         }
                         _ => {}
@@ -1253,31 +1614,15 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             match m.recv {
                 .Ident(id) => {
                     if ctx_env_lookup(ctx, id.name).name == "" {
-                        let eidx = ctx_find_enum(ctx, id.name)
-                        if eidx >= 0 {
-                            let en = ctx.enums[eidx]
-                            let vidx = find_variant(en, m.method)
-                            if vidx >= 0 {
-                                if en.variants[vidx].has_payload {
-                                    if len(m.args) != 1 {
-                                        add_type_error(ctx, "variant expects payload")
-                                    } else {
-                                        let payload_t = ctx_parse_type(ctx, en.variants[vidx].payload, "")
-                                        let at = check_expr(ctx, m.args[0])
-                                        if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
-                                            add_type_error(ctx, "variant payload type mismatch")
-                                        }
-                                    }
-                                } else if len(m.args) != 0 {
-                                    add_type_error(ctx, "variant has no payload")
-                                }
-                                return ctx_type_make(ctx, 6, id.name, false, false, -1)
-                            }
-                        }
-                        if is_module_alias(ctx, id.name) {
-                            let fidx = find_func(ctx, m.method)
+                        let alias_mod = module_alias_module(ctx, id.name)
+                        if alias_mod != "" {
+                            let fidx = find_func_in_module(ctx, alias_mod, m.method)
                             if fidx >= 0 {
                                 let sig = ctx.funcs[fidx]
+                                if !visibility_allows(sig.vis, sig.module, ctx.current_module) {
+                                    add_type_error(ctx, "function '" + m.method + "' is private")
+                                    return sig.ret
+                                }
                                 if len(m.args) != len(sig.params) {
                                     add_type_error(ctx, "function argument count mismatch")
                                 }
@@ -1292,24 +1637,58 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 return sig.ret
                             }
                         }
-                        let midx = find_method(ctx, id.name, m.method)
-                        if midx >= 0 {
-                            let sig = ctx.methods[midx]
-                            if sig.has_self {
-                                add_type_error(ctx, "static call to method that requires self")
-                            }
-                            if len(m.args) != len(sig.params) {
-                                add_type_error(ctx, "method argument count mismatch")
-                            }
-                            let mut i = 0
-                            while i < len(m.args) && i < len(sig.params) {
-                                let at = check_expr(ctx, m.args[i])
-                                if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
-                                    add_type_error(ctx, "method argument type mismatch")
+                        let eq = resolve_enum_name(ctx, id.name)
+                        if eq != "" {
+                            let eidx = ctx_find_enum(ctx, eq)
+                            if eidx >= 0 {
+                                let en = ctx.enums[eidx]
+                                let vidx = find_variant(en, m.method)
+                                if vidx >= 0 {
+                                    if en.variants[vidx].has_payload {
+                                        if len(m.args) != 1 {
+                                            add_type_error(ctx, "variant expects payload")
+                                        } else {
+                                            let payload_t = ctx_parse_type_in_module(ctx, en.variants[vidx].payload, "", en.module)
+                                            let at = check_expr(ctx, m.args[0])
+                                            if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
+                                                add_type_error(ctx, "variant payload type mismatch")
+                                            }
+                                        }
+                                    } else if len(m.args) != 0 {
+                                        add_type_error(ctx, "variant has no payload")
+                                    }
+                                    return ctx_type_make(ctx, 6, eq, false, false, -1)
                                 }
-                                i = i + 1
                             }
-                            return sig.ret
+                        }
+                        let mut type_q = eq
+                        if type_q == "" {
+                            type_q = resolve_struct_name(ctx, id.name)
+                        }
+                        if type_q != "" {
+                            let midx = find_method(ctx, type_q, m.method)
+                            if midx >= 0 {
+                                let sig = ctx.methods[midx]
+                                if !visibility_allows(sig.vis, sig.module, ctx.current_module) {
+                                    add_type_error(ctx, "method '" + m.method + "' is private")
+                                    return sig.ret
+                                }
+                                if sig.has_self {
+                                    add_type_error(ctx, "static call to method that requires self")
+                                }
+                                if len(m.args) != len(sig.params) {
+                                    add_type_error(ctx, "method argument count mismatch")
+                                }
+                                let mut i = 0
+                                while i < len(m.args) && i < len(sig.params) {
+                                    let at = check_expr(ctx, m.args[i])
+                                    if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
+                                        add_type_error(ctx, "method argument type mismatch")
+                                    }
+                                    i = i + 1
+                                }
+                                return sig.ret
+                            }
                         }
                     }
                 }
@@ -1335,6 +1714,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 return 0
             }
             let sig = ctx.methods[midx]
+            if !visibility_allows(sig.vis, sig.module, ctx.current_module) {
+                add_type_error(ctx, "method '" + m.method + "' is private")
+                return sig.ret
+            }
             if !sig.has_self {
                 add_type_error(ctx, "method requires no self; call as Type.method()")
                 return sig.ret
@@ -1364,7 +1747,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
         .Ident(id) => {
             let v = ctx_env_lookup(ctx, id.name)
             if v.name == "" {
-                if ctx_find_const(ctx, id.name) >= 0 {
+                if resolve_const_name(ctx, id.name) != "" {
                     add_type_error(ctx, "cannot assign to const '" + id.name + "'")
                 } else {
                     add_type_error(ctx, "undefined variable '" + id.name + "'")
@@ -1459,7 +1842,10 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 add_type_error(ctx, "unknown field '" + f.name + "'")
                 return
             }
-            let ft = ctx_parse_type(ctx, decl.fields[find].typ, "")
+            if !visibility_allows(decl.fields[find].vis, decl.module, ctx.current_module) {
+                add_type_error(ctx, "field '" + f.name + "' is private")
+            }
+            let ft = ctx_parse_type_in_module(ctx, decl.fields[find].typ, "", decl.module)
             let vt = check_expr(ctx, value)
             if !ctx_type_assignable(ctx, vt, ft) && vt != 0 && ft != 0 {
                 add_type_error(ctx, "field assignment type mismatch")
@@ -1639,6 +2025,8 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
                 let mut pat_enum = vp.enum_name
                 if pat_enum == "" {
                     pat_enum = enum_name
+                } else {
+                    pat_enum = resolve_enum_name(ctx, pat_enum)
                 }
                 if pat_enum == "" {
                     add_type_error(ctx, "cannot resolve enum for pattern")
@@ -1655,7 +2043,7 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
                             if !decl.variants[vidx].has_payload {
                                 add_type_error(ctx, "variant has no payload to bind")
                             } else {
-                                let pt = ctx_parse_type(ctx, decl.variants[vidx].payload, "")
+                                let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
                                 ctx_env_declare(ctx, vp.binding, pt, false)
                             }
                         }
@@ -1687,6 +2075,8 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
                 let mut pat_enum = vp.enum_name
                 if pat_enum == "" {
                     pat_enum = enum_name
+                } else {
+                    pat_enum = resolve_enum_name(ctx, pat_enum)
                 }
                 if pat_enum == "" {
                     add_type_error(ctx, "cannot resolve enum for pattern")
@@ -1703,7 +2093,7 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
                             if !decl.variants[vidx].has_payload {
                                 add_type_error(ctx, "variant has no payload to bind")
                             } else {
-                                let pt = ctx_parse_type(ctx, decl.variants[vidx].payload, "")
+                                let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
                                 ctx_env_declare(ctx, vp.binding, pt, false)
                             }
                         }
@@ -1718,12 +2108,13 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
 }
 
 fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
-    let fidx = find_func(ctx, f.name)
+    ctx_set_current_module(ctx, f.module)
+    let fidx = find_func_in_module(ctx, f.module, f.name)
     if fidx < 0 {
         return
     }
     let sig = ctx.funcs[fidx]
-    ctx.current_func = sig.name
+    ctx.current_func = qualify_name(sig.module, sig.name)
     ctx.current_ret = sig.ret
     ctx.current_ret_explicit = sig.ret_explicit
     ctx.infer_return = !sig.ret_explicit
@@ -1759,11 +2150,13 @@ fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
 }
 
 fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
+    ctx_set_current_module(ctx, f.module)
     let midx = find_method(ctx, type_name, f.name)
     if midx < 0 {
         return
     }
     let sig = ctx.methods[midx]
+    ctx.current_func = sig.func_name
     if sig.has_self {
         if len(f.params) == 0 || f.params[0].name != "self" {
             add_type_error(ctx, "self must be first parameter")
@@ -1784,7 +2177,6 @@ fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
         }
     }
 
-    ctx.current_func = sig.func_name
     ctx.current_ret = sig.ret
     ctx.current_ret_explicit = sig.ret_explicit
     ctx.infer_return = !sig.ret_explicit
@@ -1830,7 +2222,10 @@ fn check_program(prog: Program) -> TypeContext {
         consts: const_sig_list_new(),
         structs: prog.structs,
         enums: prog.enums,
+        imports: prog.imports,
         module_aliases: alias_list_new(),
+        import_items: import_entry_list_new(),
+        current_module: "",
         builtins: builtin_list(),
         errors: parse_error_list_new(),
         env: env_new(),
@@ -1843,7 +2238,6 @@ fn check_program(prog: Program) -> TypeContext {
         current_ret_explicit: false,
         self_type: "",
     }
-    ctx.module_aliases = module_aliases_from_imports(prog.imports)
     let mut ei = 0
     while ei < len(prog.enums) {
         let e = prog.enums[ei]
@@ -1863,9 +2257,13 @@ fn check_program(prog: Program) -> TypeContext {
     let mut j = 0
     while j < len(prog.impls) {
         let imp = prog.impls[j]
+        ctx_set_current_module(&mut ctx, imp.module)
+        let type_qname = ctx_resolve_type_name(&mut ctx, imp.type_name, "")
         let mut k = 0
         while k < len(imp.methods) {
-            check_method(&mut ctx, imp.type_name, imp.methods[k])
+            if type_qname != "" {
+                check_method(&mut ctx, type_qname, imp.methods[k])
+            }
             k = k + 1
         }
         j = j + 1

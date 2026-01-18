@@ -25,6 +25,7 @@ struct ConstValue {
 
 struct ConstDecl {
     vis: Visibility,
+    module: String,
     name: String,
     has_type: bool,
     typ: String,
@@ -44,6 +45,7 @@ struct Field {
 
 struct StructDecl {
     vis: Visibility,
+    module: String,
     name: String,
     fields: [Field],
 }
@@ -58,6 +60,7 @@ struct Variant {
 
 struct EnumDecl {
     vis: Visibility,
+    module: String,
     name: String,
     repr: String,
     variants: [Variant],
@@ -229,6 +232,7 @@ struct AssignStmt {
 
 struct FunctionDecl {
     vis: Visibility,
+    module: String,
     name: String,
     params: [Param],
     has_return: bool,
@@ -238,12 +242,14 @@ struct FunctionDecl {
 
 struct ImplDecl {
     vis: Visibility,
+    module: String,
     type_name: String,
     methods: [FunctionDecl],
 }
 
 struct ImportDecl {
     vis: Visibility,
+    module: String,
     has_items: bool,
     items: [String],
     path: String,

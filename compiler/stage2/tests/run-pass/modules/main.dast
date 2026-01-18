@@ -1,0 +1,12 @@
+import { add } from math
+import math as m
+import { Point } from geom
+
+fn main() {
+    let v = add(2, 3)
+    let w = m.mul(3, 4)
+    let p = Point { x: v, y: w }
+    println("sum", v)
+    println("mul", w)
+    println("point", p.x, p.y)
+}

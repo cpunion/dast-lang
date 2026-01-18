@@ -3,9 +3,11 @@ SHELL := /bin/sh
 STAGE0_DIR := compiler/bootstrap/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
 STAGE1_FILES := compiler/bootstrap/stage1/token.dast compiler/bootstrap/stage1/lexer.dast compiler/bootstrap/stage1/ast.dast compiler/bootstrap/stage1/parser.dast compiler/bootstrap/stage1/typecheck.dast compiler/bootstrap/stage1/ir.dast compiler/bootstrap/stage1/compile.dast compiler/bootstrap/stage1/interp.dast compiler/bootstrap/stage1/main.dast
-STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' | sort)
+STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' | sort)
 STAGE1_IR := compiler/bootstrap/stage1/stage1.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
+STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
+STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 
 .PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test clean
 
@@ -34,13 +36,19 @@ build-stage1-ir: build-stage0
 	@./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE2_FILES) > $(STAGE1_IR)
 
 test-stage2: build-stage0
-	@for f in $(EXAMPLES); do \
-		echo "[stage2] $$f"; \
+	@for f in $(STAGE2_RUN_PASS); do \
+		echo "[stage2-run] $$f"; \
 		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run $$f 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		echo "$$out" | grep -q '^error' && exit 1 || true; \
+	done
+	@for f in $(STAGE2_COMPILE_FAIL); do \
+		echo "[stage2-fail] $$f"; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run $$f 2>&1); \
+		echo "$$out"; \
+		echo "$$out" | grep -q '^error' || exit 1; \
 	done
 
 test-stage1-ir: build-stage0 build-stage1-ir

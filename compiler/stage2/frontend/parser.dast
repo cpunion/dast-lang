@@ -473,7 +473,7 @@ fn parse_const_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis
     }
     let value = parse_const_value(src, lex, errors)
     maybe_consume_semi(lex)
-    return ConstDecl { vis: vis, name: name, has_type: has_type, typ: typ, value: value }
+    return ConstDecl { vis: vis, module: "", name: name, has_type: has_type, typ: typ, value: value }
 }
 
 fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility) -> ImplDecl {
@@ -483,7 +483,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
     if peek_kind(lex) != tk_lbrace() {
         add_error(errors, lexer_pos(lex), "expected '{' after impl");
         sync_to_top_level(lex)
-        return ImplDecl { vis: vis, type_name: type_name, methods: methods }
+        return ImplDecl { vis: vis, module: "", type_name: type_name, methods: methods }
     }
     lexer_next(lex)
     let mut done = false
@@ -530,6 +530,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
                 }
                 push(&mut methods, FunctionDecl {
                     vis: mvis,
+                    module: "",
                     name: name,
                     params: params,
                     has_return: has_return,
@@ -545,7 +546,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
     if peek_kind(lex) == tk_rbrace() {
         lexer_next(lex)
     }
-    return ImplDecl { vis: vis, type_name: type_name, methods: methods }
+    return ImplDecl { vis: vis, module: "", type_name: type_name, methods: methods }
 }
 
 fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility) -> StructDecl {
@@ -555,7 +556,7 @@ fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
     if peek_kind(lex) != tk_lbrace() {
         add_error(errors, lexer_pos(lex), "expected '{' after struct");
         sync_to_top_level(lex)
-        return StructDecl { vis: vis, name: name, fields: fields }
+        return StructDecl { vis: vis, module: "", name: name, fields: fields }
     }
     lexer_next(lex)
     let mut done = false
@@ -586,7 +587,7 @@ fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
     if peek_kind(lex) == tk_rbrace() {
         lexer_next(lex)
     }
-    return StructDecl { vis: vis, name: name, fields: fields }
+    return StructDecl { vis: vis, module: "", name: name, fields: fields }
 }
 
 fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr: String, vis: Visibility) -> EnumDecl {
@@ -596,7 +597,7 @@ fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr
     if peek_kind(lex) != tk_lbrace() {
         add_error(errors, lexer_pos(lex), "expected '{' after enum");
         sync_to_top_level(lex)
-        return EnumDecl { vis: vis, name: name, repr: repr, variants: variants }
+        return EnumDecl { vis: vis, module: "", name: name, repr: repr, variants: variants }
     }
     lexer_next(lex)
     let mut done = false
@@ -644,7 +645,7 @@ fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr
     if peek_kind(lex) == tk_rbrace() {
         lexer_next(lex)
     }
-    return EnumDecl { vis: vis, name: name, repr: repr, variants: variants }
+    return EnumDecl { vis: vis, module: "", name: name, repr: repr, variants: variants }
 }
 
 fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility) -> ImportDecl {
@@ -689,7 +690,7 @@ fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
         has_alias = alias != ""
     }
     maybe_consume_semi(lex)
-    return ImportDecl { vis: vis, has_items: has_items, items: items, path: path, has_alias: has_alias, alias: alias }
+    return ImportDecl { vis: vis, module: "", has_items: has_items, items: items, path: path, has_alias: has_alias, alias: alias }
 }
 
 fn maybe_consume_semi(lex: &mut Lexer) {
@@ -956,7 +957,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 lexer_next(lex)
                 let name = parse_ident(src, lex, errors)
                 maybe_consume_semi(lex)
-                push(&mut imports, ImportDecl { vis: vis, has_items: false, items: import_item_list_new(), path: name, has_alias: false, alias: "" })
+                push(&mut imports, ImportDecl { vis: vis, module: "", has_items: false, items: import_item_list_new(), path: name, has_alias: false, alias: "" })
             } else if kk == tk_struct() {
             if pending_repr != "" {
                 add_error(errors, lexer_pos(lex), "repr only valid on enum");
@@ -1017,6 +1018,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
             }
             push(&mut functions, FunctionDecl {
                 vis: vis,
+                module: "",
                 name: name,
                 params: params,
                 has_return: has_return,

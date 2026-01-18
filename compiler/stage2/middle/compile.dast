@@ -13,7 +13,6 @@ struct Compiler {
     structs: [StructDecl],
     enums: [EnumDecl],
     consts: [ConstDecl],
-    module_aliases: [String],
     name_counts: [NameCount],
     scope_names: [String],
     scope_ir: [String],
@@ -65,6 +64,48 @@ fn compiler_check_expr(c: &mut Compiler, expr: Expr) -> i32 {
 fn compiler_parse_type(c: &mut Compiler, text: String, self_name: String) -> i32 {
     let mut tctx = c.tctx
     let t = ctx_parse_type(&mut tctx, text, self_name)
+    c.tctx = tctx
+    return t
+}
+
+fn compiler_resolve_struct_name(c: &mut Compiler, name: String) -> String {
+    let mut tctx = c.tctx
+    let q = resolve_struct_name(&mut tctx, name)
+    c.tctx = tctx
+    return q
+}
+
+fn compiler_resolve_func_name(c: &mut Compiler, name: String) -> String {
+    let mut tctx = c.tctx
+    let q = resolve_func_name(&mut tctx, name)
+    c.tctx = tctx
+    return q
+}
+
+fn compiler_resolve_enum_name(c: &mut Compiler, name: String) -> String {
+    let mut tctx = c.tctx
+    let q = resolve_enum_name(&mut tctx, name)
+    c.tctx = tctx
+    return q
+}
+
+fn compiler_resolve_const_name(c: &mut Compiler, name: String) -> String {
+    let mut tctx = c.tctx
+    let q = resolve_const_name(&mut tctx, name)
+    c.tctx = tctx
+    return q
+}
+
+fn compiler_resolve_type_name(c: &mut Compiler, name: String, self_name: String) -> String {
+    let mut tctx = c.tctx
+    let q = ctx_resolve_type_name(&mut tctx, name, self_name)
+    c.tctx = tctx
+    return q
+}
+
+fn compiler_parse_type_in_module(c: &mut Compiler, text: String, self_name: String, module: String) -> i32 {
+    let mut tctx = c.tctx
+    let t = ctx_parse_type_in_module(&mut tctx, text, self_name, module)
     c.tctx = tctx
     return t
 }
@@ -127,7 +168,6 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         structs: prog.structs,
         enums: prog.enums,
         consts: prog.consts,
-        module_aliases: tctx.module_aliases,
         name_counts: name_count_list_new(),
         scope_names: string_list_new(),
         scope_ir: string_list_new(),
@@ -141,23 +181,31 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
     let mut entry = ""
     let mut i = 0
     while i < len(prog.functions) {
-        let f = compile_function(&mut c, prog.functions[i], prog.functions[i].name, "")
+        let decl = prog.functions[i]
+        let qname = qualify_name(decl.module, decl.name)
+        let f = compile_function(&mut c, decl, qname, "")
         push(&mut funcs, f)
-        if entry == "" && f.name == "main" {
-            entry = "main"
+        if entry == "" && decl.module == "" && decl.name == "main" {
+            entry = qname
         }
         i = i + 1
     }
     let mut j = 0
     while j < len(prog.impls) {
         let imp = prog.impls[j]
-        let mut k = 0
-        while k < len(imp.methods) {
-            let m = imp.methods[k]
-            let name = imp.type_name + "." + m.name
-            let f = compile_function(&mut c, m, name, imp.type_name)
-            push(&mut funcs, f)
-            k = k + 1
+        let mut tctx = c.tctx
+        ctx_set_current_module(&mut tctx, imp.module)
+        c.tctx = tctx
+        let type_qname = compiler_resolve_type_name(&mut c, imp.type_name, "")
+        if type_qname != "" {
+            let mut k = 0
+            while k < len(imp.methods) {
+                let m = imp.methods[k]
+                let name = type_qname + "." + m.name
+                let f = compile_function(&mut c, m, name, type_qname)
+                push(&mut funcs, f)
+                k = k + 1
+            }
         }
         j = j + 1
     }
@@ -165,15 +213,9 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
     return CompileResult { prog: ir_prog, errors: c.tctx.errors }
 }
 
-fn compiler_is_module_alias(c: &Compiler, name: String) -> bool {
-    let mut i = 0
-    while i < len(c.module_aliases) {
-        if c.module_aliases[i] == name {
-            return true
-        }
-        i = i + 1
-    }
-    return false
+fn compiler_module_alias(c: &Compiler, name: String) -> String {
+    let tctx = c.tctx
+    return module_alias_module(&tctx, name)
 }
 
 fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: String) -> IrFunction {
@@ -186,6 +228,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     c.blocks = block_list_new()
     c.cur_block = -1
     let mut tctx = c.tctx
+    ctx_set_current_module(&mut tctx, f.module)
     tctx.env = env_new()
     c.tctx = tctx
     compiler_env_push(c)
@@ -514,7 +557,7 @@ fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, enum_name: Str
         .Variant(vp) => {
             let mut pat_enum = enum_name
             if vp.enum_name != "" {
-                pat_enum = vp.enum_name
+                pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
             }
             if vp.has_binding {
                 let payload = new_temp(c)
@@ -572,7 +615,8 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name }))
                 return t
             }
-            let cidx = find_const_decl(c.consts, id.name)
+            let cq = compiler_resolve_const_name(c, id.name)
+            let cidx = find_const_decl(c.consts, cq)
             if cidx >= 0 {
                 let v = const_to_ir(c.consts[cidx].value)
                 let t = new_temp(c)
@@ -629,8 +673,13 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         push(&mut args, v)
                         i = i + 1
                     }
+                    let fq = compiler_resolve_func_name(c, id.name)
+                    let mut callee = id.name
+                    if fq != "" {
+                        callee = fq
+                    }
                     let dst = new_temp(c)
-                    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: id.name, args: args }))
+                    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: callee, args: args }))
                     return dst
                 }
                 _ => {
@@ -666,6 +715,11 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return dst
         }
         .StructLit(s) => {
+            let qname = compiler_resolve_struct_name(c, s.name)
+            let mut struct_name = s.name
+            if qname != "" {
+                struct_name = qname
+            }
             let mut fields: [IrStructFieldInit] = []
             let mut i = 0
             while i < len(s.fields) {
@@ -675,18 +729,19 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 i = i + 1
             }
             let dst = new_temp(c)
-            emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: s.name, fields: fields }))
+            emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: struct_name, fields: fields }))
             return dst
         }
         .Field(f) => {
             match f.recv {
                 .Ident(id) => {
                     if lookup_var(c, id.name) == "" {
-                        let enum_idx = find_enum_decl(c.enums, id.name)
+                        let eq = compiler_resolve_enum_name(c, id.name)
+                        let enum_idx = find_enum_decl(c.enums, eq)
                         if enum_idx >= 0 {
                             if enum_has_variant(c.enums[enum_idx], f.name) {
                                 let dst = new_temp(c)
-                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: id.name, variant: f.name, payload: -1 }))
+                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: eq, variant: f.name, payload: -1 }))
                                 return dst
                             }
                         }
@@ -722,18 +777,31 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
     match recv {
         .Ident(id) => {
             if lookup_var(c, id.name) == "" {
-                if compiler_is_module_alias(c, id.name) {
-                    return MethodResolution { callee: method, with_self: false, is_enum: false, enum_name: "", method_name: method }
+                let alias_mod = compiler_module_alias(c, id.name)
+                if alias_mod != "" {
+                    let tctx = c.tctx
+                    let fidx = find_func_in_module(&tctx, alias_mod, method)
+                    if fidx >= 0 {
+                        let sig = tctx.funcs[fidx]
+                        return MethodResolution { callee: qualify_name(sig.module, sig.name), with_self: false, is_enum: false, enum_name: "", method_name: method }
+                    }
                 }
-                let enum_idx = find_enum_decl(c.enums, id.name)
+                let eq = compiler_resolve_enum_name(c, id.name)
+                let enum_idx = find_enum_decl(c.enums, eq)
                 if enum_idx >= 0 && enum_has_variant(c.enums[enum_idx], method) {
-                    return MethodResolution { callee: "", with_self: false, is_enum: true, enum_name: id.name, method_name: method }
+                    return MethodResolution { callee: "", with_self: false, is_enum: true, enum_name: eq, method_name: method }
                 }
-                let midx = compiler_find_method(c, id.name, method)
-                if midx >= 0 {
-                    let sig = c.tctx.methods[midx]
-                    if !sig.has_self {
-                        return MethodResolution { callee: sig.func_name, with_self: false, is_enum: false, enum_name: "", method_name: method }
+                let mut type_q = eq
+                if type_q == "" {
+                    type_q = compiler_resolve_struct_name(c, id.name)
+                }
+                if type_q != "" {
+                    let midx = compiler_find_method(c, type_q, method)
+                    if midx >= 0 {
+                        let sig = c.tctx.methods[midx]
+                        if !sig.has_self {
+                            return MethodResolution { callee: sig.func_name, with_self: false, is_enum: false, enum_name: "", method_name: method }
+                        }
                     }
                 }
             }
@@ -845,7 +913,7 @@ fn const_zero(c: &mut Compiler) -> i32 {
 fn find_enum_decl(enums: [EnumDecl], name: String) -> i32 {
     let mut i = 0
     while i < len(enums) {
-        if enums[i].name == name { return i }
+        if enum_qname(enums[i]) == name { return i }
         i = i + 1
     }
     return -1
@@ -854,7 +922,7 @@ fn find_enum_decl(enums: [EnumDecl], name: String) -> i32 {
 fn find_const_decl(consts: [ConstDecl], name: String) -> i32 {
     let mut i = 0
     while i < len(consts) {
-        if consts[i].name == name { return i }
+        if qualify_name(consts[i].module, consts[i].name) == name { return i }
         i = i + 1
     }
     return -1
@@ -886,7 +954,7 @@ fn variant_payload_type(c: &mut Compiler, enum_name: String, variant: String, se
         let v = e.variants[i]
         if v.name == variant {
             if v.has_payload {
-                return compiler_parse_type(c, v.payload, self_name)
+                return compiler_parse_type_in_module(c, v.payload, self_name, e.module)
             }
             return compiler_type_make(c, 4, "unit", false, false, -1)
         }

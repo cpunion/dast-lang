@@ -1,0 +1,6 @@
+import { call_super } from a
+
+fn main() {
+    let v = call_super()
+    println("v", v)
+}
