@@ -1,0 +1,261 @@
+struct ParseError {
+    pos: i32,
+    msg: String,
+}
+
+fn vis_private() -> i32 { return 0 }
+fn vis_pub() -> i32 { return 1 }
+fn vis_pub_crate() -> i32 { return 2 }
+fn vis_pub_super() -> i32 { return 3 }
+
+struct Visibility {
+    kind: i32,
+}
+
+fn const_kind_int() -> i32 { return 0 }
+fn const_kind_bool() -> i32 { return 1 }
+fn const_kind_string() -> i32 { return 2 }
+
+struct ConstValue {
+    kind: i32,
+    int_value: String,
+    str_value: String,
+    bool_value: bool,
+}
+
+struct ConstDecl {
+    vis: Visibility,
+    name: String,
+    has_type: bool,
+    typ: String,
+    value: ConstValue,
+}
+
+struct Param {
+    name: String,
+    typ: String,
+}
+
+struct Field {
+    vis: Visibility,
+    name: String,
+    typ: String,
+}
+
+struct StructDecl {
+    vis: Visibility,
+    name: String,
+    fields: [Field],
+}
+
+struct Variant {
+    name: String,
+    has_payload: bool,
+    payload: String,
+    has_value: bool,
+    value: String,
+}
+
+struct EnumDecl {
+    vis: Visibility,
+    name: String,
+    repr: String,
+    variants: [Variant],
+}
+
+struct IdentExpr {
+    name: String,
+}
+
+struct IntLit {
+    value: String,
+}
+
+struct StringLit {
+    value: String,
+}
+
+struct BoolLit {
+    value: bool,
+}
+
+struct UnaryExpr {
+    op: i32,
+    expr: Expr,
+}
+
+struct BinaryExpr {
+    op: i32,
+    left: Expr,
+    right: Expr,
+}
+
+struct CallExpr {
+    callee: Expr,
+    args: [Expr],
+}
+
+struct IndexExpr {
+    recv: Expr,
+    index: Expr,
+}
+
+struct FieldExpr {
+    recv: Expr,
+    name: String,
+}
+
+struct FieldInit {
+    name: String,
+    value: Expr,
+}
+
+struct StructLit {
+    name: String,
+    fields: [FieldInit],
+}
+
+struct ArrayLit {
+    elems: [Expr],
+}
+
+struct RefExpr {
+    mutable: bool,
+    expr: Expr,
+}
+
+struct DerefExpr {
+    expr: Expr,
+}
+
+struct MethodCallExpr {
+    recv: Expr,
+    method: String,
+    args: [Expr],
+    resolved_name: String,
+    resolved_self: bool,
+    enum_name: String,
+}
+
+enum Expr {
+    Ident(IdentExpr),
+    IntLit(IntLit),
+    StringLit(StringLit),
+    BoolLit(BoolLit),
+    Unary(UnaryExpr),
+    Binary(BinaryExpr),
+    Call(CallExpr),
+    MethodCall(MethodCallExpr),
+    Index(IndexExpr),
+    Field(FieldExpr),
+    StructLit(StructLit),
+    ArrayLit(ArrayLit),
+    Ref(RefExpr),
+    Deref(DerefExpr),
+}
+
+struct LetStmt {
+    name: String,
+    mutable: bool,
+    has_type: bool,
+    typ: String,
+    has_init: bool,
+    init: Expr,
+}
+
+struct ReturnStmt {
+    has_value: bool,
+    value: Expr,
+}
+
+struct ExprStmt {
+    expr: Expr,
+}
+
+struct IfStmt {
+    cond: Expr,
+    then_block: Block,
+    has_else: bool,
+    else_block: Block,
+}
+
+struct WhileStmt {
+    cond: Expr,
+    body: Block,
+}
+
+struct WildcardPattern {}
+
+struct VariantPattern {
+    enum_name: String,
+    variant: String,
+    has_binding: bool,
+    binding: String,
+}
+
+enum Pattern {
+    Wildcard(WildcardPattern),
+    Variant(VariantPattern),
+}
+
+struct MatchArm {
+    pattern: Pattern,
+    body: Block,
+}
+
+struct MatchStmt {
+    expr: Expr,
+    arms: [MatchArm],
+}
+
+struct Block {
+    stmts: [Stmt],
+}
+
+enum Stmt {
+    Let(LetStmt),
+    Return(ReturnStmt),
+    Expr(ExprStmt),
+    If(IfStmt),
+    Assign(AssignStmt),
+    While(WhileStmt),
+    Match(MatchStmt),
+}
+
+struct AssignStmt {
+    target: Expr,
+    value: Expr,
+}
+
+struct FunctionDecl {
+    vis: Visibility,
+    name: String,
+    params: [Param],
+    has_return: bool,
+    ret: String,
+    body: Block,
+}
+
+struct ImplDecl {
+    vis: Visibility,
+    type_name: String,
+    methods: [FunctionDecl],
+}
+
+struct ImportDecl {
+    vis: Visibility,
+    has_items: bool,
+    items: [String],
+    path: String,
+    has_alias: bool,
+    alias: String,
+}
+
+struct Program {
+    imports: [ImportDecl],
+    structs: [StructDecl],
+    enums: [EnumDecl],
+    consts: [ConstDecl],
+    functions: [FunctionDecl],
+    impls: [ImplDecl],
+}

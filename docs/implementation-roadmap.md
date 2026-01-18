@@ -22,15 +22,20 @@
 - stage0 编译 stage1（Dast 编译器）
 - stage1 可编译自身（功能范围与 stage0 对齐）
 
+> 运行策略（长期）：  
+> - 初期 stage1 保持多文件源码，可被 stage0 直接编译运行。  
+> - 后续可由 stage1 将 stage2 编译为 **单个 IR v0 文件**，作为“stage1 快照”，保证 stage0 仍可运行 stage1。
+
 ## Stage 2 — 完整语言规范自举
 
-**目标**：实现完整语言规范，并**用最新语言编译自己**  
+**目标**：实现完整语言规范；优先输出 IR v0  
 **新增能力**：泛型、trait/comptime、宏系统、async/await、模块与包、标准库扩展  
 **输出**：优先降解到 IR v0；若无法降解才进入 v1 IR
 
 完成标准：
 - stage2 编译器使用**完整规范**实现  
 - stage2 可以编译 stage2（最新规范自举）
+- stage2 可输出单文件 IR v0，作为 stage1 的稳定快照
 
 ## Stage 3 — 工具链与优化
 
