@@ -8,6 +8,7 @@ STAGE1_IR := compiler/bootstrap/stage1/stage1.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
+STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
 
 .PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test clean
 
@@ -49,6 +50,14 @@ test-stage2: build-stage0
 		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run $$f 2>&1); \
 		echo "$$out"; \
 		echo "$$out" | grep -q '^error' || exit 1; \
+	done
+	@for d in $(STAGE2_TEST_CMD); do \
+		echo "[stage2-test] $$d"; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- test $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		echo "$$out" | grep -q '^error' && exit 1 || true; \
 	done
 
 test-stage1-ir: build-stage0 build-stage1-ir

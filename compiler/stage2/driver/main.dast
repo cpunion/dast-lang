@@ -54,10 +54,16 @@ fn program_empty() -> Program {
     }
 }
 
+fn driver_qualify_name(module: String, name: String) -> String {
+    if module == "" { return name }
+    return module + "::" + name
+}
+
 fn usage() {
     println("usage:")
     println("  dast run <file.dast> [more.dast ...] [-- args...]")
     println("  dast ir <file.dast> [more.dast ...]")
+    println("  dast test <file.dast|dir> [more ...]")
     println("  dast ir-run <file.ir> [-- args...]")
 }
 
@@ -217,13 +223,28 @@ fn driver_string_starts_with(text: String, prefix: String) -> bool {
     return substr(text, 0, len(prefix)) == prefix
 }
 
-fn driver_list_dast_files(dir: String) -> [String] {
+fn driver_is_test_file(name: String) -> bool {
+    return driver_string_ends_with(name, "_test.dast")
+}
+
+fn driver_is_dast_file(name: String) -> bool {
+    return driver_string_ends_with(name, ".dast")
+}
+
+fn driver_list_dast_files(dir: String, include_tests: bool) -> [String] {
     let mut files: [String] = []
     let names = read_dir(dir)
     let mut i = 0
     while i < len(names) {
         let name = names[i]
-        if driver_string_ends_with(name, ".dast") {
+        let mut take = false
+        if driver_is_dast_file(name) {
+            take = true
+            if !include_tests && driver_is_test_file(name) {
+                take = false
+            }
+        }
+        if take {
             let full = driver_path_join(dir, name)
             push(&mut files, full)
         }
@@ -369,7 +390,7 @@ fn load_state_new() -> LoadState {
     return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new() }
 }
 
-fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState) {
+fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState, include_tests: bool) {
     if driver_list_contains(state.loaded, path) {
         return
     }
@@ -399,18 +420,18 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
         let imp = prog.imports[j]
         if imp.path != "" {
             let child_dir = driver_module_path_to_dir(base, imp.path)
-            load_dir_recursive(child_dir, root_dir, state)
+            load_dir_recursive(child_dir, root_dir, state, false)
         }
         j = j + 1
     }
 }
 
-fn load_dir_recursive(dir: String, root_dir: String, state: &mut LoadState) {
+fn load_dir_recursive(dir: String, root_dir: String, state: &mut LoadState, include_tests: bool) {
     let module_path = driver_module_path_from_dir(root_dir, dir)
-    let files = driver_list_dast_files(dir)
+    let files = driver_list_dast_files(dir, include_tests)
     let mut i = 0
     while i < len(files) {
-        load_file_recursive(files[i], root_dir, module_path, state)
+        load_file_recursive(files[i], root_dir, module_path, state, include_tests)
         i = i + 1
     }
 }
@@ -424,6 +445,19 @@ fn print_errors(errors: [ParseError]) {
     }
 }
 
+fn collect_tests(prog: Program) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(prog.functions) {
+        let f = prog.functions[i]
+        if driver_string_starts_with(f.name, "test_") {
+            push(&mut out, driver_qualify_name(f.module, f.name))
+        }
+        i = i + 1
+    }
+    return out
+}
+
 fn main() {
     let argv = args()
     if len(argv) < 1 {
@@ -431,7 +465,7 @@ fn main() {
         return
     }
     let cmd = argv[0]
-    if cmd != "run" && cmd != "ir" && cmd != "ir-run" {
+    if cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "test" {
         usage()
         return
     }
@@ -470,8 +504,13 @@ fn main() {
     let mut state = load_state_new()
     let mut i = 0
     while i < len(split.files) {
-        let dir = driver_path_dir(split.files[i])
-        load_dir_recursive(dir, dir, &mut state)
+        let path = split.files[i]
+        let mut dir = path
+        if driver_is_dast_file(path) {
+            dir = driver_path_dir(path)
+        }
+        let include_tests = cmd == "test"
+        load_dir_recursive(dir, dir, &mut state, include_tests)
         i = i + 1
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }
@@ -494,6 +533,27 @@ fn main() {
     if debug { println("stage2: compiled") }
     if cmd == "ir" {
         print(ir_program_format(comp.prog))
+        return
+    }
+    if cmd == "test" {
+        let tests = collect_tests(parse_res.prog)
+        if len(tests) == 0 {
+            println("ok 0")
+            return
+        }
+        let mut ti = 0
+        while ti < len(tests) {
+            let name = tests[ti]
+            if debug { println("stage2: test", name) }
+            let mut rt = runtime_new(comp.prog, driver_string_list_new())
+            runtime_run(&mut rt, name)
+            if rt.error != "" {
+                println("error", rt.error)
+                return
+            }
+            ti = ti + 1
+        }
+        println("ok", len(tests))
         return
     }
     let mut rt = runtime_new(comp.prog, split.rest)
