@@ -1,0 +1,5 @@
+import { X } from foo
+
+fn main() {
+    println("x")
+}

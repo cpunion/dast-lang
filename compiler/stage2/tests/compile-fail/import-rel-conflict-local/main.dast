@@ -1,0 +1,7 @@
+import "./foo" as v
+
+const v = 3
+
+fn main() {
+    println(v)
+}
