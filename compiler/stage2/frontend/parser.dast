@@ -197,6 +197,9 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
 fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let k = peek_kind(lex)
     let start_pos = lexer_pos(lex)
+    if k == TokenKind.If && peek_kind_n(lex, 1) == TokenKind.Let {
+        return parse_if_let_expr(src, lex, errors)
+    }
     if k == TokenKind.Ident || k == TokenKind.SelfVal {
         let name = next_lexeme(src, lex)
         if looks_like_struct_lit(lex) {
@@ -928,6 +931,35 @@ fn parse_if_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Matc
     return MatchStmt { pos: pos, expr: expr, arms: arms }
 }
 
+fn parse_if_let_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    let pos = lexer_pos(lex)
+    lexer_next(lex)
+    lexer_next(lex)
+    let pat = parse_pattern(src, lex, errors)
+    if peek_kind(lex) == TokenKind.Assign {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '=' in if let");
+    }
+    let expr = parse_expr(src, lex, errors, 0)
+    let then_block = parse_block(src, lex, errors)
+    let mut has_else = false
+    let mut else_block = empty_block()
+    if peek_kind(lex) == TokenKind.Else {
+        lexer_next(lex)
+        has_else = true;
+        if peek_kind(lex) == TokenKind.If {
+            let nested = parse_if(src, lex, errors)
+            let mut stmts: [Stmt] = []
+            push(&mut stmts, Stmt.If(nested))
+            else_block = Block { stmts: stmts }
+        } else {
+            else_block = parse_block(src, lex, errors)
+        }
+    }
+    return Expr.IfLet(IfLetExpr { pos: pos, pattern: pat, expr: expr, then_block: then_block, has_else: has_else, else_block: else_block })
+}
+
 fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
@@ -941,6 +973,17 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
     if k == TokenKind.Minus || k == TokenKind.Int || k == TokenKind.True || k == TokenKind.False || k == TokenKind.String || k == TokenKind.Char {
         let pos = lexer_pos(lex)
         let val = parse_const_value(src, lex, errors)
+        if peek_kind(lex) == TokenKind.Dot && peek_kind_n(lex, 1) == TokenKind.Dot {
+            lexer_next(lex)
+            lexer_next(lex)
+            let mut inclusive = false
+            if peek_kind(lex) == TokenKind.Assign {
+                inclusive = true
+                lexer_next(lex)
+            }
+            let end = parse_const_value(src, lex, errors)
+            return Pattern.Range(RangePattern { pos: pos, start: val, end: end, inclusive: inclusive })
+        }
         return Pattern.Literal(LiteralPattern { pos: pos, value: val })
     }
     if k == TokenKind.Ident {
@@ -952,13 +995,21 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
         if peek_kind(lex) == TokenKind.LBrace {
             lexer_next(lex)
             let mut fields: [StructPatternField] = []
+            let mut has_rest = false
             let mut done = false
             while !done {
                 let fk = peek_kind(lex)
                 if fk == TokenKind.RBrace || fk == TokenKind.Eof {
                     done = true
                 } else {
-                    if fk != TokenKind.Ident {
+                    if fk == TokenKind.Dot && peek_kind_n(lex, 1) == TokenKind.Dot {
+                        lexer_next(lex)
+                        lexer_next(lex)
+                        has_rest = true
+                        if peek_kind(lex) == TokenKind.Comma {
+                            lexer_next(lex)
+                        }
+                    } else if fk != TokenKind.Ident {
                         add_error(errors, lexer_pos(lex), "expected field name");
                         lexer_next(lex)
                     } else {
@@ -985,7 +1036,7 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
             } else {
                 add_error(errors, lexer_pos(lex), "expected '}'");
             }
-            return Pattern.Struct(StructPattern { pos: pos, name: name, fields: fields })
+            return Pattern.Struct(StructPattern { pos: pos, name: name, fields: fields, has_rest: has_rest })
         }
         if peek_kind(lex) == TokenKind.Dot {
             lexer_next(lex)
@@ -1013,7 +1064,7 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
             }
             return Pattern.Variant(VariantPattern { pos: pos, enum_name: name, variant: variant, has_binding: has_binding, binding: binding })
         }
-        return Pattern.Variant(VariantPattern { pos: pos, enum_name: "", variant: name, has_binding: false, binding: "" })
+        return Pattern.Bind(BindPattern { pos: pos, name: name })
     }
     if k == TokenKind.Dot {
         let pos = lexer_pos(lex)

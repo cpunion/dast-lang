@@ -819,6 +819,7 @@ fn expr_pos(e: Expr) -> i32 {
         Expr.ArrayLit(x) => { return x.pos }
         Expr.Ref(x) => { return x.pos }
         Expr.Deref(x) => { return x.pos }
+        Expr.IfLet(x) => { return x.pos }
     }
     return 0
 }
@@ -838,8 +839,10 @@ fn stmt_pos(s: Stmt) -> i32 {
 
 fn pattern_pos(p: Pattern) -> i32 {
     match p {
+        Pattern.Bind(v) => { return v.pos }
         Pattern.Variant(v) => { return v.pos }
         Pattern.Struct(v) => { return v.pos }
+        Pattern.Range(v) => { return v.pos }
         Pattern.Literal(v) => { return v.pos }
         _ => { return 0 }
     }
@@ -1644,6 +1647,30 @@ fn deref_type(types: &mut TypeTable, t: i32) -> i32 {
     return type_make(types, kind, name, false, false, elem)
 }
 
+fn block_expr_type(ctx: &mut TypeContext, block: Block) -> i32 {
+    let unit = ctx_type_make(ctx, 4, "unit", false, false, -1)
+    ctx_env_push(ctx)
+    if len(block.stmts) == 0 {
+        ctx_env_pop(ctx)
+        return unit
+    }
+    let mut i = 0
+    let mut t = unit
+    while i < len(block.stmts) {
+        if i == len(block.stmts) - 1 {
+            match block.stmts[i] {
+                Stmt.Expr(e) => { t = check_expr(ctx, e.expr) }
+                _ => { check_stmt(ctx, block.stmts[i]); t = unit }
+            }
+        } else {
+            check_stmt(ctx, block.stmts[i])
+        }
+        i = i + 1
+    }
+    ctx_env_pop(ctx)
+    return t
+}
+
 fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
     ctx_set_pos(ctx, expr_pos(expr))
     match expr {
@@ -2266,6 +2293,33 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             }
             return sig.ret
         }
+        Expr.IfLet(x) => {
+            let scrut = check_expr(ctx, x.expr)
+            let mut scrut_name = ""
+            let mut scrut_kind = 0
+            if scrut != 0 {
+                scrut_kind = ctx_type_kind(ctx, scrut)
+                if scrut_kind == 6 || scrut_kind == 5 {
+                    scrut_name = ctx_type_name(ctx, scrut)
+                } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 && scrut_kind != 5 {
+                    add_type_error(ctx, "if let requires enum, struct, int, bool, or string expression")
+                }
+            }
+            ctx_env_push(ctx)
+            check_pattern(ctx, x.pattern, scrut, scrut_name)
+            let then_t = block_expr_type(ctx, x.then_block)
+            ctx_env_pop(ctx)
+            let unit = ctx_type_make(ctx, 4, "unit", false, false, -1)
+            if !x.has_else {
+                return unit
+            }
+            let else_t = block_expr_type(ctx, x.else_block)
+            if !ctx_type_assignable(ctx, then_t, else_t) && !ctx_type_assignable(ctx, else_t, then_t) && then_t != 0 && else_t != 0 {
+                add_type_error(ctx, "if let branch type mismatch")
+            }
+            if then_t != 0 { return then_t }
+            return else_t
+        }
     }
 }
 
@@ -2541,6 +2595,12 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
     let kind = ctx_type_kind(ctx, scrut_type)
     match pat {
         .Wildcard(_) => {}
+        .Bind(bp) => {
+            ctx_set_pos(ctx, bp.pos)
+            if bp.name != "" {
+                ctx_env_declare(ctx, bp.name, scrut_type, false)
+            }
+        }
         .Literal(lp) => {
             ctx_set_pos(ctx, lp.pos)
             if kind != 1 && kind != 2 && kind != 3 {
@@ -2550,6 +2610,15 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                 if pt != 0 && ctx_type_kind(ctx, pt) != kind {
                     add_type_error(ctx, "pattern type mismatch")
                 }
+            }
+        }
+        .Range(rp) => {
+            ctx_set_pos(ctx, rp.pos)
+            if kind != 1 {
+                add_type_error(ctx, "range pattern requires int expression")
+            }
+            if rp.start.kind != const_kind_int() || rp.end.kind != const_kind_int() {
+                add_type_error(ctx, "range bounds must be int literals")
             }
         }
         .Variant(vp) => {

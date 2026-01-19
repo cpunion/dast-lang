@@ -167,6 +167,15 @@ struct MethodCallExpr {
     enum_name: String,
 }
 
+struct IfLetExpr {
+    pos: i32,
+    pattern: Pattern,
+    expr: Expr,
+    then_block: Block,
+    has_else: bool,
+    else_block: Block,
+}
+
 enum Expr {
     Ident(IdentExpr),
     IntLit(IntLit),
@@ -182,6 +191,7 @@ enum Expr {
     ArrayLit(ArrayLit),
     Ref(RefExpr),
     Deref(DerefExpr),
+    IfLet(IfLetExpr),
 }
 
 struct LetStmt {
@@ -241,6 +251,19 @@ struct StructPattern {
     pos: i32,
     name: String,
     fields: [StructPatternField],
+    has_rest: bool,
+}
+
+struct BindPattern {
+    pos: i32,
+    name: String,
+}
+
+struct RangePattern {
+    pos: i32,
+    start: ConstValue,
+    end: ConstValue,
+    inclusive: bool,
 }
 
 struct LiteralPattern {
@@ -250,8 +273,10 @@ struct LiteralPattern {
 
 enum Pattern {
     Wildcard(WildcardPattern),
+    Bind(BindPattern),
     Variant(VariantPattern),
     Struct(StructPattern),
+    Range(RangePattern),
     Literal(LiteralPattern),
 }
 

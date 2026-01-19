@@ -489,6 +489,7 @@ fn resolve_struct_pattern_name(c: &mut Compiler, name: String, scrut_type: i32) 
 fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i32, self_name: String, next_label: String) {
     match pat {
         .Wildcard(_) => {}
+        .Bind(_) => {}
         .Literal(lp) => {
             let const_val = new_temp(c)
             let tname = compiler_type_name(c, value_type)
@@ -497,6 +498,24 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: value, rhs: const_val }))
             let cont = new_block(c, "match_check")
             emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, cont), else_label: next_label }))
+            set_current_block(c, cont)
+        }
+        .Range(rp) => {
+            let tname = compiler_type_name(c, value_type)
+            let start = new_temp(c)
+            let end = new_temp(c)
+            emit_instr(c, IrInstr.Const(IrConst { dst: start, value: const_to_ir(rp.start, tname) }))
+            emit_instr(c, IrInstr.Const(IrConst { dst: end, value: const_to_ir(rp.end, tname) }))
+            let ge = new_temp(c)
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: value, rhs: start }))
+            let le = new_temp(c)
+            let mut op = "<"
+            if rp.inclusive { op = "<=" }
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: value, rhs: end }))
+            let both = new_temp(c)
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ge, rhs: le }))
+            let cont = new_block(c, "match_check")
+            emit_term(c, IrTerm.Branch(IrBranch { cond: both, then_label: block_label(c, cont), else_label: next_label }))
             set_current_block(c, cont)
         }
         .Variant(vp) => {
@@ -568,6 +587,10 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
                 emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val }))
             } else if f.has_pattern {
                 match f.pattern {
+                    .Bind(bp) => {
+                        let name = declare_var(c, bp.name, ft, false)
+                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val }))
+                    }
                     .Variant(vp) => {
                         if vp.has_binding {
                             let mut pat_enum = enum_name_for_type(c, ft)
@@ -589,6 +612,34 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
             }
         }
         i = i + 1
+    }
+}
+
+fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i32, scrut_name: String, self_name: String) {
+    match pat {
+        .Bind(bp) => {
+            if bp.name != "" {
+                let name = declare_var(c, bp.name, scrut_type, false)
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: scrut }))
+            }
+        }
+        .Variant(vp) => {
+            if vp.has_binding {
+                let mut pat_enum = scrut_name
+                if vp.enum_name != "" {
+                    pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                }
+                let payload = new_temp(c)
+                emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: scrut }))
+                let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
+                let name = declare_var(c, vp.binding, payload_type, false)
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload }))
+            }
+        }
+        Pattern.Struct(sp) => {
+            bind_struct_pattern(c, sp, scrut, scrut_type, self_name)
+        }
+        _ => {}
     }
 }
 
@@ -614,6 +665,25 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
         let arm_block = new_block(c, "match_arm")
         match arm.pattern {
             .Wildcard(_) => {
+                emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
+                let mut next_label = block_label(c, after)
+                let mut next_block = -1
+                if i != len(s.arms) - 1 {
+                    next_block = new_block(c, "match_next")
+                    next_label = block_label(c, next_block)
+                }
+                set_current_block(c, arm_block)
+                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, next_label)
+                if !current_block_has_term(c) {
+                    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+                }
+                if next_block >= 0 {
+                    set_current_block(c, next_block)
+                } else {
+                    set_current_block(c, after)
+                }
+            }
+            .Bind(_) => {
                 emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
                 let mut next_label = block_label(c, after)
                 let mut next_block = -1
@@ -674,6 +744,35 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
                 }
+                set_current_block(c, arm_block)
+                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
+                if !current_block_has_term(c) {
+                    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+                }
+                set_current_block(c, next)
+                if i == len(s.arms) - 1 {
+                    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+                }
+            }
+            .Range(rp) => {
+                if scrut_kind != 1 {
+                    compiler_add_type_error(c, "range pattern requires int expression")
+                }
+                let tname = compiler_type_name(c, scrut_type)
+                let start = new_temp(c)
+                let end = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: start, value: const_to_ir(rp.start, tname) }))
+                emit_instr(c, IrInstr.Const(IrConst { dst: end, value: const_to_ir(rp.end, tname) }))
+                let ge = new_temp(c)
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: scrut, rhs: start }))
+                let le = new_temp(c)
+                let mut op = "<"
+                if rp.inclusive { op = "<=" }
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: scrut, rhs: end }))
+                let both = new_temp(c)
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ge, rhs: le }))
+                let next = new_block(c, "match_next")
+                emit_term(c, IrTerm.Branch(IrBranch { cond: both, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -754,6 +853,25 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     set_current_block(c, after)
                 }
             }
+            .Bind(_) => {
+                emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
+                let mut next_label = block_label(c, after)
+                let mut next_block = -1
+                if i != len(s.arms) - 1 {
+                    next_block = new_block(c, "match_next")
+                    next_label = block_label(c, next_block)
+                }
+                set_current_block(c, arm_block)
+                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, next_label)
+                if !current_block_has_term(c) {
+                    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+                }
+                if next_block >= 0 {
+                    set_current_block(c, next_block)
+                } else {
+                    set_current_block(c, after)
+                }
+            }
             .Variant(vp) => {
                 if scrut_kind != 6 {
                     compiler_add_type_error(c, "enum pattern requires enum expression")
@@ -806,6 +924,35 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
             }
+            .Range(rp) => {
+                if scrut_kind != 1 {
+                    compiler_add_type_error(c, "range pattern requires int expression")
+                }
+                let tname = compiler_type_name(c, scrut_type)
+                let start = new_temp(c)
+                let end = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: start, value: const_to_ir(rp.start, tname) }))
+                emit_instr(c, IrInstr.Const(IrConst { dst: end, value: const_to_ir(rp.end, tname) }))
+                let ge = new_temp(c)
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: scrut, rhs: start }))
+                let le = new_temp(c)
+                let mut op = "<"
+                if rp.inclusive { op = "<=" }
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: scrut, rhs: end }))
+                let both = new_temp(c)
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ge, rhs: le }))
+                let next = new_block(c, "match_next")
+                emit_term(c, IrTerm.Branch(IrBranch { cond: both, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                set_current_block(c, arm_block)
+                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
+                if !current_block_has_term(c) {
+                    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+                }
+                set_current_block(c, next)
+                if i == len(s.arms) - 1 {
+                    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+                }
+            }
             .Literal(lp) => {
                 if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
                     compiler_add_type_error(c, "literal pattern requires int, bool, or string expression")
@@ -838,25 +985,7 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
 
 fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, scrut_type: i32, scrut_name: String, self_name: String, allow_implicit: bool, next_label: String) {
     push_scope(c)
-    match arm.pattern {
-        .Variant(vp) => {
-            let mut pat_enum = scrut_name
-            if vp.enum_name != "" {
-                pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
-            }
-            if vp.has_binding {
-                let payload = new_temp(c)
-                emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: scrut }))
-                let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
-                let name = declare_var(c, vp.binding, payload_type, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload }))
-            }
-        }
-        Pattern.Struct(sp) => {
-            bind_struct_pattern(c, sp, scrut, scrut_type, self_name)
-        }
-        _ => {}
-    }
+    bind_match_pattern(c, arm.pattern, scrut, scrut_type, scrut_name, self_name)
     if arm.has_guard {
         let cond = compile_expr(c, arm.guard, self_name)
         let body_block = new_block(c, "match_body")
@@ -869,6 +998,92 @@ fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, scrut_type: i3
         compile_block(c, arm.body, self_name)
     }
     pop_scope(c)
+}
+
+fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, target: String) {
+    push_scope(c)
+    let unit = new_temp(c)
+    emit_instr(c, IrInstr.Const(IrConst { dst: unit, value: ir_value_unit() }))
+    if len(block.stmts) == 0 {
+        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit }))
+        pop_scope(c)
+        return
+    }
+    let mut i = 0
+    while i < len(block.stmts) {
+        if i == len(block.stmts) - 1 {
+            match block.stmts[i] {
+                Stmt.Expr(e) => {
+                    let v = compile_expr(c, e.expr, self_name)
+                    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: v }))
+                }
+                _ => {
+                    compile_stmt(c, block.stmts[i], self_name)
+                    if !current_block_has_term(c) {
+                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit }))
+                    }
+                }
+            }
+        } else {
+            compile_stmt(c, block.stmts[i], self_name)
+        }
+        i = i + 1
+    }
+    pop_scope(c)
+}
+
+fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32 {
+    let mut scrut = compile_expr(c, x.expr, self_name)
+    let mut scrut_type = compiler_check_expr(c, x.expr)
+    if compiler_type_is_ref(c, scrut_type) {
+        let base = compiler_deref_type(c, scrut_type)
+        let tmp = new_temp(c)
+        emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: tmp, src: scrut }))
+        scrut = tmp
+        scrut_type = base
+    }
+    let res_name = declare_var(c, "$iflet", 0, false)
+    let init = new_temp(c)
+    emit_instr(c, IrInstr.Const(IrConst { dst: init, value: ir_value_unit() }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: res_name, src: init }))
+
+    let after = new_block(c, "iflet_after")
+    let then_block = new_block(c, "iflet_then")
+    let else_block = new_block(c, "iflet_else")
+    let check_block = new_block(c, "iflet_check")
+
+    emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, check_block) }))
+    set_current_block(c, check_block)
+    emit_pattern_check(c, x.pattern, scrut, scrut_type, self_name, block_label(c, else_block))
+    if !current_block_has_term(c) {
+        emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, then_block) }))
+    }
+
+    let mut scrut_name = ""
+    let scrut_kind = compiler_type_kind(c, scrut_type)
+    if scrut_kind == 6 || scrut_kind == 5 {
+        scrut_name = compiler_type_name(c, scrut_type)
+    }
+
+    set_current_block(c, then_block)
+    bind_match_pattern(c, x.pattern, scrut, scrut_type, scrut_name, self_name)
+    compile_block_expr_to(c, x.then_block, self_name, res_name)
+    if !current_block_has_term(c) {
+        emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+    }
+
+    set_current_block(c, else_block)
+    if x.has_else {
+        compile_block_expr_to(c, x.else_block, self_name, res_name)
+    }
+    if !current_block_has_term(c) {
+        emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
+    }
+
+    set_current_block(c, after)
+    let out = new_temp(c)
+    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name }))
+    return out
 }
 
 fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
@@ -1064,6 +1279,9 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let dst = new_temp(c)
             emit_instr(c, IrInstr.Index(IrIndex { dst: dst, array: recv, index: idx }))
             return dst
+        }
+        Expr.IfLet(x) => {
+            return compile_if_let_expr(c, x, self_name)
         }
     }
     return const_zero(c)

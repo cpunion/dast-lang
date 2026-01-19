@@ -1,0 +1,10 @@
+enum Maybe {
+    None,
+    Some(int),
+}
+
+fn main() {
+    let m = Maybe.Some(7)
+    let v = if let .Some(x) = m { x + 1 } else { 0 }
+    println("v", v)
+}
