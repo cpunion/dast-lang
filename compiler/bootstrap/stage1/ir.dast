@@ -281,12 +281,28 @@ fn ir_value_stringify(v: IrValue) -> String {
         if v.bool { return "true" }
         return "false"
     }
-    if v.kind == ir_kind_string() { return "\"" + v.str + "\"" }
+    if v.kind == ir_kind_string() { return "\"" + ir_escape_string(v.str) + "\"" }
     if v.kind == ir_kind_ref() { return "&" + int_to_string(v.ref) }
     if v.kind == ir_kind_struct() { return "struct#" + int_to_string(v.obj) }
     if v.kind == ir_kind_enum() { return "enum#" + int_to_string(v.obj) }
     if v.kind == ir_kind_array() { return "array#" + int_to_string(v.obj) }
     return "unit"
+}
+
+fn ir_escape_string(s: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(s) {
+        let c = char_at(s, i)
+        if c == '\n' { out = out + "\\n" }
+        else if c == '\t' { out = out + "\\t" }
+        else if c == '\r' { out = out + "\\r" }
+        else if c == '\\' { out = out + "\\\\" }
+        else if c == '"' { out = out + "\\\"" }
+        else { out = out + substr(s, i, 1) }
+        i = i + 1
+    }
+    return out
 }
 
 fn ir_instr_string(inst: IrInstr) -> String {
@@ -528,7 +544,29 @@ fn parse_temp_name(text: String) -> i32 {
 
 fn strip_quotes(text: String) -> String {
     if len(text) < 2 { return text }
-    return substr(text, 1, len(text) - 2)
+    return ir_unescape_string(substr(text, 1, len(text) - 2))
+}
+
+fn ir_unescape_string(s: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(s) {
+        let c = char_at(s, i)
+        if c == '\\' && i + 1 < len(s) {
+            let n = char_at(s, i + 1)
+            if n == 'n' { out = out + "\n" }
+            else if n == 't' { out = out + "\t" }
+            else if n == 'r' { out = out + "\r" }
+            else if n == '\\' { out = out + "\\" }
+            else if n == '"' { out = out + "\"" }
+            else { out = out + substr(s, i + 1, 1) }
+            i = i + 2
+        } else {
+            out = out + substr(s, i, 1)
+            i = i + 1
+        }
+    }
+    return out
 }
 
 fn parse_ir_value(text: String) -> IrValue {

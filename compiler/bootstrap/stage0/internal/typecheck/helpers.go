@@ -23,7 +23,7 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 	}
 	base := Type{Kind: TypeInvalid, Name: name}
 	switch name {
-	case "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize":
+	case "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char":
 		base.Kind = TypeInt
 	case "bool":
 		base.Kind = TypeBool
@@ -121,7 +121,7 @@ func isValidEnumRepr(name string) bool {
 }
 
 func isComparable(t Type) bool {
-	return isInt(t) || isBool(t) || isString(t)
+	return isInt(t) || isBool(t) || isString(t) || t.Kind == TypeEnum
 }
 
 func derefType(t Type) Type {

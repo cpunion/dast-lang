@@ -1,42 +1,42 @@
 fn is_space(c: i32) -> bool {
-    return c == 32 || c == 9 || c == 10 || c == 13
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
 fn is_digit(c: i32) -> bool {
-    return c >= 48 && c <= 57
+    return c >= '0' && c <= '9'
 }
 
 fn is_alpha(c: i32) -> bool {
-    return (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'
 }
 
 fn is_alnum(c: i32) -> bool {
     return is_alpha(c) || is_digit(c)
 }
 
-fn keyword_kind(s: String) -> i32 {
-    if s == "fn" { return tk_fn() }
-    if s == "let" { return tk_let() }
-    if s == "mut" { return tk_mut() }
-    if s == "if" { return tk_if() }
-    if s == "else" { return tk_else() }
-    if s == "while" { return tk_while() }
-    if s == "return" { return tk_return() }
-    if s == "struct" { return tk_struct() }
-    if s == "enum" { return tk_enum() }
-    if s == "match" { return tk_match() }
-    if s == "true" { return tk_true() }
-    if s == "false" { return tk_false() }
-    if s == "impl" { return tk_impl() }
-    if s == "self" { return tk_self() }
-    if s == "Self" { return tk_self_type() }
-    if s == "const" { return tk_const() }
-    if s == "pub" { return tk_pub() }
-    if s == "import" { return tk_import() }
-    if s == "as" { return tk_as() }
-    if s == "from" { return tk_from() }
-    if s == "mod" { return tk_mod() }
-    return tk_ident()
+fn keyword_kind(s: String) -> TokenKind {
+    if s == "fn" { return TokenKind.Fn }
+    if s == "let" { return TokenKind.Let }
+    if s == "mut" { return TokenKind.Mut }
+    if s == "if" { return TokenKind.If }
+    if s == "else" { return TokenKind.Else }
+    if s == "while" { return TokenKind.While }
+    if s == "return" { return TokenKind.Return }
+    if s == "struct" { return TokenKind.Struct }
+    if s == "enum" { return TokenKind.Enum }
+    if s == "match" { return TokenKind.Match }
+    if s == "true" { return TokenKind.True }
+    if s == "false" { return TokenKind.False }
+    if s == "impl" { return TokenKind.Impl }
+    if s == "self" { return TokenKind.SelfVal }
+    if s == "Self" { return TokenKind.SelfType }
+    if s == "const" { return TokenKind.Const }
+    if s == "pub" { return TokenKind.Pub }
+    if s == "import" { return TokenKind.Import }
+    if s == "as" { return TokenKind.As }
+    if s == "from" { return TokenKind.From }
+    if s == "mod" { return TokenKind.Mod }
+    return TokenKind.Ident
 }
 
 fn lex(src: String) -> Tokens {
@@ -50,13 +50,13 @@ fn lex(src: String) -> Tokens {
             i = i + 1
             handled = true
         }
-        if !handled && c == 47 {
+        if !handled && c == '/' {
             if i + 1 < n {
-                if char_at(src, i + 1) == 47 {
+                if char_at(src, i + 1) == '/' {
                     i = i + 2
                     let mut scanning = true
                     while i < n && scanning {
-                        if char_at(src, i) == 10 {
+                        if char_at(src, i) == '\n' {
                             scanning = false
                         } else {
                             i = i + 1
@@ -93,15 +93,22 @@ fn lex(src: String) -> Tokens {
                     i = i + 1
                 }
             }
-            push(&mut items, Token { kind: tk_int(), start: start, len: i - start })
+            push(&mut items, Token { kind: TokenKind.Int, start: start, len: i - start })
             handled = true
         }
-        if !handled && c == 34 {
+        if !handled && c == '"' {
             let start = i
             i = i + 1
             let mut scanning = true
             while i < n && scanning {
-                if char_at(src, i) == 34 {
+                let ch = char_at(src, i)
+                if ch == '\\' {
+                    if i + 1 < n {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else if ch == '"' {
                     scanning = false
                 } else {
                     i = i + 1
@@ -110,7 +117,31 @@ fn lex(src: String) -> Tokens {
             if i < n {
                 i = i + 1
             }
-            push(&mut items, Token { kind: tk_string(), start: start, len: i - start })
+            push(&mut items, Token { kind: TokenKind.String, start: start, len: i - start })
+            handled = true
+        }
+        if !handled && c == '\'' {
+            let start = i
+            i = i + 1
+            let mut scanning = true
+            while i < n && scanning {
+                let ch = char_at(src, i)
+                if ch == '\\' {
+                    if i + 1 < n {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else if ch == '\'' {
+                    scanning = false
+                } else {
+                    i = i + 1
+                }
+            }
+            if i < n {
+                i = i + 1
+            }
+            push(&mut items, Token { kind: TokenKind.Char, start: start, len: i - start })
             handled = true
         }
         if !handled {
@@ -119,41 +150,41 @@ fn lex(src: String) -> Tokens {
             if i + 1 < n {
                 next = char_at(src, i + 1)
             }
-            if c == 61 && next == 61 {
-                push(&mut items, Token { kind: tk_eqeq(), start: start, len: 2 })
+            if c == '=' && next == '=' {
+                push(&mut items, Token { kind: TokenKind.EqEq, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 61 && next == 62 {
-                push(&mut items, Token { kind: tk_fatarrow(), start: start, len: 2 })
+            } else if c == '=' && next == '>' {
+                push(&mut items, Token { kind: TokenKind.FatArrow, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 45 && next == 62 {
-                push(&mut items, Token { kind: tk_arrow(), start: start, len: 2 })
+            } else if c == '-' && next == '>' {
+                push(&mut items, Token { kind: TokenKind.Arrow, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 33 && next == 61 {
-                push(&mut items, Token { kind: tk_noteq(), start: start, len: 2 })
+            } else if c == '!' && next == '=' {
+                push(&mut items, Token { kind: TokenKind.NotEq, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 60 && next == 61 {
-                push(&mut items, Token { kind: tk_lte(), start: start, len: 2 })
+            } else if c == '<' && next == '=' {
+                push(&mut items, Token { kind: TokenKind.LtEq, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 62 && next == 61 {
-                push(&mut items, Token { kind: tk_gte(), start: start, len: 2 })
+            } else if c == '>' && next == '=' {
+                push(&mut items, Token { kind: TokenKind.GtEq, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 38 && next == 38 {
-                push(&mut items, Token { kind: tk_andand(), start: start, len: 2 })
+            } else if c == '&' && next == '&' {
+                push(&mut items, Token { kind: TokenKind.AndAnd, start: start, len: 2 })
                 i = i + 2
                 handled = true
-            } else if c == 124 && next == 124 {
-                push(&mut items, Token { kind: tk_oror(), start: start, len: 2 })
+            } else if c == '|' && next == '|' {
+                push(&mut items, Token { kind: TokenKind.OrOr, start: start, len: 2 })
                 i = i + 2
                 handled = true
             } else {
                 let kind = single_char_kind(c)
-                if kind != -1 {
+                if kind != TokenKind.Invalid {
                     push(&mut items, Token { kind: kind, start: start, len: 1 })
                     i = i + 1
                     handled = true
@@ -164,7 +195,7 @@ fn lex(src: String) -> Tokens {
             i = i + 1
         }
     }
-    push(&mut items, Token { kind: tk_eof(), start: n, len: 0 })
+    push(&mut items, Token { kind: TokenKind.Eof, start: n, len: 0 })
     return Tokens { items: items }
 }
 

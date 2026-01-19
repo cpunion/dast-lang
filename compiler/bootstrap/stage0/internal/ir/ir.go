@@ -55,7 +55,7 @@ func (v Value) String() string {
 		}
 		return "false"
 	case KindString:
-		return fmt.Sprintf("\"%s\"", v.Str)
+		return fmt.Sprintf("\"%s\"", escapeString(v.Str))
 	case KindRef:
 		return fmt.Sprintf("&%d", v.Ref)
 	case KindStruct:
@@ -70,6 +70,27 @@ func (v Value) String() string {
 	default:
 		return "unit"
 	}
+}
+
+func escapeString(s string) string {
+	var sb strings.Builder
+	for _, r := range s {
+		switch r {
+		case '\n':
+			sb.WriteString("\\n")
+		case '\t':
+			sb.WriteString("\\t")
+		case '\r':
+			sb.WriteString("\\r")
+		case '\\':
+			sb.WriteString("\\\\")
+		case '"':
+			sb.WriteString("\\\"")
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
 }
 
 type Program struct {

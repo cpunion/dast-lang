@@ -834,21 +834,21 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
     return MethodResolution { callee: method, with_self: true, is_enum: false, enum_name: "", method_name: method }
 }
 
-fn op_string(k: i32) -> String {
-    if k == tk_plus() { return "+" }
-    if k == tk_minus() { return "-" }
-    if k == tk_star() { return "*" }
-    if k == tk_slash() { return "/" }
-    if k == tk_percent() { return "%" }
-    if k == tk_eqeq() { return "==" }
-    if k == tk_noteq() { return "!=" }
-    if k == tk_lt() { return "<" }
-    if k == tk_lte() { return "<=" }
-    if k == tk_gt() { return ">" }
-    if k == tk_gte() { return ">=" }
-    if k == tk_andand() { return "&&" }
-    if k == tk_oror() { return "||" }
-    if k == tk_bang() { return "!" }
+fn op_string(k: TokenKind) -> String {
+    if k == TokenKind.Plus { return "+" }
+    if k == TokenKind.Minus { return "-" }
+    if k == TokenKind.Star { return "*" }
+    if k == TokenKind.Slash { return "/" }
+    if k == TokenKind.Percent { return "%" }
+    if k == TokenKind.EqEq { return "==" }
+    if k == TokenKind.NotEq { return "!=" }
+    if k == TokenKind.Lt { return "<" }
+    if k == TokenKind.LtEq { return "<=" }
+    if k == TokenKind.Gt { return ">" }
+    if k == TokenKind.GtEq { return ">=" }
+    if k == TokenKind.AndAnd { return "&&" }
+    if k == TokenKind.OrOr { return "||" }
+    if k == TokenKind.Bang { return "!" }
     return "?"
 }
 

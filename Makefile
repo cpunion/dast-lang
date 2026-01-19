@@ -62,13 +62,22 @@ test-stage1: build-stage0
 test-stage1-full: test-stage1
 
 test-stage1-self: build-stage0
-	@tmp1="/tmp/dast-stage1-self-$$.ir"; \
-	out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE1_FILES) 2>&1); \
-	status=$$?; \
-	if [ $$status -ne 0 ]; then echo "$$out"; exit $$status; fi; \
-	echo "$$out" > $$tmp1; \
-	if [ ! -s $$tmp1 ]; then echo "expected stage1 ir output"; exit 1; fi; \
-	rm -f $$tmp1
+	@echo "[stage1-self] stage1 self-host IR check"; \
+	tmp0="/tmp/dast-stage1-self-$$.ir"; \
+	tmp1="/tmp/dast-stage1-self-$$.ir1"; \
+	tmp2="/tmp/dast-stage1-self-$$.ir2"; \
+	./$(STAGE0_BIN) ir $(STAGE1_FILES) > $$tmp0 || exit 1; \
+	./$(STAGE0_BIN) ir-verify $$tmp0 || exit 1; \
+	./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE1_FILES) > $$tmp1 || exit 1; \
+	./$(STAGE0_BIN) ir-verify $$tmp1 || exit 1; \
+	./$(STAGE0_BIN) ir-run $$tmp0 -- ir $(STAGE1_FILES) > $$tmp2 || exit 1; \
+	./$(STAGE0_BIN) ir-verify $$tmp2 || exit 1; \
+	diff -q $$tmp1 $$tmp2 >/tmp/dast-stage1-self.out 2>&1 || { \
+		echo "stage1 self-host IR mismatch"; \
+		cat /tmp/dast-stage1-self.out; \
+		exit 1; \
+	}; \
+	rm -f $$tmp0 $$tmp1 $$tmp2
 
 build-stage1-ir: build-stage0
 	@./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE2_FILES) > $(STAGE1_IR)
@@ -229,7 +238,16 @@ test-ir-opt: build-stage0
 	echo "$$out" | grep -q 't2 = const 3' || { echo "expected const fold"; echo "$$out"; exit 1; }; \
 	echo "$$out" | grep -q 't4 = const false' || { echo "expected const fold"; echo "$$out"; exit 1; }
 
-test: test-stage0 test-stage1 test-stage1-self test-stage2 test-ir test-ir-verify test-ir-opt
+test:
+	@echo "[test] start"
+	@$(MAKE) test-stage0
+	@$(MAKE) test-stage1
+	@$(MAKE) test-stage1-self
+	@$(MAKE) test-stage2
+	@$(MAKE) test-ir
+	@$(MAKE) test-ir-verify
+	@$(MAKE) test-ir-opt
+	@echo "[test] done"
 
 clean:
 	@rm -f $(STAGE0_BIN)

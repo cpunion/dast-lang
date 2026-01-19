@@ -186,6 +186,9 @@ func (p *Parser) parseConstValue() ast.ConstValue {
 	case lexer.TokenString:
 		p.advance()
 		return ast.ConstValue{Kind: ast.ConstString, Str: tok.Lexeme, Span: tok.Span}
+	case lexer.TokenChar:
+		p.advance()
+		return ast.ConstValue{Kind: ast.ConstInt, Int: parseCharLiteral(tok.Lexeme), Span: tok.Span}
 	default:
 		p.errorCurrent("expected const literal")
 		p.advance()

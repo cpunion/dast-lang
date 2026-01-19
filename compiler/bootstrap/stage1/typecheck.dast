@@ -504,7 +504,7 @@ fn parse_type_text_inner(types: &mut TypeTable, structs: & [StructDecl], enums: 
     let mut kind = 0
     if name == "i8" || name == "i16" || name == "i32" || name == "i64" || name == "i128" ||
        name == "u8" || name == "u16" || name == "u32" || name == "u64" || name == "u128" ||
-       name == "isize" || name == "usize" || name == "int" {
+       name == "isize" || name == "usize" || name == "int" || name == "char" {
         kind = 1
     } else if name == "bool" {
         kind = 2
@@ -787,13 +787,13 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         .BoolLit(_) => { return ctx_type_make(ctx, 2, "bool", false, false, -1) }
         .Unary(u) => {
             let t = check_expr(ctx, u.expr)
-            if u.op == tk_minus() {
+            if u.op == TokenKind.Minus {
                 if !ctx_is_int(ctx, t) && t != 0 {
                     add_type_error(ctx, "unary '-' requires int")
                 }
                 return ctx_type_make(ctx, 1, "int", false, false, -1)
             }
-            if u.op == tk_bang() {
+            if u.op == TokenKind.Bang {
                 if !ctx_is_bool(ctx, t) && t != 0 {
                     add_type_error(ctx, "unary '!' requires bool")
                 }
@@ -804,7 +804,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         .Binary(b) => {
             let lt = check_expr(ctx, b.left)
             let rt = check_expr(ctx, b.right)
-            if b.op == tk_plus() {
+            if b.op == TokenKind.Plus {
                 if ctx_is_int(ctx, lt) && ctx_is_int(ctx, rt) {
                     return ctx_type_make(ctx, 1, "int", false, false, -1)
                 }
@@ -814,26 +814,26 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 add_type_error(ctx, "'+' requires int or string")
                 return 0
             }
-            if b.op == tk_minus() || b.op == tk_star() || b.op == tk_slash() || b.op == tk_percent() {
+            if b.op == TokenKind.Minus || b.op == TokenKind.Star || b.op == TokenKind.Slash || b.op == TokenKind.Percent {
                 if !ctx_is_int(ctx, lt) || !ctx_is_int(ctx, rt) {
                     add_type_error(ctx, "arithmetic requires int")
                     return 0
                 }
                 return ctx_type_make(ctx, 1, "int", false, false, -1)
             }
-            if b.op == tk_eqeq() || b.op == tk_noteq() {
+            if b.op == TokenKind.EqEq || b.op == TokenKind.NotEq {
                 if !ctx_type_equal(ctx, lt, rt) && lt != 0 && rt != 0 {
                     add_type_error(ctx, "equality operands must have same type")
                 }
                 return ctx_type_make(ctx, 2, "bool", false, false, -1)
             }
-            if b.op == tk_lt() || b.op == tk_lte() || b.op == tk_gt() || b.op == tk_gte() {
+            if b.op == TokenKind.Lt || b.op == TokenKind.LtEq || b.op == TokenKind.Gt || b.op == TokenKind.GtEq {
                 if !ctx_is_int(ctx, lt) || !ctx_is_int(ctx, rt) {
                     add_type_error(ctx, "comparison requires int")
                 }
                 return ctx_type_make(ctx, 2, "bool", false, false, -1)
             }
-            if b.op == tk_andand() || b.op == tk_oror() {
+            if b.op == TokenKind.AndAnd || b.op == TokenKind.OrOr {
                 if !ctx_is_bool(ctx, lt) || !ctx_is_bool(ctx, rt) {
                     add_type_error(ctx, "logical op requires bool")
                 }

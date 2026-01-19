@@ -575,7 +575,7 @@ fn eval_binary(rt: &mut Runtime, op: String, a: IrValue, b: IrValue) -> IrValue 
         }
     }
     if op == "==" || op == "!=" {
-        let eq = values_equal(a, b)
+        let eq = values_equal(rt, a, b)
         if op == "!=" { return ir_value_bool(!eq) }
         return ir_value_bool(eq)
     }
@@ -601,12 +601,25 @@ fn eval_binary(rt: &mut Runtime, op: String, a: IrValue, b: IrValue) -> IrValue 
     return ir_value_unit()
 }
 
-fn values_equal(a: IrValue, b: IrValue) -> bool {
+fn values_equal(rt: &Runtime, a: IrValue, b: IrValue) -> bool {
     if a.kind != b.kind { return false }
     if a.kind == ir_kind_int() { return a.int == b.int }
     if a.kind == ir_kind_bool() { return a.bool == b.bool }
     if a.kind == ir_kind_string() { return a.str == b.str }
     if a.kind == ir_kind_unit() { return true }
+    if a.kind == ir_kind_enum() {
+        let ia = a.obj
+        let ib = b.obj
+        if ia < 0 || ib < 0 { return false }
+        if ia >= len(rt.enums) || ib >= len(rt.enums) { return false }
+        let ea = rt.enums[ia]
+        let eb = rt.enums[ib]
+        if ea.name != eb.name { return false }
+        if ea.variant != eb.variant { return false }
+        if ea.has_payload != eb.has_payload { return false }
+        if !ea.has_payload { return true }
+        return values_equal(rt, ea.payload, eb.payload)
+    }
     return false
 }
 

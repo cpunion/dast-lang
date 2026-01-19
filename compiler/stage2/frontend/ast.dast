@@ -83,12 +83,12 @@ struct BoolLit {
 }
 
 struct UnaryExpr {
-    op: i32,
+    op: TokenKind,
     expr: Expr,
 }
 
 struct BinaryExpr {
-    op: i32,
+    op: TokenKind,
     left: Expr,
     right: Expr,
 }

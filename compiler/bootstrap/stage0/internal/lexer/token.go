@@ -9,6 +9,7 @@ const (
 	TokenIdent
 	TokenInt
 	TokenString
+	TokenChar
 
 	TokenFn
 	TokenStruct
@@ -76,6 +77,8 @@ func (k TokenKind) String() string {
 		return "INT"
 	case TokenString:
 		return "STRING"
+	case TokenChar:
+		return "CHAR"
 	case TokenFn:
 		return "fn"
 	case TokenStruct:

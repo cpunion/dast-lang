@@ -50,6 +50,12 @@ func (l *Lexer) Next() Token {
 			return Token{Kind: TokenEOF, Span: source.Span{Start: start, End: l.position()}}
 		}
 		return Token{Kind: TokenString, Lexeme: lex, Span: source.Span{Start: start, End: l.position()}}
+	case '\'':
+		lex, ok := l.readChar()
+		if !ok {
+			return Token{Kind: TokenEOF, Span: source.Span{Start: start, End: l.position()}}
+		}
+		return Token{Kind: TokenChar, Lexeme: lex, Span: source.Span{Start: start, End: l.position()}}
 	case '(':
 		l.advance()
 		return Token{Kind: TokenLParen, Lexeme: "(", Span: source.Span{Start: start, End: l.position()}}
@@ -282,6 +288,45 @@ func (l *Lexer) readString() (string, bool) {
 		out = append(out, r)
 	}
 	return "", false
+}
+
+func (l *Lexer) readChar() (string, bool) {
+	l.advance() // opening quote
+	if l.eof() {
+		return "", false
+	}
+	r := l.advance()
+	var out rune
+	if r == '\\' {
+		if l.eof() {
+			return "", false
+		}
+		n := l.advance()
+		switch n {
+		case 'n':
+			out = '\n'
+		case 't':
+			out = '\t'
+		case 'r':
+			out = '\r'
+		case '\\':
+			out = '\\'
+		case '\'':
+			out = '\''
+		default:
+			out = n
+		}
+	} else {
+		out = r
+	}
+	if l.eof() {
+		return "", false
+	}
+	if l.peek() != '\'' {
+		return "", false
+	}
+	l.advance()
+	return string(out), true
 }
 
 func isIdentStart(r rune) bool {

@@ -97,6 +97,17 @@ func valuesEqual(a, b ir.Value) bool {
 		return a.Str == b.Str
 	case ir.KindUnit:
 		return true
+	case ir.KindEnum:
+		if a.Enum == nil || b.Enum == nil {
+			return a.Enum == b.Enum
+		}
+		if a.Enum.Name != b.Enum.Name || a.Enum.Variant != b.Enum.Variant {
+			return false
+		}
+		if a.Enum.Payload == nil || b.Enum.Payload == nil {
+			return a.Enum.Payload == b.Enum.Payload
+		}
+		return valuesEqual(*a.Enum.Payload, *b.Enum.Payload)
 	default:
 		return false
 	}

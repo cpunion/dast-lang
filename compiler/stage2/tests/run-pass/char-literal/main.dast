@@ -1,0 +1,10 @@
+fn main() {
+    let a: i32 = 'a'
+    let n = '\n'
+    let q = '\''
+    let b = '\\'
+    println("a", a)
+    println("n", n)
+    println("q", q)
+    println("b", b)
+}

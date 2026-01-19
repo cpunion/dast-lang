@@ -415,7 +415,11 @@ func parseValue(s string) (Value, error) {
 		return Value{Kind: KindBool, Bool: false}, nil
 	}
 	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") && len(s) >= 2 {
-		return Value{Kind: KindString, Str: s[1 : len(s)-1]}, nil
+		str, err := unescapeString(s[1 : len(s)-1])
+		if err != nil {
+			return Value{}, err
+		}
+		return Value{Kind: KindString, Str: str}, nil
 	}
 	if strings.HasPrefix(s, "&") {
 		n, err := strconv.Atoi(strings.TrimPrefix(s, "&"))
@@ -441,6 +445,37 @@ func parseValue(s string) (Value, error) {
 		return Value{}, fmt.Errorf("invalid const value")
 	}
 	return Value{Kind: KindInt, Int: n}, nil
+}
+
+func unescapeString(s string) (string, error) {
+	var out []rune
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch != '\\' {
+			out = append(out, rune(ch))
+			continue
+		}
+		if i+1 >= len(s) {
+			return "", fmt.Errorf("invalid escape")
+		}
+		n := s[i+1]
+		switch n {
+		case 'n':
+			out = append(out, '\n')
+		case 't':
+			out = append(out, '\t')
+		case 'r':
+			out = append(out, '\r')
+		case '\\':
+			out = append(out, '\\')
+		case '"':
+			out = append(out, '"')
+		default:
+			out = append(out, rune(n))
+		}
+		i++
+	}
+	return string(out), nil
 }
 
 func parseIndexExpr(s string) (int, int, error) {

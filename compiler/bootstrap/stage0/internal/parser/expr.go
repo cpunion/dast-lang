@@ -107,6 +107,9 @@ func (p *Parser) parsePrimary() ast.Expr {
 	case lexer.TokenString:
 		p.advance()
 		return &ast.StringLit{Value: tok.Lexeme, SpanInfo: tok.Span}
+	case lexer.TokenChar:
+		p.advance()
+		return &ast.IntLit{Value: parseCharLiteral(tok.Lexeme), SpanInfo: tok.Span}
 	case lexer.TokenTrue:
 		p.advance()
 		return &ast.BoolLit{Value: true, SpanInfo: tok.Span}
@@ -152,6 +155,17 @@ func parseInt(s string) int64 {
 		v = v*10 + int64(r-'0')
 	}
 	return v
+}
+
+func parseCharLiteral(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	runes := []rune(s)
+	if len(runes) == 0 {
+		return 0
+	}
+	return int64(runes[0])
 }
 
 func (p *Parser) parseArrayLit() ast.Expr {
