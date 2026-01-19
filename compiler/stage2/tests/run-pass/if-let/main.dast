@@ -1,0 +1,18 @@
+enum Maybe {
+    None,
+    Some(int),
+}
+
+fn main() {
+    let a = Maybe.Some(5)
+    if let .Some(x) = a {
+        println("some", x)
+    } else {
+        println("none")
+    }
+
+    let b = Maybe.None
+    if let .Some(x) = b {
+        println("some", x)
+    }
+}

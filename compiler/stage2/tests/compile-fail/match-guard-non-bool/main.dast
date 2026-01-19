@@ -1,0 +1,7 @@
+fn main() {
+    let v = 1
+    match v {
+        _ if 1 => { }
+        _ => { }
+    }
+}

@@ -229,6 +229,20 @@ struct VariantPattern {
     binding: String,
 }
 
+struct StructPatternField {
+    pos: i32,
+    name: String,
+    bind: bool,
+    has_pattern: bool,
+    pattern: Pattern,
+}
+
+struct StructPattern {
+    pos: i32,
+    name: String,
+    fields: [StructPatternField],
+}
+
 struct LiteralPattern {
     pos: i32,
     value: ConstValue,
@@ -237,12 +251,15 @@ struct LiteralPattern {
 enum Pattern {
     Wildcard(WildcardPattern),
     Variant(VariantPattern),
+    Struct(StructPattern),
     Literal(LiteralPattern),
 }
 
 struct MatchArm {
     pos: i32,
     pattern: Pattern,
+    has_guard: bool,
+    guard: Expr,
     body: Block,
 }
 

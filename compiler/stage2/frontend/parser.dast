@@ -894,6 +894,40 @@ fn parse_if(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> IfStmt {
     return IfStmt { pos: pos, cond: cond, then_block: then_block, has_else: has_else, else_block: else_block }
 }
 
+fn parse_if_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> MatchStmt {
+    let pos = lexer_pos(lex)
+    lexer_next(lex)
+    lexer_next(lex)
+    let pat = parse_pattern(src, lex, errors)
+    if peek_kind(lex) == TokenKind.Assign {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '=' in if let");
+    }
+    let expr = parse_expr(src, lex, errors, 0)
+    let then_block = parse_block(src, lex, errors)
+    let mut has_else = false
+    let mut else_block = empty_block()
+    if peek_kind(lex) == TokenKind.Else {
+        lexer_next(lex)
+        has_else = true;
+        if peek_kind(lex) == TokenKind.If {
+            let nested = parse_if(src, lex, errors)
+            let mut stmts: [Stmt] = []
+            push(&mut stmts, Stmt.If(nested))
+            else_block = Block { stmts: stmts }
+        } else {
+            else_block = parse_block(src, lex, errors)
+        }
+    }
+    let mut arms: [MatchArm] = []
+    push(&mut arms, MatchArm { pos: pos, pattern: pat, has_guard: false, guard: dummy_expr(), body: then_block })
+    let mut else_body = empty_block()
+    if has_else { else_body = else_block }
+    push(&mut arms, MatchArm { pos: pos, pattern: Pattern.Wildcard(WildcardPattern {}), has_guard: false, guard: dummy_expr(), body: else_body })
+    return MatchStmt { pos: pos, expr: expr, arms: arms }
+}
+
 fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
@@ -914,6 +948,44 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
         let name = next_lexeme(src, lex)
         if name == "_" {
             return Pattern.Wildcard(WildcardPattern {})
+        }
+        if peek_kind(lex) == TokenKind.LBrace {
+            lexer_next(lex)
+            let mut fields: [StructPatternField] = []
+            let mut done = false
+            while !done {
+                let fk = peek_kind(lex)
+                if fk == TokenKind.RBrace || fk == TokenKind.Eof {
+                    done = true
+                } else {
+                    if fk != TokenKind.Ident {
+                        add_error(errors, lexer_pos(lex), "expected field name");
+                        lexer_next(lex)
+                    } else {
+                        let field_pos = lexer_pos(lex)
+                        let fname = next_lexeme(src, lex)
+                        let mut bind = true
+                        let mut has_pattern = false
+                        let mut pat = Pattern.Wildcard(WildcardPattern {})
+                        if peek_kind(lex) == TokenKind.Colon {
+                            lexer_next(lex)
+                            bind = false
+                            has_pattern = true
+                            pat = parse_pattern(src, lex, errors)
+                        }
+                        push(&mut fields, StructPatternField { pos: field_pos, name: fname, bind: bind, has_pattern: has_pattern, pattern: pat })
+                        if peek_kind(lex) == TokenKind.Comma {
+                            lexer_next(lex)
+                        }
+                    }
+                }
+            }
+            if peek_kind(lex) == TokenKind.RBrace {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '}'");
+            }
+            return Pattern.Struct(StructPattern { pos: pos, name: name, fields: fields })
         }
         if peek_kind(lex) == TokenKind.Dot {
             lexer_next(lex)
@@ -1001,6 +1073,13 @@ fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Match
                 let next_pat = parse_pattern(src, lex, errors)
                 push(&mut patterns, next_pat)
             }
+            let mut has_guard = false
+            let mut guard_expr = dummy_expr()
+            if peek_kind(lex) == TokenKind.If {
+                lexer_next(lex)
+                has_guard = true
+                guard_expr = parse_expr(src, lex, errors, 0)
+            }
             if peek_kind(lex) == TokenKind.FatArrow {
                 lexer_next(lex)
             } else {
@@ -1018,7 +1097,7 @@ fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Match
             }
             let mut pi = 0
             while pi < len(patterns) {
-                push(&mut arms, MatchArm { pos: arm_pos, pattern: patterns[pi], body: body })
+                push(&mut arms, MatchArm { pos: arm_pos, pattern: patterns[pi], has_guard: has_guard, guard: guard_expr, body: body })
                 pi = pi + 1
             }
             if peek_kind(lex) == TokenKind.Comma {
@@ -1041,6 +1120,9 @@ fn parse_stmt(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Stmt {
         return Stmt.Return(parse_return(src, lex, errors))
     }
     if k == TokenKind.If {
+        if peek_kind_n(lex, 1) == TokenKind.Let {
+            return Stmt.Match(parse_if_let(src, lex, errors))
+        }
         return Stmt.If(parse_if(src, lex, errors))
     }
     if k == TokenKind.While {

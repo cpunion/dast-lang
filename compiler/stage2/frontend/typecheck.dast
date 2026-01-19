@@ -839,6 +839,7 @@ fn stmt_pos(s: Stmt) -> i32 {
 fn pattern_pos(p: Pattern) -> i32 {
     match p {
         Pattern.Variant(v) => { return v.pos }
+        Pattern.Struct(v) => { return v.pos }
         Pattern.Literal(v) => { return v.pos }
         _ => { return 0 }
     }
@@ -2536,68 +2537,134 @@ fn check_tail_if(ctx: &mut TypeContext, s: IfStmt, allow_implicit: bool) {
     check_tail_block(ctx, s.else_block, allow_implicit)
 }
 
+fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_name: String) {
+    let kind = ctx_type_kind(ctx, scrut_type)
+    match pat {
+        .Wildcard(_) => {}
+        .Literal(lp) => {
+            ctx_set_pos(ctx, lp.pos)
+            if kind != 1 && kind != 2 && kind != 3 {
+                add_type_error(ctx, "literal pattern requires int, bool, or string expression")
+            } else {
+                let pt = ctx_type_for_const_value(ctx, lp.value)
+                if pt != 0 && ctx_type_kind(ctx, pt) != kind {
+                    add_type_error(ctx, "pattern type mismatch")
+                }
+            }
+        }
+        .Variant(vp) => {
+            ctx_set_pos(ctx, vp.pos)
+            if kind != 6 {
+                add_type_error(ctx, "enum pattern requires enum expression")
+                return
+            }
+            let mut pat_enum = vp.enum_name
+            if pat_enum == "" {
+                pat_enum = scrut_name
+            } else {
+                pat_enum = resolve_enum_name(ctx, pat_enum)
+            }
+            if pat_enum == "" {
+                add_type_error(ctx, "cannot resolve enum for pattern")
+                return
+            }
+            if pat_enum != scrut_name {
+                add_type_error(ctx, "enum pattern requires matching enum type")
+                return
+            }
+            let eidx = ctx_find_enum(ctx, pat_enum)
+            if eidx < 0 {
+                add_type_error(ctx, "unknown enum '" + pat_enum + "'")
+                return
+            }
+            let decl = ctx.enums[eidx]
+            let vidx = find_variant(decl, vp.variant)
+            if vidx < 0 {
+                add_type_error(ctx, "unknown variant '" + vp.variant + "'")
+                return
+            }
+            if vp.has_binding {
+                if !decl.variants[vidx].has_payload {
+                    add_type_error(ctx, "variant has no payload to bind")
+                } else {
+                    let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
+                    ctx_env_declare(ctx, vp.binding, pt, false)
+                }
+            }
+        }
+        Pattern.Struct(sp) => {
+            ctx_set_pos(ctx, sp.pos)
+            if kind != 5 {
+                add_type_error(ctx, "struct pattern requires struct expression")
+                return
+            }
+            let mut pat_struct = resolve_struct_name(ctx, sp.name)
+            if pat_struct == "" { pat_struct = sp.name }
+            if pat_struct == "" {
+                add_type_error(ctx, "cannot resolve struct for pattern")
+                return
+            }
+            if scrut_name != "" && pat_struct != scrut_name {
+                add_type_error(ctx, "struct pattern requires matching struct type")
+                return
+            }
+            let sidx = ctx_find_struct(ctx, pat_struct)
+            if sidx < 0 {
+                add_type_error(ctx, "unknown struct '" + pat_struct + "'")
+                return
+            }
+            let decl = ctx.structs[sidx]
+            let mut i = 0
+            while i < len(sp.fields) {
+                let f = sp.fields[i]
+                ctx_set_pos(ctx, f.pos)
+                let fidx = find_field(decl, f.name)
+                if fidx < 0 {
+                    add_type_error(ctx, "unknown field '" + f.name + "'")
+                } else {
+                    let field = decl.fields[fidx]
+                    let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
+                    if f.bind {
+                        ctx_env_declare(ctx, f.name, ft, false)
+                    } else if f.has_pattern {
+                        let mut field_name = ""
+                        let field_kind = ctx_type_kind(ctx, ft)
+                        if field_kind == 5 || field_kind == 6 {
+                            field_name = ctx_type_name(ctx, ft)
+                        }
+                        check_pattern(ctx, f.pattern, ft, field_name)
+                    }
+                }
+                i = i + 1
+            }
+        }
+    }
+}
+
 fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
     ctx_set_pos(ctx, m.pos)
     let scrut = check_expr(ctx, m.expr)
-    let mut enum_name = ""
+    let mut scrut_name = ""
     let mut scrut_kind = 0
     if scrut != 0 {
         scrut_kind = ctx_type_kind(ctx, scrut)
-        if scrut_kind == 6 {
-            enum_name = ctx_type_name(ctx, scrut)
-        } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
-            add_type_error(ctx, "match requires enum, int, bool, or string expression")
+        if scrut_kind == 6 || scrut_kind == 5 {
+            scrut_name = ctx_type_name(ctx, scrut)
+        } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 && scrut_kind != 5 {
+            add_type_error(ctx, "match requires enum, struct, int, bool, or string expression")
         }
     }
     let mut i = 0
     while i < len(m.arms) {
         ctx_env_push(ctx)
         let pat = m.arms[i].pattern
-        match pat {
-            .Wildcard(_) => {}
-            .Variant(vp) => {
-                ctx_set_pos(ctx, vp.pos)
-                if scrut_kind != 6 {
-                    add_type_error(ctx, "enum pattern requires enum expression")
-                }
-                let mut pat_enum = vp.enum_name
-                if pat_enum == "" {
-                    pat_enum = enum_name
-                } else {
-                    pat_enum = resolve_enum_name(ctx, pat_enum)
-                }
-                if pat_enum == "" {
-                    add_type_error(ctx, "cannot resolve enum for pattern")
-                } else {
-                    let eidx = ctx_find_enum(ctx, pat_enum)
-                    if eidx < 0 {
-                        add_type_error(ctx, "unknown enum '" + pat_enum + "'")
-                    } else {
-                        let decl = ctx.enums[eidx]
-                        let vidx = find_variant(decl, vp.variant)
-                        if vidx < 0 {
-                            add_type_error(ctx, "unknown variant '" + vp.variant + "'")
-                        } else if vp.has_binding {
-                            if !decl.variants[vidx].has_payload {
-                                add_type_error(ctx, "variant has no payload to bind")
-                            } else {
-                                let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
-                                ctx_env_declare(ctx, vp.binding, pt, false)
-                            }
-                        }
-                    }
-                }
-            }
-            .Literal(lp) => {
-                ctx_set_pos(ctx, lp.pos)
-                if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
-                    add_type_error(ctx, "literal pattern requires int, bool, or string expression")
-                } else {
-                    let pt = ctx_type_for_const_value(ctx, lp.value)
-                    if pt != 0 && ctx_type_kind(ctx, pt) != scrut_kind {
-                        add_type_error(ctx, "pattern type mismatch")
-                    }
-                }
+        check_pattern(ctx, pat, scrut, scrut_name)
+        if m.arms[i].has_guard {
+            let gp = expr_pos(m.arms[i].guard)
+            if gp != 0 { ctx_set_pos(ctx, gp) }
+            let gt = check_expr(ctx, m.arms[i].guard)
+            if !ctx_is_bool(ctx, gt) && gt != 0 {
+                add_type_error(ctx, "match guard must be bool")
             }
         }
         check_block(ctx, m.arms[i].body)
@@ -2609,65 +2676,27 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
 fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
     ctx_set_pos(ctx, m.pos)
     let scrut = check_expr(ctx, m.expr)
-    let mut enum_name = ""
+    let mut scrut_name = ""
     let mut scrut_kind = 0
     if scrut != 0 {
         scrut_kind = ctx_type_kind(ctx, scrut)
-        if scrut_kind == 6 {
-            enum_name = ctx_type_name(ctx, scrut)
-        } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
-            add_type_error(ctx, "match requires enum, int, bool, or string expression")
+        if scrut_kind == 6 || scrut_kind == 5 {
+            scrut_name = ctx_type_name(ctx, scrut)
+        } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 && scrut_kind != 5 {
+            add_type_error(ctx, "match requires enum, struct, int, bool, or string expression")
         }
     }
     let mut i = 0
     while i < len(m.arms) {
         ctx_env_push(ctx)
         let pat = m.arms[i].pattern
-        match pat {
-            .Wildcard(_) => {}
-            .Variant(vp) => {
-                ctx_set_pos(ctx, vp.pos)
-                if scrut_kind != 6 {
-                    add_type_error(ctx, "enum pattern requires enum expression")
-                }
-                let mut pat_enum = vp.enum_name
-                if pat_enum == "" {
-                    pat_enum = enum_name
-                } else {
-                    pat_enum = resolve_enum_name(ctx, pat_enum)
-                }
-                if pat_enum == "" {
-                    add_type_error(ctx, "cannot resolve enum for pattern")
-                } else {
-                    let eidx = ctx_find_enum(ctx, pat_enum)
-                    if eidx < 0 {
-                        add_type_error(ctx, "unknown enum '" + pat_enum + "'")
-                    } else {
-                        let decl = ctx.enums[eidx]
-                        let vidx = find_variant(decl, vp.variant)
-                        if vidx < 0 {
-                            add_type_error(ctx, "unknown variant '" + vp.variant + "'")
-                        } else if vp.has_binding {
-                            if !decl.variants[vidx].has_payload {
-                                add_type_error(ctx, "variant has no payload to bind")
-                            } else {
-                                let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
-                                ctx_env_declare(ctx, vp.binding, pt, false)
-                            }
-                        }
-                    }
-                }
-            }
-            .Literal(lp) => {
-                ctx_set_pos(ctx, lp.pos)
-                if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
-                    add_type_error(ctx, "literal pattern requires int, bool, or string expression")
-                } else {
-                    let pt = ctx_type_for_const_value(ctx, lp.value)
-                    if pt != 0 && ctx_type_kind(ctx, pt) != scrut_kind {
-                        add_type_error(ctx, "pattern type mismatch")
-                    }
-                }
+        check_pattern(ctx, pat, scrut, scrut_name)
+        if m.arms[i].has_guard {
+            let gp = expr_pos(m.arms[i].guard)
+            if gp != 0 { ctx_set_pos(ctx, gp) }
+            let gt = check_expr(ctx, m.arms[i].guard)
+            if !ctx_is_bool(ctx, gt) && gt != 0 {
+                add_type_error(ctx, "match guard must be bool")
             }
         }
         check_tail_block(ctx, m.arms[i].body, allow_implicit)
