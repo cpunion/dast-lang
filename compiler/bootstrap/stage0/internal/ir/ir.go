@@ -442,6 +442,9 @@ func validateFunction(fn *Function) error {
 			return fmt.Errorf("block '%s': %w", blk.Label, err)
 		}
 	}
+	if err := validateDefiniteAssignment(fn); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -663,6 +666,190 @@ func collectDeclaredVars(fn *Function) (map[string]struct{}, error) {
 		}
 	}
 	return declared, nil
+}
+
+func validateDefiniteAssignment(fn *Function) error {
+	if len(fn.Blocks) == 0 {
+		return nil
+	}
+	params := map[string]struct{}{}
+	for _, p := range fn.Params {
+		params[p] = struct{}{}
+	}
+	blocks := map[string]*Block{}
+	for _, blk := range fn.Blocks {
+		blocks[blk.Label] = blk
+	}
+	reachable := reachableBlocks(fn, blocks)
+	storeSets := map[string]map[string]struct{}{}
+	for _, blk := range fn.Blocks {
+		set := map[string]struct{}{}
+		for _, inst := range blk.Instr {
+			if sv, ok := inst.(*StoreVar); ok && sv.Name != "" {
+				set[sv.Name] = struct{}{}
+			}
+		}
+		storeSets[blk.Label] = set
+	}
+	allVars := copySet(params)
+	for _, set := range storeSets {
+		for name := range set {
+			allVars[name] = struct{}{}
+		}
+	}
+	inSets := map[string]map[string]struct{}{}
+	outSets := map[string]map[string]struct{}{}
+	for label := range reachable {
+		inSets[label] = copySet(allVars)
+		outSets[label] = copySet(allVars)
+	}
+	entry := fn.Blocks[0].Label
+	changed := true
+	for changed {
+		changed = false
+		for _, blk := range fn.Blocks {
+			label := blk.Label
+			if _, ok := reachable[label]; !ok {
+				continue
+			}
+			var inSet map[string]struct{}
+			if label == entry {
+				inSet = copySet(params)
+			} else {
+				preds := predecessors(fn, label)
+				first := true
+				for _, p := range preds {
+					if _, ok := reachable[p]; !ok {
+						continue
+					}
+					if first {
+						inSet = copySet(outSets[p])
+						first = false
+					} else {
+						inSet = intersectSets(inSet, outSets[p])
+					}
+				}
+				if first {
+					inSet = map[string]struct{}{}
+				}
+			}
+			outSet := unionSets(inSet, storeSets[label])
+			if !setEqual(outSets[label], outSet) {
+				outSets[label] = outSet
+				changed = true
+			}
+			inSets[label] = inSet
+		}
+	}
+	for _, blk := range fn.Blocks {
+		label := blk.Label
+		if _, ok := reachable[label]; !ok {
+			continue
+		}
+		cur := copySet(inSets[label])
+		for _, inst := range blk.Instr {
+			switch v := inst.(type) {
+			case *LoadVar:
+				if _, ok := cur[v.Name]; !ok {
+					return fmt.Errorf("use of possibly uninitialized variable '%s'", v.Name)
+				}
+			case *AddrOf:
+				if _, ok := cur[v.Name]; !ok {
+					return fmt.Errorf("use of possibly uninitialized variable '%s'", v.Name)
+				}
+			case *StoreVar:
+				if v.Name != "" {
+					cur[v.Name] = struct{}{}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func reachableBlocks(fn *Function, blocks map[string]*Block) map[string]struct{} {
+	reached := map[string]struct{}{}
+	if len(fn.Blocks) == 0 {
+		return reached
+	}
+	stack := []string{fn.Blocks[0].Label}
+	for len(stack) > 0 {
+		label := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if _, ok := reached[label]; ok {
+			continue
+		}
+		reached[label] = struct{}{}
+		blk := blocks[label]
+		if blk == nil || blk.Term == nil {
+			continue
+		}
+		switch t := blk.Term.(type) {
+		case *Jump:
+			stack = append(stack, t.Target)
+		case *Branch:
+			stack = append(stack, t.Then, t.Else)
+		}
+	}
+	return reached
+}
+
+func predecessors(fn *Function, label string) []string {
+	preds := []string{}
+	for _, blk := range fn.Blocks {
+		if blk.Term == nil {
+			continue
+		}
+		switch t := blk.Term.(type) {
+		case *Jump:
+			if t.Target == label {
+				preds = append(preds, blk.Label)
+			}
+		case *Branch:
+			if t.Then == label || t.Else == label {
+				preds = append(preds, blk.Label)
+			}
+		}
+	}
+	return preds
+}
+
+func copySet(src map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	for k := range src {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+func unionSets(a map[string]struct{}, b map[string]struct{}) map[string]struct{} {
+	out := copySet(a)
+	for k := range b {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+func intersectSets(a map[string]struct{}, b map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	for k := range a {
+		if _, ok := b[k]; ok {
+			out[k] = struct{}{}
+		}
+	}
+	return out
+}
+
+func setEqual(a map[string]struct{}, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func validateTemp(idx int, tempCount int, allowNeg1 bool) error {

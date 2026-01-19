@@ -1,0 +1,14 @@
+ir v0
+fn main()
+  block entry:
+    t0 = const true
+    branch t0, then, else
+  block then:
+    t1 = const 1
+    store x, t1
+    jump merge
+  block else:
+    jump merge
+  block merge:
+    t2 = load x
+    return t2

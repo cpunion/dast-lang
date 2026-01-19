@@ -87,6 +87,7 @@ fn <name>(...)
 - `binop/unary` 操作符必须属于 v0 定义集合  
 - `struct` 字段名不能为空且不可重复  
 - `load/addr_of` 变量名必须已声明（函数参数或出现过 `store`）
+- `load/addr_of` 在所有可达路径上必须已赋值（否则报“可能未初始化”）
 
 ### IR 优化（ir-opt）
 

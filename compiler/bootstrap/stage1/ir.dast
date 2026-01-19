@@ -515,6 +515,10 @@ fn ir_instr_list_new() -> [IrInstr] {
     return items
 }
 
+fn ir_string_list_new() -> [String] {
+    return string_list_new()
+}
+
 fn parse_temp_name(text: String) -> i32 {
     let t = trim_space(text)
     if len(t) < 2 { return -1 }
@@ -1201,6 +1205,8 @@ fn ir_validate_function(f: IrFunction) -> String {
         if err != "" { return err }
         b = b + 1
     }
+    let derr = ir_validate_def_assign(f)
+    if derr != "" { return derr }
     return ""
 }
 
@@ -1222,6 +1228,191 @@ fn ir_validate(p: IrProgram) -> String {
     }
     if p.entry != "" && !ir_string_list_contains(names, p.entry) {
         return "entry function '" + p.entry + "' not found"
+    }
+    return ""
+}
+
+struct IrStrSet {
+    items: [String],
+}
+
+fn ir_strset_new() -> IrStrSet {
+    return IrStrSet { items: ir_string_list_new() }
+}
+
+fn ir_strset_contains(set: IrStrSet, name: String) -> bool {
+    return ir_string_list_contains(set.items, name)
+}
+
+fn ir_strset_add(set: &mut IrStrSet, name: String) {
+    if name == "" { return }
+    if !ir_string_list_contains(set.items, name) {
+        let mut items = set.items
+        push(&mut items, name)
+        set.items = items
+    }
+}
+
+fn ir_strset_copy(set: IrStrSet) -> IrStrSet {
+    let mut items: [String] = ir_string_list_new()
+    let mut i = 0
+    while i < len(set.items) {
+        push(&mut items, set.items[i])
+        i = i + 1
+    }
+    return IrStrSet { items: items }
+}
+
+fn ir_strset_union(a: IrStrSet, b: IrStrSet) -> IrStrSet {
+    let mut out = ir_strset_copy(a)
+    let mut i = 0
+    while i < len(b.items) {
+        ir_strset_add(&mut out, b.items[i])
+        i = i + 1
+    }
+    return out
+}
+
+fn ir_strset_intersect(a: IrStrSet, b: IrStrSet) -> IrStrSet {
+    let mut out = ir_strset_new()
+    let mut i = 0
+    while i < len(a.items) {
+        let name = a.items[i]
+        if ir_string_list_contains(b.items, name) {
+            ir_strset_add(&mut out, name)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn ir_strset_equal(a: IrStrSet, b: IrStrSet) -> bool {
+    if len(a.items) != len(b.items) { return false }
+    let mut i = 0
+    while i < len(a.items) {
+        if !ir_string_list_contains(b.items, a.items[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ir_block_store_set(blk: IrBlock) -> IrStrSet {
+    let mut out = ir_strset_new()
+    let mut i = 0
+    while i < len(blk.instrs) {
+        match blk.instrs[i] {
+            .StoreVar(sv) => { ir_strset_add(&mut out, sv.name) }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn ir_validate_def_assign(f: IrFunction) -> String {
+    if len(f.blocks) == 0 { return "" }
+    let reachable = ir_reachable_blocks(f.blocks)
+    let mut params = ir_strset_new()
+    let mut p = 0
+    while p < len(f.params) {
+        ir_strset_add(&mut params, f.params[p])
+        p = p + 1
+    }
+    let mut stores: [IrStrSet] = []
+    let mut i = 0
+    while i < len(f.blocks) {
+        push(&mut stores, ir_block_store_set(f.blocks[i]))
+        i = i + 1
+    }
+    let mut all_vars = ir_strset_copy(params)
+    let mut si = 0
+    while si < len(stores) {
+        all_vars = ir_strset_union(all_vars, stores[si])
+        si = si + 1
+    }
+    let mut in_sets: [IrStrSet] = []
+    let mut out_sets: [IrStrSet] = []
+    let mut bi_init = 0
+    while bi_init < len(f.blocks) {
+        push(&mut in_sets, ir_strset_copy(all_vars))
+        push(&mut out_sets, ir_strset_copy(all_vars))
+        bi_init = bi_init + 1
+    }
+    let entry_label = f.blocks[0].label
+    let mut changed = true
+    while changed {
+        changed = false
+        let mut bi = 0
+        while bi < len(f.blocks) {
+            if reachable[bi] {
+                let blk = f.blocks[bi]
+                let mut in_set = ir_strset_new()
+                if blk.label == entry_label {
+                    in_set = ir_strset_copy(params)
+                } else {
+                    let mut first = true
+                    let mut pj = 0
+                    while pj < len(f.blocks) {
+                        if reachable[pj] {
+                            let pred = f.blocks[pj]
+                            let mut is_pred = false
+                            match pred.term {
+                                .Jump(t) => { if t.target == blk.label { is_pred = true } }
+                                .Branch(t) => {
+                                    if t.then_label == blk.label || t.else_label == blk.label { is_pred = true }
+                                }
+                                _ => {}
+                            }
+                            if is_pred {
+                                if first {
+                                    in_set = ir_strset_copy(out_sets[pj])
+                                    first = false
+                                } else {
+                                    in_set = ir_strset_intersect(in_set, out_sets[pj])
+                                }
+                            }
+                        }
+                        pj = pj + 1
+                    }
+                    if first {
+                        in_set = ir_strset_new()
+                    }
+                }
+                let out_set = ir_strset_union(in_set, stores[bi])
+                if !ir_strset_equal(out_sets[bi], out_set) {
+                    out_sets[bi] = out_set
+                    changed = true
+                }
+                in_sets[bi] = in_set
+            }
+            bi = bi + 1
+        }
+    }
+    let mut bi2 = 0
+    while bi2 < len(f.blocks) {
+        if reachable[bi2] {
+            let blk = f.blocks[bi2]
+            let mut cur = ir_strset_copy(in_sets[bi2])
+            let mut ii = 0
+            while ii < len(blk.instrs) {
+                match blk.instrs[ii] {
+                    .LoadVar(l) => {
+                        if !ir_strset_contains(cur, l.name) {
+                            return "use of possibly uninitialized variable '" + l.name + "'"
+                        }
+                    }
+                    .AddrOf(a) => {
+                        if !ir_strset_contains(cur, a.name) {
+                            return "use of possibly uninitialized variable '" + a.name + "'"
+                        }
+                    }
+                    .StoreVar(s) => { ir_strset_add(&mut cur, s.name) }
+                    _ => {}
+                }
+                ii = ii + 1
+            }
+        }
+        bi2 = bi2 + 1
     }
     return ""
 }
