@@ -1,0 +1,5 @@
+import "./a" as api
+
+fn main() {
+    println("v", api.hidden())
+}

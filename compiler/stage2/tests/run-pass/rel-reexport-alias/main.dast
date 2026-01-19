@@ -1,0 +1,5 @@
+import "./a" as api
+
+fn main() {
+    println("sum", api.add(10, 2))
+}
