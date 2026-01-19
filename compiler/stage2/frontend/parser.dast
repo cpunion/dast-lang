@@ -1002,7 +1002,13 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
                 if fk == TokenKind.RBrace || fk == TokenKind.Eof {
                     done = true
                 } else {
+                    if has_rest {
+                        add_error(errors, lexer_pos(lex), "rest pattern must be last");
+                    }
                     if fk == TokenKind.Dot && peek_kind_n(lex, 1) == TokenKind.Dot {
+                        if has_rest {
+                            add_error(errors, lexer_pos(lex), "duplicate '..' in struct pattern");
+                        }
                         lexer_next(lex)
                         lexer_next(lex)
                         has_rest = true

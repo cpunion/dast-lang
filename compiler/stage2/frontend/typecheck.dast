@@ -2683,25 +2683,31 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                 return
             }
             let decl = ctx.structs[sidx]
+            let mut seen: [String] = []
             let mut i = 0
             while i < len(sp.fields) {
                 let f = sp.fields[i]
                 ctx_set_pos(ctx, f.pos)
-                let fidx = find_field(decl, f.name)
-                if fidx < 0 {
-                    add_type_error(ctx, "unknown field '" + f.name + "'")
+                if name_list_contains(seen, f.name) {
+                    add_type_error(ctx, "duplicate field '" + f.name + "' in pattern")
                 } else {
-                    let field = decl.fields[fidx]
-                    let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
-                    if f.bind {
-                        ctx_env_declare(ctx, f.name, ft, false)
-                    } else if f.has_pattern {
-                        let mut field_name = ""
-                        let field_kind = ctx_type_kind(ctx, ft)
-                        if field_kind == 5 || field_kind == 6 {
-                            field_name = ctx_type_name(ctx, ft)
+                    let fidx = find_field(decl, f.name)
+                    if fidx < 0 {
+                        add_type_error(ctx, "unknown field '" + f.name + "'")
+                    } else {
+                        push(&mut seen, f.name)
+                        let field = decl.fields[fidx]
+                        let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
+                        if f.bind {
+                            ctx_env_declare(ctx, f.name, ft, false)
+                        } else if f.has_pattern {
+                            let mut field_name = ""
+                            let field_kind = ctx_type_kind(ctx, ft)
+                            if field_kind == 5 || field_kind == 6 {
+                                field_name = ctx_type_name(ctx, ft)
+                            }
+                            check_pattern(ctx, f.pattern, ft, field_name)
                         }
-                        check_pattern(ctx, f.pattern, ft, field_name)
                     }
                 }
                 i = i + 1
@@ -2712,8 +2718,8 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                     let fname = decl.fields[j].name
                     let mut found = false
                     let mut k = 0
-                    while k < len(sp.fields) {
-                        if sp.fields[k].name == fname {
+                    while k < len(seen) {
+                        if seen[k] == fname {
                             found = true
                         }
                         k = k + 1
