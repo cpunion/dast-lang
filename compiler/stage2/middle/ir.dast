@@ -1000,11 +1000,12 @@ fn ir_validate_temp(t: i32, temp_count: i32, allow_neg1: bool) -> String {
     return ""
 }
 
-fn ir_validate_instr(inst: IrInstr, temp_count: i32) -> String {
+fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> String {
     match inst {
         .Const(i) => { return ir_validate_temp(i.dst, temp_count, false) }
         .LoadVar(i) => {
             if i.name == "" { return "load var name is empty" }
+            if !ir_string_list_contains(declared, i.name) { return "undefined variable '" + i.name + "'" }
             return ir_validate_temp(i.dst, temp_count, false)
         }
         .StoreVar(i) => {
@@ -1013,6 +1014,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32) -> String {
         }
         .AddrOf(i) => {
             if i.name == "" { return "addr_of name is empty" }
+            if !ir_string_list_contains(declared, i.name) { return "undefined variable '" + i.name + "'" }
             return ir_validate_temp(i.dst, temp_count, false)
         }
         .LoadRef(i) => {
@@ -1125,10 +1127,10 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32) -> String {
     return "unknown instruction"
 }
 
-fn ir_validate_block(blk: IrBlock, labels: [String], temp_count: i32) -> String {
+fn ir_validate_block(blk: IrBlock, labels: [String], temp_count: i32, declared: [String]) -> String {
     let mut i = 0
     while i < len(blk.instrs) {
-        let err = ir_validate_instr(blk.instrs[i], temp_count)
+        let err = ir_validate_instr(blk.instrs[i], temp_count, declared)
         if err != "" { return err }
         i = i + 1
     }
@@ -1159,6 +1161,32 @@ fn ir_validate_function(f: IrFunction) -> String {
     if f.temp_count < 0 { return "invalid temp_count " + int_to_string(f.temp_count) }
     if len(f.blocks) == 0 { return "function has no blocks" }
     let mut labels: [String] = []
+    let mut declared: [String] = []
+    let mut p = 0
+    while p < len(f.params) {
+        let name = f.params[p]
+        if name == "" { return "param name is empty" }
+        if ir_string_list_contains(declared, name) { return "duplicate param '" + name + "'" }
+        push(&mut declared, name)
+        p = p + 1
+    }
+    let mut bi = 0
+    while bi < len(f.blocks) {
+        let blk = f.blocks[bi]
+        let mut ii = 0
+        while ii < len(blk.instrs) {
+            match blk.instrs[ii] {
+                .StoreVar(sv) => {
+                    if sv.name != "" && !ir_string_list_contains(declared, sv.name) {
+                        push(&mut declared, sv.name)
+                    }
+                }
+                _ => {}
+            }
+            ii = ii + 1
+        }
+        bi = bi + 1
+    }
     let mut i = 0
     while i < len(f.blocks) {
         let label = f.blocks[i].label
@@ -1169,7 +1197,7 @@ fn ir_validate_function(f: IrFunction) -> String {
     }
     let mut b = 0
     while b < len(f.blocks) {
-        let err = ir_validate_block(f.blocks[b], labels, f.temp_count)
+        let err = ir_validate_block(f.blocks[b], labels, f.temp_count, declared)
         if err != "" { return err }
         b = b + 1
     }

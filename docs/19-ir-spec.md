@@ -85,7 +85,8 @@ fn <name>(...)
 - `jump/branch` 目标必须存在  
 - `tN` 必须满足 `0 <= N < temp_count`（`call` 的 `dst` 与 `enum` 的 `payload` 允许 `-1` 表示无值）  
 - `binop/unary` 操作符必须属于 v0 定义集合  
-- `struct` 字段名不能为空且不可重复
+- `struct` 字段名不能为空且不可重复  
+- `load/addr_of` 变量名必须已声明（函数参数或出现过 `store`）
 
 ### IR 优化（ir-opt）
 

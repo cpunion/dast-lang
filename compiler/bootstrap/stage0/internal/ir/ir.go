@@ -433,17 +433,21 @@ func validateFunction(fn *Function) error {
 		}
 		labels[blk.Label] = struct{}{}
 	}
+	declared, err := collectDeclaredVars(fn)
+	if err != nil {
+		return err
+	}
 	for _, blk := range fn.Blocks {
-		if err := validateBlock(blk, labels, fn.TempCount); err != nil {
+		if err := validateBlock(blk, labels, fn.TempCount, declared); err != nil {
 			return fmt.Errorf("block '%s': %w", blk.Label, err)
 		}
 	}
 	return nil
 }
 
-func validateBlock(blk *Block, labels map[string]struct{}, tempCount int) error {
+func validateBlock(blk *Block, labels map[string]struct{}, tempCount int, declared map[string]struct{}) error {
 	for _, inst := range blk.Instr {
-		if err := validateInstr(inst, tempCount); err != nil {
+		if err := validateInstr(inst, tempCount, declared); err != nil {
 			return err
 		}
 	}
@@ -483,13 +487,16 @@ func validateBlock(blk *Block, labels map[string]struct{}, tempCount int) error 
 	return nil
 }
 
-func validateInstr(inst Instr, tempCount int) error {
+func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) error {
 	switch i := inst.(type) {
 	case *Const:
 		return validateTemp(i.Dst, tempCount, false)
 	case *LoadVar:
 		if i.Name == "" {
 			return fmt.Errorf("load var name is empty")
+		}
+		if _, ok := declared[i.Name]; !ok {
+			return fmt.Errorf("undefined variable '%s'", i.Name)
 		}
 		return validateTemp(i.Dst, tempCount, false)
 	case *StoreVar:
@@ -500,6 +507,9 @@ func validateInstr(inst Instr, tempCount int) error {
 	case *AddrOf:
 		if i.Name == "" {
 			return fmt.Errorf("addr_of name is empty")
+		}
+		if _, ok := declared[i.Name]; !ok {
+			return fmt.Errorf("undefined variable '%s'", i.Name)
 		}
 		return validateTemp(i.Dst, tempCount, false)
 	case *LoadRef:
@@ -628,6 +638,31 @@ func validateInstr(inst Instr, tempCount int) error {
 	default:
 		return fmt.Errorf("unknown instruction")
 	}
+}
+
+func collectDeclaredVars(fn *Function) (map[string]struct{}, error) {
+	declared := map[string]struct{}{}
+	for _, p := range fn.Params {
+		if p == "" {
+			return nil, fmt.Errorf("param name is empty")
+		}
+		if _, ok := declared[p]; ok {
+			return nil, fmt.Errorf("duplicate param '%s'", p)
+		}
+		declared[p] = struct{}{}
+	}
+	for _, blk := range fn.Blocks {
+		for _, inst := range blk.Instr {
+			if sv, ok := inst.(*StoreVar); ok {
+				if sv.Name != "" {
+					if _, ok := declared[sv.Name]; !ok {
+						declared[sv.Name] = struct{}{}
+					}
+				}
+			}
+		}
+	}
+	return declared, nil
 }
 
 func validateTemp(idx int, tempCount int, allowNeg1 bool) error {

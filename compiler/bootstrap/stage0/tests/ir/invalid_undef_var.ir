@@ -1,0 +1,5 @@
+ir v0
+fn main()
+  block entry:
+    t0 = load x
+    return t0
