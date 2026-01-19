@@ -1,0 +1,7 @@
+ir v0
+fn main()
+  block entry:
+    t0 = const 1
+    t1 = const 2
+    t2 = struct Point { x: t0, x: t1 }
+    return t2

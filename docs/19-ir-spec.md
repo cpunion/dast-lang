@@ -228,6 +228,7 @@ v0 仅支持 8 种运行时值：
 - `len(x)`
 - `push(&mut array, value)`
 - `pop(&mut array)`
+- `exit([code])`
 - `read_file(path)`
 - `read_dir(path)`
 - `write_file(path, data)`

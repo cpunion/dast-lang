@@ -14,6 +14,9 @@ IR_UNINIT := $(IR_TEST_DIR)/invalid_maybe_uninit.ir
 IR_TERM := $(IR_TEST_DIR)/invalid_term_not_last.ir
 IR_JUMP := $(IR_TEST_DIR)/invalid_jump_target.ir
 IR_BADTEMP := $(IR_TEST_DIR)/invalid_bad_temp.ir
+IR_DUPBLOCK := $(IR_TEST_DIR)/invalid_dup_block.ir
+IR_DUPFIELD := $(IR_TEST_DIR)/invalid_dup_field.ir
+IR_OPT_CONST := $(IR_TEST_DIR)/opt_const.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
@@ -123,6 +126,12 @@ test-ir-verify: build-stage0
 	@if ./$(STAGE0_BIN) ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
+	@if ./$(STAGE0_BIN) ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
+	@if ./$(STAGE0_BIN) ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -151,14 +160,28 @@ test-ir-verify: build-stage0
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
 
 test-ir-opt: build-stage0
 	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT)); \
 	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
 	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
+	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT_CONST)); \
+	echo "$$out" | grep -q 't2 = const 3' || { echo "expected const fold"; echo "$$out"; exit 1; }; \
+	echo "$$out" | grep -q 't4 = const false' || { echo "expected const fold"; echo "$$out"; exit 1; }
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-opt $(IR_OPT) 2>&1); \
 	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
 	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-opt $(IR_OPT_CONST) 2>&1); \
+	echo "$$out" | grep -q 't2 = const 3' || { echo "expected const fold"; echo "$$out"; exit 1; }; \
+	echo "$$out" | grep -q 't4 = const false' || { echo "expected const fold"; echo "$$out"; exit 1; }
 
 test: test-stage0 test-stage1 test-stage2 test-ir test-ir-verify test-ir-opt
 
