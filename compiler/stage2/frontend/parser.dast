@@ -439,8 +439,8 @@ fn parse_import_path(src: String, lex: &mut Lexer, errors: &mut [ParseError]) ->
     return ImportPath { path: parse_path(src, lex, errors), is_string: false }
 }
 
-fn import_item_list_new() -> [String] {
-    let mut items: [String] = []
+fn import_item_list_new() -> [ImportItemSpec] {
+    let mut items: [ImportItemSpec] = []
     return items
 }
 
@@ -751,7 +751,7 @@ fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr
 
 fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImportDecl {
     lexer_next(lex)
-    let mut items: [String] = []
+    let mut items: [ImportItemSpec] = []
     let mut has_items = false
     let mut path = ""
     let mut path_is_string = false
@@ -765,8 +765,23 @@ fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
             if peek_kind(lex) == TokenKind.RBrace || peek_kind(lex) == TokenKind.Eof {
                 done = true
             } else {
+                let item_pos = lexer_pos(lex)
                 let name = parse_ident(src, lex, errors)
-                if name != "" { push(&mut items, name) }
+                let mut has_item_alias = false
+                let mut item_alias = ""
+                if peek_kind(lex) == TokenKind.As {
+                    lexer_next(lex)
+                    item_alias = parse_ident(src, lex, errors)
+                    has_item_alias = item_alias != ""
+                }
+                if name != "" {
+                    push(&mut items, ImportItemSpec {
+                        pos: item_pos,
+                        name: name,
+                        has_alias: has_item_alias,
+                        alias: item_alias,
+                    })
+                }
                 if peek_kind(lex) == TokenKind.Comma {
                     lexer_next(lex)
                 }

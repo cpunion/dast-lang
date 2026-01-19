@@ -346,13 +346,20 @@ struct ImplDecl {
     methods: [FunctionDecl],
 }
 
+struct ImportItemSpec {
+    pos: i32,
+    name: String,
+    has_alias: bool,
+    alias: String,
+}
+
 struct ImportDecl {
     vis: Visibility,
     module: String,
     file: String,
     pos: i32,
     has_items: bool,
-    items: [String],
+    items: [ImportItemSpec],
     path: String,
     path_is_string: bool,
     has_alias: bool,

@@ -13,6 +13,22 @@ struct ParseResult {
     errors: [ParseError],
 }
 
+struct Manifest {
+    has_package: bool,
+    package_line: i32,
+    name: String,
+    version: String,
+    edition: String,
+    deps: [String],
+    dev_deps: [String],
+    build_deps: [String],
+}
+
+struct ManifestResult {
+    manifest: Manifest,
+    errors: [ParseError],
+}
+
 fn struct_list_new() -> [StructDecl] {
     let mut items: [StructDecl] = []
     return items
@@ -46,6 +62,19 @@ fn import_list_new() -> [ImportDecl] {
 fn driver_string_list_new() -> [String] {
     let mut items: [String] = []
     return items
+}
+
+fn manifest_empty() -> Manifest {
+    return Manifest {
+        has_package: false,
+        package_line: 0,
+        name: "",
+        version: "",
+        edition: "",
+        deps: driver_string_list_new(),
+        dev_deps: driver_string_list_new(),
+        build_deps: driver_string_list_new(),
+    }
 }
 
 fn program_empty() -> Program {
@@ -574,10 +603,143 @@ fn driver_parse_package_name(toml: String) -> String {
     return ""
 }
 
+fn driver_strip_inline_comment(line: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    let mut in_str = false
+    while i < len(line) {
+        let c = char_at(line, i)
+        if c == '"' {
+            in_str = !in_str
+        }
+        if c == '#' && !in_str {
+            return out
+        }
+        out = out + substr(line, i, 1)
+        i = i + 1
+    }
+    return out
+}
+
+fn driver_manifest_add_error(errors: &mut [ParseError], line: i32, msg: String) {
+    push(errors, ParseError { pos: 0, file: "", line: line, col: 1, msg: msg })
+}
+
+fn driver_parse_manifest(toml: String) -> ManifestResult {
+    let mut manifest = manifest_empty()
+    let mut errors: [ParseError] = []
+    let lines = driver_split_lines(toml)
+    let mut section = ""
+    let mut i = 0
+    while i < len(lines) {
+        let line_no = i + 1
+        let mut line = driver_trim_space(lines[i])
+        let mut handled = false
+        if line == "" || driver_string_starts_with(line, "#") {
+            handled = true
+        } else {
+            line = driver_trim_space(driver_strip_inline_comment(line))
+            if line == "" {
+                handled = true
+            }
+        }
+        if !handled && driver_string_starts_with(line, "[") && driver_string_ends_with(line, "]") {
+            if line == "[package]" {
+                section = "package"
+                manifest.has_package = true
+                manifest.package_line = line_no
+            } else if line == "[dependencies]" {
+                section = "dependencies"
+            } else if line == "[dev-dependencies]" {
+                section = "dev-dependencies"
+            } else if line == "[build-dependencies]" {
+                section = "build-dependencies"
+            } else {
+                section = ""
+            }
+            handled = true
+        }
+        if !handled {
+            let eq = find_char(line, 61, 0)
+            if eq >= 0 {
+                let key = driver_trim_space(substr(line, 0, eq))
+                let value = driver_trim_space(substr(line, eq + 1, len(line) - eq - 1))
+                if section == "package" {
+                    if key == "name" {
+                        if manifest.name != "" {
+                            driver_manifest_add_error(&mut errors, line_no, "duplicate package.name")
+                        } else if len(value) < 2 || char_at(value, 0) != '"' {
+                            driver_manifest_add_error(&mut errors, line_no, "package.name must be string")
+                        } else {
+                            manifest.name = parse_string_lit_token(value)
+                        }
+                    } else if key == "version" {
+                        if manifest.version != "" {
+                            driver_manifest_add_error(&mut errors, line_no, "duplicate package.version")
+                        } else if len(value) < 2 || char_at(value, 0) != '"' {
+                            driver_manifest_add_error(&mut errors, line_no, "package.version must be string")
+                        } else {
+                            manifest.version = parse_string_lit_token(value)
+                        }
+                    } else if key == "edition" {
+                        if manifest.edition != "" {
+                            driver_manifest_add_error(&mut errors, line_no, "duplicate package.edition")
+                        } else if len(value) < 2 || char_at(value, 0) != '"' {
+                            driver_manifest_add_error(&mut errors, line_no, "package.edition must be string")
+                        } else {
+                            manifest.edition = parse_string_lit_token(value)
+                        }
+                    }
+                } else if section == "dependencies" || section == "dev-dependencies" || section == "build-dependencies" {
+                    if key != "" {
+                        if section == "dependencies" {
+                            let mut deps = manifest.deps
+                            push(&mut deps, key)
+                            manifest.deps = deps
+                        } else if section == "dev-dependencies" {
+                            let mut deps = manifest.dev_deps
+                            push(&mut deps, key)
+                            manifest.dev_deps = deps
+                        } else {
+                            let mut deps = manifest.build_deps
+                            push(&mut deps, key)
+                            manifest.build_deps = deps
+                        }
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    if manifest.has_package && manifest.name == "" {
+        let line_no = manifest.package_line
+        driver_manifest_add_error(&mut errors, line_no, "package.name is required")
+    }
+    return ManifestResult { manifest: manifest, errors: errors }
+}
+
+fn driver_manifest_with_file(res: ManifestResult, file: String) -> ManifestResult {
+    let mut errs: [ParseError] = []
+    let mut i = 0
+    while i < len(res.errors) {
+        let e = res.errors[i]
+        push(&mut errs, ParseError { pos: e.pos, file: file, line: e.line, col: e.col, msg: e.msg })
+        i = i + 1
+    }
+    return ManifestResult { manifest: res.manifest, errors: errs }
+}
+
+fn driver_load_manifest(pkg_root: String) -> ManifestResult {
+    let path = driver_path_join(pkg_root, "dast.toml")
+    let text = read_file(path)
+    let res = driver_parse_manifest(text)
+    return driver_manifest_with_file(res, path)
+}
+
 fn driver_package_name(pkg_root: String) -> String {
     if pkg_root == "" { return "" }
-    let text = read_file(driver_path_join(pkg_root, "dast.toml"))
-    return driver_parse_package_name(text)
+    let res = driver_load_manifest(pkg_root)
+    return res.manifest.name
 }
 
 fn driver_is_relative_import(path: String) -> bool {
@@ -809,6 +971,13 @@ struct LoadState {
     sources: [String],
 }
 
+struct ImportLoad {
+    dir: String,
+    file: String,
+    pos: i32,
+    path: String,
+}
+
 fn load_state_new() -> LoadState {
     return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new(), sources: driver_string_list_new() }
 }
@@ -832,11 +1001,12 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
 
     let base = driver_path_dir(path)
     let mut imports: [ImportDecl] = []
-    let mut child_dirs: [String] = []
+    let mut child_dirs: [ImportLoad] = []
     let mut j = 0
     while j < len(prog.imports) {
         let imp = prog.imports[j]
         if imp.path != "" {
+            let orig_path = imp.path
             let child_dir = driver_import_path_to_dir(base, root_dir, imp.path, imp.path_is_string)
             if !driver_path_is_within(root_dir, child_dir) {
                 push(&mut local_errs, ParseError { pos: imp.pos, file: "", line: 0, col: 0, msg: "import path escapes package root: " + imp.path })
@@ -858,7 +1028,7 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
                     has_alias: imp.has_alias,
                     alias: imp.alias,
                 })
-                push(&mut child_dirs, child_dir)
+                push(&mut child_dirs, ImportLoad { dir: child_dir, file: path, pos: imp.pos, path: orig_path })
             }
         } else {
             push(&mut imports, imp)
@@ -899,9 +1069,19 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
     }
 }
 
-fn load_dir_recursive(dir: String, root_dir: String, state: &mut LoadState, include_tests: bool) {
-    let module_path = driver_module_path_from_dir(root_dir, dir)
-    let files = driver_list_dast_files(dir, include_tests)
+fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, include_tests: bool) {
+    let module_path = driver_module_path_from_dir(root_dir, req.dir)
+    let files = driver_list_dast_files(req.dir, include_tests)
+    if len(files) == 0 {
+        let mut errs = state.errors
+        if req.file != "" {
+            push(&mut errs, ParseError { pos: req.pos, file: req.file, line: 0, col: 0, msg: "import path has no .dast files: " + req.path })
+        } else {
+            push(&mut errs, ParseError { pos: 0, file: req.dir, line: 1, col: 1, msg: "no .dast files in directory" })
+        }
+        state.errors = errs
+        return
+    }
     let mut i = 0
     while i < len(files) {
         load_file_recursive(files[i], root_dir, module_path, state, include_tests)
@@ -1110,12 +1290,13 @@ fn main() {
             die_error("path outside package root: " + path)
         }
         let include_tests = cmd == "test"
-        load_dir_recursive(dir, code_root, &mut state, include_tests)
+        load_dir_recursive(ImportLoad { dir: dir, file: "", pos: -1, path: dir }, code_root, &mut state, include_tests)
         i = i + 1
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }
     if len(parse_res.errors) > 0 {
-        die_errors(parse_res.errors)
+        let perrs = attach_error_locations(parse_res.errors, &state)
+        die_errors(perrs)
     }
     if debug { println("stage2: parsed") }
     let tctx = check_program(parse_res.prog)
@@ -1137,8 +1318,11 @@ fn main() {
     if cmd == "build" {
         let mut name = "main"
         if pkg_has_toml {
-            let pkg = driver_package_name(pkg_root)
-            if pkg != "" { name = pkg }
+            let manifest = driver_load_manifest(pkg_root)
+            if len(manifest.errors) > 0 {
+                die_errors(manifest.errors)
+            }
+            if manifest.manifest.name != "" { name = manifest.manifest.name }
         }
         let target_dir = driver_path_join(pkg_root, "target")
         mkdir(target_dir)

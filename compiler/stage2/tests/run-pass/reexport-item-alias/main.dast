@@ -1,0 +1,5 @@
+import { sum } from "api"
+
+fn main() {
+    println("sum", sum(3, 4))
+}

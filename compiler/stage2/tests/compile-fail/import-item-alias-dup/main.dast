@@ -1,0 +1,5 @@
+import { add as sum, sub as sum } from "math"
+
+fn main() {
+    println("x")
+}

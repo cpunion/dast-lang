@@ -42,6 +42,10 @@ helper()
 import "utils" as u
 u.helper()
 
+// 项别名
+import { helper as h } from "utils"
+h()
+
 // 子模块
 import "parser/lexer"
 import { Token } from "parser/lexer"
