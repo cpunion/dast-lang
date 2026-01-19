@@ -31,38 +31,42 @@ func Parse(text string) (*Program, error) {
 	var curFn *Function
 	var curBlk *Block
 	maxTemp := -1
+	flushBlock := func() {
+		if curBlk != nil && curFn != nil {
+			curFn.Blocks = append(curFn.Blocks, curBlk)
+		}
+		curBlk = nil
+	}
+	flushFn := func() error {
+		if curFn == nil {
+			return nil
+		}
+		if maxTemp < 0 {
+			curFn.TempCount = 0
+		} else {
+			curFn.TempCount = maxTemp + 1
+		}
+		if _, exists := prog.Functions[curFn.Name]; exists {
+			return fmt.Errorf("duplicate function '%s'", curFn.Name)
+		}
+		prog.Functions[curFn.Name] = curFn
+		curFn = nil
+		return nil
+	}
 	for i < len(lines) {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
-			if curBlk != nil {
-				curFn.Blocks = append(curFn.Blocks, curBlk)
-				curBlk = nil
-			}
-			if curFn != nil {
-				if maxTemp < 0 {
-					curFn.TempCount = 0
-				} else {
-					curFn.TempCount = maxTemp + 1
-				}
-				prog.Functions[curFn.Name] = curFn
-				curFn = nil
+			flushBlock()
+			if err := flushFn(); err != nil {
+				return nil, err
 			}
 			i++
 			continue
 		}
 		if strings.HasPrefix(line, "fn ") {
-			if curBlk != nil {
-				curFn.Blocks = append(curFn.Blocks, curBlk)
-				curBlk = nil
-			}
-			if curFn != nil {
-				if maxTemp < 0 {
-					curFn.TempCount = 0
-				} else {
-					curFn.TempCount = maxTemp + 1
-				}
-				prog.Functions[curFn.Name] = curFn
-				curFn = nil
+			flushBlock()
+			if err := flushFn(); err != nil {
+				return nil, err
 			}
 			name, params, err := parseFnHeader(line)
 			if err != nil {
@@ -108,16 +112,9 @@ func Parse(text string) (*Program, error) {
 		}
 		i++
 	}
-	if curBlk != nil && curFn != nil {
-		curFn.Blocks = append(curFn.Blocks, curBlk)
-	}
-	if curFn != nil {
-		if maxTemp < 0 {
-			curFn.TempCount = 0
-		} else {
-			curFn.TempCount = maxTemp + 1
-		}
-		prog.Functions[curFn.Name] = curFn
+	flushBlock()
+	if err := flushFn(); err != nil {
+		return nil, err
 	}
 	if _, ok := prog.Functions["main"]; ok {
 		prog.Entry = "main"

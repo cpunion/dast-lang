@@ -16,6 +16,7 @@ IR_JUMP := $(IR_TEST_DIR)/invalid_jump_target.ir
 IR_BADTEMP := $(IR_TEST_DIR)/invalid_bad_temp.ir
 IR_DUPBLOCK := $(IR_TEST_DIR)/invalid_dup_block.ir
 IR_DUPFIELD := $(IR_TEST_DIR)/invalid_dup_field.ir
+IR_DUPFN := $(IR_TEST_DIR)/invalid_dup_fn.ir
 IR_OPT_CONST := $(IR_TEST_DIR)/opt_const.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
@@ -132,6 +133,9 @@ test-ir-verify: build-stage0
 	@if ./$(STAGE0_BIN) ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
+	@if ./$(STAGE0_BIN) ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -165,6 +169,10 @@ test-ir-verify: build-stage0
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
 	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }

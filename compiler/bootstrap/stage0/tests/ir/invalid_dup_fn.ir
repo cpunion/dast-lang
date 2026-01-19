@@ -1,0 +1,8 @@
+ir v0
+fn main()
+  block entry:
+    return
+
+fn main()
+  block entry:
+    return
