@@ -25,6 +25,10 @@ func main() {
 		dumpIR(os.Args[2:])
 	case "ir-run":
 		runIR(os.Args[2:])
+	case "ir-verify":
+		verifyIR(os.Args[2:])
+	case "ir-opt":
+		optIR(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -40,6 +44,8 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...]")
 	fmt.Fprintln(os.Stderr, "  dast ir-run <file.ir> [-- args...]")
+	fmt.Fprintln(os.Stderr, "  dast ir-verify <file.ir>")
+	fmt.Fprintln(os.Stderr, "  dast ir-opt <file.ir>")
 }
 
 func run(args []string) {
@@ -161,6 +167,68 @@ func runIR(args []string) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func verifyIR(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "missing input file")
+		usage()
+		os.Exit(1)
+	}
+	files, _ := splitArgs(args)
+	if len(files) != 1 {
+		fmt.Fprintln(os.Stderr, "ir-verify expects exactly one .ir file")
+		usage()
+		os.Exit(1)
+	}
+	src, err := os.ReadFile(files[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read %s: %v\n", files[0], err)
+		os.Exit(1)
+	}
+	irProg, err := ir.Parse(string(src))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := irProg.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func optIR(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "missing input file")
+		usage()
+		os.Exit(1)
+	}
+	files, _ := splitArgs(args)
+	if len(files) != 1 {
+		fmt.Fprintln(os.Stderr, "ir-opt expects exactly one .ir file")
+		usage()
+		os.Exit(1)
+	}
+	src, err := os.ReadFile(files[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "read %s: %v\n", files[0], err)
+		os.Exit(1)
+	}
+	irProg, err := ir.Parse(string(src))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := irProg.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	ir.Optimize(irProg)
+	if err := irProg.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Print(irProg.Format())
 }
 
 func splitArgs(args []string) ([]string, []string) {

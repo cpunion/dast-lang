@@ -48,6 +48,8 @@ fn usage() {
     println("  dast run <file.dast> [more.dast ...] [-- args...]")
     println("  dast ir <file.dast> [more.dast ...]")
     println("  dast ir-run <file.ir> [-- args...]")
+    println("  dast ir-verify <file.ir>")
+    println("  dast ir-opt <file.ir>")
 }
 
 fn split_args(args: [String], start: i32) -> ArgSplit {
@@ -145,7 +147,7 @@ fn main() {
         return
     }
     let cmd = argv[0]
-    if cmd != "run" && cmd != "ir" && cmd != "ir-run" {
+    if cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "ir-verify" && cmd != "ir-opt" {
         usage()
         return
     }
@@ -173,12 +175,59 @@ fn main() {
             println("error", parsed.line, parsed.error)
             return
         }
+        let verr = ir_validate(parsed.prog)
+        if verr != "" {
+            println("error", verr)
+            return
+        }
         let mut rt = runtime_new(parsed.prog, split.rest)
         if debug { println("stage1: running ir") }
         runtime_run(&mut rt, parsed.prog.entry)
         if rt.error != "" {
             println("error", rt.error)
         }
+        return
+    }
+    if cmd == "ir-verify" {
+        if len(split.files) != 1 {
+            usage()
+            return
+        }
+        let text = read_file(split.files[0])
+        let parsed = ir_parse_program(text)
+        if !parsed.ok {
+            println("error", parsed.line, parsed.error)
+            return
+        }
+        let verr = ir_validate(parsed.prog)
+        if verr != "" {
+            println("error", verr)
+        }
+        return
+    }
+    if cmd == "ir-opt" {
+        if len(split.files) != 1 {
+            usage()
+            return
+        }
+        let text = read_file(split.files[0])
+        let parsed = ir_parse_program(text)
+        if !parsed.ok {
+            println("error", parsed.line, parsed.error)
+            return
+        }
+        let verr = ir_validate(parsed.prog)
+        if verr != "" {
+            println("error", verr)
+            return
+        }
+        let opt = ir_opt_program(parsed.prog)
+        let verr2 = ir_validate(opt)
+        if verr2 != "" {
+            println("error", verr2)
+            return
+        }
+        print(ir_program_format(opt))
         return
     }
     let parse_res = parse_files(split.files)
@@ -199,6 +248,11 @@ fn main() {
         return
     }
     if debug { println("stage1: compiled") }
+    let verr = ir_validate(comp.prog)
+    if verr != "" {
+        println("error", verr)
+        return
+    }
     if cmd == "ir" {
         print(ir_program_format(comp.prog))
         return

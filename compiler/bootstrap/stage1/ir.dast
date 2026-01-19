@@ -964,3 +964,543 @@ fn ir_parse_program(text: String) -> IrParseResult {
     prog.entry = entry
     return IrParseResult { ok: true, prog: prog, error: "", line: 0 }
 }
+
+fn ir_string_list_contains(items: [String], name: String) -> bool {
+    let mut i = 0
+    while i < len(items) {
+        if items[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn ir_is_bin_op(op: String) -> bool {
+    if op == "+" || op == "-" || op == "*" || op == "/" || op == "%" { return true }
+    if op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=" { return true }
+    if op == "&&" || op == "||" { return true }
+    return false
+}
+
+fn ir_is_unary_op(op: String) -> bool {
+    return op == "-" || op == "!"
+}
+
+fn ir_validate_temp(t: i32, temp_count: i32, allow_neg1: bool) -> String {
+    if allow_neg1 && t == -1 {
+        return ""
+    }
+    if t < 0 {
+        return "invalid temp t" + int_to_string(t)
+    }
+    if t >= temp_count {
+        return "temp t" + int_to_string(t) + " out of range (temp_count=" + int_to_string(temp_count) + ")"
+    }
+    return ""
+}
+
+fn ir_validate_instr(inst: IrInstr, temp_count: i32) -> String {
+    match inst {
+        .Const(i) => { return ir_validate_temp(i.dst, temp_count, false) }
+        .LoadVar(i) => {
+            if i.name == "" { return "load var name is empty" }
+            return ir_validate_temp(i.dst, temp_count, false)
+        }
+        .StoreVar(i) => {
+            if i.name == "" { return "store var name is empty" }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .AddrOf(i) => {
+            if i.name == "" { return "addr_of name is empty" }
+            return ir_validate_temp(i.dst, temp_count, false)
+        }
+        .LoadRef(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .StoreRef(i) => {
+            let err = ir_validate_temp(i.ref, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .BinOp(i) => {
+            if !ir_is_bin_op(i.op) { return "invalid binop '" + i.op + "'" }
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            let err2 = ir_validate_temp(i.lhs, temp_count, false)
+            if err2 != "" { return err2 }
+            return ir_validate_temp(i.rhs, temp_count, false)
+        }
+        .UnaryOp(i) => {
+            if !ir_is_unary_op(i.op) { return "invalid unary op '" + i.op + "'" }
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .Call(i) => {
+            if i.callee == "" { return "call callee is empty" }
+            let err = ir_validate_temp(i.dst, temp_count, true)
+            if err != "" { return err }
+            let mut a = 0
+            while a < len(i.args) {
+                let e = ir_validate_temp(i.args[a], temp_count, false)
+                if e != "" { return e }
+                a = a + 1
+            }
+            return ""
+        }
+        .MakeArray(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            let mut j = 0
+            while j < len(i.elems) {
+                let e = ir_validate_temp(i.elems[j], temp_count, false)
+                if e != "" { return e }
+                j = j + 1
+            }
+            return ""
+        }
+        .Index(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            let e2 = ir_validate_temp(i.array, temp_count, false)
+            if e2 != "" { return e2 }
+            return ir_validate_temp(i.index, temp_count, false)
+        }
+        .SetIndex(i) => {
+            let e1 = ir_validate_temp(i.array, temp_count, false)
+            if e1 != "" { return e1 }
+            let e2 = ir_validate_temp(i.index, temp_count, false)
+            if e2 != "" { return e2 }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .MakeStruct(i) => {
+            if i.name == "" { return "struct name is empty" }
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            let mut fields: [String] = []
+            let mut f = 0
+            while f < len(i.fields) {
+                let fld = i.fields[f]
+                if fld.name == "" { return "struct field name is empty" }
+                if ir_string_list_contains(fields, fld.name) { return "duplicate struct field '" + fld.name + "'" }
+                push(&mut fields, fld.name)
+                let e = ir_validate_temp(fld.src, temp_count, false)
+                if e != "" { return e }
+                f = f + 1
+            }
+            return ""
+        }
+        .GetField(i) => {
+            if i.field == "" { return "get_field name is empty" }
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .SetField(i) => {
+            if i.field == "" { return "set_field name is empty" }
+            let err = ir_validate_temp(i.src, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.value, temp_count, false)
+        }
+        .MakeEnum(i) => {
+            if i.name == "" || i.variant == "" { return "enum name or variant is empty" }
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.payload, temp_count, true)
+        }
+        .EnumTag(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .EnumPayload(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+    }
+    return "unknown instruction"
+}
+
+fn ir_validate_block(blk: IrBlock, labels: [String], temp_count: i32) -> String {
+    let mut i = 0
+    while i < len(blk.instrs) {
+        let err = ir_validate_instr(blk.instrs[i], temp_count)
+        if err != "" { return err }
+        i = i + 1
+    }
+    match blk.term {
+        .None(_) => { return "block '" + blk.label + "' missing terminator" }
+        .Jump(t) => {
+            if t.target == "" { return "jump target is empty" }
+            if !ir_string_list_contains(labels, t.target) { return "jump target '" + t.target + "' not found" }
+        }
+        .Branch(t) => {
+            let err = ir_validate_temp(t.cond, temp_count, false)
+            if err != "" { return err }
+            if t.then_label == "" || t.else_label == "" { return "branch target is empty" }
+            if !ir_string_list_contains(labels, t.then_label) { return "branch target '" + t.then_label + "' not found" }
+            if !ir_string_list_contains(labels, t.else_label) { return "branch target '" + t.else_label + "' not found" }
+        }
+        .Return(t) => {
+            if t.has_value {
+                let err = ir_validate_temp(t.value, temp_count, false)
+                if err != "" { return err }
+            }
+        }
+    }
+    return ""
+}
+
+fn ir_validate_function(f: IrFunction) -> String {
+    if f.temp_count < 0 { return "invalid temp_count " + int_to_string(f.temp_count) }
+    if len(f.blocks) == 0 { return "function has no blocks" }
+    let mut labels: [String] = []
+    let mut i = 0
+    while i < len(f.blocks) {
+        let label = f.blocks[i].label
+        if label == "" { return "block label is empty" }
+        if ir_string_list_contains(labels, label) { return "duplicate block label '" + label + "'" }
+        push(&mut labels, label)
+        i = i + 1
+    }
+    let mut b = 0
+    while b < len(f.blocks) {
+        let err = ir_validate_block(f.blocks[b], labels, f.temp_count)
+        if err != "" { return err }
+        b = b + 1
+    }
+    return ""
+}
+
+fn ir_validate(p: IrProgram) -> String {
+    let mut version = p.version
+    if version == "" { version = "v0" }
+    if version != "v0" { return "unsupported IR version '" + version + "'" }
+    if len(p.features) > 0 { return "unsupported IR feature '" + p.features[0] + "'" }
+    let mut names: [String] = []
+    let mut i = 0
+    while i < len(p.functions) {
+        let f = p.functions[i]
+        if f.name == "" { return "function name is empty" }
+        if ir_string_list_contains(names, f.name) { return "duplicate function '" + f.name + "'" }
+        push(&mut names, f.name)
+        let err = ir_validate_function(f)
+        if err != "" { return "function '" + f.name + "': " + err }
+        i = i + 1
+    }
+    if p.entry != "" && !ir_string_list_contains(names, p.entry) {
+        return "entry function '" + p.entry + "' not found"
+    }
+    return ""
+}
+
+struct IrFoldResult {
+    ok: bool,
+    value: IrValue,
+}
+
+struct IrConstMap {
+    known: [bool],
+    values: [IrValue],
+}
+
+fn ir_const_map_new(n: i32) -> IrConstMap {
+    let mut known: [bool] = []
+    let mut values: [IrValue] = []
+    let mut i = 0
+    while i < n {
+        push(&mut known, false)
+        push(&mut values, ir_value_unit())
+        i = i + 1
+    }
+    return IrConstMap { known: known, values: values }
+}
+
+fn ir_const_map_has(map: &IrConstMap, idx: i32) -> bool {
+    if idx < 0 { return false }
+    if idx >= len(map.known) { return false }
+    return map.known[idx]
+}
+
+fn ir_const_map_get(map: &IrConstMap, idx: i32) -> IrValue {
+    return map.values[idx]
+}
+
+fn ir_const_map_set(map: &mut IrConstMap, idx: i32, v: IrValue) {
+    if idx < 0 { return }
+    if idx >= len(map.known) { return }
+    let mut known = map.known
+    let mut values = map.values
+    known[idx] = true
+    values[idx] = v
+    map.known = known
+    map.values = values
+}
+
+fn ir_const_map_clear(map: &mut IrConstMap, idx: i32) {
+    if idx < 0 { return }
+    if idx >= len(map.known) { return }
+    let mut known = map.known
+    known[idx] = false
+    map.known = known
+}
+
+fn ir_fold_unary(op: String, v: IrValue) -> IrFoldResult {
+    if op == "-" && v.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_int(-v.int) }
+    }
+    if op == "!" && v.kind == ir_kind_bool() {
+        return IrFoldResult { ok: true, value: ir_value_bool(!v.bool) }
+    }
+    return IrFoldResult { ok: false, value: ir_value_unit() }
+}
+
+fn ir_fold_binary(op: String, a: IrValue, b: IrValue) -> IrFoldResult {
+    if op == "+" {
+        if a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+            return IrFoldResult { ok: true, value: ir_value_int(a.int + b.int) }
+        }
+        if a.kind == ir_kind_string() && b.kind == ir_kind_string() {
+            return IrFoldResult { ok: true, value: ir_value_string(a.str + b.str) }
+        }
+    }
+    if op == "-" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_int(a.int - b.int) }
+    }
+    if op == "*" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_int(a.int * b.int) }
+    }
+    if op == "/" && a.kind == ir_kind_int() && b.kind == ir_kind_int() && b.int != 0 {
+        return IrFoldResult { ok: true, value: ir_value_int(a.int / b.int) }
+    }
+    if op == "%" && a.kind == ir_kind_int() && b.kind == ir_kind_int() && b.int != 0 {
+        return IrFoldResult { ok: true, value: ir_value_int(a.int % b.int) }
+    }
+    if op == "==" {
+        if a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+            return IrFoldResult { ok: true, value: ir_value_bool(a.int == b.int) }
+        }
+        if a.kind == ir_kind_bool() && b.kind == ir_kind_bool() {
+            return IrFoldResult { ok: true, value: ir_value_bool(a.bool == b.bool) }
+        }
+        if a.kind == ir_kind_string() && b.kind == ir_kind_string() {
+            return IrFoldResult { ok: true, value: ir_value_bool(a.str == b.str) }
+        }
+    }
+    if op == "!=" {
+        if a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+            return IrFoldResult { ok: true, value: ir_value_bool(a.int != b.int) }
+        }
+        if a.kind == ir_kind_bool() && b.kind == ir_kind_bool() {
+            return IrFoldResult { ok: true, value: ir_value_bool(a.bool != b.bool) }
+        }
+        if a.kind == ir_kind_string() && b.kind == ir_kind_string() {
+            return IrFoldResult { ok: true, value: ir_value_bool(a.str != b.str) }
+        }
+    }
+    if op == "<" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_bool(a.int < b.int) }
+    }
+    if op == "<=" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_bool(a.int <= b.int) }
+    }
+    if op == ">" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_bool(a.int > b.int) }
+    }
+    if op == ">=" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
+        return IrFoldResult { ok: true, value: ir_value_bool(a.int >= b.int) }
+    }
+    if op == "&&" && a.kind == ir_kind_bool() && b.kind == ir_kind_bool() {
+        return IrFoldResult { ok: true, value: ir_value_bool(a.bool && b.bool) }
+    }
+    if op == "||" && a.kind == ir_kind_bool() && b.kind == ir_kind_bool() {
+        return IrFoldResult { ok: true, value: ir_value_bool(a.bool || b.bool) }
+    }
+    return IrFoldResult { ok: false, value: ir_value_unit() }
+}
+
+fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
+    let mut consts = ir_const_map_new(temp_count)
+    let mut instrs: [IrInstr] = []
+    let mut i = 0
+    while i < len(blk.instrs) {
+        let inst = blk.instrs[i]
+        match inst {
+            .Const(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_set(&mut consts, c.dst, c.value)
+            }
+            .LoadVar(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .AddrOf(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .LoadRef(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .UnaryOp(c) => {
+                let mut folded = false
+                if ir_const_map_has(&consts, c.src) {
+                    let v = ir_const_map_get(&consts, c.src)
+                    let res = ir_fold_unary(c.op, v)
+                    if res.ok {
+                        let ni = IrInstr.Const(IrConst { dst: c.dst, value: res.value })
+                        push(&mut instrs, ni)
+                        ir_const_map_set(&mut consts, c.dst, res.value)
+                        folded = true
+                    }
+                }
+                if !folded {
+                    push(&mut instrs, inst)
+                    ir_const_map_clear(&mut consts, c.dst)
+                }
+            }
+            .BinOp(c) => {
+                let mut folded = false
+                if ir_const_map_has(&consts, c.lhs) && ir_const_map_has(&consts, c.rhs) {
+                    let l = ir_const_map_get(&consts, c.lhs)
+                    let r = ir_const_map_get(&consts, c.rhs)
+                    let res = ir_fold_binary(c.op, l, r)
+                    if res.ok {
+                        let ni = IrInstr.Const(IrConst { dst: c.dst, value: res.value })
+                        push(&mut instrs, ni)
+                        ir_const_map_set(&mut consts, c.dst, res.value)
+                        folded = true
+                    }
+                }
+                if !folded {
+                    push(&mut instrs, inst)
+                    ir_const_map_clear(&mut consts, c.dst)
+                }
+            }
+            .Call(c) => {
+                push(&mut instrs, inst)
+                if c.dst >= 0 {
+                    ir_const_map_clear(&mut consts, c.dst)
+                }
+            }
+            .MakeArray(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .Index(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .MakeStruct(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .GetField(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .MakeEnum(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .EnumTag(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .EnumPayload(c) => {
+                push(&mut instrs, inst)
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            _ => {
+                push(&mut instrs, inst)
+            }
+        }
+        i = i + 1
+    }
+    let mut term = blk.term
+    match blk.term {
+        .Branch(t) => {
+            if ir_const_map_has(&consts, t.cond) {
+                let v = ir_const_map_get(&consts, t.cond)
+                if v.kind == ir_kind_bool() {
+                    let mut target = t.then_label
+                    if !v.bool {
+                        target = t.else_label
+                    }
+                    term = IrTerm.Jump(IrJump { target: target })
+                }
+            }
+        }
+        _ => {}
+    }
+    return IrBlock { label: blk.label, instrs: instrs, term: term }
+}
+
+fn ir_find_block_index(blocks: [IrBlock], label: String) -> i32 {
+    let mut i = 0
+    while i < len(blocks) {
+        if blocks[i].label == label { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn ir_reachable_blocks(blocks: [IrBlock]) -> [bool] {
+    let mut marks: [bool] = []
+    let mut i = 0
+    while i < len(blocks) {
+        push(&mut marks, false)
+        i = i + 1
+    }
+    if len(blocks) == 0 { return marks }
+    let mut work: [String] = []
+    push(&mut work, blocks[0].label)
+    while len(work) > 0 {
+        let label = pop(&mut work)
+        let idx = ir_find_block_index(blocks, label)
+        if idx < 0 { }
+        else if !marks[idx] {
+            marks[idx] = true
+            match blocks[idx].term {
+                .Jump(t) => { push(&mut work, t.target) }
+                .Branch(t) => {
+                    push(&mut work, t.then_label)
+                    push(&mut work, t.else_label)
+                }
+                _ => {}
+            }
+        }
+    }
+    return marks
+}
+
+fn ir_opt_function(f: IrFunction) -> IrFunction {
+    let mut blocks: [IrBlock] = []
+    let mut i = 0
+    while i < len(f.blocks) {
+        push(&mut blocks, ir_fold_block(f.blocks[i], f.temp_count))
+        i = i + 1
+    }
+    let marks = ir_reachable_blocks(blocks)
+    let mut out_blocks: [IrBlock] = []
+    let mut j = 0
+    while j < len(blocks) {
+        if marks[j] { push(&mut out_blocks, blocks[j]) }
+        j = j + 1
+    }
+    return IrFunction { name: f.name, params: f.params, blocks: out_blocks, temp_count: f.temp_count }
+}
+
+fn ir_opt_program(p: IrProgram) -> IrProgram {
+    let mut funcs: [IrFunction] = []
+    let mut i = 0
+    while i < len(p.functions) {
+        push(&mut funcs, ir_opt_function(p.functions[i]))
+        i = i + 1
+    }
+    return IrProgram { version: p.version, features: p.features, functions: funcs, entry: p.entry }
+}

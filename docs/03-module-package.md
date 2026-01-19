@@ -177,6 +177,12 @@ pub import { Ast, Node } from ast
 import { Token, Ast } from parser
 ```
 
+也可以直接重导出整个模块的公开项：
+
+```dast
+pub import lexer
+```
+
 ---
 
 ## 条件编译

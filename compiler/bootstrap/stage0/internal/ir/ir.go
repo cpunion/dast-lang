@@ -397,5 +397,261 @@ func (p *Program) Validate() error {
 			return fmt.Errorf("entry function '%s' not found", p.Entry)
 		}
 	}
+	for name, fn := range p.Functions {
+		if fn == nil {
+			return fmt.Errorf("function '%s' is nil", name)
+		}
+		if fn.Name == "" {
+			return fmt.Errorf("function name is empty")
+		}
+		if fn.Name != name {
+			return fmt.Errorf("function name mismatch: key '%s' vs name '%s'", name, fn.Name)
+		}
+	}
+	for _, fn := range p.Functions {
+		if err := validateFunction(fn); err != nil {
+			return fmt.Errorf("function '%s': %w", fn.Name, err)
+		}
+	}
 	return nil
+}
+
+func validateFunction(fn *Function) error {
+	if fn.TempCount < 0 {
+		return fmt.Errorf("invalid temp_count %d", fn.TempCount)
+	}
+	if len(fn.Blocks) == 0 {
+		return fmt.Errorf("function has no blocks")
+	}
+	labels := map[string]struct{}{}
+	for _, blk := range fn.Blocks {
+		if blk.Label == "" {
+			return fmt.Errorf("block label is empty")
+		}
+		if _, ok := labels[blk.Label]; ok {
+			return fmt.Errorf("duplicate block label '%s'", blk.Label)
+		}
+		labels[blk.Label] = struct{}{}
+	}
+	for _, blk := range fn.Blocks {
+		if err := validateBlock(blk, labels, fn.TempCount); err != nil {
+			return fmt.Errorf("block '%s': %w", blk.Label, err)
+		}
+	}
+	return nil
+}
+
+func validateBlock(blk *Block, labels map[string]struct{}, tempCount int) error {
+	for _, inst := range blk.Instr {
+		if err := validateInstr(inst, tempCount); err != nil {
+			return err
+		}
+	}
+	if blk.Term == nil {
+		return fmt.Errorf("missing terminator")
+	}
+	switch t := blk.Term.(type) {
+	case *Jump:
+		if t.Target == "" {
+			return fmt.Errorf("empty jump target")
+		}
+		if _, ok := labels[t.Target]; !ok {
+			return fmt.Errorf("jump target '%s' not found", t.Target)
+		}
+	case *Branch:
+		if err := validateTemp(t.Cond, tempCount, false); err != nil {
+			return err
+		}
+		if t.Then == "" || t.Else == "" {
+			return fmt.Errorf("branch target is empty")
+		}
+		if _, ok := labels[t.Then]; !ok {
+			return fmt.Errorf("branch target '%s' not found", t.Then)
+		}
+		if _, ok := labels[t.Else]; !ok {
+			return fmt.Errorf("branch target '%s' not found", t.Else)
+		}
+	case *Return:
+		if t.Value != nil {
+			if err := validateTemp(*t.Value, tempCount, false); err != nil {
+				return err
+			}
+		}
+	default:
+		return fmt.Errorf("unknown terminator")
+	}
+	return nil
+}
+
+func validateInstr(inst Instr, tempCount int) error {
+	switch i := inst.(type) {
+	case *Const:
+		return validateTemp(i.Dst, tempCount, false)
+	case *LoadVar:
+		if i.Name == "" {
+			return fmt.Errorf("load var name is empty")
+		}
+		return validateTemp(i.Dst, tempCount, false)
+	case *StoreVar:
+		if i.Name == "" {
+			return fmt.Errorf("store var name is empty")
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *AddrOf:
+		if i.Name == "" {
+			return fmt.Errorf("addr_of name is empty")
+		}
+		return validateTemp(i.Dst, tempCount, false)
+	case *LoadRef:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *StoreRef:
+		if err := validateTemp(i.Ref, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *BinOp:
+		if !isValidBinOp(i.Op) {
+			return fmt.Errorf("invalid binop '%s'", i.Op)
+		}
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		if err := validateTemp(i.Lhs, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Rhs, tempCount, false)
+	case *UnaryOp:
+		if !isValidUnaryOp(i.Op) {
+			return fmt.Errorf("invalid unary op '%s'", i.Op)
+		}
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *Call:
+		if i.Callee == "" {
+			return fmt.Errorf("call callee is empty")
+		}
+		if err := validateTemp(i.Dst, tempCount, true); err != nil {
+			return err
+		}
+		for _, arg := range i.Args {
+			if err := validateTemp(arg, tempCount, false); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *MakeArray:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		for _, e := range i.Elems {
+			if err := validateTemp(e, tempCount, false); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *Index:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		if err := validateTemp(i.Array, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Index, tempCount, false)
+	case *SetIndex:
+		if err := validateTemp(i.Array, tempCount, false); err != nil {
+			return err
+		}
+		if err := validateTemp(i.Index, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *MakeStruct:
+		if i.Name == "" {
+			return fmt.Errorf("struct name is empty")
+		}
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		fields := map[string]struct{}{}
+		for _, f := range i.Fields {
+			if f.Name == "" {
+				return fmt.Errorf("struct field name is empty")
+			}
+			if _, ok := fields[f.Name]; ok {
+				return fmt.Errorf("duplicate struct field '%s'", f.Name)
+			}
+			fields[f.Name] = struct{}{}
+			if err := validateTemp(f.Src, tempCount, false); err != nil {
+				return err
+			}
+		}
+		return nil
+	case *GetField:
+		if i.Field == "" {
+			return fmt.Errorf("get_field name is empty")
+		}
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *SetField:
+		if i.Field == "" {
+			return fmt.Errorf("set_field name is empty")
+		}
+		if err := validateTemp(i.Src, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Value, tempCount, false)
+	case *MakeEnum:
+		if i.Name == "" || i.Variant == "" {
+			return fmt.Errorf("enum name or variant is empty")
+		}
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Payload, tempCount, true)
+	case *EnumTag:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *EnumPayload:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	default:
+		return fmt.Errorf("unknown instruction")
+	}
+}
+
+func validateTemp(idx int, tempCount int, allowNeg1 bool) error {
+	if allowNeg1 && idx == -1 {
+		return nil
+	}
+	if idx < 0 {
+		return fmt.Errorf("invalid temp t%d", idx)
+	}
+	if idx >= tempCount {
+		return fmt.Errorf("temp t%d out of range (temp_count=%d)", idx, tempCount)
+	}
+	return nil
+}
+
+func isValidBinOp(op string) bool {
+	switch op {
+	case "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidUnaryOp(op string) bool {
+	return op == "-" || op == "!"
 }

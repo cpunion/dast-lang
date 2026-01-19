@@ -74,6 +74,27 @@ fn <name>(...)
 - 指令/终结符是缩进行  
 - 函数之间用空行分隔  
 
+### IR 校验（ir-verify）
+
+可用 `dast ir-verify <file.ir>` 对 IR v0 做静态校验，主要规则：
+
+- `version` 必须为 `v0`，`features` 必须为空  
+- `entry` 若存在，必须指向已定义函数  
+- 函数名/块标签不能为空且唯一  
+- 每个 block 必须有终结符（`jump/branch/return`）  
+- `jump/branch` 目标必须存在  
+- `tN` 必须满足 `0 <= N < temp_count`（`call` 的 `dst` 与 `enum` 的 `payload` 允许 `-1` 表示无值）  
+- `binop/unary` 操作符必须属于 v0 定义集合  
+- `struct` 字段名不能为空且不可重复
+
+### IR 优化（ir-opt）
+
+`ir-opt` 是一个**保守优化**工具，保证 v0 语义不变：
+
+- 常量折叠：`unary/binop` 在常量输入时折叠为 `const`
+- 分支折叠：`branch` 条件为常量 `bool` 时改写为 `jump`
+- 删除不可达块：从函数首块出发的可达性分析
+
 ### 指令文本形态（与 v0 指令一一对应）
 
 ```

@@ -121,6 +121,28 @@ fn import_entry_list_new() -> [ImportItem] {
     return items
 }
 
+fn name_list_new() -> [String] {
+    let mut items: [String] = []
+    return items
+}
+
+fn name_list_contains(items: [String], name: String) -> bool {
+    let mut i = 0
+    while i < len(items) {
+        if items[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn module_list_push_unique(list: &mut [String], module: String) {
+    if !name_list_contains(*list, module) {
+        push(list, module)
+    }
+}
+
 fn path_last_segment(path: String) -> String {
     let mut last = 0
     let mut i = 0
@@ -195,6 +217,41 @@ fn visibility_allows(vis: Visibility, def_module: String, use_module: String) ->
     return false
 }
 
+fn module_list_from_program(prog: Program) -> [String] {
+    let mut modules = name_list_new()
+    let mut i = 0
+    while i < len(prog.imports) {
+        module_list_push_unique(&mut modules, prog.imports[i].module)
+        i = i + 1
+    }
+    let mut j = 0
+    while j < len(prog.structs) {
+        module_list_push_unique(&mut modules, prog.structs[j].module)
+        j = j + 1
+    }
+    let mut k = 0
+    while k < len(prog.enums) {
+        module_list_push_unique(&mut modules, prog.enums[k].module)
+        k = k + 1
+    }
+    let mut c = 0
+    while c < len(prog.consts) {
+        module_list_push_unique(&mut modules, prog.consts[c].module)
+        c = c + 1
+    }
+    let mut f = 0
+    while f < len(prog.functions) {
+        module_list_push_unique(&mut modules, prog.functions[f].module)
+        f = f + 1
+    }
+    let mut imp = 0
+    while imp < len(prog.impls) {
+        module_list_push_unique(&mut modules, prog.impls[imp].module)
+        imp = imp + 1
+    }
+    return modules
+}
+
 fn module_aliases_from_imports(imports: [ImportDecl], module: String) -> [ModuleAlias] {
     let mut aliases = alias_list_new()
     let mut i = 0
@@ -238,6 +295,63 @@ fn import_items_from_imports(imports: [ImportDecl], module: String) -> [ImportIt
     return items
 }
 
+fn local_decl_exists(ctx: &TypeContext, module: String, name: String) -> bool {
+    let structs = ctx.structs
+    let enums = ctx.enums
+    let consts = ctx.consts
+    if find_struct_in_module(&structs, module, name) >= 0 { return true }
+    if find_enum_in_module(&enums, module, name) >= 0 { return true }
+    if find_const_in_module(&consts, module, name) >= 0 { return true }
+    if find_func_in_module(ctx, module, name) >= 0 { return true }
+    return false
+}
+
+fn check_import_name(ctx: &mut TypeContext, module: String, name: String, seen: &mut [String]) {
+    if name == "" {
+        return
+    }
+    if name_list_contains(*seen, name) {
+        add_type_error(ctx, "duplicate import '" + name + "'")
+        return
+    }
+    if local_decl_exists(ctx, module, name) {
+        add_type_error(ctx, "import '" + name + "' conflicts with local declaration")
+    }
+    push(seen, name)
+}
+
+fn check_import_conflicts(ctx: &mut TypeContext, prog: Program) {
+    let modules = module_list_from_program(prog)
+    let mut mi = 0
+    while mi < len(modules) {
+        let module = modules[mi]
+        let mut seen = name_list_new()
+        let mut i = 0
+        while i < len(prog.imports) {
+            let imp = prog.imports[i]
+            if imp.module == module {
+                if imp.has_items {
+                    let mut j = 0
+                    while j < len(imp.items) {
+                        check_import_name(ctx, module, imp.items[j], &mut seen)
+                        j = j + 1
+                    }
+                } else {
+                    let mut alias = ""
+                    if imp.has_alias {
+                        alias = imp.alias
+                    } else {
+                        alias = path_last_segment(imp.path)
+                    }
+                    check_import_name(ctx, module, alias, &mut seen)
+                }
+            }
+            i = i + 1
+        }
+        mi = mi + 1
+    }
+}
+
 fn module_alias_module(ctx: &TypeContext, name: String) -> String {
     let mut i = 0
     while i < len(ctx.module_aliases) {
@@ -267,6 +381,18 @@ fn find_reexport(ctx: &TypeContext, module: String, name: String, kind: i32) -> 
     return -1
 }
 
+fn reexport_list_has_name(list: [ReExport], module: String, name: String) -> bool {
+    let mut i = 0
+    while i < len(list) {
+        let r = list[i]
+        if r.module == module && r.name == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
 fn resolve_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32) -> String {
     let idx = find_reexport(ctx, module, name, kind)
     if idx < 0 { return "" }
@@ -291,67 +417,61 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
         if imp.vis.kind != vis_pub() && imp.vis.kind != vis_pub_crate() && imp.vis.kind != vis_pub_super() {
             eligible = false
         }
-        if !imp.has_items {
-            eligible = false
-        }
         if eligible {
             let module = imp.module
             let target_mod = module_join(module, imp.path)
             let structs = ctx.structs
             let enums = ctx.enums
             let consts = ctx.consts
-            let mut j = 0
-            while j < len(imp.items) {
-                let name = imp.items[j]
-                let mut do_item = true
-                if name == "" {
-                    do_item = false
-                }
-                if do_item {
-                    if find_reexport(ctx, module, name, reexport_kind_struct()) >= 0 ||
-                       find_reexport(ctx, module, name, reexport_kind_enum()) >= 0 ||
-                       find_reexport(ctx, module, name, reexport_kind_const()) >= 0 ||
-                       find_reexport(ctx, module, name, reexport_kind_func()) >= 0 {
+            let funcs = prog.functions
+            if imp.has_items {
+                let mut j = 0
+                while j < len(imp.items) {
+                    let name = imp.items[j]
+                    let mut do_item = true
+                    if name == "" {
+                        do_item = false
+                    }
+                    if do_item && reexport_list_has_name(out, module, name) {
                         add_type_error(ctx, "duplicate reexport '" + name + "'")
                         do_item = false
                     }
-                }
-                if do_item {
-                    let mut found = false
-                    let sidx = find_struct_in_module(&structs, target_mod, name)
-                    if sidx >= 0 {
-                        let decl = structs[sidx]
-                        if !visibility_allows(decl.vis, decl.module, module) {
-                            add_type_error(ctx, "cannot reexport private struct '" + name + "'")
-                        } else {
-                            push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_struct(), vis: imp.vis })
+                    if do_item {
+                        let mut found = false
+                        let sidx = find_struct_in_module(&structs, target_mod, name)
+                        if sidx >= 0 {
+                            let decl = structs[sidx]
+                            if !visibility_allows(decl.vis, decl.module, module) {
+                                add_type_error(ctx, "cannot reexport private struct '" + name + "'")
+                            } else {
+                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_struct(), vis: imp.vis })
+                            }
+                            found = true
                         }
-                        found = true
-                    }
-                    let eidx = find_enum_in_module(&enums, target_mod, name)
-                    if !found && eidx >= 0 {
-                        let decl = enums[eidx]
-                        if !visibility_allows(decl.vis, decl.module, module) {
-                            add_type_error(ctx, "cannot reexport private enum '" + name + "'")
-                        } else {
-                            push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_enum(), vis: imp.vis })
+                        let eidx = find_enum_in_module(&enums, target_mod, name)
+                        if !found && eidx >= 0 {
+                            let decl = enums[eidx]
+                            if !visibility_allows(decl.vis, decl.module, module) {
+                                add_type_error(ctx, "cannot reexport private enum '" + name + "'")
+                            } else {
+                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_enum(), vis: imp.vis })
+                            }
+                            found = true
                         }
-                        found = true
-                    }
-                    let cidx = find_const_in_module(&consts, target_mod, name)
-                    if !found && cidx >= 0 {
-                        let decl = consts[cidx]
-                        if !visibility_allows(decl.vis, decl.module, module) {
-                            add_type_error(ctx, "cannot reexport private const '" + name + "'")
-                        } else {
-                            push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_const(), vis: imp.vis })
+                        let cidx = find_const_in_module(&consts, target_mod, name)
+                        if !found && cidx >= 0 {
+                            let decl = consts[cidx]
+                            if !visibility_allows(decl.vis, decl.module, module) {
+                                add_type_error(ctx, "cannot reexport private const '" + name + "'")
+                            } else {
+                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_const(), vis: imp.vis })
+                            }
+                            found = true
                         }
-                        found = true
-                    }
                     if !found {
-                        let fidx = find_func_in_module(ctx, target_mod, name)
+                        let fidx = find_func_decl_in_module(&funcs, target_mod, name)
                         if fidx >= 0 {
-                            let decl = ctx.funcs[fidx]
+                            let decl = funcs[fidx]
                             if !visibility_allows(decl.vis, decl.module, module) {
                                 add_type_error(ctx, "cannot reexport private function '" + name + "'")
                             } else {
@@ -360,11 +480,69 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                             found = true
                         }
                     }
-                    if !found {
-                        add_type_error(ctx, "reexport '" + name + "' not found in module '" + target_mod + "'")
+                        if !found {
+                            add_type_error(ctx, "reexport '" + name + "' not found in module '" + target_mod + "'")
+                        }
                     }
+                    j = j + 1
                 }
-                j = j + 1
+            } else {
+                let mut s = 0
+                while s < len(structs) {
+                    let decl = structs[s]
+                    if decl.module == target_mod && visibility_allows(decl.vis, decl.module, module) {
+                        let name = decl.name
+                        if reexport_list_has_name(out, module, name) {
+                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        } else {
+                            let target = qualify_name(decl.module, name)
+                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_struct(), vis: imp.vis })
+                        }
+                    }
+                    s = s + 1
+                }
+                let mut e = 0
+                while e < len(enums) {
+                    let decl = enums[e]
+                    if decl.module == target_mod && visibility_allows(decl.vis, decl.module, module) {
+                        let name = decl.name
+                        if reexport_list_has_name(out, module, name) {
+                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        } else {
+                            let target = qualify_name(decl.module, name)
+                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_enum(), vis: imp.vis })
+                        }
+                    }
+                    e = e + 1
+                }
+                let mut c = 0
+                while c < len(consts) {
+                    let decl = consts[c]
+                    if decl.module == target_mod && visibility_allows(decl.vis, decl.module, module) {
+                        let name = decl.name
+                        if reexport_list_has_name(out, module, name) {
+                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        } else {
+                            let target = qualify_name(decl.module, name)
+                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_const(), vis: imp.vis })
+                        }
+                    }
+                    c = c + 1
+                }
+                let mut f = 0
+                while f < len(funcs) {
+                    let decl = funcs[f]
+                    if decl.module == target_mod && visibility_allows(decl.vis, decl.module, module) {
+                        let name = decl.name
+                        if reexport_list_has_name(out, module, name) {
+                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        } else {
+                            let target = qualify_name(decl.module, name)
+                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_func(), vis: imp.vis })
+                        }
+                    }
+                    f = f + 1
+                }
             }
         }
         i = i + 1
@@ -1120,6 +1298,17 @@ fn find_func_in_module(ctx: &TypeContext, module: String, name: String) -> i32 {
     return -1
 }
 
+fn find_func_decl_in_module(funcs: & [FunctionDecl], module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(funcs) {
+        if funcs[i].module == module && funcs[i].name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
 fn find_method(ctx: &TypeContext, type_name: String, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.methods) {
@@ -1276,10 +1465,42 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
        name == "unit" || name == "()" {
         return name
     }
-    let s = resolve_struct_name(ctx, name)
-    if s != "" { return s }
-    let e = resolve_enum_name(ctx, name)
-    if e != "" { return e }
+    let structs = ctx.structs
+    if find_struct_in_module(&structs, ctx.current_module, name) >= 0 {
+        return qualify_name(ctx.current_module, name)
+    }
+    let enums = ctx.enums
+    if find_enum_in_module(&enums, ctx.current_module, name) >= 0 {
+        return qualify_name(ctx.current_module, name)
+    }
+    let idx = find_import_item(ctx, name)
+    if idx >= 0 {
+        let item = ctx.import_items[idx]
+        let sidx = find_struct_in_module(&structs, item.module, item.name)
+        if sidx >= 0 {
+            let decl = structs[sidx]
+            if visibility_allows(decl.vis, decl.module, ctx.current_module) {
+                return qualify_name(decl.module, decl.name)
+            }
+            add_type_error(ctx, "struct '" + name + "' is private")
+            return name
+        }
+        let eidx = find_enum_in_module(&enums, item.module, item.name)
+        if eidx >= 0 {
+            let decl = enums[eidx]
+            if visibility_allows(decl.vis, decl.module, ctx.current_module) {
+                return qualify_name(decl.module, decl.name)
+            }
+            add_type_error(ctx, "enum '" + name + "' is private")
+            return name
+        }
+        let re_s = resolve_reexport(ctx, item.module, item.name, reexport_kind_struct())
+        if re_s != "" { return re_s }
+        let re_e = resolve_reexport(ctx, item.module, item.name, reexport_kind_enum())
+        if re_e != "" { return re_e }
+        add_type_error(ctx, "imported '" + name + "' is not a type")
+        return name
+    }
     add_type_error(ctx, "unknown type '" + name + "'")
     return name
 }
@@ -2411,9 +2632,10 @@ fn check_program(prog: Program) -> TypeContext {
         ei = ei + 1
     }
     collect_consts(&mut ctx, prog)
+    collect_reexports(&mut ctx, prog)
     collect_func_sigs(&mut ctx, prog)
     collect_method_sigs(&mut ctx, prog)
-    collect_reexports(&mut ctx, prog)
+    check_import_conflicts(&mut ctx, prog)
     let mut i = 0
     while i < len(prog.functions) {
         check_function(&mut ctx, prog.functions[i])

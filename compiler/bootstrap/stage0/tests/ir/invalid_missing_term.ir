@@ -1,0 +1,4 @@
+ir v0
+fn main()
+  block entry:
+    t0 = const 1

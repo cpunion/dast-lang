@@ -27,3 +27,15 @@ make build-stage1-ir
 # run stage1 snapshot
 ./compiler/bootstrap/stage0/dast-stage0 ir-run compiler/bootstrap/stage1/stage1.ir -- run compiler/bootstrap/stage0/examples/hello/main.dast
 ```
+
+## IR verify
+
+```bash
+./compiler/bootstrap/stage0/dast-stage0 run $(find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' | sort) -- ir-verify /tmp/hello.ir
+```
+
+## IR opt
+
+```bash
+./compiler/bootstrap/stage0/dast-stage0 run $(find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' | sort) -- ir-opt /tmp/hello.ir
+```

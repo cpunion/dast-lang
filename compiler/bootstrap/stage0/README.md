@@ -26,6 +26,12 @@ go build -o dast-stage0 ./cmd/dast
 
 # run IR
 ./dast-stage0 ir-run /tmp/hello.ir
+
+# verify IR
+./dast-stage0 ir-verify /tmp/hello.ir
+
+# optimize IR
+./dast-stage0 ir-opt /tmp/hello.ir
 ```
 
 ## Run Stage1 (Dast)

@@ -5,12 +5,16 @@ STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
 STAGE1_FILES := compiler/bootstrap/stage1/token.dast compiler/bootstrap/stage1/lexer.dast compiler/bootstrap/stage1/ast.dast compiler/bootstrap/stage1/parser.dast compiler/bootstrap/stage1/typecheck.dast compiler/bootstrap/stage1/ir.dast compiler/bootstrap/stage1/compile.dast compiler/bootstrap/stage1/interp.dast compiler/bootstrap/stage1/main.dast
 STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' | sort)
 STAGE1_IR := compiler/bootstrap/stage1/stage1.ir
+IR_TEST_DIR := compiler/bootstrap/stage0/tests/ir
+IR_VALID := $(IR_TEST_DIR)/valid.ir
+IR_INVALID := $(IR_TEST_DIR)/invalid_missing_term.ir
+IR_OPT := $(IR_TEST_DIR)/opt_branch.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
 
-.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test clean
+.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -92,7 +96,27 @@ test-ir: build-stage0
 		echo "$$out2" | grep -q '^error' && exit 1 || true; \
 	done
 
-test: test-stage0 test-stage1 test-stage2 test-ir
+test-ir-verify: build-stage0
+	@./$(STAGE0_BIN) ir-verify $(IR_VALID)
+	@if ./$(STAGE0_BIN) ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
+	status=$$?; echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	echo "$$out" | grep -q '^error' && exit 1 || true
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) 2>&1 || true); \
+	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
+
+test-ir-opt: build-stage0
+	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT)); \
+	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
+	echo "$$out" | grep -q 'block else' && { echo "expected else block removed"; echo "$$out"; exit 1; } || true
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-opt $(IR_OPT) 2>&1); \
+	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
+	echo "$$out" | grep -q 'block else' && { echo "expected else block removed"; echo "$$out"; exit 1; } || true
+
+test: test-stage0 test-stage1 test-stage2 test-ir test-ir-verify test-ir-opt
 
 clean:
 	@rm -f $(STAGE0_BIN)

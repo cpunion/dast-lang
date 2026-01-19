@@ -1,0 +1,7 @@
+import { X } from a
+
+const X = 3
+
+fn main() {
+    println(X)
+}

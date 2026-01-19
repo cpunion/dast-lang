@@ -1,0 +1,6 @@
+import foo
+import foo
+
+fn main() {
+    println("dup")
+}

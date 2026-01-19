@@ -1,0 +1,13 @@
+import { X, Point, Color, add } from b
+
+fn takes_color(c: Color) -> int {
+    if true { return 0 }
+    return 1
+}
+
+fn main() {
+    let p = Point { x: X }
+    let v = add(p.x, 1)
+    let w = takes_color(Color.Red)
+    println("sum", v, w)
+}
