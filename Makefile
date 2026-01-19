@@ -35,7 +35,7 @@ test-stage1: build-stage0
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		echo "$$out" | grep -q '^error' && exit 1 || true; \
+		if echo "$$out" | grep -q '^error'; then exit 1; fi; \
 	done
 
 test-stage1-full: test-stage1
@@ -50,7 +50,7 @@ test-stage2: build-stage0
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		echo "$$out" | grep -q '^error' && exit 1 || true; \
+		if echo "$$out" | grep -q '^error'; then exit 1; fi; \
 	done
 	@for f in $(STAGE2_COMPILE_FAIL); do \
 		echo "[stage2-fail] $$f"; \
@@ -64,7 +64,7 @@ test-stage2: build-stage0
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		echo "$$out" | grep -q '^error' && exit 1 || true; \
+		if echo "$$out" | grep -q '^error'; then exit 1; fi; \
 	done
 
 test-stage1-ir: build-stage0 build-stage1-ir
@@ -74,7 +74,7 @@ test-stage1-ir: build-stage0 build-stage1-ir
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		echo "$$out" | grep -q '^error' && exit 1 || true; \
+		if echo "$$out" | grep -q '^error'; then exit 1; fi; \
 	done
 
 test-ir: build-stage0
@@ -96,7 +96,7 @@ test-ir: build-stage0
 		status2=$$?; \
 		echo "$$out2"; \
 		if [ $$status2 -ne 0 ]; then exit $$status2; fi; \
-		echo "$$out2" | grep -q '^error' && exit 1 || true; \
+		if echo "$$out2" | grep -q '^error'; then exit 1; fi; \
 	done
 
 test-ir-verify: build-stage0
@@ -116,23 +116,31 @@ test-ir-verify: build-stage0
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "$$out" | grep -q '^error' && exit 1 || true
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) 2>&1 || true); \
+	if echo "$$out" | grep -q '^error'; then exit 1; fi
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) 2>&1); \
+	status=$$?; echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) 2>&1 || true); \
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) 2>&1); \
+	status=$$?; echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) 2>&1 || true); \
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) 2>&1); \
+	status=$$?; echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) 2>&1 || true); \
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) 2>&1); \
+	status=$$?; echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
 
 test-ir-opt: build-stage0
 	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT)); \
 	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
-	echo "$$out" | grep -q 'block else' && { echo "expected else block removed"; echo "$$out"; exit 1; } || true
+	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-opt $(IR_OPT) 2>&1); \
 	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
-	echo "$$out" | grep -q 'block else' && { echo "expected else block removed"; echo "$$out"; exit 1; } || true
+	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
 
 test: test-stage0 test-stage1 test-stage2 test-ir test-ir-verify test-ir-opt
 
