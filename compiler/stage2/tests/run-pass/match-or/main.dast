@@ -1,0 +1,25 @@
+enum E {
+    A,
+    B,
+    C,
+}
+
+fn pick(n: int) -> int {
+    match n {
+        1 | 2 => 10,
+        3 => 30,
+        _ => 0,
+    }
+}
+
+fn show(e: E) -> int {
+    match e {
+        .A | .B => 1,
+        _ => 0,
+    }
+}
+
+fn main() {
+    println("n", pick(2))
+    println("e", show(E.B))
+}

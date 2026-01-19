@@ -839,6 +839,7 @@ fn stmt_pos(s: Stmt) -> i32 {
 fn pattern_pos(p: Pattern) -> i32 {
     match p {
         Pattern.Variant(v) => { return v.pos }
+        Pattern.Literal(v) => { return v.pos }
         _ => { return 0 }
     }
 }
@@ -2539,10 +2540,14 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
     ctx_set_pos(ctx, m.pos)
     let scrut = check_expr(ctx, m.expr)
     let mut enum_name = ""
-    if ctx_type_kind(ctx, scrut) == 6 {
-        enum_name = ctx_type_name(ctx, scrut)
-    } else if scrut != 0 {
-        add_type_error(ctx, "match requires enum expression")
+    let mut scrut_kind = 0
+    if scrut != 0 {
+        scrut_kind = ctx_type_kind(ctx, scrut)
+        if scrut_kind == 6 {
+            enum_name = ctx_type_name(ctx, scrut)
+        } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
+            add_type_error(ctx, "match requires enum, int, bool, or string expression")
+        }
     }
     let mut i = 0
     while i < len(m.arms) {
@@ -2552,6 +2557,9 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
             .Wildcard(_) => {}
             .Variant(vp) => {
                 ctx_set_pos(ctx, vp.pos)
+                if scrut_kind != 6 {
+                    add_type_error(ctx, "enum pattern requires enum expression")
+                }
                 let mut pat_enum = vp.enum_name
                 if pat_enum == "" {
                     pat_enum = enum_name
@@ -2580,6 +2588,17 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
                     }
                 }
             }
+            .Literal(lp) => {
+                ctx_set_pos(ctx, lp.pos)
+                if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
+                    add_type_error(ctx, "literal pattern requires int, bool, or string expression")
+                } else {
+                    let pt = ctx_type_for_const_value(ctx, lp.value)
+                    if pt != 0 && ctx_type_kind(ctx, pt) != scrut_kind {
+                        add_type_error(ctx, "pattern type mismatch")
+                    }
+                }
+            }
         }
         check_block(ctx, m.arms[i].body)
         ctx_env_pop(ctx)
@@ -2591,10 +2610,14 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
     ctx_set_pos(ctx, m.pos)
     let scrut = check_expr(ctx, m.expr)
     let mut enum_name = ""
-    if ctx_type_kind(ctx, scrut) == 6 {
-        enum_name = ctx_type_name(ctx, scrut)
-    } else if scrut != 0 {
-        add_type_error(ctx, "match requires enum expression")
+    let mut scrut_kind = 0
+    if scrut != 0 {
+        scrut_kind = ctx_type_kind(ctx, scrut)
+        if scrut_kind == 6 {
+            enum_name = ctx_type_name(ctx, scrut)
+        } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
+            add_type_error(ctx, "match requires enum, int, bool, or string expression")
+        }
     }
     let mut i = 0
     while i < len(m.arms) {
@@ -2604,6 +2627,9 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
             .Wildcard(_) => {}
             .Variant(vp) => {
                 ctx_set_pos(ctx, vp.pos)
+                if scrut_kind != 6 {
+                    add_type_error(ctx, "enum pattern requires enum expression")
+                }
                 let mut pat_enum = vp.enum_name
                 if pat_enum == "" {
                     pat_enum = enum_name
@@ -2629,6 +2655,17 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
                                 ctx_env_declare(ctx, vp.binding, pt, false)
                             }
                         }
+                    }
+                }
+            }
+            .Literal(lp) => {
+                ctx_set_pos(ctx, lp.pos)
+                if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
+                    add_type_error(ctx, "literal pattern requires int, bool, or string expression")
+                } else {
+                    let pt = ctx_type_for_const_value(ctx, lp.value)
+                    if pt != 0 && ctx_type_kind(ctx, pt) != scrut_kind {
+                        add_type_error(ctx, "pattern type mismatch")
                     }
                 }
             }

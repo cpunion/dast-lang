@@ -1,0 +1,38 @@
+fn classify(n: int) -> string {
+    match n {
+        -1 => "neg",
+        0 => "zero",
+        1 => "one",
+        _ => "other",
+    }
+}
+
+fn bool_code(b: bool) -> int {
+    match b {
+        true => 1,
+        false => 0,
+    }
+}
+
+fn string_code(s: string) -> int {
+    match s {
+        "hi" => 1,
+        "bye" => 2,
+        _ => 0,
+    }
+}
+
+fn char_code(c: char) -> int {
+    match c {
+        'a' => 1,
+        '\n' => 2,
+        _ => 0,
+    }
+}
+
+fn main() {
+    println("n", classify(-1))
+    println("b", bool_code(true))
+    println("s", string_code("bye"))
+    println("c", char_code('a'))
+}

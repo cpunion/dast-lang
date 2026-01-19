@@ -904,6 +904,11 @@ fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> While
 
 fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pattern {
     let k = peek_kind(lex)
+    if k == TokenKind.Minus || k == TokenKind.Int || k == TokenKind.True || k == TokenKind.False || k == TokenKind.String || k == TokenKind.Char {
+        let pos = lexer_pos(lex)
+        let val = parse_const_value(src, lex, errors)
+        return Pattern.Literal(LiteralPattern { pos: pos, value: val })
+    }
     if k == TokenKind.Ident {
         let pos = lexer_pos(lex)
         let name = next_lexeme(src, lex)
@@ -988,7 +993,14 @@ fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Match
             done = true
         } else {
             let arm_pos = lexer_pos(lex)
-            let pat = parse_pattern(src, lex, errors)
+            let mut patterns: [Pattern] = []
+            let first_pat = parse_pattern(src, lex, errors)
+            push(&mut patterns, first_pat)
+            while peek_kind(lex) == TokenKind.Pipe {
+                lexer_next(lex)
+                let next_pat = parse_pattern(src, lex, errors)
+                push(&mut patterns, next_pat)
+            }
             if peek_kind(lex) == TokenKind.FatArrow {
                 lexer_next(lex)
             } else {
@@ -1004,7 +1016,11 @@ fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Match
                 body = Block { stmts: stmts }
                 maybe_consume_semi(lex)
             }
-            push(&mut arms, MatchArm { pos: arm_pos, pattern: pat, body: body })
+            let mut pi = 0
+            while pi < len(patterns) {
+                push(&mut arms, MatchArm { pos: arm_pos, pattern: patterns[pi], body: body })
+                pi = pi + 1
+            }
             if peek_kind(lex) == TokenKind.Comma {
                 lexer_next(lex)
             }

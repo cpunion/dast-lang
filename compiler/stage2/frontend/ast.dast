@@ -229,9 +229,15 @@ struct VariantPattern {
     binding: String,
 }
 
+struct LiteralPattern {
+    pos: i32,
+    value: ConstValue,
+}
+
 enum Pattern {
     Wildcard(WildcardPattern),
     Variant(VariantPattern),
+    Literal(LiteralPattern),
 }
 
 struct MatchArm {
