@@ -21,6 +21,9 @@ fn keyword_kind(s: String) -> TokenKind {
     if s == "if" { return TokenKind.If }
     if s == "else" { return TokenKind.Else }
     if s == "while" { return TokenKind.While }
+    if s == "loop" { return TokenKind.Loop }
+    if s == "break" { return TokenKind.Break }
+    if s == "continue" { return TokenKind.Continue }
     if s == "return" { return TokenKind.Return }
     if s == "struct" { return TokenKind.Struct }
     if s == "enum" { return TokenKind.Enum }

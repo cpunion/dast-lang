@@ -229,6 +229,14 @@ struct WhileStmt {
     body: Block,
 }
 
+struct BreakStmt {
+    pos: i32,
+}
+
+struct ContinueStmt {
+    pos: i32,
+}
+
 struct WildcardPattern {}
 
 struct VariantPattern {
@@ -306,6 +314,8 @@ enum Stmt {
     Assign(AssignStmt),
     While(WhileStmt),
     Match(MatchStmt),
+    Break(BreakStmt),
+    Continue(ContinueStmt),
 }
 
 struct AssignStmt {

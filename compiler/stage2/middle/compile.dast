@@ -17,6 +17,8 @@ struct Compiler {
     scope_names: [String],
     scope_ir: [String],
     scope_marks: [i32],
+    loop_breaks: [String],
+    loop_continues: [String],
     blocks: [IrBlock],
     cur_block: i32,
     block_id: i32,
@@ -184,6 +186,8 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         scope_names: string_list_new(),
         scope_ir: string_list_new(),
         scope_marks: int_list_new(),
+        loop_breaks: string_list_new(),
+        loop_continues: string_list_new(),
         blocks: block_list_new(),
         cur_block: -1,
         block_id: 0,
@@ -348,7 +352,27 @@ fn compile_stmt(c: &mut Compiler, stmt: Stmt, self_name: String) {
         Stmt.If(s) => { compile_if(c, s, self_name) }
         Stmt.While(s) => { compile_while(c, s, self_name) }
         Stmt.Match(s) => { compile_match(c, s, self_name) }
+        Stmt.Break(_) => { compile_break(c) }
+        Stmt.Continue(_) => { compile_continue(c) }
     }
+}
+
+fn compile_break(c: &mut Compiler) {
+    let target = current_loop_break(c)
+    if target == "" {
+        compiler_add_type_error(c, "break outside loop")
+        return
+    }
+    emit_term(c, IrTerm.Jump(IrJump { target: target }))
+}
+
+fn compile_continue(c: &mut Compiler) {
+    let target = current_loop_continue(c)
+    if target == "" {
+        compiler_add_type_error(c, "continue outside loop")
+        return
+    }
+    emit_term(c, IrTerm.Jump(IrJump { target: target }))
 }
 
 fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
@@ -469,7 +493,9 @@ fn compile_while(c: &mut Compiler, s: WhileStmt, self_name: String) {
     emit_term(c, IrTerm.Branch(IrBranch { cond: cond, then_label: block_label(c, body_block), else_label: block_label(c, after_block) }))
 
     set_current_block(c, body_block)
+    push_loop(c, block_label(c, after_block), block_label(c, cond_block))
     compile_block(c, s.body, self_name)
+    pop_loop(c)
     if !current_block_has_term(c) {
         emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, cond_block) }))
     }
@@ -1577,6 +1603,36 @@ fn pop_scope(c: &mut Compiler) {
     c.scope_names = names
     c.scope_ir = irs
     compiler_env_pop(c)
+}
+
+fn push_loop(c: &mut Compiler, break_label: String, continue_label: String) {
+    let mut breaks = c.loop_breaks
+    let mut conts = c.loop_continues
+    push(&mut breaks, break_label)
+    push(&mut conts, continue_label)
+    c.loop_breaks = breaks
+    c.loop_continues = conts
+}
+
+fn pop_loop(c: &mut Compiler) {
+    let mut breaks = c.loop_breaks
+    let mut conts = c.loop_continues
+    if len(breaks) > 0 { pop(&mut breaks) }
+    if len(conts) > 0 { pop(&mut conts) }
+    c.loop_breaks = breaks
+    c.loop_continues = conts
+}
+
+fn current_loop_break(c: &Compiler) -> String {
+    let breaks = c.loop_breaks
+    if len(breaks) == 0 { return "" }
+    return breaks[len(breaks) - 1]
+}
+
+fn current_loop_continue(c: &Compiler) -> String {
+    let conts = c.loop_continues
+    if len(conts) == 0 { return "" }
+    return conts[len(conts) - 1]
 }
 
 fn declare_var(c: &mut Compiler, name: String, typ: i32, mutable: bool) -> String {

@@ -968,6 +968,28 @@ fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> While
     return WhileStmt { pos: pos, cond: cond, body: body }
 }
 
+fn parse_loop(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
+    let pos = lexer_pos(lex)
+    lexer_next(lex)
+    let cond = Expr.BoolLit(BoolLit { pos: pos, value: true })
+    let body = parse_block(src, lex, errors)
+    return WhileStmt { pos: pos, cond: cond, body: body }
+}
+
+fn parse_break(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> BreakStmt {
+    let pos = lexer_pos(lex)
+    lexer_next(lex)
+    maybe_consume_semi(lex)
+    return BreakStmt { pos: pos }
+}
+
+fn parse_continue(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ContinueStmt {
+    let pos = lexer_pos(lex)
+    lexer_next(lex)
+    maybe_consume_semi(lex)
+    return ContinueStmt { pos: pos }
+}
+
 fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pattern {
     let k = peek_kind(lex)
     if k == TokenKind.Minus || k == TokenKind.Int || k == TokenKind.True || k == TokenKind.False || k == TokenKind.String || k == TokenKind.Char {
@@ -1184,6 +1206,15 @@ fn parse_stmt(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Stmt {
     }
     if k == TokenKind.While {
         return Stmt.While(parse_while(src, lex, errors))
+    }
+    if k == TokenKind.Loop {
+        return Stmt.While(parse_loop(src, lex, errors))
+    }
+    if k == TokenKind.Break {
+        return Stmt.Break(parse_break(src, lex, errors))
+    }
+    if k == TokenKind.Continue {
+        return Stmt.Continue(parse_continue(src, lex, errors))
     }
     if k == TokenKind.Match {
         return Stmt.Match(parse_match(src, lex, errors))

@@ -105,6 +105,7 @@ struct TypeContext {
     self_type: String,
     current_file: String,
     current_pos: i32,
+    loop_depth: i32,
 }
 
 fn type_table_new() -> TypeTable {
@@ -833,6 +834,8 @@ fn stmt_pos(s: Stmt) -> i32 {
         Stmt.Assign(x) => { return x.pos }
         Stmt.While(x) => { return x.pos }
         Stmt.Match(x) => { return x.pos }
+        Stmt.Break(x) => { return x.pos }
+        Stmt.Continue(x) => { return x.pos }
     }
     return 0
 }
@@ -2523,10 +2526,22 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
             if !ctx_is_bool(ctx, ct) && ct != 0 {
                 add_type_error(ctx, "while condition must be bool")
             }
+            ctx.loop_depth = ctx.loop_depth + 1
             check_block(ctx, s.body)
+            ctx.loop_depth = ctx.loop_depth - 1
         }
         Stmt.Match(m) => {
             check_match(ctx, m)
+        }
+        Stmt.Break(_) => {
+            if ctx.loop_depth <= 0 {
+                add_type_error(ctx, "break outside loop")
+            }
+        }
+        Stmt.Continue(_) => {
+            if ctx.loop_depth <= 0 {
+                add_type_error(ctx, "continue outside loop")
+            }
         }
     }
     return
@@ -2935,6 +2950,7 @@ fn check_program(prog: Program) -> TypeContext {
         self_type: "",
         current_file: "",
         current_pos: 0,
+        loop_depth: 0,
     }
     let mut ei = 0
     while ei < len(prog.enums) {
