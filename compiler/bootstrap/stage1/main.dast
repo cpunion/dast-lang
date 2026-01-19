@@ -3,6 +3,11 @@ struct ArgSplit {
     rest: [String],
 }
 
+struct LineCol {
+    line: i32,
+    col: i32,
+}
+
 struct ParseResult {
     prog: Program,
     errors: [ParseError],
@@ -90,7 +95,21 @@ fn parse_files(files: [String]) -> ParseResult {
         append_program(&mut merged, prog)
         let mut j = 0
         while j < len(local_errs) {
-            push(&mut errs, local_errs[j])
+            let e = local_errs[j]
+            let mut line = 0
+            let mut col = 0
+            if e.pos >= 0 {
+                let mut offset = 0
+                if e.pos < len(lex.toks.items) {
+                    offset = tok_start(lex.toks, e.pos)
+                } else {
+                    offset = len(src)
+                }
+                let lc = line_col_from_offset(src, offset)
+                line = lc.line
+                col = lc.col
+            }
+            push(&mut errs, ParseError { pos: e.pos, file: files[i], line: line, col: col, msg: e.msg })
             j = j + 1
         }
         i = i + 1
@@ -140,18 +159,45 @@ fn print_errors(errors: [ParseError]) {
     let mut i = 0
     while i < len(errors) {
         let e = errors[i]
-        println("error", e.pos, e.msg)
+        print_error_line(e.file, e.line, e.col, e.msg)
         i = i + 1
     }
 }
 
+fn line_col_from_offset(src: String, offset: i32) -> LineCol {
+    let mut line = 1
+    let mut col = 1
+    let mut i = 0
+    let mut limit = offset
+    if limit < 0 { limit = 0 }
+    if limit > len(src) { limit = len(src) }
+    while i < limit {
+        let ch = char_at(src, i)
+        if ch == '\n' {
+            line = line + 1
+            col = 1
+        } else {
+            col = col + 1
+        }
+        i = i + 1
+    }
+    return LineCol { line: line, col: col }
+}
+
+fn print_error_line(file: String, line: i32, col: i32, msg: String) {
+    let mut fname = file
+    if fname == "" { fname = "<unknown>" }
+    let loc = fname + ":" + int_to_string(line) + ":" + int_to_string(col)
+    println("stage1: " + loc + ": error " + msg)
+}
+
 fn die_error(msg: String) {
-    println("error", msg)
+    print_error_line("", 0, 0, msg)
     exit(1)
 }
 
-fn die_parse(line: i32, msg: String) {
-    println("error", line, msg)
+fn die_parse(file: String, line: i32, msg: String) {
+    print_error_line(file, line, 1, msg)
     exit(1)
 }
 
@@ -166,7 +212,7 @@ fn handle_runtime_error(err: String) {
         let code = parse_int(substr(err, 5, len(err) - 5))
         exit(code)
     }
-    println("error", err)
+    print_error_line("<runtime>", 0, 0, err)
     exit(1)
 }
 
@@ -198,7 +244,7 @@ fn main() {
         let text = read_file(split.files[0])
         let parsed = ir_parse_program(text)
         if !parsed.ok {
-            die_parse(parsed.line, parsed.error)
+            die_parse(split.files[0], parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
@@ -217,7 +263,7 @@ fn main() {
         let text = read_file(split.files[0])
         let parsed = ir_parse_program(text)
         if !parsed.ok {
-            die_parse(parsed.line, parsed.error)
+            die_parse(split.files[0], parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
@@ -232,7 +278,7 @@ fn main() {
         let text = read_file(split.files[0])
         let parsed = ir_parse_program(text)
         if !parsed.ok {
-            die_parse(parsed.line, parsed.error)
+            die_parse(split.files[0], parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {

@@ -34,9 +34,9 @@ func (b *Bag) Error() string {
 			sb.WriteString("\n")
 		}
 		if d.Span.Start.Filename != "" {
-			sb.WriteString(fmt.Sprintf("%s:%d:%d: %s", d.Span.Start.Filename, d.Span.Start.Line, d.Span.Start.Column, d.Message))
+			sb.WriteString(fmt.Sprintf("stage0: %s:%d:%d: error %s", d.Span.Start.Filename, d.Span.Start.Line, d.Span.Start.Column, d.Message))
 		} else {
-			sb.WriteString(d.Message)
+			sb.WriteString("stage0: error " + d.Message)
 		}
 	}
 	return sb.String()

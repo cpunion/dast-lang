@@ -17,7 +17,7 @@ fn next_lexeme(src: String, lex: &mut Lexer) -> String {
 }
 
 fn add_error(errors: &mut [ParseError], pos: i32, msg: String) {
-    push(errors, ParseError { pos: pos, msg: msg })
+    push(errors, ParseError { pos: pos, file: "", line: 0, col: 0, msg: msg })
 }
 
 fn sync_to_top_level(lex: &mut Lexer) {

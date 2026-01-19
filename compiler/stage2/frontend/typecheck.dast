@@ -738,7 +738,7 @@ fn env_lookup(env: &Env, name: String) -> VarEntry {
 
 fn add_type_error(ctx: &mut TypeContext, msg: String) {
     let mut errors = ctx.errors
-    push(&mut errors, ParseError { pos: 0, msg: msg })
+    push(&mut errors, ParseError { pos: 0, file: "", line: 0, col: 0, msg: msg })
     ctx.errors = errors
 }
 

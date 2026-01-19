@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	"dastlang/internal/compile"
 	"dastlang/internal/diag"
@@ -33,7 +35,7 @@ func main() {
 	case "help", "-h", "--help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", cmd)
+		printStage0Error("", 0, 0, fmt.Sprintf("unknown command: %s", cmd))
 		usage()
 		os.Exit(1)
 	}
@@ -51,13 +53,13 @@ func usage() {
 
 func run(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
 	files, progArgs := splitArgs(args)
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
@@ -65,7 +67,7 @@ func run(args []string) {
 	for _, filename := range files {
 		src, err := os.ReadFile(filename)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "read %s: %v\n", filename, err)
+			printStage0Error(filename, 0, 0, fmt.Sprintf("read failed: %v", err))
 			os.Exit(1)
 		}
 		sources = append(sources, parser.Source{Filename: filename, Input: string(src)})
@@ -82,7 +84,7 @@ func run(args []string) {
 		return
 	}
 	if err := irProg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStage0Error("<ir>", 0, 0, err.Error())
 		os.Exit(1)
 	}
 	rt := interp.New(irProg)
@@ -96,13 +98,13 @@ func run(args []string) {
 
 func dumpIR(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
 	files, _ := splitArgs(args)
 	if len(files) == 0 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
@@ -110,7 +112,7 @@ func dumpIR(args []string) {
 	for _, filename := range files {
 		src, err := os.ReadFile(filename)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "read %s: %v\n", filename, err)
+			printStage0Error(filename, 0, 0, fmt.Sprintf("read failed: %v", err))
 			os.Exit(1)
 		}
 		sources = append(sources, parser.Source{Filename: filename, Input: string(src)})
@@ -127,7 +129,7 @@ func dumpIR(args []string) {
 		return
 	}
 	if err := irProg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStage0Error("<ir>", 0, 0, err.Error())
 		os.Exit(1)
 	}
 	fmt.Print(irProg.Format())
@@ -135,28 +137,28 @@ func dumpIR(args []string) {
 
 func runIR(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
 	files, progArgs := splitArgs(args)
 	if len(files) != 1 {
-		fmt.Fprintln(os.Stderr, "ir-run expects exactly one .ir file")
+		printStage0Error("", 0, 0, "ir-run expects exactly one .ir file")
 		usage()
 		os.Exit(1)
 	}
 	src, err := os.ReadFile(files[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "read %s: %v\n", files[0], err)
+		printStage0Error(files[0], 0, 0, fmt.Sprintf("read failed: %v", err))
 		os.Exit(1)
 	}
 	irProg, err := ir.Parse(string(src))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printIRParseError(files[0], err)
 		os.Exit(1)
 	}
 	if err := irProg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStage0Error(files[0], 0, 0, err.Error())
 		os.Exit(1)
 	}
 	rt := interp.New(irProg)
@@ -170,61 +172,61 @@ func runIR(args []string) {
 
 func verifyIR(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
 	files, _ := splitArgs(args)
 	if len(files) != 1 {
-		fmt.Fprintln(os.Stderr, "ir-verify expects exactly one .ir file")
+		printStage0Error("", 0, 0, "ir-verify expects exactly one .ir file")
 		usage()
 		os.Exit(1)
 	}
 	src, err := os.ReadFile(files[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "read %s: %v\n", files[0], err)
+		printStage0Error(files[0], 0, 0, fmt.Sprintf("read failed: %v", err))
 		os.Exit(1)
 	}
 	irProg, err := ir.Parse(string(src))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printIRParseError(files[0], err)
 		os.Exit(1)
 	}
 	if err := irProg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStage0Error(files[0], 0, 0, err.Error())
 		os.Exit(1)
 	}
 }
 
 func optIR(args []string) {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "missing input file")
+		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
 	files, _ := splitArgs(args)
 	if len(files) != 1 {
-		fmt.Fprintln(os.Stderr, "ir-opt expects exactly one .ir file")
+		printStage0Error("", 0, 0, "ir-opt expects exactly one .ir file")
 		usage()
 		os.Exit(1)
 	}
 	src, err := os.ReadFile(files[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "read %s: %v\n", files[0], err)
+		printStage0Error(files[0], 0, 0, fmt.Sprintf("read failed: %v", err))
 		os.Exit(1)
 	}
 	irProg, err := ir.Parse(string(src))
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printIRParseError(files[0], err)
 		os.Exit(1)
 	}
 	if err := irProg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStage0Error(files[0], 0, 0, err.Error())
 		os.Exit(1)
 	}
 	ir.Optimize(irProg)
 	if err := irProg.Validate(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		printStage0Error(files[0], 0, 0, err.Error())
 		os.Exit(1)
 	}
 	fmt.Print(irProg.Format())
@@ -263,6 +265,41 @@ func exitOnRunErr(err error) {
 	if errors.As(err, &exitErr) {
 		os.Exit(exitErr.Code)
 	}
-	fmt.Fprintln(os.Stderr, err)
+	printStage0Error("<runtime>", 0, 0, err.Error())
 	os.Exit(1)
+}
+
+func printStage0Error(file string, line, col int, msg string) {
+	if file == "" {
+		file = "<unknown>"
+	}
+	fmt.Fprintf(os.Stderr, "stage0: %s:%d:%d: error %s\n", file, line, col, msg)
+}
+
+func printIRParseError(file string, err error) {
+	msg := err.Error()
+	line, detail, ok := parseIRParseError(msg)
+	if ok {
+		printStage0Error(file, line, 1, detail)
+		return
+	}
+	printStage0Error(file, 0, 0, msg)
+}
+
+func parseIRParseError(msg string) (int, string, bool) {
+	const prefix = "ir parse error (line "
+	if !strings.HasPrefix(msg, prefix) {
+		return 0, "", false
+	}
+	rest := msg[len(prefix):]
+	end := strings.Index(rest, "): ")
+	if end < 0 {
+		return 0, "", false
+	}
+	lineStr := rest[:end]
+	line, err := strconv.Atoi(lineStr)
+	if err != nil {
+		return 0, "", false
+	}
+	return line, rest[end+3:], true
 }

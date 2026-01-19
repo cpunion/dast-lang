@@ -1,5 +1,8 @@
 struct ParseError {
     pos: i32,
+    file: String,
+    line: i32,
+    col: i32,
     msg: String,
 }
 
