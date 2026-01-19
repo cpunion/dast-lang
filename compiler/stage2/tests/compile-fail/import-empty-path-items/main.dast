@@ -1,0 +1,5 @@
+import { X } from ""
+
+fn main() {
+    println("x")
+}

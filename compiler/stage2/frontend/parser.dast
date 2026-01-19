@@ -788,12 +788,18 @@ fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
         if !path_is_string {
             add_error(errors, lexer_pos(lex), "import path must be string literal")
         }
+        if path == "" {
+            add_error(errors, lexer_pos(lex), "import path cannot be empty")
+        }
     } else {
         let res = parse_import_path(src, lex, errors)
         path = res.path
         path_is_string = res.is_string
         if !path_is_string {
             add_error(errors, lexer_pos(lex), "import path must be string literal")
+        }
+        if path == "" {
+            add_error(errors, lexer_pos(lex), "import path cannot be empty")
         }
     }
     if peek_kind(lex) == TokenKind.As {
