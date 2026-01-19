@@ -928,6 +928,10 @@ fn ir_parse_program(text: String) -> IrParseResult {
             if !block_active {
                 return IrParseResult { ok: false, prog: prog, error: "instruction outside block", line: i + 1 }
             }
+            match cur_block.term {
+                .None(_) => {}
+                _ => { return IrParseResult { ok: false, prog: prog, error: "instruction after terminator", line: i + 1 } }
+            }
             let res = ir_parse_line(line)
             if !res.ok {
                 return IrParseResult { ok: false, prog: prog, error: res.error, line: i + 1 }

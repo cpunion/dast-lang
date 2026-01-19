@@ -86,6 +86,7 @@ fn <name>(...)
 - `tN` 必须满足 `0 <= N < temp_count`（`call` 的 `dst` 与 `enum` 的 `payload` 允许 `-1` 表示无值）  
 - `binop/unary` 操作符必须属于 v0 定义集合  
 - `struct` 字段名不能为空且不可重复  
+- `term` 必须是 block 的最后一行（终结符后不能再出现指令）  
 - `load/addr_of` 变量名必须已声明（函数参数或出现过 `store`）
 - `load/addr_of` 在所有可达路径上必须已赋值（否则报“可能未初始化”）
 

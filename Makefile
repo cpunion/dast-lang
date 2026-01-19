@@ -11,6 +11,7 @@ IR_INVALID := $(IR_TEST_DIR)/invalid_missing_term.ir
 IR_OPT := $(IR_TEST_DIR)/opt_branch.ir
 IR_UNDEF := $(IR_TEST_DIR)/invalid_undef_var.ir
 IR_UNINIT := $(IR_TEST_DIR)/invalid_maybe_uninit.ir
+IR_TERM := $(IR_TEST_DIR)/invalid_term_not_last.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
@@ -109,6 +110,9 @@ test-ir-verify: build-stage0
 	@if ./$(STAGE0_BIN) ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
+	@if ./$(STAGE0_BIN) ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -118,6 +122,8 @@ test-ir-verify: build-stage0
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) 2>&1 || true); \
 	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) 2>&1 || true); \
+	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
+	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) 2>&1 || true); \
 	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
 
 test-ir-opt: build-stage0

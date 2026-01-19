@@ -91,6 +91,9 @@ func Parse(text string) (*Program, error) {
 		if curBlk == nil {
 			return nil, fmt.Errorf("ir parse error (line %d): instruction outside block", i+1)
 		}
+		if curBlk.Term != nil {
+			return nil, fmt.Errorf("ir parse error (line %d): instruction after terminator", i+1)
+		}
 		lp, err := parseIRLine(line)
 		if err != nil {
 			return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
