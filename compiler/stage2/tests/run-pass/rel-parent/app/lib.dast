@@ -1,0 +1,3 @@
+import "../common" as c
+
+pub fn from_common() -> int { c.val() }

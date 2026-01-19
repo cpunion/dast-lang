@@ -47,6 +47,13 @@ struct ReExport {
     vis: Visibility,
 }
 
+struct PendingReExport {
+    module: String,
+    name: String,
+    target_mod: String,
+    vis: Visibility,
+}
+
 struct ModuleAlias {
     alias: String,
     module: String,
@@ -409,6 +416,18 @@ fn reexport_list_has_name(list: [ReExport], module: String, name: String) -> boo
     return false
 }
 
+fn find_reexport_in_list(list: [ReExport], module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(list) {
+        let r = list[i]
+        if r.module == module && r.name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
 fn resolve_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32) -> String {
     let idx = find_reexport(ctx, module, name, kind)
     if idx < 0 { return "" }
@@ -426,6 +445,7 @@ fn resolve_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i
 
 fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
     let mut out = reexport_list_new()
+    let mut pending: [PendingReExport] = []
     let mut i = 0
     while i < len(prog.imports) {
         let imp = prog.imports[i]
@@ -486,20 +506,20 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                             }
                             found = true
                         }
-                    if !found {
-                        let fidx = find_func_decl_in_module(&funcs, target_mod, name)
-                        if fidx >= 0 {
-                            let decl = funcs[fidx]
-                            if !visibility_allows(decl.vis, decl.module, module) {
-                                add_type_error(ctx, "cannot reexport private function '" + name + "'")
-                            } else {
-                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_func(), vis: imp.vis })
-                            }
-                            found = true
-                        }
-                    }
                         if !found {
-                            add_type_error(ctx, "reexport '" + name + "' not found in module '" + target_mod + "'")
+                            let fidx = find_func_decl_in_module(&funcs, target_mod, name)
+                            if fidx >= 0 {
+                                let decl = funcs[fidx]
+                                if !visibility_allows(decl.vis, decl.module, module) {
+                                    add_type_error(ctx, "cannot reexport private function '" + name + "'")
+                                } else {
+                                    push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_func(), vis: imp.vis })
+                                }
+                                found = true
+                            }
+                        }
+                        if !found {
+                            push(&mut pending, PendingReExport { module: module, name: name, target_mod: target_mod, vis: imp.vis })
                         }
                     }
                     j = j + 1
@@ -564,6 +584,29 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
             }
         }
         i = i + 1
+    }
+    let mut p = 0
+    while p < len(pending) {
+        let pend = pending[p]
+        if reexport_list_has_name(out, pend.module, pend.name) {
+            add_type_error(ctx, "duplicate reexport '" + pend.name + "'")
+        } else {
+            let idx = find_reexport_in_list(out, pend.target_mod, pend.name)
+            if idx >= 0 {
+                let base = out[idx]
+                if !visibility_allows(base.vis, base.module, pend.module) {
+                    if base.kind == reexport_kind_struct() { add_type_error(ctx, "cannot reexport private struct '" + pend.name + "'") }
+                    if base.kind == reexport_kind_enum() { add_type_error(ctx, "cannot reexport private enum '" + pend.name + "'") }
+                    if base.kind == reexport_kind_const() { add_type_error(ctx, "cannot reexport private const '" + pend.name + "'") }
+                    if base.kind == reexport_kind_func() { add_type_error(ctx, "cannot reexport private function '" + pend.name + "'") }
+                } else {
+                    push(&mut out, ReExport { module: pend.module, name: pend.name, target: base.target, kind: base.kind, vis: pend.vis })
+                }
+            } else {
+                add_type_error(ctx, "reexport '" + pend.name + "' not found in module '" + pend.target_mod + "'")
+            }
+        }
+        p = p + 1
     }
     ctx.reexports = out
 }

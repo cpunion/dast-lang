@@ -1,0 +1,5 @@
+import "./util" as u
+
+fn main() {
+    println("v", u.add(2, 4))
+}
