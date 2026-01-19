@@ -422,7 +422,41 @@ fn driver_list_dast_files(dir: String, include_tests: bool) -> [String] {
         }
         i = i + 1
     }
-    return files
+    return driver_sort_strings(files)
+}
+
+fn driver_string_lt(a: String, b: String) -> bool {
+    let mut i = 0
+    let alen = len(a)
+    let blen = len(b)
+    while i < alen && i < blen {
+        let ca = char_at(a, i)
+        let cb = char_at(b, i)
+        if ca < cb { return true }
+        if ca > cb { return false }
+        i = i + 1
+    }
+    return alen < blen
+}
+
+fn driver_sort_strings(items: [String]) -> [String] {
+    let mut out = items
+    let n = len(out)
+    if n <= 1 { return out }
+    let mut i = 0
+    while i < n {
+        let mut j = 0
+        while j + 1 < n - i {
+            if driver_string_lt(out[j + 1], out[j]) {
+                let tmp = out[j]
+                out[j] = out[j + 1]
+                out[j + 1] = tmp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return out
 }
 
 fn driver_replace_slash(path: String) -> String {
@@ -805,26 +839,27 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
         if imp.path != "" {
             let child_dir = driver_import_path_to_dir(base, root_dir, imp.path, imp.path_is_string)
             if !driver_path_is_within(root_dir, child_dir) {
-                die_error("import path escapes package root: " + imp.path)
+                push(&mut local_errs, ParseError { pos: imp.pos, file: "", line: 0, col: 0, msg: "import path escapes package root: " + imp.path })
+            } else {
+                let child_mod = driver_module_path_from_dir(root_dir, child_dir)
+                let mut new_path = child_mod
+                if child_mod != "" {
+                    new_path = "::" + child_mod
+                }
+                push(&mut imports, ImportDecl {
+                    vis: imp.vis,
+                    module: imp.module,
+                    file: imp.file,
+                    pos: imp.pos,
+                    has_items: imp.has_items,
+                    items: imp.items,
+                    path: new_path,
+                    path_is_string: false,
+                    has_alias: imp.has_alias,
+                    alias: imp.alias,
+                })
+                push(&mut child_dirs, child_dir)
             }
-            let child_mod = driver_module_path_from_dir(root_dir, child_dir)
-            let mut new_path = child_mod
-            if child_mod != "" {
-                new_path = "::" + child_mod
-            }
-            push(&mut imports, ImportDecl {
-                vis: imp.vis,
-                module: imp.module,
-                file: imp.file,
-                pos: imp.pos,
-                has_items: imp.has_items,
-                items: imp.items,
-                path: new_path,
-                path_is_string: false,
-                has_alias: imp.has_alias,
-                alias: imp.alias,
-            })
-            push(&mut child_dirs, child_dir)
         } else {
             push(&mut imports, imp)
         }
