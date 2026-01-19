@@ -134,7 +134,8 @@ fn parse_files(files: [String]) -> ParseResult {
         let src = read_file(files[i])
         let mut lex = lexer_new(src)
         let mut local_errs: [ParseError] = []
-        let prog = parse_program(src, &mut lex, &mut local_errs)
+        let mut prog = parse_program(src, &mut lex, &mut local_errs)
+        program_set_file(&mut prog, files[i])
         append_program(&mut merged, prog)
         let mut j = 0
         while j < len(local_errs) {
@@ -214,6 +215,17 @@ fn driver_list_contains(list: [String], value: String) -> bool {
         i = i + 1
     }
     return false
+}
+
+fn driver_list_index(list: [String], value: String) -> i32 {
+    let mut i = 0
+    while i < len(list) {
+        if list[i] == value {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
 }
 
 fn driver_path_dir(path: String) -> String {
@@ -572,6 +584,8 @@ fn program_set_module(prog: &mut Program, module: String) {
         push(&mut imports, ImportDecl {
             vis: imp.vis,
             module: module,
+            file: imp.file,
+            pos: imp.pos,
             has_items: imp.has_items,
             items: imp.items,
             path: imp.path,
@@ -587,7 +601,7 @@ fn program_set_module(prog: &mut Program, module: String) {
     i = 0
     while i < len(prog.structs) {
         let st = prog.structs[i]
-        push(&mut structs, StructDecl { vis: st.vis, module: module, name: st.name, fields: st.fields })
+        push(&mut structs, StructDecl { vis: st.vis, module: module, file: st.file, pos: st.pos, name: st.name, fields: st.fields })
         i = i + 1
     }
     prog.structs = structs
@@ -596,7 +610,7 @@ fn program_set_module(prog: &mut Program, module: String) {
     i = 0
     while i < len(prog.enums) {
         let en = prog.enums[i]
-        push(&mut enums, EnumDecl { vis: en.vis, module: module, name: en.name, repr: en.repr, variants: en.variants })
+        push(&mut enums, EnumDecl { vis: en.vis, module: module, file: en.file, pos: en.pos, name: en.name, repr: en.repr, variants: en.variants })
         i = i + 1
     }
     prog.enums = enums
@@ -605,7 +619,7 @@ fn program_set_module(prog: &mut Program, module: String) {
     i = 0
     while i < len(prog.consts) {
         let c = prog.consts[i]
-        push(&mut consts, ConstDecl { vis: c.vis, module: module, name: c.name, has_type: c.has_type, typ: c.typ, value: c.value })
+        push(&mut consts, ConstDecl { vis: c.vis, module: module, file: c.file, pos: c.pos, name: c.name, has_type: c.has_type, typ: c.typ, value: c.value })
         i = i + 1
     }
     prog.consts = consts
@@ -617,6 +631,8 @@ fn program_set_module(prog: &mut Program, module: String) {
         push(&mut funcs, FunctionDecl {
             vis: f.vis,
             module: module,
+            file: f.file,
+            pos: f.pos,
             name: f.name,
             is_test: f.is_test,
             params: f.params,
@@ -639,6 +655,8 @@ fn program_set_module(prog: &mut Program, module: String) {
             push(&mut methods, FunctionDecl {
                 vis: m.vis,
                 module: module,
+                file: m.file,
+                pos: m.pos,
                 name: m.name,
                 is_test: m.is_test,
                 params: m.params,
@@ -648,7 +666,103 @@ fn program_set_module(prog: &mut Program, module: String) {
             })
             j = j + 1
         }
-        push(&mut impls, ImplDecl { vis: imp.vis, module: module, type_name: imp.type_name, methods: methods })
+        push(&mut impls, ImplDecl { vis: imp.vis, module: module, file: imp.file, pos: imp.pos, type_name: imp.type_name, methods: methods })
+        i = i + 1
+    }
+    prog.impls = impls
+}
+
+fn program_set_file(prog: &mut Program, file: String) {
+    let mut imports: [ImportDecl] = []
+    let mut i = 0
+    while i < len(prog.imports) {
+        let imp = prog.imports[i]
+        push(&mut imports, ImportDecl {
+            vis: imp.vis,
+            module: imp.module,
+            file: file,
+            pos: imp.pos,
+            has_items: imp.has_items,
+            items: imp.items,
+            path: imp.path,
+            path_is_string: imp.path_is_string,
+            has_alias: imp.has_alias,
+            alias: imp.alias,
+        })
+        i = i + 1
+    }
+    prog.imports = imports
+
+    let mut structs: [StructDecl] = []
+    i = 0
+    while i < len(prog.structs) {
+        let st = prog.structs[i]
+        push(&mut structs, StructDecl { vis: st.vis, module: st.module, file: file, pos: st.pos, name: st.name, fields: st.fields })
+        i = i + 1
+    }
+    prog.structs = structs
+
+    let mut enums: [EnumDecl] = []
+    i = 0
+    while i < len(prog.enums) {
+        let en = prog.enums[i]
+        push(&mut enums, EnumDecl { vis: en.vis, module: en.module, file: file, pos: en.pos, name: en.name, repr: en.repr, variants: en.variants })
+        i = i + 1
+    }
+    prog.enums = enums
+
+    let mut consts: [ConstDecl] = []
+    i = 0
+    while i < len(prog.consts) {
+        let c = prog.consts[i]
+        push(&mut consts, ConstDecl { vis: c.vis, module: c.module, file: file, pos: c.pos, name: c.name, has_type: c.has_type, typ: c.typ, value: c.value })
+        i = i + 1
+    }
+    prog.consts = consts
+
+    let mut funcs: [FunctionDecl] = []
+    i = 0
+    while i < len(prog.functions) {
+        let f = prog.functions[i]
+        push(&mut funcs, FunctionDecl {
+            vis: f.vis,
+            module: f.module,
+            file: file,
+            pos: f.pos,
+            name: f.name,
+            is_test: f.is_test,
+            params: f.params,
+            has_return: f.has_return,
+            ret: f.ret,
+            body: f.body,
+        })
+        i = i + 1
+    }
+    prog.functions = funcs
+
+    let mut impls: [ImplDecl] = []
+    i = 0
+    while i < len(prog.impls) {
+        let imp = prog.impls[i]
+        let mut methods: [FunctionDecl] = []
+        let mut j = 0
+        while j < len(imp.methods) {
+            let m = imp.methods[j]
+            push(&mut methods, FunctionDecl {
+                vis: m.vis,
+                module: m.module,
+                file: file,
+                pos: m.pos,
+                name: m.name,
+                is_test: m.is_test,
+                params: m.params,
+                has_return: m.has_return,
+                ret: m.ret,
+                body: m.body,
+            })
+            j = j + 1
+        }
+        push(&mut impls, ImplDecl { vis: imp.vis, module: imp.module, file: file, pos: imp.pos, type_name: imp.type_name, methods: methods })
         i = i + 1
     }
     prog.impls = impls
@@ -658,24 +772,28 @@ struct LoadState {
     merged: Program,
     errors: [ParseError],
     loaded: [String],
+    sources: [String],
 }
 
 fn load_state_new() -> LoadState {
-    return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new() }
+    return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new(), sources: driver_string_list_new() }
 }
 
 fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState, include_tests: bool) {
     if driver_list_contains(state.loaded, path) {
         return
     }
+    let src = read_file(path)
     let mut loaded = state.loaded
     push(&mut loaded, path)
     state.loaded = loaded
-
-    let src = read_file(path)
+    let mut sources = state.sources
+    push(&mut sources, src)
+    state.sources = sources
     let mut lex = lexer_new(src)
     let mut local_errs: [ParseError] = []
     let mut prog = parse_program(src, &mut lex, &mut local_errs)
+    program_set_file(&mut prog, path)
     program_set_module(&mut prog, module_path)
 
     let base = driver_path_dir(path)
@@ -697,6 +815,8 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
             push(&mut imports, ImportDecl {
                 vis: imp.vis,
                 module: imp.module,
+                file: imp.file,
+                pos: imp.pos,
                 has_items: imp.has_items,
                 items: imp.items,
                 path: new_path,
@@ -761,6 +881,43 @@ fn print_errors(errors: [ParseError]) {
         print_error_line(e.file, e.line, e.col, e.msg)
         i = i + 1
     }
+}
+
+fn driver_source_for(state: &LoadState, path: String) -> String {
+    let idx = driver_list_index(state.loaded, path)
+    if idx >= 0 && idx < len(state.sources) {
+        return state.sources[idx]
+    }
+    return ""
+}
+
+fn attach_error_locations(errors: [ParseError], state: &LoadState) -> [ParseError] {
+    let mut out: [ParseError] = []
+    let mut i = 0
+    while i < len(errors) {
+        let e = errors[i]
+        let mut handled = false
+        if e.file != "" && e.pos >= 0 && (e.line == 0 || e.col == 0) {
+            let src = driver_source_for(state, e.file)
+            if src != "" {
+                let mut lex = lexer_new(src)
+                let mut offset = 0
+                if e.pos < len(lex.toks.items) {
+                    offset = tok_start(lex.toks, e.pos)
+                } else {
+                    offset = len(src)
+                }
+                let lc = line_col_from_offset(src, offset)
+                push(&mut out, ParseError { pos: e.pos, file: e.file, line: lc.line, col: lc.col, msg: e.msg })
+                handled = true
+            }
+        }
+        if !handled {
+            push(&mut out, e)
+        }
+        i = i + 1
+    }
+    return out
 }
 
 fn line_col_from_offset(src: String, offset: i32) -> LineCol {
@@ -927,14 +1084,12 @@ fn main() {
     }
     if debug { println("stage2: parsed") }
     let tctx = check_program(parse_res.prog)
-    if len(tctx.errors) > 0 {
-        die_errors(tctx.errors)
-    }
+    let terrs = attach_error_locations(tctx.errors, &state)
+    if len(terrs) > 0 { die_errors(terrs) }
     if debug { println("stage2: typechecked") }
     let comp = compile_program(parse_res.prog, tctx)
-    if len(comp.errors) > 0 {
-        die_errors(comp.errors)
-    }
+    let cerrs = attach_error_locations(comp.errors, &state)
+    if len(cerrs) > 0 { die_errors(cerrs) }
     if debug { println("stage2: compiled") }
     let verr = ir_validate(comp.prog)
     if verr != "" {

@@ -1,0 +1,21 @@
+const BASE = 7
+
+@repr(u32)
+enum Maybe {
+    None = 1,
+    Some(int) = 2,
+}
+
+fn score(m: Maybe) -> int {
+    match m {
+        .Some(v) => v + BASE,
+        .None => 0,
+    }
+}
+
+fn main() {
+    let a = Maybe.Some(5)
+    let b = Maybe.None
+    println("a", score(a))
+    println("b", score(b))
+}

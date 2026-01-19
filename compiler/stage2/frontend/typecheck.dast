@@ -94,6 +94,8 @@ struct TypeContext {
     current_ret: i32,
     current_ret_explicit: bool,
     self_type: String,
+    current_file: String,
+    current_pos: i32,
 }
 
 fn type_table_new() -> TypeTable {
@@ -342,6 +344,8 @@ fn check_import_conflicts(ctx: &mut TypeContext, prog: Program) {
         while i < len(prog.imports) {
             let imp = prog.imports[i]
             if imp.module == module {
+                ctx_set_file(ctx, imp.file)
+                ctx_set_pos(ctx, imp.pos)
                 if imp.has_items {
                     let mut j = 0
                     while j < len(imp.items) {
@@ -430,6 +434,8 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
             eligible = false
         }
         if eligible {
+            ctx_set_file(ctx, imp.file)
+            ctx_set_pos(ctx, imp.pos)
             let module = imp.module
             let target_mod = module_join(module, imp.path)
             let structs = ctx.structs
@@ -738,8 +744,56 @@ fn env_lookup(env: &Env, name: String) -> VarEntry {
 
 fn add_type_error(ctx: &mut TypeContext, msg: String) {
     let mut errors = ctx.errors
-    push(&mut errors, ParseError { pos: 0, file: "", line: 0, col: 0, msg: msg })
+    push(&mut errors, ParseError { pos: ctx.current_pos, file: ctx.current_file, line: 0, col: 0, msg: msg })
     ctx.errors = errors
+}
+
+fn ctx_set_pos(ctx: &mut TypeContext, pos: i32) {
+    ctx.current_pos = pos
+}
+
+fn ctx_set_file(ctx: &mut TypeContext, file: String) {
+    ctx.current_file = file
+}
+
+fn expr_pos(e: Expr) -> i32 {
+    match e {
+        Expr.Ident(x) => { return x.pos }
+        Expr.IntLit(x) => { return x.pos }
+        Expr.StringLit(x) => { return x.pos }
+        Expr.BoolLit(x) => { return x.pos }
+        Expr.Unary(x) => { return x.pos }
+        Expr.Binary(x) => { return x.pos }
+        Expr.Call(x) => { return x.pos }
+        Expr.MethodCall(x) => { return x.pos }
+        Expr.Index(x) => { return x.pos }
+        Expr.Field(x) => { return x.pos }
+        Expr.StructLit(x) => { return x.pos }
+        Expr.ArrayLit(x) => { return x.pos }
+        Expr.Ref(x) => { return x.pos }
+        Expr.Deref(x) => { return x.pos }
+    }
+    return 0
+}
+
+fn stmt_pos(s: Stmt) -> i32 {
+    match s {
+        Stmt.Let(x) => { return x.pos }
+        Stmt.Return(x) => { return x.pos }
+        Stmt.Expr(x) => { return x.pos }
+        Stmt.If(x) => { return x.pos }
+        Stmt.Assign(x) => { return x.pos }
+        Stmt.While(x) => { return x.pos }
+        Stmt.Match(x) => { return x.pos }
+    }
+    return 0
+}
+
+fn pattern_pos(p: Pattern) -> i32 {
+    match p {
+        Pattern.Variant(v) => { return v.pos }
+        _ => { return 0 }
+    }
 }
 
 fn ctx_type_make(ctx: &mut TypeContext, kind: i32, name: String, is_ref: bool, is_mut: bool, elem: i32) -> i32 {
@@ -1157,6 +1211,8 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
+        ctx_set_file(ctx, f.file)
+        ctx_set_pos(ctx, f.pos)
         ctx_set_current_module(ctx, f.module)
         let consts = ctx.consts
         let structs = ctx.structs
@@ -1174,6 +1230,7 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
             let mut j = 0
             while j < len(f.params) {
                 let p = f.params[j]
+                ctx_set_pos(ctx, p.pos)
                 let t = ctx_parse_type(ctx, p.typ, "")
                 push(&mut params, t)
                 j = j + 1
@@ -1181,6 +1238,7 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
             let mut ret = 0
             let mut explicit = false
             if f.has_return {
+                ctx_set_pos(ctx, f.pos)
                 ret = ctx_parse_type(ctx, f.ret, "")
                 explicit = true
             }
@@ -1201,6 +1259,8 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.consts) {
         let c = prog.consts[i]
+        ctx_set_file(ctx, c.file)
+        ctx_set_pos(ctx, c.pos)
         ctx_set_current_module(ctx, c.module)
         let consts = ctx.consts
         let structs = ctx.structs
@@ -1220,6 +1280,7 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
             let val_t = ctx_type_for_const_value(ctx, c.value)
             let mut decl_t = val_t
             if c.has_type {
+                ctx_set_pos(ctx, c.pos)
                 decl_t = ctx_parse_type(ctx, c.typ, "")
                 if !ctx_type_equal(ctx, decl_t, val_t) && decl_t != 0 && val_t != 0 {
                     add_type_error(ctx, "const '" + c.name + "' type mismatch")
@@ -1235,11 +1296,15 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.impls) {
         let imp = prog.impls[i]
+        ctx_set_file(ctx, imp.file)
+        ctx_set_pos(ctx, imp.pos)
         ctx_set_current_module(ctx, imp.module)
         let type_qname = ctx_resolve_type_name(ctx, imp.type_name, "")
         let mut j = 0
         while j < len(imp.methods) {
             let f = imp.methods[j]
+            ctx_set_file(ctx, f.file)
+            ctx_set_pos(ctx, f.pos)
             if type_qname != "" {
                 if find_method(ctx, type_qname, f.name) >= 0 {
                     add_type_error(ctx, "duplicate method '" + f.name + "' for '" + imp.type_name + "'")
@@ -1249,8 +1314,10 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
                     while k < len(f.params) {
                         let p = f.params[k]
                         if p.name == "self" && k != 0 {
+                            ctx_set_pos(ctx, p.pos)
                             add_type_error(ctx, "self must be first parameter")
                         }
+                        ctx_set_pos(ctx, p.pos)
                         let t = ctx_parse_type(ctx, p.typ, type_qname)
                         push(&mut params, t)
                         k = k + 1
@@ -1258,6 +1325,7 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
                     let mut ret = 0
                     let mut explicit = false
                     if f.has_return {
+                        ctx_set_pos(ctx, f.pos)
                         ret = ctx_parse_type(ctx, f.ret, type_qname)
                         explicit = true
                     }
@@ -1528,6 +1596,7 @@ fn deref_type(types: &mut TypeTable, t: i32) -> i32 {
 }
 
 fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
+    ctx_set_pos(ctx, expr_pos(expr))
     match expr {
         Expr.Ident(x) => {
             let v = ctx_env_lookup(ctx, x.name)
@@ -2267,6 +2336,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
 }
 
 fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
+    ctx_set_pos(ctx, stmt_pos(stmt))
     match stmt {
         Stmt.Let(s) => {
             if !s.has_init {
@@ -2388,9 +2458,10 @@ fn check_tail_block(ctx: &mut TypeContext, block: Block, allow_implicit: bool) {
 }
 
 fn check_tail_stmt(ctx: &mut TypeContext, stmt: Stmt, allow_implicit: bool) {
+    ctx_set_pos(ctx, stmt_pos(stmt))
     match stmt {
         .Expr(e) => {
-            let r = ReturnStmt { has_value: true, value: e.expr }
+            let r = ReturnStmt { pos: e.pos, has_value: true, value: e.expr }
             check_stmt(ctx, Stmt.Return(r))
         }
         Stmt.Return(r) => { check_stmt(ctx, Stmt.Return(r)) }
@@ -2401,6 +2472,7 @@ fn check_tail_stmt(ctx: &mut TypeContext, stmt: Stmt, allow_implicit: bool) {
 }
 
 fn check_tail_if(ctx: &mut TypeContext, s: IfStmt, allow_implicit: bool) {
+    ctx_set_pos(ctx, s.pos)
     let ct = check_expr(ctx, s.cond)
     if !ctx_is_bool(ctx, ct) && ct != 0 {
         add_type_error(ctx, "if condition must be bool")
@@ -2417,6 +2489,7 @@ fn check_tail_if(ctx: &mut TypeContext, s: IfStmt, allow_implicit: bool) {
 }
 
 fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
+    ctx_set_pos(ctx, m.pos)
     let scrut = check_expr(ctx, m.expr)
     let mut enum_name = ""
     if ctx_type_kind(ctx, scrut) == 6 {
@@ -2431,6 +2504,7 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
         match pat {
             .Wildcard(_) => {}
             .Variant(vp) => {
+                ctx_set_pos(ctx, vp.pos)
                 let mut pat_enum = vp.enum_name
                 if pat_enum == "" {
                     pat_enum = enum_name
@@ -2467,6 +2541,7 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
 }
 
 fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
+    ctx_set_pos(ctx, m.pos)
     let scrut = check_expr(ctx, m.expr)
     let mut enum_name = ""
     if ctx_type_kind(ctx, scrut) == 6 {
@@ -2481,6 +2556,7 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
         match pat {
             .Wildcard(_) => {}
             .Variant(vp) => {
+                ctx_set_pos(ctx, vp.pos)
                 let mut pat_enum = vp.enum_name
                 if pat_enum == "" {
                     pat_enum = enum_name
@@ -2517,6 +2593,8 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
 }
 
 fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
+    ctx_set_file(ctx, f.file)
+    ctx_set_pos(ctx, f.pos)
     ctx_set_current_module(ctx, f.module)
     let fidx = find_func_in_module(ctx, f.module, f.name)
     if fidx < 0 {
@@ -2559,6 +2637,8 @@ fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
 }
 
 fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
+    ctx_set_file(ctx, f.file)
+    ctx_set_pos(ctx, f.pos)
     ctx_set_current_module(ctx, f.module)
     let midx = find_method(ctx, type_name, f.name)
     if midx < 0 {
@@ -2647,10 +2727,14 @@ fn check_program(prog: Program) -> TypeContext {
         current_ret: 0,
         current_ret_explicit: false,
         self_type: "",
+        current_file: "",
+        current_pos: 0,
     }
     let mut ei = 0
     while ei < len(prog.enums) {
         let e = prog.enums[ei]
+        ctx_set_file(&mut ctx, e.file)
+        ctx_set_pos(&mut ctx, e.pos)
         if e.repr != "" && !is_valid_enum_repr(e.repr) {
             add_type_error(&mut ctx, "unsupported repr '" + e.repr + "'")
         }
@@ -2669,6 +2753,8 @@ fn check_program(prog: Program) -> TypeContext {
     let mut j = 0
     while j < len(prog.impls) {
         let imp = prog.impls[j]
+        ctx_set_file(&mut ctx, imp.file)
+        ctx_set_pos(&mut ctx, imp.pos)
         ctx_set_current_module(&mut ctx, imp.module)
         let type_qname = ctx_resolve_type_name(&mut ctx, imp.type_name, "")
         let mut k = 0

@@ -1,0 +1,18 @@
+struct Counter { value: int }
+
+impl Counter {
+    fn inc(self: &mut Self, delta: int) -> int {
+        self.value = self.value + delta
+        self.value
+    }
+
+    fn get(self: &Self) -> int { self.value }
+}
+
+fn main() {
+    let mut c = Counter { value: 1 }
+    let v = (&mut c).inc(2)
+    let g = (&c).get()
+    println("inc", v)
+    println("get", g)
+}

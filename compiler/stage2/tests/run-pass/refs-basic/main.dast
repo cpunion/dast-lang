@@ -1,0 +1,7 @@
+fn main() {
+    let mut v = 1
+    let r = &mut v
+    let a = *r + 2
+    v = a
+    println("v", v)
+}

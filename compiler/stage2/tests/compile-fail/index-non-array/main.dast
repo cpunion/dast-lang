@@ -1,0 +1,5 @@
+fn main() {
+    let x = 1
+    let v = x[0]
+    println(v)
+}

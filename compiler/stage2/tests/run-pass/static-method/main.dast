@@ -1,0 +1,14 @@
+struct Util { value: int }
+
+impl Util {
+    fn add(a: int, b: int) -> int { a + b }
+    fn plus(self: &Self, v: int) -> int { self.value + v }
+}
+
+fn main() {
+    let u = Util { value: 2 }
+    let a = Util.add(1, 3)
+    let b = (&u).plus(4)
+    println("a", a)
+    println("b", b)
+}

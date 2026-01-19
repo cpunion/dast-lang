@@ -29,6 +29,8 @@ struct ConstValue {
 struct ConstDecl {
     vis: Visibility,
     module: String,
+    file: String,
+    pos: i32,
     name: String,
     has_type: bool,
     typ: String,
@@ -36,12 +38,14 @@ struct ConstDecl {
 }
 
 struct Param {
+    pos: i32,
     name: String,
     typ: String,
 }
 
 struct Field {
     vis: Visibility,
+    pos: i32,
     name: String,
     typ: String,
 }
@@ -49,11 +53,14 @@ struct Field {
 struct StructDecl {
     vis: Visibility,
     module: String,
+    file: String,
+    pos: i32,
     name: String,
     fields: [Field],
 }
 
 struct Variant {
+    pos: i32,
     name: String,
     has_payload: bool,
     payload: String,
@@ -64,77 +71,94 @@ struct Variant {
 struct EnumDecl {
     vis: Visibility,
     module: String,
+    file: String,
+    pos: i32,
     name: String,
     repr: String,
     variants: [Variant],
 }
 
 struct IdentExpr {
+    pos: i32,
     name: String,
 }
 
 struct IntLit {
+    pos: i32,
     value: String,
 }
 
 struct StringLit {
+    pos: i32,
     value: String,
 }
 
 struct BoolLit {
+    pos: i32,
     value: bool,
 }
 
 struct UnaryExpr {
+    pos: i32,
     op: TokenKind,
     expr: Expr,
 }
 
 struct BinaryExpr {
+    pos: i32,
     op: TokenKind,
     left: Expr,
     right: Expr,
 }
 
 struct CallExpr {
+    pos: i32,
     callee: Expr,
     args: [Expr],
 }
 
 struct IndexExpr {
+    pos: i32,
     recv: Expr,
     index: Expr,
 }
 
 struct FieldExpr {
+    pos: i32,
     recv: Expr,
     name: String,
 }
 
 struct FieldInit {
+    pos: i32,
     name: String,
     value: Expr,
 }
 
 struct StructLit {
+    pos: i32,
     name: String,
     fields: [FieldInit],
 }
 
 struct ArrayLit {
+    pos: i32,
     elems: [Expr],
 }
 
 struct RefExpr {
+    pos: i32,
     mutable: bool,
     expr: Expr,
 }
 
 struct DerefExpr {
+    pos: i32,
     expr: Expr,
 }
 
 struct MethodCallExpr {
+    pos: i32,
     recv: Expr,
     method: String,
     args: [Expr],
@@ -161,6 +185,7 @@ enum Expr {
 }
 
 struct LetStmt {
+    pos: i32,
     name: String,
     mutable: bool,
     has_type: bool,
@@ -170,15 +195,18 @@ struct LetStmt {
 }
 
 struct ReturnStmt {
+    pos: i32,
     has_value: bool,
     value: Expr,
 }
 
 struct ExprStmt {
+    pos: i32,
     expr: Expr,
 }
 
 struct IfStmt {
+    pos: i32,
     cond: Expr,
     then_block: Block,
     has_else: bool,
@@ -186,6 +214,7 @@ struct IfStmt {
 }
 
 struct WhileStmt {
+    pos: i32,
     cond: Expr,
     body: Block,
 }
@@ -193,6 +222,7 @@ struct WhileStmt {
 struct WildcardPattern {}
 
 struct VariantPattern {
+    pos: i32,
     enum_name: String,
     variant: String,
     has_binding: bool,
@@ -205,11 +235,13 @@ enum Pattern {
 }
 
 struct MatchArm {
+    pos: i32,
     pattern: Pattern,
     body: Block,
 }
 
 struct MatchStmt {
+    pos: i32,
     expr: Expr,
     arms: [MatchArm],
 }
@@ -229,6 +261,7 @@ enum Stmt {
 }
 
 struct AssignStmt {
+    pos: i32,
     target: Expr,
     value: Expr,
 }
@@ -236,6 +269,8 @@ struct AssignStmt {
 struct FunctionDecl {
     vis: Visibility,
     module: String,
+    file: String,
+    pos: i32,
     name: String,
     is_test: bool,
     params: [Param],
@@ -247,6 +282,8 @@ struct FunctionDecl {
 struct ImplDecl {
     vis: Visibility,
     module: String,
+    file: String,
+    pos: i32,
     type_name: String,
     methods: [FunctionDecl],
 }
@@ -254,6 +291,8 @@ struct ImplDecl {
 struct ImportDecl {
     vis: Visibility,
     module: String,
+    file: String,
+    pos: i32,
     has_items: bool,
     items: [String],
     path: String,

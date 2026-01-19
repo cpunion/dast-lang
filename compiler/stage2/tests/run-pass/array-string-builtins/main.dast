@@ -1,0 +1,14 @@
+fn main() {
+    let mut nums = [1, 2]
+    push(&mut nums, 3)
+    let l = len(nums)
+    let last = pop(&mut nums)
+    println("len", l)
+    println("last", last)
+
+    let s = "hi!"
+    let c = char_at(s, 1)
+    let sub = substr(s, 0, 2)
+    println("c", c)
+    println("sub", sub)
+}

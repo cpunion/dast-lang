@@ -838,8 +838,10 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
                 }
                 let eq = compiler_resolve_enum_name(c, id.name)
                 let enum_idx = find_enum_decl(c.enums, eq)
-                if enum_idx >= 0 && enum_has_variant(c.enums[enum_idx], method) {
-                    return MethodResolution { callee: "", with_self: false, is_enum: true, enum_name: eq, method_name: method }
+                if enum_idx >= 0 {
+                    if enum_has_variant(c.enums[enum_idx], method) {
+                        return MethodResolution { callee: "", with_self: false, is_enum: true, enum_name: eq, method_name: method }
+                    }
                 }
                 let mut type_q = eq
                 if type_q == "" {
