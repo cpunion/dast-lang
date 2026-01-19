@@ -1,0 +1,6 @@
+const X = 1
+
+fn main() {
+    let r = &X;
+    println(r);
+}

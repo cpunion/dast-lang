@@ -1,0 +1,16 @@
+fn add(x: &i32, y: &i32) -> i32 {
+    *x + *y
+}
+
+fn inc(x: &mut i32) {
+    *x = *x + 1
+}
+
+fn main() {
+    let mut v = 1
+    let mut w = 2
+    let sum = add(&v, &w)
+    println("sum", sum)
+    inc(&mut v)
+    println("v", v)
+}

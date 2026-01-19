@@ -19,6 +19,8 @@ IR_DUPFIELD := $(IR_TEST_DIR)/invalid_dup_field.ir
 IR_DUPFN := $(IR_TEST_DIR)/invalid_dup_fn.ir
 IR_OPT_CONST := $(IR_TEST_DIR)/opt_const.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
+STAGE0_RUN_PASS := $(wildcard compiler/bootstrap/stage0/tests/run-pass/*.dast)
+STAGE0_COMPILE_FAIL := $(wildcard compiler/bootstrap/stage0/tests/compile-fail/*.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
@@ -34,6 +36,18 @@ test-stage0: build-stage0
 		echo "[stage0] $$f"; \
 		./$(STAGE0_BIN) run $$f || exit 1; \
 	done
+	@for f in $(STAGE0_RUN_PASS); do \
+		echo "[stage0-run] $$f"; \
+		./$(STAGE0_BIN) run $$f || exit 1; \
+	done
+	@for f in $(STAGE0_COMPILE_FAIL); do \
+		echo "[stage0-fail] $$f"; \
+		out=$$(./$(STAGE0_BIN) run $$f 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
+		if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi; \
+	done
 
 test-stage1: build-stage0
 	@for f in $(EXAMPLES); do \
@@ -46,6 +60,15 @@ test-stage1: build-stage0
 	done
 
 test-stage1-full: test-stage1
+
+test-stage1-self: build-stage0
+	@tmp1="/tmp/dast-stage1-self-$$.ir"; \
+	out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE1_FILES) 2>&1); \
+	status=$$?; \
+	if [ $$status -ne 0 ]; then echo "$$out"; exit $$status; fi; \
+	echo "$$out" > $$tmp1; \
+	if [ ! -s $$tmp1 ]; then echo "expected stage1 ir output"; exit 1; fi; \
+	rm -f $$tmp1
 
 build-stage1-ir: build-stage0
 	@./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE2_FILES) > $(STAGE1_IR)
@@ -206,7 +229,7 @@ test-ir-opt: build-stage0
 	echo "$$out" | grep -q 't2 = const 3' || { echo "expected const fold"; echo "$$out"; exit 1; }; \
 	echo "$$out" | grep -q 't4 = const false' || { echo "expected const fold"; echo "$$out"; exit 1; }
 
-test: test-stage0 test-stage1 test-stage2 test-ir test-ir-verify test-ir-opt
+test: test-stage0 test-stage1 test-stage1-self test-stage2 test-ir test-ir-verify test-ir-opt
 
 clean:
 	@rm -f $(STAGE0_BIN)
