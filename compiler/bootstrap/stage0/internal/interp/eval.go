@@ -187,6 +187,22 @@ func (rt *Runtime) builtinPush() Builtin {
 	}
 }
 
+func (rt *Runtime) builtinExit() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		code := 0
+		if len(args) > 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("exit expects 0 or 1 argument")
+		}
+		if len(args) == 1 {
+			if args[0].Kind != ir.KindInt {
+				return ir.Value{Kind: ir.KindUnit}, errors.New("exit expects int")
+			}
+			code = int(args[0].Int)
+		}
+		return ir.Value{Kind: ir.KindUnit}, ExitError{Code: code}
+	}
+}
+
 func (rt *Runtime) builtinPop() Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		if len(args) != 1 {

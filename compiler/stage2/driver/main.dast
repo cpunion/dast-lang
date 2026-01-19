@@ -69,6 +69,36 @@ fn usage() {
     println("  dast ir-opt <file.ir>")
 }
 
+fn die_usage() {
+    usage()
+    exit(1)
+}
+
+fn die_error(msg: String) {
+    println("error", msg)
+    exit(1)
+}
+
+fn die_parse(line: i32, msg: String) {
+    println("error", line, msg)
+    exit(1)
+}
+
+fn die_errors(errors: [ParseError]) {
+    print_errors(errors)
+    exit(1)
+}
+
+fn handle_runtime_error(err: String) {
+    if err == "" { return }
+    if driver_string_starts_with(err, "exit ") {
+        let code = parse_int(substr(err, 5, len(err) - 5))
+        exit(code)
+    }
+    println("error", err)
+    exit(1)
+}
+
 fn split_args(args: [String], start: i32) -> ArgSplit {
     let mut files: [String] = []
     let mut rest: [String] = []
@@ -463,13 +493,11 @@ fn collect_tests(prog: Program) -> [String] {
 fn main() {
     let argv = args()
     if len(argv) < 1 {
-        usage()
-        return
+        die_usage()
     }
     let cmd = argv[0]
     if cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "ir-verify" && cmd != "ir-opt" && cmd != "test" {
-        usage()
-        return
+        die_usage()
     }
     let mut debug = false
     let mut start = 1
@@ -480,72 +508,60 @@ fn main() {
     if debug { println("stage2: start") }
     let split = split_args(argv, start)
     if len(split.files) == 0 {
-        usage()
-        return
+        die_usage()
     }
 
     if cmd == "ir-run" {
         if len(split.files) != 1 {
-            usage()
-            return
+            die_usage()
         }
         let text = read_file(split.files[0])
         let parsed = ir_parse_program(text)
         if !parsed.ok {
-            println("error", parsed.line, parsed.error)
-            return
+            die_parse(parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
-            println("error", verr)
-            return
+            die_error(verr)
         }
         let mut rt = runtime_new(parsed.prog, split.rest)
         if debug { println("stage2: running ir") }
         runtime_run(&mut rt, parsed.prog.entry)
-        if rt.error != "" {
-            println("error", rt.error)
-        }
+        handle_runtime_error(rt.error)
         return
     }
     if cmd == "ir-verify" {
         if len(split.files) != 1 {
-            usage()
-            return
+            die_usage()
         }
         let text = read_file(split.files[0])
         let parsed = ir_parse_program(text)
         if !parsed.ok {
-            println("error", parsed.line, parsed.error)
-            return
+            die_parse(parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
-            println("error", verr)
+            die_error(verr)
         }
         return
     }
     if cmd == "ir-opt" {
         if len(split.files) != 1 {
-            usage()
-            return
+            die_usage()
         }
         let text = read_file(split.files[0])
         let parsed = ir_parse_program(text)
         if !parsed.ok {
-            println("error", parsed.line, parsed.error)
-            return
+            die_parse(parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
-            println("error", verr)
-            return
+            die_error(verr)
         }
         let opt = ir_opt_program(parsed.prog)
         let verr2 = ir_validate(opt)
         if verr2 != "" {
-            println("error", verr2)
-            return
+            die_error(verr2)
         }
         print(ir_program_format(opt))
         return
@@ -564,26 +580,22 @@ fn main() {
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }
     if len(parse_res.errors) > 0 {
-        print_errors(parse_res.errors)
-        return
+        die_errors(parse_res.errors)
     }
     if debug { println("stage2: parsed") }
     let tctx = check_program(parse_res.prog)
     if len(tctx.errors) > 0 {
-        print_errors(tctx.errors)
-        return
+        die_errors(tctx.errors)
     }
     if debug { println("stage2: typechecked") }
     let comp = compile_program(parse_res.prog, tctx)
     if len(comp.errors) > 0 {
-        print_errors(comp.errors)
-        return
+        die_errors(comp.errors)
     }
     if debug { println("stage2: compiled") }
     let verr = ir_validate(comp.prog)
     if verr != "" {
-        println("error", verr)
-        return
+        die_error(verr)
     }
     if cmd == "ir" {
         print(ir_program_format(comp.prog))
@@ -602,8 +614,7 @@ fn main() {
             let mut rt = runtime_new(comp.prog, driver_string_list_new())
             runtime_run(&mut rt, name)
             if rt.error != "" {
-                println("error", rt.error)
-                return
+                handle_runtime_error(rt.error)
             }
             ti = ti + 1
         }
@@ -613,7 +624,5 @@ fn main() {
     let mut rt = runtime_new(comp.prog, split.rest)
     if debug { println("stage2: running") }
     runtime_run(&mut rt, comp.prog.entry)
-    if rt.error != "" {
-        println("error", rt.error)
-    }
+    handle_runtime_error(rt.error)
 }

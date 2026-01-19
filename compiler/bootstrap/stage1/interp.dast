@@ -634,6 +634,7 @@ fn is_builtin_name(name: String) -> bool {
     if name == "len" { return true }
     if name == "push" { return true }
     if name == "pop" { return true }
+    if name == "exit" { return true }
     if name == "read_file" { return true }
     if name == "read_dir" { return true }
     if name == "write_file" { return true }
@@ -707,6 +708,16 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         arr.elems = trimmed
         rt.arrays[idx] = arr
         return last
+    }
+    if name == "exit" {
+        if len(args) > 1 { runtime_error(rt, "exit expects 0 or 1 argument"); return ir_value_unit() }
+        let mut code = 0
+        if len(args) == 1 {
+            if args[0].kind != ir_kind_int() { runtime_error(rt, "exit expects int"); return ir_value_unit() }
+            code = args[0].int
+        }
+        runtime_error(rt, "exit " + int_to_string(code))
+        return ir_value_unit()
     }
     if name == "read_file" {
         if len(args) != 1 { runtime_error(rt, "read_file expects 1 argument"); return ir_value_unit() }

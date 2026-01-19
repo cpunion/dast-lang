@@ -11,6 +11,14 @@ import (
 
 type Builtin func(args []ir.Value) (ir.Value, error)
 
+type ExitError struct {
+	Code int
+}
+
+func (e ExitError) Error() string {
+	return fmt.Sprintf("exit %d", e.Code)
+}
+
 type Runtime struct {
 	Prog     *ir.Program
 	Builtins map[string]Builtin
@@ -27,6 +35,7 @@ func New(prog *ir.Program) *Runtime {
 		"println":    rt.builtinPrint(true),
 		"len":        rt.builtinLen(),
 		"push":       rt.builtinPush(),
+		"exit":       rt.builtinExit(),
 		"read_file":  rt.builtinReadFile(),
 		"read_dir":   rt.builtinReadDir(),
 		"write_file": rt.builtinWriteFile(),

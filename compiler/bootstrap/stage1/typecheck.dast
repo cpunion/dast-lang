@@ -732,6 +732,7 @@ fn builtin_list() -> [String] {
     push(&mut b, "len")
     push(&mut b, "push")
     push(&mut b, "pop")
+    push(&mut b, "exit")
     push(&mut b, "read_file")
     push(&mut b, "read_dir")
     push(&mut b, "write_file")

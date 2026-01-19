@@ -1,0 +1,6 @@
+ir v0
+fn main()
+  block entry:
+    t0 = const 1
+    t-1 = const 2
+    return t0

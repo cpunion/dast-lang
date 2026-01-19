@@ -12,6 +12,8 @@ IR_OPT := $(IR_TEST_DIR)/opt_branch.ir
 IR_UNDEF := $(IR_TEST_DIR)/invalid_undef_var.ir
 IR_UNINIT := $(IR_TEST_DIR)/invalid_maybe_uninit.ir
 IR_TERM := $(IR_TEST_DIR)/invalid_term_not_last.ir
+IR_JUMP := $(IR_TEST_DIR)/invalid_jump_target.ir
+IR_BADTEMP := $(IR_TEST_DIR)/invalid_bad_temp.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
@@ -55,7 +57,9 @@ test-stage2: build-stage0
 	@for f in $(STAGE2_COMPILE_FAIL); do \
 		echo "[stage2-fail] $$f"; \
 		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run $$f 2>&1); \
+		status=$$?; \
 		echo "$$out"; \
+		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
 		echo "$$out" | grep -q '^error' || exit 1; \
 	done
 	@for d in $(STAGE2_TEST_CMD); do \
@@ -113,26 +117,40 @@ test-ir-verify: build-stage0
 	@if ./$(STAGE0_BIN) ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
+	@if ./$(STAGE0_BIN) ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
+	@if ./$(STAGE0_BIN) ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi
 	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	if echo "$$out" | grep -q '^error'; then exit 1; fi
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) 2>&1); \
-	status=$$?; echo "$$out"; \
-	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) 2>&1); \
-	status=$$?; echo "$$out"; \
-	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) 2>&1); \
-	status=$$?; echo "$$out"; \
-	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) 2>&1); \
-	status=$$?; echo "$$out"; \
-	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "$$out" | grep -q '^error' || { echo "expected ir-verify to fail"; echo "$$out"; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
+	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
+		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
+	fi; \
+	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^error' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
 
 test-ir-opt: build-stage0
 	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT)); \

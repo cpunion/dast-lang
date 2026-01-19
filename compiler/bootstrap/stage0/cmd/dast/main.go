@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -89,8 +90,7 @@ func run(args []string) {
 		rt.Args = progArgs
 	}
 	if _, err := rt.Run(irProg.Entry); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exitOnRunErr(err)
 	}
 }
 
@@ -164,8 +164,7 @@ func runIR(args []string) {
 		rt.Args = progArgs
 	}
 	if _, err := rt.Run(irProg.Entry); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exitOnRunErr(err)
 	}
 }
 
@@ -254,4 +253,16 @@ func exitOnDiag(diags *diag.Bag) bool {
 		return true
 	}
 	return false
+}
+
+func exitOnRunErr(err error) {
+	if err == nil {
+		return
+	}
+	var exitErr interp.ExitError
+	if errors.As(err, &exitErr) {
+		os.Exit(exitErr.Code)
+	}
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
 }
