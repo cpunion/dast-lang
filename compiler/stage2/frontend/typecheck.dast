@@ -52,6 +52,8 @@ struct PendingReExport {
     name: String,
     target_mod: String,
     vis: Visibility,
+    file: String,
+    pos: i32,
 }
 
 struct ModuleAlias {
@@ -519,7 +521,7 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                             }
                         }
                         if !found {
-                            push(&mut pending, PendingReExport { module: module, name: name, target_mod: target_mod, vis: imp.vis })
+                            push(&mut pending, PendingReExport { module: module, name: name, target_mod: target_mod, vis: imp.vis, file: imp.file, pos: imp.pos })
                         }
                     }
                     j = j + 1
@@ -588,6 +590,8 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
     let mut p = 0
     while p < len(pending) {
         let pend = pending[p]
+        ctx_set_file(ctx, pend.file)
+        ctx_set_pos(ctx, pend.pos)
         if reexport_list_has_name(out, pend.module, pend.name) {
             add_type_error(ctx, "duplicate reexport '" + pend.name + "'")
         } else {
