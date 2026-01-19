@@ -1,4 +1,4 @@
-import { Point } from foo
+import { Point } from "foo"
 
 fn main() {
     let p = Point { x: 1, y: 2 }

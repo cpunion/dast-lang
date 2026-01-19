@@ -376,16 +376,65 @@ fn parse_path(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String
     return path
 }
 
+struct ParsedAttr {
+    kind: String,
+    repr: String,
+}
+
+struct ImportPath {
+    path: String,
+    is_string: bool,
+}
+
+fn parse_string_lit_token(raw: String) -> String {
+    if len(raw) < 2 { return raw }
+    let mut out = ""
+    let mut i = 1
+    let end = len(raw) - 1
+    while i < end {
+        let c = char_at(raw, i)
+        let mut handled = false
+        if c == 92 {
+            if i + 1 < end {
+                let n = char_at(raw, i + 1)
+                if n == 110 { out = out + "\n" }
+                else if n == 116 { out = out + "\t" }
+                else if n == 92 { out = out + "\\" }
+                else if n == 34 { out = out + "\"" }
+                else { out = out + substr(raw, i + 1, 1) }
+                i = i + 2
+                handled = true
+            }
+        }
+        if !handled {
+            out = out + substr(raw, i, 1)
+            i = i + 1
+        }
+    }
+    return out
+}
+
+fn parse_import_path(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ImportPath {
+    if peek_kind(lex) == tk_string() {
+        let raw = next_lexeme(src, lex)
+        return ImportPath { path: parse_string_lit_token(raw), is_string: true }
+    }
+    return ImportPath { path: parse_path(src, lex, errors), is_string: false }
+}
+
 fn import_item_list_new() -> [String] {
     let mut items: [String] = []
     return items
 }
 
-fn parse_repr_attr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+fn parse_attribute(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ParsedAttr {
     let name = parse_ident(src, lex, errors)
+    if name == "test" {
+        return ParsedAttr { kind: "test", repr: "" }
+    }
     if name != "repr" {
         add_error(errors, lexer_pos(lex), "unknown attribute");
-        return ""
+        return ParsedAttr { kind: "", repr: "" }
     }
     if peek_kind(lex) == tk_lparen() {
         lexer_next(lex)
@@ -398,7 +447,7 @@ fn parse_repr_attr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> S
     } else {
         add_error(errors, lexer_pos(lex), "expected ')'");
     }
-    return repr
+    return ParsedAttr { kind: "repr", repr: repr }
 }
 
 fn parse_const_value(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ConstValue {
@@ -532,6 +581,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
                     vis: mvis,
                     module: "",
                     name: name,
+                    is_test: false,
                     params: params,
                     has_return: has_return,
                     ret: ret,
@@ -653,6 +703,7 @@ fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
     let mut items: [String] = []
     let mut has_items = false
     let mut path = ""
+    let mut path_is_string = false
     let mut has_alias = false
     let mut alias = ""
     if peek_kind(lex) == tk_lbrace() {
@@ -680,9 +731,19 @@ fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
         } else {
             add_error(errors, lexer_pos(lex), "expected 'from' in import");
         }
-        path = parse_path(src, lex, errors)
+        let res = parse_import_path(src, lex, errors)
+        path = res.path
+        path_is_string = res.is_string
+        if !path_is_string {
+            add_error(errors, lexer_pos(lex), "import path must be string literal")
+        }
     } else {
-        path = parse_path(src, lex, errors)
+        let res = parse_import_path(src, lex, errors)
+        path = res.path
+        path_is_string = res.is_string
+        if !path_is_string {
+            add_error(errors, lexer_pos(lex), "import path must be string literal")
+        }
     }
     if peek_kind(lex) == tk_as() {
         lexer_next(lex)
@@ -690,7 +751,7 @@ fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
         has_alias = alias != ""
     }
     maybe_consume_semi(lex)
-    return ImportDecl { vis: vis, module: "", has_items: has_items, items: items, path: path, has_alias: has_alias, alias: alias }
+    return ImportDecl { vis: vis, module: "", has_items: has_items, items: items, path: path, path_is_string: path_is_string, has_alias: has_alias, alias: alias }
 }
 
 fn maybe_consume_semi(lex: &mut Lexer) {
@@ -935,103 +996,141 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
     let mut functions: [FunctionDecl] = []
     let mut impls: [ImplDecl] = []
     let mut pending_repr = ""
+    let mut pending_test = false
     while peek_kind(lex) != tk_eof() {
         let k = peek_kind(lex)
         if k == tk_at() {
             lexer_next(lex)
-            let repr = parse_repr_attr(src, lex, errors)
-            if repr != "" {
+            let attr = parse_attribute(src, lex, errors)
+            if attr.kind == "repr" && attr.repr != "" {
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "duplicate repr attribute");
                 } else {
-                    pending_repr = repr
+                    pending_repr = attr.repr
+                }
+            } else if attr.kind == "test" {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "duplicate test attribute");
+                } else {
+                    pending_test = true
                 }
             }
         } else {
             let vis = parse_visibility(src, lex, errors)
             let kk = peek_kind(lex)
             if kk == tk_import() {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
                 let decl = parse_import_decl(src, lex, errors, vis)
                 push(&mut imports, decl)
             } else if kk == tk_mod() {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
                 lexer_next(lex)
                 let name = parse_ident(src, lex, errors)
                 maybe_consume_semi(lex)
-                push(&mut imports, ImportDecl { vis: vis, module: "", has_items: false, items: import_item_list_new(), path: name, has_alias: false, alias: "" })
+                push(&mut imports, ImportDecl { vis: vis, module: "", has_items: false, items: import_item_list_new(), path: name, path_is_string: false, has_alias: false, alias: "" })
             } else if kk == tk_struct() {
-            if pending_repr != "" {
-                add_error(errors, lexer_pos(lex), "repr only valid on enum");
-                pending_repr = ""
-            }
-            let decl = parse_struct_decl(src, lex, errors, vis)
-            push(&mut structs, decl)
-        } else if kk == tk_enum() {
-            let decl = parse_enum_decl(src, lex, errors, pending_repr, vis)
-            pending_repr = ""
-            push(&mut enums, decl)
-        } else if kk == tk_const() {
-            if pending_repr != "" {
-                add_error(errors, lexer_pos(lex), "repr only valid on enum");
-                pending_repr = ""
-            }
-            lexer_next(lex)
-            let decl = parse_const_decl(src, lex, errors, vis)
-            push(&mut consts, decl)
-        } else if kk == tk_impl() {
-            if pending_repr != "" {
-                add_error(errors, lexer_pos(lex), "repr only valid on enum");
-                pending_repr = ""
-            }
-            let decl = parse_impl(src, lex, errors, vis)
-            push(&mut impls, decl)
-        } else if kk == tk_fn() {
-            if pending_repr != "" {
-                add_error(errors, lexer_pos(lex), "repr only valid on enum");
-                pending_repr = ""
-            }
-            lexer_next(lex)
-            let name = parse_ident(src, lex, errors)
-            let mut params: [Param] = []
-            let mut has_return = false
-            let mut ret = ""
-            let mut body = empty_block()
-            if peek_kind(lex) == tk_lparen() {
-                lexer_next(lex)
-                params = parse_params(src, lex, errors)
-                if peek_kind(lex) == tk_rparen() {
-                    lexer_next(lex)
-                } else {
-                    add_error(errors, lexer_pos(lex), "expected ')'");
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
                 }
-            } else {
-                add_error(errors, lexer_pos(lex), "expected '(' after fn name");
-            }
-            if peek_kind(lex) == tk_arrow() {
-                lexer_next(lex)
-                ret = parse_type(src, lex, errors)
-                has_return = true
-            }
-            if peek_kind(lex) == tk_lbrace() {
-                body = parse_block(src, lex, errors)
-            } else {
-                add_error(errors, lexer_pos(lex), "expected '{' for function body");
-            }
-            push(&mut functions, FunctionDecl {
-                vis: vis,
-                module: "",
-                name: name,
-                params: params,
-                has_return: has_return,
-                ret: ret,
-                body: body,
-            })
-        } else {
-            if pending_repr != "" {
-                add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                let decl = parse_struct_decl(src, lex, errors, vis)
+                push(&mut structs, decl)
+            } else if kk == tk_enum() {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
+                let decl = parse_enum_decl(src, lex, errors, pending_repr, vis)
                 pending_repr = ""
+                push(&mut enums, decl)
+            } else if kk == tk_const() {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                lexer_next(lex)
+                let decl = parse_const_decl(src, lex, errors, vis)
+                push(&mut consts, decl)
+            } else if kk == tk_impl() {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                let decl = parse_impl(src, lex, errors, vis)
+                push(&mut impls, decl)
+            } else if kk == tk_fn() {
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                lexer_next(lex)
+                let name = parse_ident(src, lex, errors)
+                let mut params: [Param] = []
+                let mut has_return = false
+                let mut ret = ""
+                let mut body = empty_block()
+                if peek_kind(lex) == tk_lparen() {
+                    lexer_next(lex)
+                    params = parse_params(src, lex, errors)
+                    if peek_kind(lex) == tk_rparen() {
+                        lexer_next(lex)
+                    } else {
+                        add_error(errors, lexer_pos(lex), "expected ')'");
+                    }
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected '(' after fn name");
+                }
+                if peek_kind(lex) == tk_arrow() {
+                    lexer_next(lex)
+                    ret = parse_type(src, lex, errors)
+                    has_return = true
+                }
+                if peek_kind(lex) == tk_lbrace() {
+                    body = parse_block(src, lex, errors)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected '{' for function body");
+                }
+                push(&mut functions, FunctionDecl {
+                    vis: vis,
+                    module: "",
+                    name: name,
+                    is_test: pending_test,
+                    params: params,
+                    has_return: has_return,
+                    ret: ret,
+                    body: body,
+                })
+                pending_test = false
+            } else {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                add_error(errors, lexer_pos(lex), "expected top-level declaration");
+                lexer_next(lex)
             }
-            lexer_next(lex)
-        }
         }
     }
     return Program { imports: imports, structs: structs, enums: enums, consts: consts, functions: functions, impls: impls }

@@ -232,6 +232,7 @@ v0 仅支持 8 种运行时值：
 - `read_file(path)`
 - `read_dir(path)`
 - `write_file(path, data)`
+- `mkdir(path)`
 - `args()`
 - `char_at(str, index)`
 - `substr(str, start, len)`

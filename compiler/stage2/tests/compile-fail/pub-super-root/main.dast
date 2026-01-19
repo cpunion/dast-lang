@@ -1,4 +1,4 @@
-import { super_fn } from a.b
+import { super_fn } from "a/b"
 
 fn main() {
     let v = super_fn()

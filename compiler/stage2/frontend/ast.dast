@@ -234,6 +234,7 @@ struct FunctionDecl {
     vis: Visibility,
     module: String,
     name: String,
+    is_test: bool,
     params: [Param],
     has_return: bool,
     ret: String,
@@ -253,6 +254,7 @@ struct ImportDecl {
     has_items: bool,
     items: [String],
     path: String,
+    path_is_string: bool,
     has_alias: bool,
     alias: String,
 }

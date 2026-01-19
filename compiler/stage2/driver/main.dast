@@ -61,8 +61,9 @@ fn driver_qualify_name(module: String, name: String) -> String {
 
 fn usage() {
     println("usage:")
-    println("  dast run <file.dast> [more.dast ...] [-- args...]")
-    println("  dast ir <file.dast> [more.dast ...]")
+    println("  dast build <file.dast|dir> [more ...]")
+    println("  dast run <file.dast|dir> [more ...] [-- args...]")
+    println("  dast ir <file.dast|dir> [more ...]")
     println("  dast test <file.dast|dir> [more ...]")
     println("  dast ir-run <file.ir> [-- args...]")
     println("  dast ir-verify <file.ir>")
@@ -255,6 +256,114 @@ fn driver_string_starts_with(text: String, prefix: String) -> bool {
     return substr(text, 0, len(prefix)) == prefix
 }
 
+fn driver_string_contains(text: String, needle: String) -> bool {
+    if needle == "" { return true }
+    let mut i = 0
+    while i + len(needle) <= len(text) {
+        if substr(text, i, len(needle)) == needle {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn driver_trim_space(text: String) -> String {
+    let mut start = 0
+    let mut end = len(text)
+    let mut done = false
+    while start < end && !done {
+        let c = char_at(text, start)
+        if c == 32 || c == 9 || c == 10 || c == 13 {
+            start = start + 1
+        } else {
+            done = true
+        }
+    }
+    done = false
+    while end > start && !done {
+        let c = char_at(text, end - 1)
+        if c == 32 || c == 9 || c == 10 || c == 13 {
+            end = end - 1
+        } else {
+            done = true
+        }
+    }
+    if end <= start { return "" }
+    return substr(text, start, end - start)
+}
+
+fn driver_split_lines(text: String) -> [String] {
+    let mut lines: [String] = []
+    let mut i = 0
+    let mut start = 0
+    while i < len(text) {
+        let c = char_at(text, i)
+        if c == 10 {
+            push(&mut lines, substr(text, start, i - start))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start <= len(text) {
+        push(&mut lines, substr(text, start, len(text) - start))
+    }
+    return lines
+}
+
+fn driver_split_path(path: String) -> [String] {
+    let mut parts: [String] = []
+    let mut i = 0
+    let mut start = 0
+    while i < len(path) {
+        if char_at(path, i) == 47 {
+            push(&mut parts, substr(path, start, i - start))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    push(&mut parts, substr(path, start, len(path) - start))
+    return parts
+}
+
+fn driver_path_clean(path: String) -> String {
+    let mut abs = false
+    if len(path) > 0 && char_at(path, 0) == 47 {
+        abs = true
+    }
+    let parts = driver_split_path(path)
+    let mut stack: [String] = []
+    let mut i = 0
+    while i < len(parts) {
+        let seg = parts[i]
+        if seg == "" || seg == "." {
+            // skip
+        } else if seg == ".." {
+            if len(stack) > 0 {
+                let _ = pop(&mut stack)
+            }
+        } else {
+            push(&mut stack, seg)
+        }
+        i = i + 1
+    }
+    let mut out = ""
+    if abs { out = "/" }
+    let mut j = 0
+    while j < len(stack) {
+        if j > 0 || abs {
+            if out != "/" && out != "" { out = out + "/" }
+        }
+        out = out + stack[j]
+        j = j + 1
+    }
+    if out == "" {
+        if abs { return "/" }
+        return "."
+    }
+    return out
+}
+
 fn driver_is_test_file(name: String) -> bool {
     return driver_string_ends_with(name, "_test.dast")
 }
@@ -317,12 +426,123 @@ fn driver_path_rel(base: String, path: String) -> String {
     return path
 }
 
+fn driver_path_is_within(root: String, path: String) -> bool {
+    if root == "" || root == "." { return true }
+    let clean_root = driver_path_clean(root)
+    let clean_path = driver_path_clean(path)
+    if clean_path == clean_root { return true }
+    let mut prefix = clean_root
+    if len(prefix) > 0 && char_at(prefix, len(prefix) - 1) != 47 {
+        prefix = prefix + "/"
+    }
+    return driver_string_starts_with(clean_path, prefix)
+}
+
 fn driver_module_path_from_dir(root_dir: String, dir: String) -> String {
     let rel = driver_path_rel(root_dir, dir)
     if rel == "" || rel == "." {
         return ""
     }
     return driver_replace_slash(rel)
+}
+
+fn driver_dir_has_entry(dir: String, name: String) -> bool {
+    let names = read_dir(dir)
+    let mut i = 0
+    while i < len(names) {
+        if names[i] == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn driver_find_package_root(path: String) -> String {
+    let mut dir = path
+    if driver_is_dast_file(path) {
+        dir = driver_path_dir(path)
+    }
+    let mut cur = dir
+    let mut done = false
+    while cur != "" && !done {
+        if driver_dir_has_entry(cur, "dast.toml") {
+            return cur
+        }
+        let parent = driver_path_dir(cur)
+        if parent == cur || parent == "" {
+            done = true
+        } else {
+            cur = parent
+        }
+    }
+    return ""
+}
+
+fn driver_code_root(pkg_root: String) -> String {
+    if pkg_root == "" { return "" }
+    if driver_dir_has_entry(pkg_root, "src") {
+        return driver_path_join(pkg_root, "src")
+    }
+    return pkg_root
+}
+
+fn driver_parse_package_name(toml: String) -> String {
+    let lines = driver_split_lines(toml)
+    let mut in_pkg = false
+    let mut i = 0
+    while i < len(lines) {
+        let line = driver_trim_space(lines[i])
+        if !(line == "" || driver_string_starts_with(line, "#")) {
+            if driver_string_starts_with(line, "[") {
+                in_pkg = line == "[package]"
+            } else if in_pkg && driver_string_starts_with(line, "name") {
+                let eq = find_char(line, 61, 0)
+                if eq >= 0 {
+                    let raw = driver_trim_space(substr(line, eq + 1, len(line) - eq - 1))
+                    if len(raw) >= 2 && char_at(raw, 0) == 34 {
+                        return parse_string_lit_token(raw)
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fn driver_package_name(pkg_root: String) -> String {
+    if pkg_root == "" { return "" }
+    let text = read_file(driver_path_join(pkg_root, "dast.toml"))
+    return driver_parse_package_name(text)
+}
+
+fn driver_is_relative_import(path: String) -> bool {
+    if driver_string_starts_with(path, "./") { return true }
+    if driver_string_starts_with(path, "../") { return true }
+    return false
+}
+
+fn driver_import_rel_to_path(rel: String) -> String {
+    if driver_string_contains(rel, "/") {
+        return rel
+    }
+    return driver_replace_dots(rel)
+}
+
+fn driver_import_path_to_dir(base_dir: String, root_dir: String, path: String, is_string: bool) -> String {
+    let mut rel = path
+    let mut from_dir = base_dir
+    if is_string {
+        if !driver_is_relative_import(path) {
+            from_dir = root_dir
+        }
+        if driver_string_starts_with(rel, "./") {
+            rel = substr(rel, 2, len(rel) - 2)
+        }
+        rel = driver_import_rel_to_path(rel)
+    } else {
+        rel = driver_replace_dots(rel)
+    }
+    return driver_path_clean(driver_path_join(from_dir, rel))
 }
 
 fn program_set_module(prog: &mut Program, module: String) {
@@ -336,6 +556,7 @@ fn program_set_module(prog: &mut Program, module: String) {
             has_items: imp.has_items,
             items: imp.items,
             path: imp.path,
+            path_is_string: imp.path_is_string,
             has_alias: imp.has_alias,
             alias: imp.alias,
         })
@@ -378,6 +599,7 @@ fn program_set_module(prog: &mut Program, module: String) {
             vis: f.vis,
             module: module,
             name: f.name,
+            is_test: f.is_test,
             params: f.params,
             has_return: f.has_return,
             ret: f.ret,
@@ -399,6 +621,7 @@ fn program_set_module(prog: &mut Program, module: String) {
                 vis: m.vis,
                 module: module,
                 name: m.name,
+                is_test: m.is_test,
                 params: m.params,
                 has_return: m.has_return,
                 ret: m.ret,
@@ -435,6 +658,41 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
     let mut local_errs: [ParseError] = []
     let mut prog = parse_program(src, &mut lex, &mut local_errs)
     program_set_module(&mut prog, module_path)
+
+    let base = driver_path_dir(path)
+    let mut imports: [ImportDecl] = []
+    let mut child_dirs: [String] = []
+    let mut j = 0
+    while j < len(prog.imports) {
+        let imp = prog.imports[j]
+        if imp.path != "" {
+            let child_dir = driver_import_path_to_dir(base, root_dir, imp.path, imp.path_is_string)
+            if !driver_path_is_within(root_dir, child_dir) {
+                die_error("import path escapes package root: " + imp.path)
+            }
+            let child_mod = driver_module_path_from_dir(root_dir, child_dir)
+            let mut new_path = child_mod
+            if child_mod != "" {
+                new_path = "::" + child_mod
+            }
+            push(&mut imports, ImportDecl {
+                vis: imp.vis,
+                module: imp.module,
+                has_items: imp.has_items,
+                items: imp.items,
+                path: new_path,
+                path_is_string: false,
+                has_alias: imp.has_alias,
+                alias: imp.alias,
+            })
+            push(&mut child_dirs, child_dir)
+        } else {
+            push(&mut imports, imp)
+        }
+        j = j + 1
+    }
+    prog.imports = imports
+
     let mut merged = state.merged
     append_program(&mut merged, prog)
     state.merged = merged
@@ -446,14 +704,9 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
     }
     state.errors = errs
 
-    let base = driver_path_dir(path)
-    let mut j = 0
-    while j < len(prog.imports) {
-        let imp = prog.imports[j]
-        if imp.path != "" {
-            let child_dir = driver_module_path_to_dir(base, imp.path)
-            load_dir_recursive(child_dir, root_dir, state, false)
-        }
+    j = 0
+    while j < len(child_dirs) {
+        load_dir_recursive(child_dirs[j], root_dir, state, false)
         j = j + 1
     }
 }
@@ -482,7 +735,7 @@ fn collect_tests(prog: Program) -> [String] {
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
-        if driver_string_starts_with(f.name, "test_") {
+        if f.is_test || driver_string_starts_with(f.name, "test_") {
             push(&mut out, driver_qualify_name(f.module, f.name))
         }
         i = i + 1
@@ -496,7 +749,7 @@ fn main() {
         die_usage()
     }
     let cmd = argv[0]
-    if cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "ir-verify" && cmd != "ir-opt" && cmd != "test" {
+    if cmd != "build" && cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "ir-verify" && cmd != "ir-opt" && cmd != "test" {
         die_usage()
     }
     let mut debug = false
@@ -566,6 +819,16 @@ fn main() {
         print(ir_program_format(opt))
         return
     }
+    let mut pkg_root = driver_find_package_root(split.files[0])
+    let mut pkg_has_toml = pkg_root != ""
+    if !pkg_has_toml {
+        pkg_root = split.files[0]
+        if driver_is_dast_file(pkg_root) {
+            pkg_root = driver_path_dir(pkg_root)
+        }
+    }
+    let code_root = driver_code_root(pkg_root)
+
     let mut state = load_state_new()
     let mut i = 0
     while i < len(split.files) {
@@ -574,8 +837,28 @@ fn main() {
         if driver_is_dast_file(path) {
             dir = driver_path_dir(path)
         }
+        if pkg_has_toml {
+            let other_root = driver_find_package_root(path)
+            if other_root != pkg_root {
+                die_error("multiple package roots not supported")
+            }
+        } else {
+            let other_root = driver_find_package_root(path)
+            if other_root != "" && other_root != pkg_root {
+                die_error("multiple package roots not supported")
+            }
+            if !driver_path_is_within(pkg_root, dir) {
+                die_error("multiple package roots not supported")
+            }
+        }
+        if dir == pkg_root {
+            dir = code_root
+        }
+        if !driver_path_is_within(code_root, dir) {
+            die_error("path outside package root: " + path)
+        }
         let include_tests = cmd == "test"
-        load_dir_recursive(dir, dir, &mut state, include_tests)
+        load_dir_recursive(dir, code_root, &mut state, include_tests)
         i = i + 1
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }
@@ -599,6 +882,18 @@ fn main() {
     }
     if cmd == "ir" {
         print(ir_program_format(comp.prog))
+        return
+    }
+    if cmd == "build" {
+        let mut name = "main"
+        if pkg_has_toml {
+            let pkg = driver_package_name(pkg_root)
+            if pkg != "" { name = pkg }
+        }
+        let target_dir = driver_path_join(pkg_root, "target")
+        mkdir(target_dir)
+        let out_path = driver_path_join(target_dir, name + ".ir")
+        write_file(out_path, ir_program_format(comp.prog))
         return
     }
     if cmd == "test" {

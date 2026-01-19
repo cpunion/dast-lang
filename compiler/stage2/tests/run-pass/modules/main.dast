@@ -1,6 +1,6 @@
-import { add } from math
-import math as m
-import { Point } from geom
+import { add } from "math"
+import "math" as m
+import { Point } from "geom"
 
 fn main() {
     let v = add(2, 3)

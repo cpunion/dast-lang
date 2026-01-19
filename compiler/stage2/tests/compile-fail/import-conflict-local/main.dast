@@ -1,4 +1,4 @@
-import { X } from a
+import { X } from "a"
 
 const X = 3
 

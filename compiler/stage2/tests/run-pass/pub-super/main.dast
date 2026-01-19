@@ -1,4 +1,4 @@
-import { call_super } from a
+import { call_super } from "a"
 
 fn main() {
     let v = call_super()

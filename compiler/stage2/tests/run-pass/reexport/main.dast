@@ -1,5 +1,5 @@
-import { Token } from parser
-import parser as p
+import { Token } from "parser"
+import "parser" as p
 
 fn main() {
     let t = Token { value: 7 }

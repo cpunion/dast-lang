@@ -319,6 +319,22 @@ func (rt *Runtime) builtinWriteFile() Builtin {
 	}
 }
 
+func (rt *Runtime) builtinMkdir() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("mkdir expects 1 argument")
+		}
+		pathVal := args[0]
+		if pathVal.Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("mkdir expects string path")
+		}
+		if err := os.MkdirAll(pathVal.Str, 0o755); err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		return ir.Value{Kind: ir.KindUnit}, nil
+	}
+}
+
 func (rt *Runtime) builtinArgs() Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		if len(args) != 0 {

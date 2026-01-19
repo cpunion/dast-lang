@@ -736,6 +736,7 @@ fn builtin_list() -> [String] {
     push(&mut b, "read_file")
     push(&mut b, "read_dir")
     push(&mut b, "write_file")
+    push(&mut b, "mkdir")
     push(&mut b, "args")
     push(&mut b, "char_at")
     push(&mut b, "substr")
@@ -1104,6 +1105,17 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 }
                                 if !ctx_is_string(ctx, dt) && dt != 0 {
                                     add_type_error(ctx, "write_file expects string data")
+                                }
+                            }
+                            return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                        }
+                        if id.name == "mkdir" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "mkdir expects 1 argument")
+                            } else {
+                                let pt = check_expr(ctx, c.args[0])
+                                if !ctx_is_string(ctx, pt) && pt != 0 {
+                                    add_type_error(ctx, "mkdir expects string path")
                                 }
                             }
                             return ctx_type_make(ctx, 4, "unit", false, false, -1)

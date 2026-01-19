@@ -1,5 +1,5 @@
-import foo
-import { foo } from bar
+import "foo"
+import { foo } from "bar"
 
 fn main() {
     println(0)

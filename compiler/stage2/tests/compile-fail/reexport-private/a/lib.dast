@@ -1,1 +1,1 @@
-pub import { hidden } from b
+pub import { hidden } from "./b"

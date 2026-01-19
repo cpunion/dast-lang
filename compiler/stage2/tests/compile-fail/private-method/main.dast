@@ -1,4 +1,4 @@
-import { Box } from foo
+import { Box } from "foo"
 
 fn main() {
     let b = Box { x: 3 }

@@ -143,19 +143,27 @@ fn module_list_push_unique(list: &mut [String], module: String) {
     }
 }
 
+fn module_strip_root(path: String) -> String {
+    if len(path) >= 2 && char_at(path, 0) == 58 && char_at(path, 1) == 58 {
+        return substr(path, 2, len(path) - 2)
+    }
+    return path
+}
+
 fn path_last_segment(path: String) -> String {
+    let clean = module_strip_root(path)
     let mut last = 0
     let mut i = 0
-    while i < len(path) {
-        if char_at(path, i) == 46 {
+    while i < len(clean) {
+        if char_at(clean, i) == 46 {
             last = i + 1
         }
         i = i + 1
     }
-    if last < 0 || last >= len(path) {
-        return path
+    if last < 0 || last >= len(clean) {
+        return clean
     }
-    return substr(path, last, len(path) - last)
+    return substr(clean, last, len(clean) - last)
 }
 
 fn qualify_name(module: String, name: String) -> String {
@@ -181,6 +189,10 @@ fn module_parent(path: String) -> String {
 }
 
 fn module_join(base: String, rel: String) -> String {
+    let clean = module_strip_root(rel)
+    if clean != rel {
+        return clean
+    }
     if base == "" { return rel }
     if rel == "" { return base }
     return base + "." + rel
@@ -1332,6 +1344,7 @@ fn builtin_list() -> [String] {
     push(&mut b, "read_file")
     push(&mut b, "read_dir")
     push(&mut b, "write_file")
+    push(&mut b, "mkdir")
     push(&mut b, "args")
     push(&mut b, "char_at")
     push(&mut b, "substr")
@@ -1881,6 +1894,17 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 }
                                 if !ctx_is_string(ctx, dt) && dt != 0 {
                                     add_type_error(ctx, "write_file expects string data")
+                                }
+                            }
+                            return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                        }
+                        if id.name == "mkdir" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "mkdir expects 1 argument")
+                            } else {
+                                let pt = check_expr(ctx, c.args[0])
+                                if !ctx_is_string(ctx, pt) && pt != 0 {
+                                    add_type_error(ctx, "mkdir expects string path")
                                 }
                             }
                             return ctx_type_make(ctx, 4, "unit", false, false, -1)

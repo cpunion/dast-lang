@@ -1,4 +1,4 @@
-import { X, Point, Color, add } from b
+import { X, Point, Color, add } from "b"
 
 fn takes_color(c: Color) -> int {
     if true { return 0 }

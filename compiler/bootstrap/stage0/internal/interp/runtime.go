@@ -39,6 +39,7 @@ func New(prog *ir.Program) *Runtime {
 		"read_file":  rt.builtinReadFile(),
 		"read_dir":   rt.builtinReadDir(),
 		"write_file": rt.builtinWriteFile(),
+		"mkdir":      rt.builtinMkdir(),
 		"args":       rt.builtinArgs(),
 		"char_at":    rt.builtinCharAt(),
 		"substr":     rt.builtinSubstr(),

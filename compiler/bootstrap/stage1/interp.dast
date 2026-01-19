@@ -638,6 +638,7 @@ fn is_builtin_name(name: String) -> bool {
     if name == "read_file" { return true }
     if name == "read_dir" { return true }
     if name == "write_file" { return true }
+    if name == "mkdir" { return true }
     if name == "args" { return true }
     if name == "char_at" { return true }
     if name == "substr" { return true }
@@ -745,6 +746,15 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
             return ir_value_unit()
         }
         write_file(args[0].str, args[1].str)
+        return ir_value_unit()
+    }
+    if name == "mkdir" {
+        if len(args) != 1 { runtime_error(rt, "mkdir expects 1 argument"); return ir_value_unit() }
+        if args[0].kind != ir_kind_string() {
+            runtime_error(rt, "mkdir expects string path")
+            return ir_value_unit()
+        }
+        mkdir(args[0].str)
         return ir_value_unit()
     }
     if name == "args" {
