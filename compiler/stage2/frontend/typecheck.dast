@@ -2706,6 +2706,24 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                 }
                 i = i + 1
             }
+            if !sp.has_rest {
+                let mut j = 0
+                while j < len(decl.fields) {
+                    let fname = decl.fields[j].name
+                    let mut found = false
+                    let mut k = 0
+                    while k < len(sp.fields) {
+                        if sp.fields[k].name == fname {
+                            found = true
+                        }
+                        k = k + 1
+                    }
+                    if !found {
+                        add_type_error(ctx, "missing field '" + fname + "' in pattern")
+                    }
+                    j = j + 1
+                }
+            }
         }
     }
 }
