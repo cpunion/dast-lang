@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"syscall"
 
 	"dastlang/internal/ir"
 )
@@ -275,10 +276,13 @@ func (rt *Runtime) builtinReadDir() Builtin {
 		if pathVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_dir expects string path")
 		}
-		entries, err := os.ReadDir(pathVal.Str)
-		if err != nil {
-			return ir.Value{Kind: ir.KindUnit}, err
+	entries, err := os.ReadDir(pathVal.Str)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return ir.Value{Kind: ir.KindArray, Array: &ir.ArrayValue{Elems: nil}}, nil
 		}
+		return ir.Value{Kind: ir.KindUnit}, err
+	}
 		elems := make([]ir.Value, 0, len(entries))
 		for _, entry := range entries {
 			elems = append(elems, ir.Value{Kind: ir.KindString, Str: entry.Name()})
