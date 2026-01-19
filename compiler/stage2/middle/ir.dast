@@ -41,6 +41,7 @@ fn int_to_string(x: i32) -> String {
 struct IrValue {
     kind: i32,
     int: i32,
+    int_type: String,
     bool: bool,
     str: String,
     ref: i32,
@@ -48,35 +49,39 @@ struct IrValue {
 }
 
 fn ir_value_unit() -> IrValue {
-    return IrValue { kind: ir_kind_unit(), int: 0, bool: false, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_unit(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: -1 }
 }
 
 fn ir_value_int(v: i32) -> IrValue {
-    return IrValue { kind: ir_kind_int(), int: v, bool: false, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_int(), int: v, int_type: "", bool: false, str: "", ref: -1, obj: -1 }
+}
+
+fn ir_value_int_t(v: i32, t: String) -> IrValue {
+    return IrValue { kind: ir_kind_int(), int: v, int_type: t, bool: false, str: "", ref: -1, obj: -1 }
 }
 
 fn ir_value_bool(v: bool) -> IrValue {
-    return IrValue { kind: ir_kind_bool(), int: 0, bool: v, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_bool(), int: 0, int_type: "", bool: v, str: "", ref: -1, obj: -1 }
 }
 
 fn ir_value_string(v: String) -> IrValue {
-    return IrValue { kind: ir_kind_string(), int: 0, bool: false, str: v, ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_string(), int: 0, int_type: "", bool: false, str: v, ref: -1, obj: -1 }
 }
 
 fn ir_value_ref(addr: i32) -> IrValue {
-    return IrValue { kind: ir_kind_ref(), int: 0, bool: false, str: "", ref: addr, obj: -1 }
+    return IrValue { kind: ir_kind_ref(), int: 0, int_type: "", bool: false, str: "", ref: addr, obj: -1 }
 }
 
 fn ir_value_struct(idx: i32) -> IrValue {
-    return IrValue { kind: ir_kind_struct(), int: 0, bool: false, str: "", ref: -1, obj: idx }
+    return IrValue { kind: ir_kind_struct(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
 }
 
 fn ir_value_enum(idx: i32) -> IrValue {
-    return IrValue { kind: ir_kind_enum(), int: 0, bool: false, str: "", ref: -1, obj: idx }
+    return IrValue { kind: ir_kind_enum(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
 }
 
 fn ir_value_array(idx: i32) -> IrValue {
-    return IrValue { kind: ir_kind_array(), int: 0, bool: false, str: "", ref: -1, obj: idx }
+    return IrValue { kind: ir_kind_array(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
 }
 
 struct IrStructFieldValue {
@@ -92,6 +97,8 @@ struct IrStructValue {
 struct IrEnumValue {
     name: String,
     variant: String,
+    tag: i32,
+    tag_type: String,
     has_payload: bool,
     payload: IrValue,
 }
@@ -110,6 +117,8 @@ struct IrProgram {
 struct IrFunction {
     name: String,
     params: [String],
+    param_types: [String],
+    return_type: String,
     blocks: [IrBlock],
     temp_count: i32,
 }
@@ -186,6 +195,18 @@ struct IrSetIndex {
     src: i32,
 }
 
+struct IrIndexUnchecked {
+    dst: i32,
+    array: i32,
+    index: i32,
+}
+
+struct IrSetIndexUnchecked {
+    array: i32,
+    index: i32,
+    src: i32,
+}
+
 struct IrStructFieldInit {
     name: String,
     src: i32,
@@ -213,6 +234,8 @@ struct IrMakeEnum {
     dst: i32,
     name: String,
     variant: String,
+    tag: i32,
+    tag_type: String,
     payload: i32,
 }
 
@@ -239,6 +262,8 @@ enum IrInstr {
     MakeArray(IrMakeArray),
     Index(IrIndex),
     SetIndex(IrSetIndex),
+    IndexUnchecked(IrIndexUnchecked),
+    SetIndexUnchecked(IrSetIndexUnchecked),
     MakeStruct(IrMakeStruct),
     GetField(IrGetField),
     SetField(IrSetField),
@@ -276,7 +301,12 @@ fn ir_term_none() -> IrTerm {
 }
 
 fn ir_value_stringify(v: IrValue) -> String {
-    if v.kind == ir_kind_int() { return int_to_string(v.int) }
+    if v.kind == ir_kind_int() {
+        if v.int_type != "" {
+            return v.int_type + " " + int_to_string(v.int)
+        }
+        return int_to_string(v.int)
+    }
     if v.kind == ir_kind_bool() {
         if v.bool { return "true" }
         return "false"
@@ -307,7 +337,7 @@ fn ir_escape_string(s: String) -> String {
 
 fn ir_instr_string(inst: IrInstr) -> String {
     match inst {
-        .Const(i) => { return "t" + int_to_string(i.dst) + " = const " + ir_value_stringify(i.value) }
+        IrInstr.Const(i) => { return "t" + int_to_string(i.dst) + " = const " + ir_value_stringify(i.value) }
         .LoadVar(i) => { return "t" + int_to_string(i.dst) + " = load " + i.name }
         .StoreVar(i) => { return "store " + i.name + ", t" + int_to_string(i.src) }
         .AddrOf(i) => { return "t" + int_to_string(i.dst) + " = addr_of " + i.name }
@@ -317,7 +347,7 @@ fn ir_instr_string(inst: IrInstr) -> String {
             return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.lhs) + ", t" + int_to_string(i.rhs)
         }
         .UnaryOp(i) => { return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.src) }
-        .Call(i) => {
+        IrInstr.Call(i) => {
             let mut args = ""
             let mut j = 0
             while j < len(i.args) {
@@ -340,8 +370,10 @@ fn ir_instr_string(inst: IrInstr) -> String {
             }
             return "t" + int_to_string(i.dst) + " = array [" + elems + "]"
         }
-        .Index(i) => { return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
+        IrInstr.Index(i) => { return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
         .SetIndex(i) => { return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) }
+        .IndexUnchecked(i) => { return "t" + int_to_string(i.dst) + " = index_unchecked t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
+        .SetIndexUnchecked(i) => { return "set_index_unchecked t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) }
         .MakeStruct(i) => {
             let mut fields = ""
             let mut j = 0
@@ -355,10 +387,14 @@ fn ir_instr_string(inst: IrInstr) -> String {
         .GetField(i) => { return "t" + int_to_string(i.dst) + " = get_field t" + int_to_string(i.src) + "." + i.field }
         .SetField(i) => { return "set_field t" + int_to_string(i.src) + "." + i.field + " = t" + int_to_string(i.value) }
         .MakeEnum(i) => {
-            if i.payload >= 0 {
-                return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant + "(t" + int_to_string(i.payload) + ")"
+            let mut tag = ""
+            if i.tag_type != "" {
+                tag = "@" + int_to_string(i.tag) + ":" + i.tag_type
             }
-            return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant
+            if i.payload >= 0 {
+                return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant + tag + "(t" + int_to_string(i.payload) + ")"
+            }
+            return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant + tag
         }
         .EnumTag(i) => { return "t" + int_to_string(i.dst) + " = enum_tag t" + int_to_string(i.src) }
         .EnumPayload(i) => { return "t" + int_to_string(i.dst) + " = enum_payload t" + int_to_string(i.src) }
@@ -373,7 +409,7 @@ fn ir_term_string(term: IrTerm) -> String {
         .Branch(t) => {
             return "branch t" + int_to_string(t.cond) + ", " + t.then_label + ", " + t.else_label
         }
-        .Return(t) => {
+        IrTerm.Return(t) => {
             if !t.has_value { return "return" }
             return "return t" + int_to_string(t.value)
         }
@@ -386,13 +422,34 @@ fn ir_program_format(p: IrProgram) -> String {
     while i < len(p.functions) {
         let f = p.functions[i]
         let mut params = ""
+        let mut has_types = false
+        if len(f.param_types) == len(f.params) {
+            let mut t = 0
+            while t < len(f.param_types) {
+                if f.param_types[t] != "" { has_types = true }
+                t = t + 1
+            }
+        }
         let mut j = 0
         while j < len(f.params) {
             if j > 0 { params = params + ", " }
-            params = params + f.params[j]
+            if has_types {
+                let tname = f.param_types[j]
+                if tname != "" {
+                    params = params + f.params[j] + ": " + tname
+                } else {
+                    params = params + f.params[j]
+                }
+            } else {
+                params = params + f.params[j]
+            }
             j = j + 1
         }
-        out = out + "fn " + f.name + "(" + params + ")\n"
+        out = out + "fn " + f.name + "(" + params + ")"
+        if f.return_type != "" && f.return_type != "unit" {
+            out = out + " -> " + f.return_type
+        }
+        out = out + "\n"
         let mut b = 0
         while b < len(f.blocks) {
             let blk = f.blocks[b]
@@ -477,6 +534,17 @@ fn find_char(s: String, ch: i32, start: i32) -> i32 {
     let mut i = start
     while i < len(s) {
         if char_at(s, i) == ch { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn find_arrow(s: String) -> i32 {
+    let mut i = 0
+    while i + 1 < len(s) {
+        if char_at(s, i) == 45 && char_at(s, i + 1) == 62 {
+            return i
+        }
         i = i + 1
     }
     return -1
@@ -570,6 +638,14 @@ fn parse_ir_value(text: String) -> IrValue {
     if t == "unit" { return ir_value_unit() }
     if t == "true" { return ir_value_bool(true) }
     if t == "false" { return ir_value_bool(false) }
+    let space = find_char(t, 32, 0)
+    if space > 0 {
+        let prefix = trim_space(substr(t, 0, space))
+        let rest = trim_space(substr(t, space + 1, len(t) - space - 1))
+        if is_int_type_name(prefix) {
+            return ir_value_int_t(parse_int(rest), prefix)
+        }
+    }
     if len(t) >= 2 {
         if char_at(t, 0) == 34 {
             if char_at(t, len(t) - 1) == 34 {
@@ -594,6 +670,13 @@ fn parse_ir_value(text: String) -> IrValue {
         return ir_value_array(n)
     }
     return ir_value_int(parse_int(t))
+}
+
+fn is_int_type_name(name: String) -> bool {
+    if name == "i8" || name == "i16" || name == "i32" || name == "i64" || name == "i128" { return true }
+    if name == "u8" || name == "u16" || name == "u32" || name == "u64" || name == "u128" { return true }
+    if name == "isize" || name == "usize" || name == "char" { return true }
+    return false
 }
 
 fn ir_line_parse_error(msg: String) -> IrLineParse {
@@ -670,6 +753,27 @@ fn ir_parse_line(line: String) -> IrLineParse {
         let name = trim_space(substr(rest, 0, comma))
         let src = parse_temp_name(substr(rest, comma + 1, len(rest) - comma - 1))
         return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: name, src: src }), term: ir_term_none(), max_temp: src, error: "" }
+    }
+    if has_prefix(l, "set_index_unchecked ") {
+        let rest = trim_space(substr(l, 20, len(l) - 20))
+        let eq = find_char(rest, 61, 0)
+        if eq < 0 { return ir_line_parse_error("invalid set_index_unchecked syntax") }
+        let left = trim_space(substr(rest, 0, eq))
+        let right = trim_space(substr(rest, eq + 1, len(rest) - eq - 1))
+        let open = find_char(left, 91, 0)
+        let close = find_char(left, 93, 0)
+        if open < 0 || close < 0 || close < open {
+            return ir_line_parse_error("invalid set_index_unchecked syntax")
+        }
+        let array = parse_temp_name(substr(left, 0, open))
+        let index = parse_temp_name(substr(left, open + 1, close - open - 1))
+        let src = parse_temp_name(right)
+        let max = array
+        let mut max2 = max
+        if index > max2 { max2 = index }
+        let mut max3 = max2
+        if src > max3 { max3 = src }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndexUnchecked(IrSetIndexUnchecked { array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
     }
     if has_prefix(l, "set_index ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
@@ -767,6 +871,20 @@ fn ir_parse_line(line: String) -> IrLineParse {
             }
             return IrLineParse { ok: true, is_term: false, instr: IrInstr.MakeArray(IrMakeArray { dst: dst, elems: elems }), term: ir_term_none(), max_temp: max, error: "" }
         }
+        if has_prefix(right, "index_unchecked ") {
+            let rest = trim_space(substr(right, 16, len(right) - 16))
+            let open = find_char(rest, 91, 0)
+            let close = find_char(rest, 93, 0)
+            if open < 0 || close < 0 || close < open {
+                return ir_line_parse_error("invalid index_unchecked syntax")
+            }
+            let array = parse_temp_name(substr(rest, 0, open))
+            let index = parse_temp_name(substr(rest, open + 1, close - open - 1))
+            let mut max = dst
+            if array > max { max = array }
+            if index > max { max = index }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.IndexUnchecked(IrIndexUnchecked { dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
+        }
         if has_prefix(right, "index ") {
             let rest = trim_space(substr(right, 6, len(right) - 6))
             let open = find_char(rest, 91, 0)
@@ -833,10 +951,23 @@ fn ir_parse_line(line: String) -> IrLineParse {
             let dot = find_char(name_variant, 46, 0)
             if dot < 0 { return ir_line_parse_error("invalid enum syntax") }
             let name = trim_space(substr(name_variant, 0, dot))
-            let variant = trim_space(substr(name_variant, dot + 1, len(name_variant) - dot - 1))
+            let variant_part = trim_space(substr(name_variant, dot + 1, len(name_variant) - dot - 1))
+            let mut variant = variant_part
+            let mut tag = 0
+            let mut tag_type = ""
+            let at = find_char(variant_part, 64, 0)
+            if at >= 0 {
+                variant = trim_space(substr(variant_part, 0, at))
+                let tag_spec = trim_space(substr(variant_part, at + 1, len(variant_part) - at - 1))
+                let colon = find_char(tag_spec, 58, 0)
+                if colon < 0 { return ir_line_parse_error("invalid enum tag") }
+                let tag_text = trim_space(substr(tag_spec, 0, colon))
+                tag_type = trim_space(substr(tag_spec, colon + 1, len(tag_spec) - colon - 1))
+                tag = parse_int(tag_text)
+            }
             let mut max = dst
             if payload > max { max = payload }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: name, variant: variant, payload: payload }), term: ir_term_none(), max_temp: max, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: name, variant: variant, tag: tag, tag_type: tag_type, payload: payload }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "enum_tag ") {
             let src = parse_temp_name(substr(right, 9, len(right) - 9))
@@ -891,7 +1022,7 @@ fn ir_parse_program(text: String) -> IrParseResult {
     i = i + 1
     let mut func_active = false
     let mut block_active = false
-    let mut cur_fn = IrFunction { name: "", params: string_list_new(), blocks: ir_block_list_new(), temp_count: 0 }
+    let mut cur_fn = IrFunction { name: "", params: string_list_new(), param_types: string_list_new(), return_type: "", blocks: ir_block_list_new(), temp_count: 0 }
     let mut cur_block = IrBlock { label: "", instrs: ir_instr_list_new(), term: ir_term_none() }
     let mut max_temp = -1
     while i < len(lines) {
@@ -925,23 +1056,41 @@ fn ir_parse_program(text: String) -> IrParseResult {
                 prog.functions = funcs
                 func_active = false
             }
-            let open = find_char(line, 40, 0)
-            let close = find_char(line, 41, 0)
+            let mut header = line
+            let mut ret_type = ""
+            let arrow = find_arrow(line)
+            if arrow >= 0 {
+                ret_type = trim_space(substr(line, arrow + 2, len(line) - arrow - 2))
+                header = trim_space(substr(line, 0, arrow))
+            }
+            let open = find_char(header, 40, 0)
+            let close = find_char(header, 41, 0)
             if open < 0 || close < 0 || close < open {
                 return IrParseResult { ok: false, prog: prog, error: "invalid fn syntax", line: i + 1 }
             }
-            let name = trim_space(substr(line, 3, open - 3))
-            let params_text = trim_space(substr(line, open + 1, close - open - 1))
+            let name = trim_space(substr(header, 3, open - 3))
+            let params_text = trim_space(substr(header, open + 1, close - open - 1))
             let mut params: [String] = []
+            let mut param_types: [String] = []
             if params_text != "" {
                 let parts = split_comma_list(params_text)
                 let mut p = 0
                 while p < len(parts) {
-                    push(&mut params, parts[p])
+                    let part = parts[p]
+                    let colon = find_char(part, 58, 0)
+                    if colon >= 0 {
+                        let pname = trim_space(substr(part, 0, colon))
+                        let ptype = trim_space(substr(part, colon + 1, len(part) - colon - 1))
+                        push(&mut params, pname)
+                        push(&mut param_types, ptype)
+                    } else {
+                        push(&mut params, part)
+                        push(&mut param_types, "")
+                    }
                     p = p + 1
                 }
             }
-            cur_fn = IrFunction { name: name, params: params, blocks: ir_block_list_new(), temp_count: 0 }
+            cur_fn = IrFunction { name: name, params: params, param_types: param_types, return_type: ret_type, blocks: ir_block_list_new(), temp_count: 0 }
             func_active = true
             max_temp = -1
             i = i + 1
@@ -1044,7 +1193,7 @@ fn ir_validate_temp(t: i32, temp_count: i32, allow_neg1: bool) -> String {
 
 fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> String {
     match inst {
-        .Const(i) => { return ir_validate_temp(i.dst, temp_count, false) }
+        IrInstr.Const(i) => { return ir_validate_temp(i.dst, temp_count, false) }
         .LoadVar(i) => {
             if i.name == "" { return "load var name is empty" }
             if !ir_string_list_contains(declared, i.name) { return "undefined variable '" + i.name + "'" }
@@ -1083,7 +1232,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             if err != "" { return err }
             return ir_validate_temp(i.src, temp_count, false)
         }
-        .Call(i) => {
+        IrInstr.Call(i) => {
             if i.callee == "" { return "call callee is empty" }
             let err = ir_validate_temp(i.dst, temp_count, true)
             if err != "" { return err }
@@ -1106,7 +1255,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             }
             return ""
         }
-        .Index(i) => {
+        IrInstr.Index(i) => {
             let err = ir_validate_temp(i.dst, temp_count, false)
             if err != "" { return err }
             let e2 = ir_validate_temp(i.array, temp_count, false)
@@ -1114,6 +1263,20 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             return ir_validate_temp(i.index, temp_count, false)
         }
         .SetIndex(i) => {
+            let e1 = ir_validate_temp(i.array, temp_count, false)
+            if e1 != "" { return e1 }
+            let e2 = ir_validate_temp(i.index, temp_count, false)
+            if e2 != "" { return e2 }
+            return ir_validate_temp(i.src, temp_count, false)
+        }
+        .IndexUnchecked(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            let e2 = ir_validate_temp(i.array, temp_count, false)
+            if e2 != "" { return e2 }
+            return ir_validate_temp(i.index, temp_count, false)
+        }
+        .SetIndexUnchecked(i) => {
             let e1 = ir_validate_temp(i.array, temp_count, false)
             if e1 != "" { return e1 }
             let e2 = ir_validate_temp(i.index, temp_count, false)
@@ -1189,7 +1352,7 @@ fn ir_validate_block(blk: IrBlock, labels: [String], temp_count: i32, declared: 
             if !ir_string_list_contains(labels, t.then_label) { return "branch target '" + t.then_label + "' not found" }
             if !ir_string_list_contains(labels, t.else_label) { return "branch target '" + t.else_label + "' not found" }
         }
-        .Return(t) => {
+        IrTerm.Return(t) => {
             if t.has_value {
                 let err = ir_validate_temp(t.value, temp_count, false)
                 if err != "" { return err }
@@ -1465,6 +1628,16 @@ struct IrConstMap {
     values: [IrValue],
 }
 
+struct IrVarConstMap {
+    names: [String],
+    values: [IrValue],
+}
+
+struct IrArraySafety {
+    lens: [i32],
+    safe: [bool],
+}
+
 fn ir_const_map_new(n: i32) -> IrConstMap {
     let mut known: [bool] = []
     let mut values: [IrValue] = []
@@ -1475,6 +1648,175 @@ fn ir_const_map_new(n: i32) -> IrConstMap {
         i = i + 1
     }
     return IrConstMap { known: known, values: values }
+}
+
+fn ir_varconst_new() -> IrVarConstMap {
+    let mut names: [String] = []
+    let mut values: [IrValue] = []
+    return IrVarConstMap { names: names, values: values }
+}
+
+fn ir_varconst_index(map: IrVarConstMap, name: String) -> i32 {
+    let mut i = 0
+    while i < len(map.names) {
+        if map.names[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn ir_varconst_has(map: IrVarConstMap, name: String) -> bool {
+    return ir_varconst_index(map, name) >= 0
+}
+
+fn ir_varconst_get(map: IrVarConstMap, name: String) -> IrValue {
+    let idx = ir_varconst_index(map, name)
+    if idx < 0 { return ir_value_unit() }
+    return map.values[idx]
+}
+
+fn ir_varconst_set(map: &mut IrVarConstMap, name: String, v: IrValue) {
+    let idx = ir_varconst_index(*map, name)
+    if idx >= 0 {
+        let mut values = map.values
+        values[idx] = v
+        map.values = values
+        return
+    }
+    let mut names = map.names
+    let mut values = map.values
+    push(&mut names, name)
+    push(&mut values, v)
+    map.names = names
+    map.values = values
+}
+
+fn ir_varconst_clear(map: &mut IrVarConstMap, name: String) {
+    let idx = ir_varconst_index(*map, name)
+    if idx < 0 { return }
+    let mut names = map.names
+    let mut values = map.values
+    names[idx] = ""
+    values[idx] = ir_value_unit()
+    map.names = names
+    map.values = values
+}
+
+fn ir_varconst_clear_all(map: &mut IrVarConstMap) {
+    let mut names: [String] = []
+    let mut values: [IrValue] = []
+    map.names = names
+    map.values = values
+}
+
+fn ir_array_safety_new(temp_count: i32) -> IrArraySafety {
+    let mut lens: [i32] = []
+    let mut safe: [bool] = []
+    let mut i = 0
+    while i < temp_count {
+        push(&mut lens, 0)
+        push(&mut safe, false)
+        i = i + 1
+    }
+    return IrArraySafety { lens: lens, safe: safe }
+}
+
+fn ir_scan_array_safety(blk: IrBlock, temp_count: i32) -> IrArraySafety {
+    let mut out = ir_array_safety_new(temp_count)
+    let mut i = 0
+    while i < len(blk.instrs) {
+        match blk.instrs[i] {
+            .MakeArray(mk) => {
+                let mut lens = out.lens
+                let mut safe = out.safe
+                lens[mk.dst] = len(mk.elems)
+                safe[mk.dst] = true
+                out.lens = lens
+                out.safe = safe
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    let mut j = 0
+    while j < len(blk.instrs) {
+        let inst = blk.instrs[j]
+        match inst {
+            .MakeArray(_) => {}
+            IrInstr.Index(_) => {}
+            .SetIndex(_) => {}
+            .IndexUnchecked(_) => {}
+            .SetIndexUnchecked(_) => {}
+            _ => {
+                let temps = ir_instr_temps(inst)
+                let mut k = 0
+                while k < len(temps) {
+                    let t = temps[k]
+                    if t >= 0 && t < len(out.safe) {
+                        if out.safe[t] {
+                            let mut safe = out.safe
+                            safe[t] = false
+                            out.safe = safe
+                        }
+                    }
+                    k = k + 1
+                }
+            }
+        }
+        j = j + 1
+    }
+    return out
+}
+
+fn ir_instr_temps(inst: IrInstr) -> [i32] {
+    let mut out: [i32] = []
+    match inst {
+        IrInstr.Const(i) => { push(&mut out, i.dst) }
+        .LoadVar(i) => { push(&mut out, i.dst) }
+        .StoreVar(i) => { push(&mut out, i.src) }
+        .AddrOf(i) => { push(&mut out, i.dst) }
+        .LoadRef(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
+        .StoreRef(i) => { push(&mut out, i.ref); push(&mut out, i.src) }
+        .BinOp(i) => { push(&mut out, i.dst); push(&mut out, i.lhs); push(&mut out, i.rhs) }
+        .UnaryOp(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
+        IrInstr.Call(i) => {
+            if i.dst >= 0 { push(&mut out, i.dst) }
+            let mut j = 0
+            while j < len(i.args) {
+                push(&mut out, i.args[j])
+                j = j + 1
+            }
+        }
+        .MakeArray(i) => {
+            push(&mut out, i.dst)
+            let mut j = 0
+            while j < len(i.elems) {
+                push(&mut out, i.elems[j])
+                j = j + 1
+            }
+        }
+        IrInstr.Index(i) => { push(&mut out, i.dst); push(&mut out, i.array); push(&mut out, i.index) }
+        .SetIndex(i) => { push(&mut out, i.array); push(&mut out, i.index); push(&mut out, i.src) }
+        .IndexUnchecked(i) => { push(&mut out, i.dst); push(&mut out, i.array); push(&mut out, i.index) }
+        .SetIndexUnchecked(i) => { push(&mut out, i.array); push(&mut out, i.index); push(&mut out, i.src) }
+        .MakeStruct(i) => {
+            push(&mut out, i.dst)
+            let mut j = 0
+            while j < len(i.fields) {
+                push(&mut out, i.fields[j].src)
+                j = j + 1
+            }
+        }
+        .GetField(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
+        .SetField(i) => { push(&mut out, i.src); push(&mut out, i.value) }
+        .MakeEnum(i) => {
+            push(&mut out, i.dst)
+            if i.payload >= 0 { push(&mut out, i.payload) }
+        }
+        .EnumTag(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
+        .EnumPayload(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
+    }
+    return out
 }
 
 fn ir_const_map_has(map: &IrConstMap, idx: i32) -> bool {
@@ -1508,7 +1850,7 @@ fn ir_const_map_clear(map: &mut IrConstMap, idx: i32) {
 
 fn ir_fold_unary(op: String, v: IrValue) -> IrFoldResult {
     if op == "-" && v.kind == ir_kind_int() {
-        return IrFoldResult { ok: true, value: ir_value_int(-v.int) }
+        return IrFoldResult { ok: true, value: ir_value_int_t(-v.int, v.int_type) }
     }
     if op == "!" && v.kind == ir_kind_bool() {
         return IrFoldResult { ok: true, value: ir_value_bool(!v.bool) }
@@ -1519,23 +1861,23 @@ fn ir_fold_unary(op: String, v: IrValue) -> IrFoldResult {
 fn ir_fold_binary(op: String, a: IrValue, b: IrValue) -> IrFoldResult {
     if op == "+" {
         if a.kind == ir_kind_int() && b.kind == ir_kind_int() {
-            return IrFoldResult { ok: true, value: ir_value_int(a.int + b.int) }
+            return IrFoldResult { ok: true, value: ir_value_int_t(a.int + b.int, ir_pick_int_type(a, b)) }
         }
         if a.kind == ir_kind_string() && b.kind == ir_kind_string() {
             return IrFoldResult { ok: true, value: ir_value_string(a.str + b.str) }
         }
     }
     if op == "-" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
-        return IrFoldResult { ok: true, value: ir_value_int(a.int - b.int) }
+        return IrFoldResult { ok: true, value: ir_value_int_t(a.int - b.int, ir_pick_int_type(a, b)) }
     }
     if op == "*" && a.kind == ir_kind_int() && b.kind == ir_kind_int() {
-        return IrFoldResult { ok: true, value: ir_value_int(a.int * b.int) }
+        return IrFoldResult { ok: true, value: ir_value_int_t(a.int * b.int, ir_pick_int_type(a, b)) }
     }
     if op == "/" && a.kind == ir_kind_int() && b.kind == ir_kind_int() && b.int != 0 {
-        return IrFoldResult { ok: true, value: ir_value_int(a.int / b.int) }
+        return IrFoldResult { ok: true, value: ir_value_int_t(a.int / b.int, ir_pick_int_type(a, b)) }
     }
     if op == "%" && a.kind == ir_kind_int() && b.kind == ir_kind_int() && b.int != 0 {
-        return IrFoldResult { ok: true, value: ir_value_int(a.int % b.int) }
+        return IrFoldResult { ok: true, value: ir_value_int_t(a.int % b.int, ir_pick_int_type(a, b)) }
     }
     if op == "==" {
         if a.kind == ir_kind_int() && b.kind == ir_kind_int() {
@@ -1580,28 +1922,57 @@ fn ir_fold_binary(op: String, a: IrValue, b: IrValue) -> IrFoldResult {
     return IrFoldResult { ok: false, value: ir_value_unit() }
 }
 
+fn ir_pick_int_type(a: IrValue, b: IrValue) -> String {
+    if a.int_type != "" { return a.int_type }
+    if b.int_type != "" { return b.int_type }
+    return ""
+}
+
 fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
     let mut consts = ir_const_map_new(temp_count)
+    let mut var_consts = ir_varconst_new()
+    let safety = ir_scan_array_safety(blk, temp_count)
     let mut instrs: [IrInstr] = []
     let mut i = 0
     while i < len(blk.instrs) {
         let inst = blk.instrs[i]
         match inst {
-            .Const(c) => {
+            IrInstr.Const(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_set(&mut consts, c.dst, c.value)
             }
             .LoadVar(c) => {
+                if ir_varconst_has(var_consts, c.name) {
+                    let v = ir_varconst_get(var_consts, c.name)
+                    let ni = IrInstr.Const(IrConst { dst: c.dst, value: v })
+                    push(&mut instrs, ni)
+                    ir_const_map_set(&mut consts, c.dst, v)
+                } else {
+                    push(&mut instrs, inst)
+                    ir_const_map_clear(&mut consts, c.dst)
+                }
+            }
+            .StoreVar(c) => {
                 push(&mut instrs, inst)
-                ir_const_map_clear(&mut consts, c.dst)
+                if ir_const_map_has(&consts, c.src) {
+                    let v = ir_const_map_get(&consts, c.src)
+                    ir_varconst_set(&mut var_consts, c.name, v)
+                } else {
+                    ir_varconst_clear(&mut var_consts, c.name)
+                }
             }
             .AddrOf(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_clear(&mut consts, c.dst)
+                ir_varconst_clear(&mut var_consts, c.name)
             }
             .LoadRef(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_clear(&mut consts, c.dst)
+            }
+            .StoreRef(_) => {
+                push(&mut instrs, inst)
+                ir_varconst_clear_all(&mut var_consts)
             }
             .UnaryOp(c) => {
                 let mut folded = false
@@ -1638,19 +2009,56 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                     ir_const_map_clear(&mut consts, c.dst)
                 }
             }
-            .Call(c) => {
+            IrInstr.Call(c) => {
                 push(&mut instrs, inst)
                 if c.dst >= 0 {
                     ir_const_map_clear(&mut consts, c.dst)
                 }
+                ir_varconst_clear_all(&mut var_consts)
             }
             .MakeArray(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_clear(&mut consts, c.dst)
             }
-            .Index(c) => {
+            IrInstr.Index(c) => {
+                let mut replaced = false
+                if ir_const_map_has(&consts, c.index) {
+                    let idx = ir_const_map_get(&consts, c.index)
+                    if idx.kind == ir_kind_int() && c.array >= 0 && c.array < len(safety.safe) {
+                        if safety.safe[c.array] {
+                            if idx.int >= 0 && idx.int < safety.lens[c.array] {
+                                let ni = IrInstr.IndexUnchecked(IrIndexUnchecked { dst: c.dst, array: c.array, index: c.index })
+                                push(&mut instrs, ni)
+                                replaced = true
+                            }
+                        }
+                    }
+                }
+                if !replaced { push(&mut instrs, inst) }
+                ir_const_map_clear(&mut consts, c.dst)
+            }
+            .SetIndex(c) => {
+                let mut replaced = false
+                if ir_const_map_has(&consts, c.index) {
+                    let idx = ir_const_map_get(&consts, c.index)
+                    if idx.kind == ir_kind_int() && c.array >= 0 && c.array < len(safety.safe) {
+                        if safety.safe[c.array] {
+                            if idx.int >= 0 && idx.int < safety.lens[c.array] {
+                                let ni = IrInstr.SetIndexUnchecked(IrSetIndexUnchecked { array: c.array, index: c.index, src: c.src })
+                                push(&mut instrs, ni)
+                                replaced = true
+                            }
+                        }
+                    }
+                }
+                if !replaced { push(&mut instrs, inst) }
+            }
+            .IndexUnchecked(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_clear(&mut consts, c.dst)
+            }
+            .SetIndexUnchecked(_) => {
+                push(&mut instrs, inst)
             }
             .MakeStruct(c) => {
                 push(&mut instrs, inst)
@@ -1659,6 +2067,9 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             .GetField(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_clear(&mut consts, c.dst)
+            }
+            .SetField(c) => {
+                push(&mut instrs, inst)
             }
             .MakeEnum(c) => {
                 push(&mut instrs, inst)
@@ -1671,9 +2082,6 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             .EnumPayload(c) => {
                 push(&mut instrs, inst)
                 ir_const_map_clear(&mut consts, c.dst)
-            }
-            _ => {
-                push(&mut instrs, inst)
             }
         }
         i = i + 1
@@ -1735,6 +2143,275 @@ fn ir_reachable_blocks(blocks: [IrBlock]) -> [bool] {
     return marks
 }
 
+struct IrInlineCandidate {
+    valid: bool,
+    name: String,
+    func: IrFunction,
+    has_ret: bool,
+    ret_temp: i32,
+}
+
+struct IrInlineResult {
+    instrs: [IrInstr],
+    next_temp: i32,
+}
+
+fn ir_inline_candidate(f: IrFunction) -> IrInlineCandidate {
+    if len(f.blocks) != 1 { return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_temp: -1 } }
+    let blk = f.blocks[0]
+    let mut has_call = false
+    let mut i = 0
+    while i < len(blk.instrs) {
+        match blk.instrs[i] {
+            IrInstr.Call(_) => { has_call = true }
+            _ => {}
+        }
+        i = i + 1
+    }
+    if has_call { return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_temp: -1 } }
+    match blk.term {
+        IrTerm.Return(t) => {
+            if t.has_value {
+                return IrInlineCandidate { valid: true, name: f.name, func: f, has_ret: true, ret_temp: t.value }
+            }
+            return IrInlineCandidate { valid: true, name: f.name, func: f, has_ret: false, ret_temp: -1 }
+        }
+        _ => {}
+    }
+    return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_temp: -1 }
+}
+
+fn ir_collect_inline_candidates(p: IrProgram) -> [IrInlineCandidate] {
+    let mut out: [IrInlineCandidate] = []
+    let mut i = 0
+    while i < len(p.functions) {
+        let cand = ir_inline_candidate(p.functions[i])
+        if cand.valid { push(&mut out, cand) }
+        i = i + 1
+    }
+    return out
+}
+
+fn ir_find_inline(cands: [IrInlineCandidate], name: String) -> IrInlineCandidate {
+    let mut i = 0
+    while i < len(cands) {
+        if cands[i].name == name {
+            return cands[i]
+        }
+        i = i + 1
+    }
+    return IrInlineCandidate { valid: false, name: "", func: IrFunction { name: "", params: string_list_new(), param_types: string_list_new(), return_type: "", blocks: ir_block_list_new(), temp_count: 0 }, has_ret: false, ret_temp: -1 }
+}
+
+fn ir_inline_program(p: IrProgram) -> IrProgram {
+    let cands = ir_collect_inline_candidates(p)
+    let mut funcs: [IrFunction] = []
+    let mut i = 0
+    while i < len(p.functions) {
+        push(&mut funcs, ir_inline_function(p.functions[i], cands))
+        i = i + 1
+    }
+    return IrProgram { version: p.version, features: p.features, functions: funcs, entry: p.entry }
+}
+
+fn ir_inline_function(f: IrFunction, cands: [IrInlineCandidate]) -> IrFunction {
+    let mut blocks: [IrBlock] = []
+    let mut next_temp = f.temp_count
+    let mut inline_id = 0
+    let mut b = 0
+    while b < len(f.blocks) {
+        let blk = f.blocks[b]
+        let mut instrs: [IrInstr] = []
+        let mut i = 0
+        while i < len(blk.instrs) {
+            match blk.instrs[i] {
+                IrInstr.Call(c) => {
+                    let cand = ir_find_inline(cands, c.callee)
+                    if cand.valid && cand.name != f.name {
+                        let res = ir_inline_call(c, cand, next_temp, inline_id)
+                        instrs = ir_instr_list_concat(instrs, res.instrs)
+                        next_temp = res.next_temp
+                        inline_id = inline_id + 1
+                    } else {
+                        push(&mut instrs, blk.instrs[i])
+                    }
+                }
+                _ => { push(&mut instrs, blk.instrs[i]) }
+            }
+            i = i + 1
+        }
+        push(&mut blocks, IrBlock { label: blk.label, instrs: instrs, term: blk.term })
+        b = b + 1
+    }
+    return IrFunction { name: f.name, params: f.params, param_types: f.param_types, return_type: f.return_type, blocks: blocks, temp_count: next_temp }
+}
+
+fn ir_instr_list_concat(a: [IrInstr], b: [IrInstr]) -> [IrInstr] {
+    let mut out: [IrInstr] = []
+    let mut i = 0
+    while i < len(a) {
+        push(&mut out, a[i])
+        i = i + 1
+    }
+    let mut j = 0
+    while j < len(b) {
+        push(&mut out, b[j])
+        j = j + 1
+    }
+    return out
+}
+
+fn ir_inline_call(call: IrCall, cand: IrInlineCandidate, next_temp: i32, inline_id: i32) -> IrInlineResult {
+    let mut temp_map: [i32] = []
+    let mut t = 0
+    while t < cand.func.temp_count {
+        push(&mut temp_map, -1)
+        t = t + 1
+    }
+    let mut cur = next_temp
+    let mut ti = 0
+    while ti < cand.func.temp_count {
+        if cand.has_ret && call.dst >= 0 && ti == cand.ret_temp {
+            temp_map[ti] = call.dst
+        } else {
+            temp_map[ti] = cur
+            cur = cur + 1
+        }
+        ti = ti + 1
+    }
+    let mut var_names: [String] = []
+    let mut var_vals: [String] = []
+    let prefix = "_inl" + int_to_string(inline_id) + "_"
+    let mut out: [IrInstr] = []
+    let mut p = 0
+    while p < len(cand.func.params) {
+        if p < len(call.args) {
+            let new_name = ir_inline_map_var(cand.func.params[p], &mut var_names, &mut var_vals, prefix)
+            push(&mut out, IrInstr.StoreVar(IrStoreVar { name: new_name, src: call.args[p] }))
+        }
+        p = p + 1
+    }
+    let blk = cand.func.blocks[0]
+    let mut i = 0
+    while i < len(blk.instrs) {
+        let inst = blk.instrs[i]
+        push(&mut out, ir_inline_remap_instr(inst, temp_map, &mut var_names, &mut var_vals, prefix))
+        i = i + 1
+    }
+    if !cand.has_ret && call.dst >= 0 {
+        push(&mut out, IrInstr.Const(IrConst { dst: call.dst, value: ir_value_unit() }))
+    }
+    return IrInlineResult { instrs: out, next_temp: cur }
+}
+
+fn ir_inline_map_var(name: String, names: &mut [String], vals: &mut [String], prefix: String) -> String {
+    let mut i = 0
+    while i < len(*names) {
+        if (*names)[i] == name {
+            return (*vals)[i]
+        }
+        i = i + 1
+    }
+    let mapped = prefix + name
+    push(names, name)
+    push(vals, mapped)
+    return mapped
+}
+
+fn ir_inline_remap_temp(map: [i32], idx: i32) -> i32 {
+    if idx < 0 { return idx }
+    if idx >= len(map) { return idx }
+    return map[idx]
+}
+
+fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], vals: &mut [String], prefix: String) -> IrInstr {
+    match inst {
+        IrInstr.Const(i) => {
+            return IrInstr.Const(IrConst { dst: ir_inline_remap_temp(temp_map, i.dst), value: i.value })
+        }
+        .LoadVar(i) => {
+            let nm = ir_inline_map_var(i.name, names, vals, prefix)
+            return IrInstr.LoadVar(IrLoadVar { dst: ir_inline_remap_temp(temp_map, i.dst), name: nm })
+        }
+        .StoreVar(i) => {
+            let nm = ir_inline_map_var(i.name, names, vals, prefix)
+            return IrInstr.StoreVar(IrStoreVar { name: nm, src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        .AddrOf(i) => {
+            let nm = ir_inline_map_var(i.name, names, vals, prefix)
+            return IrInstr.AddrOf(IrAddrOf { dst: ir_inline_remap_temp(temp_map, i.dst), name: nm })
+        }
+        .LoadRef(i) => {
+            return IrInstr.LoadRef(IrLoadRef { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        .StoreRef(i) => {
+            return IrInstr.StoreRef(IrStoreRef { ref: ir_inline_remap_temp(temp_map, i.ref), src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        .BinOp(i) => {
+            return IrInstr.BinOp(IrBinOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, lhs: ir_inline_remap_temp(temp_map, i.lhs), rhs: ir_inline_remap_temp(temp_map, i.rhs) })
+        }
+        .UnaryOp(i) => {
+            return IrInstr.UnaryOp(IrUnaryOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        IrInstr.Call(i) => {
+            let mut args: [i32] = []
+            let mut j = 0
+            while j < len(i.args) {
+                push(&mut args, ir_inline_remap_temp(temp_map, i.args[j]))
+                j = j + 1
+            }
+            return IrInstr.Call(IrCall { dst: ir_inline_remap_temp(temp_map, i.dst), callee: i.callee, args: args })
+        }
+        .MakeArray(i) => {
+            let mut elems: [i32] = []
+            let mut j = 0
+            while j < len(i.elems) {
+                push(&mut elems, ir_inline_remap_temp(temp_map, i.elems[j]))
+                j = j + 1
+            }
+            return IrInstr.MakeArray(IrMakeArray { dst: ir_inline_remap_temp(temp_map, i.dst), elems: elems })
+        }
+        IrInstr.Index(i) => {
+            return IrInstr.Index(IrIndex { dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
+        }
+        .SetIndex(i) => {
+            return IrInstr.SetIndex(IrSetIndex { array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        .IndexUnchecked(i) => {
+            return IrInstr.IndexUnchecked(IrIndexUnchecked { dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
+        }
+        .SetIndexUnchecked(i) => {
+            return IrInstr.SetIndexUnchecked(IrSetIndexUnchecked { array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        .MakeStruct(i) => {
+            let mut fields: [IrStructFieldInit] = []
+            let mut j = 0
+            while j < len(i.fields) {
+                let f = i.fields[j]
+                push(&mut fields, IrStructFieldInit { name: f.name, src: ir_inline_remap_temp(temp_map, f.src) })
+                j = j + 1
+            }
+            return IrInstr.MakeStruct(IrMakeStruct { dst: ir_inline_remap_temp(temp_map, i.dst), name: i.name, fields: fields })
+        }
+        .GetField(i) => {
+            return IrInstr.GetField(IrGetField { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_temp(temp_map, i.src), field: i.field })
+        }
+        .SetField(i) => {
+            return IrInstr.SetField(IrSetField { src: ir_inline_remap_temp(temp_map, i.src), field: i.field, value: ir_inline_remap_temp(temp_map, i.value) })
+        }
+        .MakeEnum(i) => {
+            return IrInstr.MakeEnum(IrMakeEnum { dst: ir_inline_remap_temp(temp_map, i.dst), name: i.name, variant: i.variant, tag: i.tag, tag_type: i.tag_type, payload: ir_inline_remap_temp(temp_map, i.payload) })
+        }
+        .EnumTag(i) => {
+            return IrInstr.EnumTag(IrEnumTag { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+        .EnumPayload(i) => {
+            return IrInstr.EnumPayload(IrEnumPayload { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_temp(temp_map, i.src) })
+        }
+    }
+    return inst
+}
+
 fn ir_opt_function(f: IrFunction) -> IrFunction {
     let mut blocks: [IrBlock] = []
     let mut i = 0
@@ -1749,15 +2426,16 @@ fn ir_opt_function(f: IrFunction) -> IrFunction {
         if marks[j] { push(&mut out_blocks, blocks[j]) }
         j = j + 1
     }
-    return IrFunction { name: f.name, params: f.params, blocks: out_blocks, temp_count: f.temp_count }
+    return IrFunction { name: f.name, params: f.params, param_types: f.param_types, return_type: f.return_type, blocks: out_blocks, temp_count: f.temp_count }
 }
 
 fn ir_opt_program(p: IrProgram) -> IrProgram {
+    let inlined = ir_inline_program(p)
     let mut funcs: [IrFunction] = []
     let mut i = 0
-    while i < len(p.functions) {
-        push(&mut funcs, ir_opt_function(p.functions[i]))
+    while i < len(inlined.functions) {
+        push(&mut funcs, ir_opt_function(inlined.functions[i]))
         i = i + 1
     }
-    return IrProgram { version: p.version, features: p.features, functions: funcs, entry: p.entry }
+    return IrProgram { version: inlined.version, features: inlined.features, functions: funcs, entry: inlined.entry }
 }

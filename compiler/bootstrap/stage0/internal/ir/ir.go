@@ -20,14 +20,15 @@ const (
 )
 
 type Value struct {
-	Kind   Kind
-	Int    int64
-	Bool   bool
-	Str    string
-	Ref    int
-	Struct *StructValue
-	Enum   *EnumValue
-	Array  *ArrayValue
+	Kind    Kind
+	Int     int64
+	IntType string
+	Bool    bool
+	Str     string
+	Ref     int
+	Struct  *StructValue
+	Enum    *EnumValue
+	Array   *ArrayValue
 }
 
 type StructValue struct {
@@ -38,6 +39,8 @@ type StructValue struct {
 type EnumValue struct {
 	Name    string
 	Variant string
+	Tag     int64
+	TagType string
 	Payload *Value
 }
 
@@ -48,6 +51,9 @@ type ArrayValue struct {
 func (v Value) String() string {
 	switch v.Kind {
 	case KindInt:
+		if v.IntType != "" {
+			return fmt.Sprintf("%s %d", v.IntType, v.Int)
+		}
 		return fmt.Sprintf("%d", v.Int)
 	case KindBool:
 		if v.Bool {
@@ -101,10 +107,12 @@ type Program struct {
 }
 
 type Function struct {
-	Name      string
-	Params    []string
-	Blocks    []*Block
-	TempCount int
+	Name       string
+	Params     []string
+	ParamTypes []string
+	ReturnType string
+	Blocks     []*Block
+	TempCount  int
 }
 
 type Block struct {
@@ -255,6 +263,28 @@ func (i *SetIndex) String() string {
 	return fmt.Sprintf("set_index t%d[t%d] = t%d", i.Array, i.Index, i.Src)
 }
 
+type IndexUnchecked struct {
+	Dst   int
+	Array int
+	Index int
+}
+
+func (i *IndexUnchecked) instrNode() {}
+func (i *IndexUnchecked) String() string {
+	return fmt.Sprintf("t%d = index_unchecked t%d[t%d]", i.Dst, i.Array, i.Index)
+}
+
+type SetIndexUnchecked struct {
+	Array int
+	Index int
+	Src   int
+}
+
+func (i *SetIndexUnchecked) instrNode() {}
+func (i *SetIndexUnchecked) String() string {
+	return fmt.Sprintf("set_index_unchecked t%d[t%d] = t%d", i.Array, i.Index, i.Src)
+}
+
 type StructFieldInit struct {
 	Name string
 	Src  int
@@ -301,15 +331,21 @@ type MakeEnum struct {
 	Dst     int
 	Name    string
 	Variant string
+	Tag     int64
+	TagType string
 	Payload int
 }
 
 func (i *MakeEnum) instrNode() {}
 func (i *MakeEnum) String() string {
-	if i.Payload >= 0 {
-		return fmt.Sprintf("t%d = enum %s.%s(t%d)", i.Dst, i.Name, i.Variant, i.Payload)
+	tag := ""
+	if i.TagType != "" {
+		tag = fmt.Sprintf("@%d:%s", i.Tag, i.TagType)
 	}
-	return fmt.Sprintf("t%d = enum %s.%s", i.Dst, i.Name, i.Variant)
+	if i.Payload >= 0 {
+		return fmt.Sprintf("t%d = enum %s.%s%s(t%d)", i.Dst, i.Name, i.Variant, tag, i.Payload)
+	}
+	return fmt.Sprintf("t%d = enum %s.%s%s", i.Dst, i.Name, i.Variant, tag)
 }
 
 type EnumTag struct {
@@ -383,7 +419,12 @@ func (p *Program) Format() string {
 	sort.Strings(ordered)
 	for _, name := range ordered {
 		fn := p.Functions[name]
-		sb.WriteString(fmt.Sprintf("fn %s(%s)\n", fn.Name, strings.Join(fn.Params, ", ")))
+		sb.WriteString(fmt.Sprintf("fn %s(%s)", fn.Name, formatParams(fn.Params, fn.ParamTypes)))
+		if fn.ReturnType != "" && fn.ReturnType != "unit" {
+			sb.WriteString(" -> ")
+			sb.WriteString(fn.ReturnType)
+		}
+		sb.WriteString("\n")
 		for _, b := range fn.Blocks {
 			sb.WriteString(fmt.Sprintf("  block %s:\n", b.Label))
 			for _, inst := range b.Instr {
@@ -597,6 +638,22 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 		}
 		return validateTemp(i.Index, tempCount, false)
 	case *SetIndex:
+		if err := validateTemp(i.Array, tempCount, false); err != nil {
+			return err
+		}
+		if err := validateTemp(i.Index, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
+	case *IndexUnchecked:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		if err := validateTemp(i.Array, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Index, tempCount, false)
+	case *SetIndexUnchecked:
 		if err := validateTemp(i.Array, tempCount, false); err != nil {
 			return err
 		}
@@ -897,4 +954,36 @@ func isValidBinOp(op string) bool {
 
 func isValidUnaryOp(op string) bool {
 	return op == "-" || op == "!"
+}
+
+func formatParams(params []string, types []string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	hasTypes := false
+	if len(types) == len(params) {
+		for _, t := range types {
+			if strings.TrimSpace(t) != "" {
+				hasTypes = true
+				break
+			}
+		}
+	}
+	parts := make([]string, 0, len(params))
+	for i, p := range params {
+		if hasTypes {
+			t := ""
+			if i < len(types) {
+				t = strings.TrimSpace(types[i])
+			}
+			if t != "" {
+				parts = append(parts, fmt.Sprintf("%s: %s", p, t))
+			} else {
+				parts = append(parts, p)
+			}
+			continue
+		}
+		parts = append(parts, p)
+	}
+	return strings.Join(parts, ", ")
 }

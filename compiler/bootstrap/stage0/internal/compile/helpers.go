@@ -25,10 +25,14 @@ func enumVariant(decl *ast.EnumDecl, name string) *ast.VariantDef {
 	return nil
 }
 
-func constValueToIr(v ast.ConstValue) ir.Value {
+func constValueToIr(v ast.ConstValue, typeName string) ir.Value {
 	switch v.Kind {
 	case ast.ConstInt:
-		return ir.Value{Kind: ir.KindInt, Int: v.Int}
+		intType := ""
+		if isIntTypeName(typeName) {
+			intType = typeName
+		}
+		return ir.Value{Kind: ir.KindInt, Int: v.Int, IntType: intType}
 	case ast.ConstBool:
 		return ir.Value{Kind: ir.KindBool, Bool: v.Bool}
 	case ast.ConstString:
@@ -42,6 +46,89 @@ func (c *Compiler) constZero() int {
 	t := c.newTemp()
 	c.emit(&ir.Const{Dst: t, Value: ir.Value{Kind: ir.KindInt, Int: 0}})
 	return t
+}
+
+func formatType(t ast.Type) string {
+	base := ""
+	if t.IsArray {
+		if t.Elem != nil {
+			base = "[" + formatType(*t.Elem) + "]"
+		} else {
+			base = "[]"
+		}
+	} else {
+		base = t.Name
+	}
+	if t.IsRef {
+		if t.IsMut {
+			return "&mut " + base
+		}
+		return "&" + base
+	}
+	return base
+}
+
+func isIntTypeName(name string) bool {
+	switch name {
+	case "i8", "i16", "i32", "i64", "i128",
+		"u8", "u16", "u32", "u64", "u128",
+		"isize", "usize", "char":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Compiler) computeEnumTags() {
+	for name, decl := range c.enums {
+		tagType := decl.Repr
+		if tagType == "" {
+			tagType = "i32"
+		}
+		c.enumTagType[name] = tagType
+		tags := map[string]int64{}
+		next := int64(0)
+		for _, variant := range decl.Variants {
+			if variant.HasValue {
+				next = variant.Value
+			}
+			tags[variant.Name] = next
+			next++
+		}
+		c.enumTags[name] = tags
+	}
+}
+
+func (c *Compiler) enumTagInfo(enumName string, variant string) (int64, string, bool) {
+	tags, ok := c.enumTags[enumName]
+	if !ok {
+		return 0, "", false
+	}
+	tag, ok := tags[variant]
+	if !ok {
+		return 0, "", false
+	}
+	tagType := c.enumTagType[enumName]
+	if tagType == "" {
+		tagType = "i32"
+	}
+	return tag, tagType, true
+}
+
+func (c *Compiler) resolveEnumName(variant string) (string, bool) {
+	found := ""
+	for name, decl := range c.enums {
+		if enumHasVariant(decl, variant) {
+			if found != "" && found != name {
+				return "", false
+			}
+			found = name
+		}
+	}
+	if found == "" {
+		return "", false
+	}
+	return found, true
 }
 
 func (c *Compiler) emit(inst ir.Instr) {

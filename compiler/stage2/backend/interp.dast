@@ -148,7 +148,7 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
                 }
                 fr.cur_block = idx
             }
-            .Return(t) => {
+            IrTerm.Return(t) => {
                 if !t.has_value { return ir_value_unit() }
                 return get_temp(rt, fr, t.value)
             }
@@ -159,7 +159,7 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
 
 fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
     match inst {
-        .Const(i) => { set_temp(rt, fr, i.dst, i.value) }
+        IrInstr.Const(i) => { set_temp(rt, fr, i.dst, i.value) }
         .LoadVar(i) => {
             let addr = find_var_addr(fr, i.name)
             if addr < 0 {
@@ -213,7 +213,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let res = eval_binary(rt, i.op, l, r)
             set_temp(rt, fr, i.dst, res)
         }
-        .Call(i) => {
+        IrInstr.Call(i) => {
             let mut args: [IrValue] = []
             let mut j = 0
             while j < len(i.args) {
@@ -235,7 +235,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let arr_idx = array_alloc(rt, IrArrayValue { elems: elems })
             set_temp(rt, fr, i.dst, ir_value_array(arr_idx))
         }
-        .Index(i) => {
+        IrInstr.Index(i) => {
             let arr = get_temp(rt, fr, i.array)
             let idx = get_temp(rt, fr, i.index)
             let v = array_index(rt, arr, idx)
@@ -246,6 +246,18 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let idx = get_temp(rt, fr, i.index)
             let v = get_temp(rt, fr, i.src)
             array_set(rt, arr, idx, v)
+        }
+        .IndexUnchecked(i) => {
+            let arr = get_temp(rt, fr, i.array)
+            let idx = get_temp(rt, fr, i.index)
+            let v = array_index_unchecked(rt, arr, idx)
+            set_temp(rt, fr, i.dst, v)
+        }
+        .SetIndexUnchecked(i) => {
+            let arr = get_temp(rt, fr, i.array)
+            let idx = get_temp(rt, fr, i.index)
+            let v = get_temp(rt, fr, i.src)
+            array_set_unchecked(rt, arr, idx, v)
         }
         .MakeStruct(i) => {
             let mut fields: [IrStructFieldValue] = []
@@ -276,7 +288,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
                 payload = get_temp(rt, fr, i.payload)
                 has_payload = true
             }
-            let eidx = enum_alloc(rt, IrEnumValue { name: i.name, variant: i.variant, has_payload: has_payload, payload: payload })
+            let eidx = enum_alloc(rt, IrEnumValue { name: i.name, variant: i.variant, tag: i.tag, tag_type: i.tag_type, has_payload: has_payload, payload: payload })
             set_temp(rt, fr, i.dst, ir_value_enum(eidx))
         }
         .EnumTag(i) => {
@@ -453,7 +465,8 @@ fn enum_tag(rt: &mut Runtime, v: IrValue) -> IrValue {
         runtime_error(rt, "invalid enum")
         return ir_value_unit()
     }
-    return ir_value_string(rt.enums[idx].variant)
+    let e = rt.enums[idx]
+    return ir_value_int_t(e.tag, e.tag_type)
 }
 
 fn enum_payload(rt: &mut Runtime, v: IrValue) -> IrValue {
@@ -534,13 +547,47 @@ fn array_set(rt: &mut Runtime, arr: IrValue, idx: IrValue, v: IrValue) {
     rt.arrays[arr_idx] = a
 }
 
+fn array_index_unchecked(rt: &mut Runtime, arr: IrValue, idx: IrValue) -> IrValue {
+    if idx.kind != ir_kind_int() {
+        runtime_error(rt, "index requires int")
+        return ir_value_unit()
+    }
+    let a = array_value(rt, arr)
+    let i = idx.int
+    return a.elems[i]
+}
+
+fn array_set_unchecked(rt: &mut Runtime, arr: IrValue, idx: IrValue, v: IrValue) {
+    if idx.kind != ir_kind_int() {
+        runtime_error(rt, "index requires int")
+        return
+    }
+    let mut val = arr
+    if val.kind == ir_kind_ref() {
+        val = deref_value(rt, val)
+    }
+    if val.kind != ir_kind_array() {
+        runtime_error(rt, "array required")
+        return
+    }
+    let arr_idx = val.obj
+    if arr_idx < 0 || arr_idx >= len(rt.arrays) {
+        runtime_error(rt, "invalid array")
+        return
+    }
+    let mut a = rt.arrays[arr_idx]
+    let i = idx.int
+    a.elems[i] = v
+    rt.arrays[arr_idx] = a
+}
+
 fn eval_unary(rt: &mut Runtime, op: String, v: IrValue) -> IrValue {
     if op == "-" {
         if v.kind != ir_kind_int() {
             runtime_error(rt, "unary '-' requires int")
             return ir_value_unit()
         }
-        return ir_value_int(-v.int)
+        return ir_value_int_t(-v.int, v.int_type)
     }
     if op == "!" {
         if v.kind != ir_kind_bool() {
@@ -562,16 +609,17 @@ fn eval_binary(rt: &mut Runtime, op: String, a: IrValue, b: IrValue) -> IrValue 
             runtime_error(rt, "binary arithmetic requires int")
             return ir_value_unit()
         }
-        if op == "+" { return ir_value_int(a.int + b.int) }
-        if op == "-" { return ir_value_int(a.int - b.int) }
-        if op == "*" { return ir_value_int(a.int * b.int) }
+        let t = pick_int_type(a, b)
+        if op == "+" { return ir_value_int_t(a.int + b.int, t) }
+        if op == "-" { return ir_value_int_t(a.int - b.int, t) }
+        if op == "*" { return ir_value_int_t(a.int * b.int, t) }
         if op == "/" {
             if b.int == 0 { runtime_error(rt, "division by zero"); return ir_value_unit() }
-            return ir_value_int(a.int / b.int)
+            return ir_value_int_t(a.int / b.int, t)
         }
         if op == "%" {
             if b.int == 0 { runtime_error(rt, "modulo by zero"); return ir_value_unit() }
-            return ir_value_int(a.int % b.int)
+            return ir_value_int_t(a.int % b.int, t)
         }
     }
     if op == "==" || op == "!=" {
@@ -599,6 +647,12 @@ fn eval_binary(rt: &mut Runtime, op: String, a: IrValue, b: IrValue) -> IrValue 
     }
     runtime_error(rt, "unknown binary op")
     return ir_value_unit()
+}
+
+fn pick_int_type(a: IrValue, b: IrValue) -> String {
+    if a.int_type != "" { return a.int_type }
+    if b.int_type != "" { return b.int_type }
+    return ""
 }
 
 fn values_equal(rt: &Runtime, a: IrValue, b: IrValue) -> bool {
@@ -811,6 +865,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
 }
 
 fn format_value(rt: &Runtime, v: IrValue) -> String {
+    if v.kind == ir_kind_int() { return int_to_string(v.int) }
     if v.kind == ir_kind_string() { return v.str }
     if v.kind == ir_kind_struct() {
         let idx = v.obj

@@ -764,7 +764,7 @@ fn deref_type(types: &mut TypeTable, t: i32) -> i32 {
 
 fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
     match expr {
-        .Ident(x) => {
+        Expr.Ident(x) => {
             let v = ctx_env_lookup(ctx, x.name)
             if v.name != "" {
                 return v.typ
@@ -843,7 +843,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         }
         .Ref(r) => {
             match r.expr {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     let v = ctx_env_lookup(ctx, id.name)
                     if v.name == "" {
                         if ctx_find_const(ctx, id.name) >= 0 {
@@ -895,7 +895,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             }
             return ctx_type_make(ctx, 7, "", false, false, elem_t)
         }
-        .Index(ix) => {
+        Expr.Index(ix) => {
             let recv_t = check_expr(ctx, ix.recv)
             let idx_t = check_expr(ctx, ix.index)
             if !ctx_is_int(ctx, idx_t) && idx_t != 0 {
@@ -958,7 +958,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         }
         .Field(f) => {
             match f.recv {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     if ctx_env_lookup(ctx, id.name).name == "" {
                         let eidx = ctx_find_enum(ctx, id.name)
                         if eidx >= 0 {
@@ -1003,9 +1003,9 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             let ft = ctx_parse_type(ctx, decl.fields[find].typ, "")
             return ft
         }
-        .Call(c) => {
+        Expr.Call(c) => {
             match c.callee {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     let fidx = find_func(ctx, id.name)
                     if fidx >= 0 {
                         let sig = ctx.funcs[fidx]
@@ -1173,7 +1173,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 }
                 .Field(f) => {
                     match f.recv {
-                        .Ident(id) => {
+                        Expr.Ident(id) => {
                             let eidx = ctx_find_enum(ctx, id.name)
                             if eidx >= 0 {
                                 let en = ctx.enums[eidx]
@@ -1211,7 +1211,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         }
         .MethodCall(m) => {
             match m.recv {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     if ctx_env_lookup(ctx, id.name).name == "" {
                         let eidx = ctx_find_enum(ctx, id.name)
                         if eidx >= 0 {
@@ -1303,7 +1303,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
 
 fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
     match target {
-        .Ident(id) => {
+        Expr.Ident(id) => {
             let v = ctx_env_lookup(ctx, id.name)
             if v.name == "" {
                 if ctx_find_const(ctx, id.name) >= 0 {
@@ -1336,7 +1336,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 add_type_error(ctx, "assignment type mismatch")
             }
         }
-        .Index(ix) => {
+        Expr.Index(ix) => {
             let recv_t = check_expr(ctx, ix.recv)
             let idx_t = check_expr(ctx, ix.index)
             if !ctx_is_int(ctx, idx_t) && idx_t != 0 {
@@ -1375,7 +1375,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 base = ctx_type_make(ctx, kind, name, false, false, elem)
             } else {
                 match f.recv {
-                    .Ident(id) => {
+                    Expr.Ident(id) => {
                         let v = ctx_env_lookup(ctx, id.name)
                         if v.name != "" && !v.mutable {
                             add_type_error(ctx, "cannot assign through immutable '" + id.name + "'")
@@ -1415,7 +1415,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
 
 fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
     match stmt {
-        .Let(s) => {
+        Stmt.Let(s) => {
             if !s.has_init {
                 add_type_error(ctx, "let requires initializer")
                 return
@@ -1441,7 +1441,7 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
             }
             ctx_env_declare(ctx, s.name, decl_t, s.mutable)
         }
-        .Return(r) => {
+        Stmt.Return(r) => {
             if ctx.current_ret_explicit {
                 if !r.has_value {
                     if ctx.current_ret != 0 && ctx_type_kind(ctx, ctx.current_ret) != 4 {
@@ -1479,10 +1479,10 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
         .Expr(e) => {
             check_expr(ctx, e.expr)
         }
-        .Assign(a) => {
+        Stmt.Assign(a) => {
             check_assign(ctx, a.target, a.value)
         }
-        .If(s) => {
+        Stmt.If(s) => {
             let ct = check_expr(ctx, s.cond)
             if !ctx_is_bool(ctx, ct) && ct != 0 {
                 add_type_error(ctx, "if condition must be bool")
@@ -1492,14 +1492,14 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
                 check_block(ctx, s.else_block)
             }
         }
-        .While(s) => {
+        Stmt.While(s) => {
             let ct = check_expr(ctx, s.cond)
             if !ctx_is_bool(ctx, ct) && ct != 0 {
                 add_type_error(ctx, "while condition must be bool")
             }
             check_block(ctx, s.body)
         }
-        .Match(m) => {
+        Stmt.Match(m) => {
             check_match(ctx, m)
         }
     }
@@ -1540,9 +1540,9 @@ fn check_tail_stmt(ctx: &mut TypeContext, stmt: Stmt, allow_implicit: bool) {
             let r = ReturnStmt { has_value: true, value: e.expr }
             check_stmt(ctx, Stmt.Return(r))
         }
-        .Return(r) => { check_stmt(ctx, Stmt.Return(r)) }
-        .If(s) => { check_tail_if(ctx, s, allow_implicit) }
-        .Match(m) => { check_tail_match(ctx, m, allow_implicit) }
+        Stmt.Return(r) => { check_stmt(ctx, Stmt.Return(r)) }
+        Stmt.If(s) => { check_tail_if(ctx, s, allow_implicit) }
+        Stmt.Match(m) => { check_tail_match(ctx, m, allow_implicit) }
         _ => { check_stmt(ctx, stmt) }
     }
 }

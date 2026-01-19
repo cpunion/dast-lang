@@ -173,10 +173,24 @@ func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 			c.setCurrentBlock(after)
 			return
 		case *ast.VariantPattern:
+			enumName := p.EnumName
+			if enumName == "" {
+				var ok bool
+				enumName, ok = c.resolveEnumName(p.Variant)
+				if !ok {
+					c.diag.Add(p.Span(), fmt.Sprintf("ambiguous or unknown variant '%s'", p.Variant))
+					return
+				}
+			}
+			tagVal, tagType, ok := c.enumTagInfo(enumName, p.Variant)
+			if !ok {
+				c.diag.Add(p.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", enumName, p.Variant))
+				return
+			}
 			tag := c.newTemp()
 			c.emit(&ir.EnumTag{Dst: tag, Src: scrut})
 			constTag := c.newTemp()
-			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindString, Str: p.Variant}})
+			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType}})
 			cmp := c.newTemp()
 			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: tag, Rhs: constTag})
 			next := c.newBlock("match_next")
@@ -218,10 +232,24 @@ func (c *Compiler) compileTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 			c.setCurrentBlock(after)
 			return
 		case *ast.VariantPattern:
+			enumName := p.EnumName
+			if enumName == "" {
+				var ok bool
+				enumName, ok = c.resolveEnumName(p.Variant)
+				if !ok {
+					c.diag.Add(p.Span(), fmt.Sprintf("ambiguous or unknown variant '%s'", p.Variant))
+					return
+				}
+			}
+			tagVal, tagType, ok := c.enumTagInfo(enumName, p.Variant)
+			if !ok {
+				c.diag.Add(p.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", enumName, p.Variant))
+				return
+			}
 			tag := c.newTemp()
 			c.emit(&ir.EnumTag{Dst: tag, Src: scrut})
 			constTag := c.newTemp()
-			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindString, Str: p.Variant}})
+			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType}})
 			cmp := c.newTemp()
 			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: tag, Rhs: constTag})
 			next := c.newBlock("match_next")

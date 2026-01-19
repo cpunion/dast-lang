@@ -68,11 +68,11 @@ func Parse(text string) (*Program, error) {
 			if err := flushFn(); err != nil {
 				return nil, err
 			}
-			name, params, err := parseFnHeader(line)
+			name, params, paramTypes, retType, err := parseFnHeader(line)
 			if err != nil {
 				return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
 			}
-			curFn = &Function{Name: name, Params: params}
+			curFn = &Function{Name: name, Params: params, ParamTypes: paramTypes, ReturnType: retType}
 			maxTemp = -1
 			i++
 			continue
@@ -190,6 +190,25 @@ func parseIRLine(line string) (lineParse, error) {
 		}
 		return lineParse{instr: &StoreVar{Name: parts[0], Src: src}, maxTemp: src}, nil
 	}
+	if strings.HasPrefix(line, "set_index_unchecked ") {
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_index_unchecked "))
+		eq := strings.Index(rest, "=")
+		if eq < 0 {
+			return lineParse{}, fmt.Errorf("invalid set_index_unchecked syntax")
+		}
+		left := strings.TrimSpace(rest[:eq])
+		right := strings.TrimSpace(rest[eq+1:])
+		array, index, err := parseIndexExpr(left)
+		if err != nil {
+			return lineParse{}, err
+		}
+		src, err := parseTemp(right)
+		if err != nil {
+			return lineParse{}, err
+		}
+		max := maxTempIdx(array, index, src)
+		return lineParse{instr: &SetIndexUnchecked{Array: array, Index: index, Src: src}, maxTemp: max}, nil
+	}
 	if strings.HasPrefix(line, "set_index ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_index "))
 		eq := strings.Index(rest, "=")
@@ -294,6 +313,14 @@ func parseIRLine(line string) (lineParse, error) {
 				}
 			}
 			return lineParse{instr: &MakeArray{Dst: dst, Elems: elems}, maxTemp: max}, nil
+		case strings.HasPrefix(right, "index_unchecked "):
+			rest := strings.TrimSpace(strings.TrimPrefix(right, "index_unchecked "))
+			array, index, err := parseIndexExpr(rest)
+			if err != nil {
+				return lineParse{}, err
+			}
+			max := maxTempIdx(dst, array, index)
+			return lineParse{instr: &IndexUnchecked{Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "index "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index "))
 			array, index, err := parseIndexExpr(rest)
@@ -316,12 +343,12 @@ func parseIRLine(line string) (lineParse, error) {
 			}
 			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
 		case strings.HasPrefix(right, "enum "):
-			name, variant, payload, err := parseEnumInit(strings.TrimSpace(strings.TrimPrefix(right, "enum ")))
+			name, variant, tag, tagType, payload, err := parseEnumInit(strings.TrimSpace(strings.TrimPrefix(right, "enum ")))
 			if err != nil {
 				return lineParse{}, err
 			}
 			max := maxTempIdx(dst, payload)
-			return lineParse{instr: &MakeEnum{Dst: dst, Name: name, Variant: variant, Payload: payload}, maxTemp: max}, nil
+			return lineParse{instr: &MakeEnum{Dst: dst, Name: name, Variant: variant, Tag: tag, TagType: tagType, Payload: payload}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "enum_tag "):
 			src, err := parseTemp(strings.TrimSpace(strings.TrimPrefix(right, "enum_tag ")))
 			if err != nil {
@@ -364,21 +391,40 @@ func parseIRLine(line string) (lineParse, error) {
 	return lineParse{}, fmt.Errorf("unknown instruction")
 }
 
-func parseFnHeader(line string) (string, []string, error) {
-	open := strings.Index(line, "(")
-	close := strings.LastIndex(line, ")")
-	if open < 0 || close < 0 || close < open {
-		return "", nil, fmt.Errorf("invalid fn syntax")
+func parseFnHeader(line string) (string, []string, []string, string, error) {
+	retType := ""
+	header := strings.TrimSpace(line)
+	if arrow := strings.Index(header, "->"); arrow >= 0 {
+		retType = strings.TrimSpace(header[arrow+2:])
+		header = strings.TrimSpace(header[:arrow])
 	}
-	name := strings.TrimSpace(line[3:open])
-	paramsText := strings.TrimSpace(line[open+1 : close])
+	open := strings.Index(header, "(")
+	close := strings.LastIndex(header, ")")
+	if open < 0 || close < 0 || close < open {
+		return "", nil, nil, "", fmt.Errorf("invalid fn syntax")
+	}
+	name := strings.TrimSpace(header[3:open])
+	paramsText := strings.TrimSpace(header[open+1 : close])
 	params := []string{}
+	paramTypes := []string{}
 	if paramsText != "" {
 		for _, part := range splitComma(paramsText, -1) {
-			params = append(params, part)
+			if strings.Contains(part, ":") {
+				chunks := strings.SplitN(part, ":", 2)
+				pname := strings.TrimSpace(chunks[0])
+				ptype := ""
+				if len(chunks) > 1 {
+					ptype = strings.TrimSpace(chunks[1])
+				}
+				params = append(params, pname)
+				paramTypes = append(paramTypes, ptype)
+			} else {
+				params = append(params, part)
+				paramTypes = append(paramTypes, "")
+			}
 		}
 	}
-	return name, params, nil
+	return name, params, paramTypes, retType, nil
 }
 
 func parseBlockLabel(line string) (string, error) {
@@ -439,6 +485,13 @@ func parseValue(s string) (Value, error) {
 	if strings.HasPrefix(s, "array#") {
 		n, _ := strconv.Atoi(strings.TrimPrefix(s, "array#"))
 		return Value{Kind: KindArray, Array: &ArrayValue{Elems: make([]Value, 0, n)}}, nil
+	}
+	if name, rest, ok := parseIntTypePrefix(s); ok {
+		n, err := strconv.ParseInt(rest, 10, 64)
+		if err != nil {
+			return Value{}, fmt.Errorf("invalid const value")
+		}
+		return Value{Kind: KindInt, Int: n, IntType: name}, nil
 	}
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
@@ -541,29 +594,77 @@ func parseStructInit(s string, dst int) (string, []StructFieldInit, int, error) 
 	return name, fields, max, nil
 }
 
-func parseEnumInit(s string) (string, string, int, error) {
+func parseEnumInit(s string) (string, string, int64, string, int, error) {
 	payload := -1
 	nameVariant := s
 	open := strings.Index(s, "(")
 	if open >= 0 {
 		close := strings.LastIndex(s, ")")
 		if close < 0 {
-			return "", "", 0, fmt.Errorf("invalid enum syntax")
+			return "", "", 0, "", 0, fmt.Errorf("invalid enum syntax")
 		}
 		nameVariant = strings.TrimSpace(s[:open])
 		temp, err := parseTemp(s[open+1 : close])
 		if err != nil {
-			return "", "", 0, err
+			return "", "", 0, "", 0, err
 		}
 		payload = temp
 	}
 	dot := strings.Index(nameVariant, ".")
 	if dot < 0 {
-		return "", "", 0, fmt.Errorf("invalid enum syntax")
+		return "", "", 0, "", 0, fmt.Errorf("invalid enum syntax")
 	}
 	name := strings.TrimSpace(nameVariant[:dot])
-	variant := strings.TrimSpace(nameVariant[dot+1:])
-	return name, variant, payload, nil
+	variantPart := strings.TrimSpace(nameVariant[dot+1:])
+	tag := int64(0)
+	tagType := ""
+	variant := variantPart
+	if at := strings.Index(variantPart, "@"); at >= 0 {
+		variant = strings.TrimSpace(variantPart[:at])
+		tagSpec := strings.TrimSpace(variantPart[at+1:])
+		colon := strings.Index(tagSpec, ":")
+		if colon < 0 {
+			return "", "", 0, "", 0, fmt.Errorf("invalid enum tag")
+		}
+		tagStr := strings.TrimSpace(tagSpec[:colon])
+		tagType = strings.TrimSpace(tagSpec[colon+1:])
+		if tagType == "" {
+			return "", "", 0, "", 0, fmt.Errorf("invalid enum tag")
+		}
+		val, err := strconv.ParseInt(tagStr, 10, 64)
+		if err != nil {
+			return "", "", 0, "", 0, fmt.Errorf("invalid enum tag")
+		}
+		tag = val
+	}
+	return name, variant, tag, tagType, payload, nil
+}
+
+func parseIntTypePrefix(s string) (string, string, bool) {
+	parts := strings.SplitN(s, " ", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	name := strings.TrimSpace(parts[0])
+	rest := strings.TrimSpace(parts[1])
+	if !isIntTypeName(name) {
+		return "", "", false
+	}
+	if rest == "" {
+		return "", "", false
+	}
+	return name, rest, true
+}
+
+func isIntTypeName(name string) bool {
+	switch name {
+	case "i8", "i16", "i32", "i64", "i128",
+		"u8", "u16", "u32", "u64", "u128",
+		"isize", "usize", "char":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseCall(text string, dst int) (*Call, int, error) {

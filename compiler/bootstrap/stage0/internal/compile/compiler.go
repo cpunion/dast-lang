@@ -7,27 +7,36 @@ import (
 )
 
 type Compiler struct {
-	prog       *ir.Program
-	diag       *diag.Bag
-	current    *ir.Function
-	curBlock   *ir.Block
-	blockID    int
-	tempID     int
-	scopeStack []map[string]string
-	nameCount  map[string]int
-	structs    map[string]*ast.StructDecl
-	enums      map[string]*ast.EnumDecl
-	consts     map[string]ast.ConstValue
+	prog        *ir.Program
+	diag        *diag.Bag
+	current     *ir.Function
+	curBlock    *ir.Block
+	blockID     int
+	tempID      int
+	scopeStack  []map[string]string
+	nameCount   map[string]int
+	structs     map[string]*ast.StructDecl
+	enums       map[string]*ast.EnumDecl
+	enumTags    map[string]map[string]int64
+	enumTagType map[string]string
+	consts      map[string]ConstInfo
+}
+
+type ConstInfo struct {
+	Value    ast.ConstValue
+	TypeName string
 }
 
 func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 	c := &Compiler{
-		prog:      &ir.Program{Version: "v0", Functions: map[string]*ir.Function{}},
-		diag:      &diag.Bag{},
-		structs:   map[string]*ast.StructDecl{},
-		enums:     map[string]*ast.EnumDecl{},
-		nameCount: map[string]int{},
-		consts:    map[string]ast.ConstValue{},
+		prog:        &ir.Program{Version: "v0", Functions: map[string]*ir.Function{}},
+		diag:        &diag.Bag{},
+		structs:     map[string]*ast.StructDecl{},
+		enums:       map[string]*ast.EnumDecl{},
+		nameCount:   map[string]int{},
+		enumTags:    map[string]map[string]int64{},
+		enumTagType: map[string]string{},
+		consts:      map[string]ConstInfo{},
 	}
 	for _, item := range prog.Items {
 		switch t := item.(type) {
@@ -36,9 +45,14 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 		case *ast.EnumDecl:
 			c.enums[t.Name] = t
 		case *ast.ConstDecl:
-			c.consts[t.Name] = t.Value
+			typeName := ""
+			if t.Type != nil {
+				typeName = formatType(*t.Type)
+			}
+			c.consts[t.Name] = ConstInfo{Value: t.Value, TypeName: typeName}
 		}
 	}
+	c.computeEnumTags()
 	for _, item := range prog.Items {
 		switch t := item.(type) {
 		case *ast.Function:
@@ -69,6 +83,10 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	for _, param := range fn.Params {
 		irName := c.declareVar(param.Name)
 		irFn.Params = append(irFn.Params, irName)
+		irFn.ParamTypes = append(irFn.ParamTypes, formatType(param.Type))
+	}
+	if fn.ReturnType != nil {
+		irFn.ReturnType = formatType(*fn.ReturnType)
 	}
 	entry := c.newBlock("entry")
 	c.setCurrentBlock(entry)

@@ -157,6 +157,11 @@ fn compiler_type_name(c: &Compiler, t: i32) -> String {
     return ctx_type_name(&tctx, t)
 }
 
+fn compiler_type_string(c: &Compiler, t: i32) -> String {
+    let tctx = c.tctx
+    return ctx_type_string(&tctx, t)
+}
+
 fn compiler_deref_type(c: &mut Compiler, t: i32) -> i32 {
     let mut tctx = c.tctx
     let base = ctx_deref_type(&mut tctx, t)
@@ -241,13 +246,21 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     compiler_env_push(c)
 
     let mut params: [String] = []
+    let mut param_types: [String] = []
     let mut i = 0
     while i < len(f.params) {
         let p = f.params[i]
         let t = compiler_parse_type(c, p.typ, self_name)
         let ir_name = declare_var(c, p.name, t, false)
         push(&mut params, ir_name)
+        push(&mut param_types, compiler_type_string(c, t))
         i = i + 1
+    }
+
+    let mut return_type = ""
+    if f.has_return {
+        let rt = compiler_parse_type(c, f.ret, self_name)
+        return_type = compiler_type_string(c, rt)
     }
 
     let entry_block = new_block(c, "entry")
@@ -259,7 +272,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
 
     compiler_env_pop(c)
     let blocks = c.blocks
-    let func = IrFunction { name: name, params: params, blocks: blocks, temp_count: c.temp_id }
+    let func = IrFunction { name: name, params: params, param_types: param_types, return_type: return_type, blocks: blocks, temp_count: c.temp_id }
     return func
 }
 
@@ -296,12 +309,12 @@ fn compile_block_with_tail(c: &mut Compiler, block: Block, allow_implicit: bool,
                     pop_scope(c)
                     return
                 }
-                .If(s) => {
+                Stmt.If(s) => {
                     compile_tail_if(c, s, allow_implicit, self_name)
                     pop_scope(c)
                     return
                 }
-                .Match(m) => {
+                Stmt.Match(m) => {
                     compile_tail_match(c, m, allow_implicit, self_name)
                     pop_scope(c)
                     return
@@ -328,13 +341,13 @@ fn compile_block(c: &mut Compiler, block: Block, self_name: String) {
 
 fn compile_stmt(c: &mut Compiler, stmt: Stmt, self_name: String) {
     match stmt {
-        .Let(s) => { compile_let(c, s, self_name) }
-        .Assign(s) => { compile_assign(c, s, self_name) }
+        Stmt.Let(s) => { compile_let(c, s, self_name) }
+        Stmt.Assign(s) => { compile_assign(c, s, self_name) }
         .Expr(s) => { compile_expr(c, s.expr, self_name) }
-        .Return(s) => { compile_return(c, s, self_name) }
-        .If(s) => { compile_if(c, s, self_name) }
-        .While(s) => { compile_while(c, s, self_name) }
-        .Match(s) => { compile_match(c, s, self_name) }
+        Stmt.Return(s) => { compile_return(c, s, self_name) }
+        Stmt.If(s) => { compile_if(c, s, self_name) }
+        Stmt.While(s) => { compile_while(c, s, self_name) }
+        Stmt.Match(s) => { compile_match(c, s, self_name) }
     }
 }
 
@@ -355,7 +368,7 @@ fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
 
 fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
     match s.target {
-        .Ident(id) => {
+        Expr.Ident(id) => {
             let ir_name = lookup_var(c, id.name)
             if ir_name == "" {
                 compiler_add_type_error(c, "undefined variable '" + id.name + "'")
@@ -369,7 +382,7 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
             let val = compile_expr(c, s.value, self_name)
             emit_instr(c, IrInstr.StoreRef(IrStoreRef { ref: r, src: val }))
         }
-        .Index(ix) => {
+        Expr.Index(ix) => {
             let recv = compile_expr(c, ix.recv, self_name)
             let idx = compile_expr(c, ix.index, self_name)
             let val = compile_expr(c, s.value, self_name)
@@ -484,10 +497,18 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 return
             }
             .Variant(vp) => {
+                let mut pat_enum = enum_name
+                if vp.enum_name != "" {
+                    pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                }
+                let tag_info = enum_tag_info(c, pat_enum, vp.variant)
+                if !tag_info.ok {
+                    compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
+                }
                 let tag = new_temp(c)
                 emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: scrut }))
                 let const_tag = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_string(vp.variant) }))
+                emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
                 let cmp = new_temp(c)
                 emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: tag, rhs: const_tag }))
                 let next = new_block(c, "match_next")
@@ -531,10 +552,18 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                 return
             }
             .Variant(vp) => {
+                let mut pat_enum = enum_name
+                if vp.enum_name != "" {
+                    pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                }
+                let tag_info = enum_tag_info(c, pat_enum, vp.variant)
+                if !tag_info.ok {
+                    compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
+                }
                 let tag = new_temp(c)
                 emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: scrut }))
                 let const_tag = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_string(vp.variant) }))
+                emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
                 let cmp = new_temp(c)
                 emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: tag, rhs: const_tag }))
                 let next = new_block(c, "match_next")
@@ -615,7 +644,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             emit_instr(c, IrInstr.MakeArray(IrMakeArray { dst: dst, elems: elems }))
             return dst
         }
-        .Ident(id) => {
+        Expr.Ident(id) => {
             let ir_name = lookup_var(c, id.name)
             if ir_name != "" {
                 let t = new_temp(c)
@@ -625,7 +654,9 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let cq = compiler_resolve_const_name(c, id.name)
             let cidx = find_const_decl(c.consts, cq)
             if cidx >= 0 {
-                let v = const_to_ir(c.consts[cidx].value)
+                let mut tname = ""
+                if c.consts[cidx].has_type { tname = c.consts[cidx].typ }
+                let v = const_to_ir(c.consts[cidx].value, tname)
                 let t = new_temp(c)
                 emit_instr(c, IrInstr.Const(IrConst { dst: t, value: v }))
                 return t
@@ -635,7 +666,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         }
         .Ref(r) => {
             match r.expr {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     let ir_name = lookup_var(c, id.name)
                     if ir_name == "" {
                         compiler_add_type_error(c, "undefined variable '" + id.name + "'")
@@ -670,9 +701,9 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: op_string(b.op), lhs: l, rhs: r }))
             return t
         }
-        .Call(call) => {
+        Expr.Call(call) => {
             match call.callee {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     let mut args: [i32] = []
                     let mut i = 0
                     while i < len(call.args) {
@@ -702,8 +733,12 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 if len(m.args) > 0 {
                     payload = compile_expr(c, m.args[0], self_name)
                 }
+                let tag_info = enum_tag_info(c, res.enum_name, res.method_name)
+                if !tag_info.ok {
+                    compiler_add_type_error(c, "unknown enum variant '" + res.method_name + "'")
+                }
                 let dst = new_temp(c)
-                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: res.enum_name, variant: res.method_name, payload: payload }))
+                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: res.enum_name, variant: res.method_name, tag: tag_info.tag, tag_type: tag_info.tag_type, payload: payload }))
                 return dst
             }
             let mut final_args: [i32] = []
@@ -741,14 +776,18 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         }
         .Field(f) => {
             match f.recv {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     if lookup_var(c, id.name) == "" {
                         let eq = compiler_resolve_enum_name(c, id.name)
                         let enum_idx = find_enum_decl(c.enums, eq)
                         if enum_idx >= 0 {
                             if enum_has_variant(c.enums[enum_idx], f.name) {
+                                let tag_info = enum_tag_info(c, eq, f.name)
+                                if !tag_info.ok {
+                                    compiler_add_type_error(c, "unknown enum variant '" + f.name + "'")
+                                }
                                 let dst = new_temp(c)
-                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: eq, variant: f.name, payload: -1 }))
+                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: eq, variant: f.name, tag: tag_info.tag, tag_type: tag_info.tag_type, payload: -1 }))
                                 return dst
                             }
                         }
@@ -761,7 +800,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             emit_instr(c, IrInstr.GetField(IrGetField { dst: dst, src: recv, field: f.name }))
             return dst
         }
-        .Index(ix) => {
+        Expr.Index(ix) => {
             let recv = compile_expr(c, ix.recv, self_name)
             let idx = compile_expr(c, ix.index, self_name)
             let dst = new_temp(c)
@@ -782,7 +821,7 @@ struct MethodResolution {
 
 fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: String) -> MethodResolution {
     match recv {
-        .Ident(id) => {
+        Expr.Ident(id) => {
             if lookup_var(c, id.name) == "" {
                 let alias_mod = compiler_module_alias(c, id.name)
                 if alias_mod != "" {
@@ -902,8 +941,11 @@ fn parse_string_literal(raw: String) -> String {
     return out
 }
 
-fn const_to_ir(v: ConstValue) -> IrValue {
+fn const_to_ir(v: ConstValue, type_name: String) -> IrValue {
     if v.kind == const_kind_int() {
+        if is_int_type_name(type_name) {
+            return ir_value_int_t(parse_int(v.int_value), type_name)
+        }
         return ir_value_int(parse_int(v.int_value))
     }
     if v.kind == const_kind_bool() {
@@ -946,6 +988,34 @@ fn enum_has_variant(e: EnumDecl, name: String) -> bool {
         i = i + 1
     }
     return false
+}
+
+struct EnumTagInfo {
+    ok: bool,
+    tag: i32,
+    tag_type: String,
+}
+
+fn enum_tag_info(c: &Compiler, enum_name: String, variant: String) -> EnumTagInfo {
+    let idx = find_enum_decl(c.enums, enum_name)
+    if idx < 0 { return EnumTagInfo { ok: false, tag: 0, tag_type: "" } }
+    let e = c.enums[idx]
+    let mut tag_type = e.repr
+    if tag_type == "" { tag_type = "i32" }
+    let mut next = 0
+    let mut i = 0
+    while i < len(e.variants) {
+        let v = e.variants[i]
+        if v.has_value {
+            next = parse_int(v.value)
+        }
+        if v.name == variant {
+            return EnumTagInfo { ok: true, tag: next, tag_type: tag_type }
+        }
+        next = next + 1
+        i = i + 1
+    }
+    return EnumTagInfo { ok: false, tag: 0, tag_type: tag_type }
 }
 
 fn enum_name_for_scrut(c: &mut Compiler, expr: Expr, self_name: String) -> String {

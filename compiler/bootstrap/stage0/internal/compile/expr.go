@@ -32,9 +32,9 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 	case *ast.IdentExpr:
 		name, ok := c.lookupVar(e.Name)
 		if !ok {
-			if val, ok := c.consts[e.Name]; ok {
+			if info, ok := c.consts[e.Name]; ok {
 				t := c.newTemp()
-				c.emit(&ir.Const{Dst: t, Value: constValueToIr(val)})
+				c.emit(&ir.Const{Dst: t, Value: constValueToIr(info.Value, info.TypeName)})
 				return t
 			}
 			c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
@@ -91,8 +91,13 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			if len(e.Args) > 0 {
 				payload = c.compileExpr(e.Args[0])
 			}
+			tag, tagType, ok := c.enumTagInfo(e.EnumName, e.Method)
+			if !ok {
+				c.diag.Add(e.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", e.EnumName, e.Method))
+				return c.constZero()
+			}
 			dst := c.newTemp()
-			c.emit(&ir.MakeEnum{Dst: dst, Name: e.EnumName, Variant: e.Method, Payload: payload})
+			c.emit(&ir.MakeEnum{Dst: dst, Name: e.EnumName, Variant: e.Method, Tag: tag, TagType: tagType, Payload: payload})
 			return dst
 		}
 		if e.ResolvedName == "" {
@@ -127,8 +132,13 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 						c.diag.Add(e.Span(), fmt.Sprintf("unknown variant '%s'", e.Field))
 						return c.constZero()
 					}
+					tag, tagType, ok := c.enumTagInfo(ident.Name, e.Field)
+					if !ok {
+						c.diag.Add(e.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", ident.Name, e.Field))
+						return c.constZero()
+					}
 					dst := c.newTemp()
-					c.emit(&ir.MakeEnum{Dst: dst, Name: ident.Name, Variant: e.Field, Payload: -1})
+					c.emit(&ir.MakeEnum{Dst: dst, Name: ident.Name, Variant: e.Field, Tag: tag, TagType: tagType, Payload: -1})
 					return dst
 				}
 			}
@@ -160,8 +170,13 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		} else if variant.Payload != nil {
 			c.diag.Add(e.Span(), "missing payload for enum variant")
 		}
+		tag, tagType, ok := c.enumTagInfo(e.EnumName, e.Variant)
+		if !ok {
+			c.diag.Add(e.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", e.EnumName, e.Variant))
+			return c.constZero()
+		}
 		dst := c.newTemp()
-		c.emit(&ir.MakeEnum{Dst: dst, Name: e.EnumName, Variant: e.Variant, Payload: payload})
+		c.emit(&ir.MakeEnum{Dst: dst, Name: e.EnumName, Variant: e.Variant, Tag: tag, TagType: tagType, Payload: payload})
 		return dst
 	default:
 		c.diag.Add(expr.Span(), "unsupported expression in stage 0")

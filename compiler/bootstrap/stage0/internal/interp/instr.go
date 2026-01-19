@@ -139,6 +139,20 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			return err
 		}
 		return rt.setTemp(fr, i.Dst, res)
+	case *ir.IndexUnchecked:
+		arrayVal, err := rt.getTemp(fr, i.Array)
+		if err != nil {
+			return err
+		}
+		indexVal, err := rt.getTemp(fr, i.Index)
+		if err != nil {
+			return err
+		}
+		res, err := rt.indexUnchecked(arrayVal, indexVal)
+		if err != nil {
+			return err
+		}
+		return rt.setTemp(fr, i.Dst, res)
 	case *ir.SetIndex:
 		arrayVal, err := rt.getTemp(fr, i.Array)
 		if err != nil {
@@ -153,6 +167,20 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			return err
 		}
 		return rt.setIndex(arrayVal, indexVal, val)
+	case *ir.SetIndexUnchecked:
+		arrayVal, err := rt.getTemp(fr, i.Array)
+		if err != nil {
+			return err
+		}
+		indexVal, err := rt.getTemp(fr, i.Index)
+		if err != nil {
+			return err
+		}
+		val, err := rt.getTemp(fr, i.Src)
+		if err != nil {
+			return err
+		}
+		return rt.setIndexUnchecked(arrayVal, indexVal, val)
 	case *ir.GetField:
 		src, err := rt.getTemp(fr, i.Src)
 		if err != nil {
@@ -182,7 +210,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			}
 			payload = &val
 		}
-		val := ir.Value{Kind: ir.KindEnum, Enum: &ir.EnumValue{Name: i.Name, Variant: i.Variant, Payload: payload}}
+		val := ir.Value{Kind: ir.KindEnum, Enum: &ir.EnumValue{Name: i.Name, Variant: i.Variant, Tag: i.Tag, TagType: i.TagType, Payload: payload}}
 		return rt.setTemp(fr, i.Dst, val)
 	case *ir.EnumTag:
 		src, err := rt.getTemp(fr, i.Src)
@@ -299,7 +327,7 @@ func (rt *Runtime) enumTag(v ir.Value) (ir.Value, error) {
 	if v.Kind != ir.KindEnum || v.Enum == nil {
 		return ir.Value{Kind: ir.KindUnit}, errors.New("enum_tag requires enum")
 	}
-	return ir.Value{Kind: ir.KindString, Str: v.Enum.Variant}, nil
+	return ir.Value{Kind: ir.KindInt, Int: v.Enum.Tag, IntType: v.Enum.TagType}, nil
 }
 
 func (rt *Runtime) enumPayload(v ir.Value) (ir.Value, error) {
@@ -360,6 +388,31 @@ func (rt *Runtime) setIndex(arrayVal ir.Value, indexVal ir.Value, val ir.Value) 
 	if idx < 0 || idx >= len(arr.Elems) {
 		return fmt.Errorf("index out of bounds: %d", idx)
 	}
+	arr.Elems[idx] = val
+	return nil
+}
+
+func (rt *Runtime) indexUnchecked(arrayVal ir.Value, indexVal ir.Value) (ir.Value, error) {
+	if indexVal.Kind != ir.KindInt {
+		return ir.Value{Kind: ir.KindUnit}, errors.New("index requires int")
+	}
+	arr, err := rt.arrayValue(arrayVal)
+	if err != nil {
+		return ir.Value{Kind: ir.KindUnit}, err
+	}
+	idx := int(indexVal.Int)
+	return arr.Elems[idx], nil
+}
+
+func (rt *Runtime) setIndexUnchecked(arrayVal ir.Value, indexVal ir.Value, val ir.Value) error {
+	if indexVal.Kind != ir.KindInt {
+		return errors.New("index requires int")
+	}
+	arr, err := rt.arrayValue(arrayVal)
+	if err != nil {
+		return err
+	}
+	idx := int(indexVal.Int)
 	arr.Elems[idx] = val
 	return nil
 }

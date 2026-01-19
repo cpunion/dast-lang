@@ -14,7 +14,7 @@ func evalUnary(op string, v ir.Value) (ir.Value, error) {
 		if v.Kind != ir.KindInt {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("unary '-' requires int")
 		}
-		return ir.Value{Kind: ir.KindInt, Int: -v.Int}, nil
+		return ir.Value{Kind: ir.KindInt, Int: -v.Int, IntType: v.IntType}, nil
 	case "!":
 		if v.Kind != ir.KindBool {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("unary '!' requires bool")
@@ -34,23 +34,24 @@ func evalBinary(op string, lhs, rhs ir.Value) (ir.Value, error) {
 		if lhs.Kind != ir.KindInt || rhs.Kind != ir.KindInt {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("binary arithmetic requires int")
 		}
+		intType := pickIntType(lhs, rhs)
 		switch op {
 		case "+":
-			return ir.Value{Kind: ir.KindInt, Int: lhs.Int + rhs.Int}, nil
+			return ir.Value{Kind: ir.KindInt, Int: lhs.Int + rhs.Int, IntType: intType}, nil
 		case "-":
-			return ir.Value{Kind: ir.KindInt, Int: lhs.Int - rhs.Int}, nil
+			return ir.Value{Kind: ir.KindInt, Int: lhs.Int - rhs.Int, IntType: intType}, nil
 		case "*":
-			return ir.Value{Kind: ir.KindInt, Int: lhs.Int * rhs.Int}, nil
+			return ir.Value{Kind: ir.KindInt, Int: lhs.Int * rhs.Int, IntType: intType}, nil
 		case "/":
 			if rhs.Int == 0 {
 				return ir.Value{Kind: ir.KindUnit}, errors.New("division by zero")
 			}
-			return ir.Value{Kind: ir.KindInt, Int: lhs.Int / rhs.Int}, nil
+			return ir.Value{Kind: ir.KindInt, Int: lhs.Int / rhs.Int, IntType: intType}, nil
 		case "%":
 			if rhs.Int == 0 {
 				return ir.Value{Kind: ir.KindUnit}, errors.New("modulo by zero")
 			}
-			return ir.Value{Kind: ir.KindInt, Int: lhs.Int % rhs.Int}, nil
+			return ir.Value{Kind: ir.KindInt, Int: lhs.Int % rhs.Int, IntType: intType}, nil
 		}
 	case "==", "!=":
 		eq := valuesEqual(lhs, rhs)
@@ -136,6 +137,8 @@ func (rt *Runtime) builtinPrint(newline bool) Builtin {
 
 func formatValue(v ir.Value) string {
 	switch v.Kind {
+	case ir.KindInt:
+		return fmt.Sprintf("%d", v.Int)
 	case ir.KindString:
 		return v.Str
 	case ir.KindStruct:
@@ -150,6 +153,16 @@ func formatValue(v ir.Value) string {
 	default:
 		return v.String()
 	}
+}
+
+func pickIntType(a, b ir.Value) string {
+	if a.IntType != "" {
+		return a.IntType
+	}
+	if b.IntType != "" {
+		return b.IntType
+	}
+	return ""
 }
 
 func (rt *Runtime) builtinLen() Builtin {
