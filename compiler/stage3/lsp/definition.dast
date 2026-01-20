@@ -1,0 +1,47 @@
+// LSP Definition Handler
+// Handles textDocument/definition requests
+
+// Handle textDocument/definition request
+fn handle_definition(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let params = req.params
+    let text_doc = json_get(params, "textDocument")
+    let uri = json_get_string(text_doc, "uri", "")
+    let position = json_get(params, "position")
+    let line = json_get_int(position, "line", 0)
+    let character = json_get_int(position, "character", 0)
+
+    // Get document content
+    let idx = server_get_document(server, uri)
+    if idx < 0 {
+        return jsonrpc_success(req.id, json_null())
+    }
+
+    let content = server.documents[idx].content
+
+    // Find definition using Stage 2 bridge
+    let location_str = lsp_find_definition(content, line, character)
+
+    if location_str == "" {
+        // No definition found
+        return jsonrpc_success(req.id, json_null())
+    }
+
+    // Parse location string: "line:col:name"
+    // For MVP, just return a location at line 0, col 0
+    let mut result = json_object()
+    result = json_set(result, "uri", json_string(uri))
+
+    let mut range = json_object()
+    let mut start = json_object()
+    start = json_set(start, "line", json_number(0))
+    start = json_set(start, "character", json_number(0))
+    let mut end = json_object()
+    end = json_set(end, "line", json_number(0))
+    end = json_set(end, "character", json_number(10))
+
+    range = json_set(range, "start", start)
+    range = json_set(range, "end", end)
+    result = json_set(result, "range", range)
+
+    return jsonrpc_success(req.id, result)
+}

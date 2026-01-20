@@ -1,0 +1,19 @@
+// LSP Definition Tests
+
+fn lsp_definition_test_main() {
+    test_find_function_definition()
+    println("All definition tests complete")
+}
+
+fn test_find_function_definition() {
+    let content = "fn foo() {}\nfn main() { foo() }"
+    let location = lsp_find_definition(content, 1, 12)
+
+    // Should return some location (MVP just returns first function)
+    if location == "" {
+        println("FAIL: test_find_function_definition - no location returned")
+        return
+    }
+
+    println("PASS: test_find_function_definition (location: " + location + ")")
+}
