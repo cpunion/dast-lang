@@ -1,0 +1,5 @@
+// Main entry point for LSP diagnostics tests
+
+fn main() {
+    lsp_diagnostics_test_main()
+}

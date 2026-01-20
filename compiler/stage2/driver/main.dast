@@ -55,11 +55,6 @@ fn const_list_new() -> [ConstDecl] {
     return items
 }
 
-fn func_list_new() -> [FunctionDecl] {
-    let mut items: [FunctionDecl] = []
-    return items
-}
-
 fn impl_list_new() -> [ImplDecl] {
     let mut items: [ImplDecl] = []
     return items

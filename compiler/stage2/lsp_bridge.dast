@@ -1,0 +1,40 @@
+// LSP Bridge: Exposes Stage 2 frontend analysis to Stage 3 LSP
+// This file is part of Stage 2 and provides functions that Stage 3 can call
+
+// Analyze source code and return parse/type errors as strings
+// Returns: [parse_error1, parse_error2, ..., type_error1, type_error2, ...]
+fn lsp_analyze_source(content: String) -> [String] {
+    let mut all_errors: [String] = []
+
+    // Run lexer + parser
+    let mut lex = lexer_new(content)
+    let mut parse_errors: [ParseError] = []
+    let prog = parse_program(content, &mut lex, &mut parse_errors)
+
+    // Collect parse errors
+    let mut i = 0
+    while i < len(parse_errors) {
+        let pe = parse_errors[i]
+        // Format: "line:col:message"
+        let err_str = int_to_string(pe.line) + ":" + int_to_string(pe.col) + ":" + pe.msg
+        push(&mut all_errors, err_str)
+        i = i + 1
+    }
+
+    // Run type checker (if parsing succeeded)
+    if len(parse_errors) == 0 {
+        let ctx = check_program(prog)
+
+        // Collect type errors
+        let type_errors = ctx.errors
+        let mut j = 0
+        while j < len(type_errors) {
+            let te = type_errors[j]
+            let err_str = int_to_string(te.line) + ":" + int_to_string(te.col) + ":" + te.msg
+            push(&mut all_errors, err_str)
+            j = j + 1
+        }
+    }
+
+    return all_errors
+}

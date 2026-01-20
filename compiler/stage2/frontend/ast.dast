@@ -466,3 +466,8 @@ fn assoc_type_impl_list_new() -> [AssociatedTypeImpl] {
     let empty: [AssociatedTypeImpl] = []
     return empty
 }
+
+fn func_list_new() -> [FunctionDecl] {
+    let empty: [FunctionDecl] = []
+    return empty
+}
