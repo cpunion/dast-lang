@@ -777,22 +777,60 @@ fn parse_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [Par
     let mut done = false
     while !done {
         let param_pos = lexer_pos(lex)
-        let name = parse_param_name(src, lex, errors)
-        if peek_kind(lex) == TokenKind.Colon {
-            lexer_next(lex)
+
+        // Handle &self and &mut self
+        if peek_kind(lex) == TokenKind.Amp {
+            lexer_next(lex)  // consume '&'
+            let mut is_mut = false
+            if peek_kind(lex) == TokenKind.Mut {
+                is_mut = true
+                lexer_next(lex)  // consume 'mut'
+            }
+            if peek_kind(lex) == TokenKind.SelfVal {
+                lexer_next(lex)  // consume 'self'
+                let mut typ = "&Self"
+                if is_mut {
+                    typ = "&mut Self"
+                }
+                push(&mut params, Param { pos: param_pos, name: "self", typ: typ })
+                if peek_kind(lex) == TokenKind.Comma {
+                    lexer_next(lex)
+                } else {
+                    done = true
+                }
+            } else {
+                add_error(errors, lexer_pos(lex), "expected 'self' after '&'");
+                done = true
+            }
+        } else if peek_kind(lex) == TokenKind.SelfVal {
+            // Handle self (owned)
+            lexer_next(lex)  // consume 'self'
+            push(&mut params, Param { pos: param_pos, name: "self", typ: "Self" })
+            if peek_kind(lex) == TokenKind.Comma {
+                lexer_next(lex)
+            } else {
+                done = true
+            }
         } else {
-            add_error(errors, lexer_pos(lex), "expected ':' in param");
-        }
-        let typ = parse_type(src, lex, errors)
-        push(&mut params, Param { pos: param_pos, name: name, typ: typ })
-        if peek_kind(lex) == TokenKind.Comma {
-            lexer_next(lex)
-        } else {
-            done = true
+            // Regular parameter: name: type
+            let name = parse_param_name(src, lex, errors)
+            if peek_kind(lex) == TokenKind.Colon {
+                lexer_next(lex)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected ':' in param");
+            }
+            let typ = parse_type(src, lex, errors)
+            push(&mut params, Param { pos: param_pos, name: name, typ: typ })
+            if peek_kind(lex) == TokenKind.Comma {
+                lexer_next(lex)
+            } else {
+                done = true
+            }
         }
     }
     return params
 }
+
 
 fn parse_const_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ConstDecl {
     let name = parse_ident(src, lex, errors)
@@ -890,14 +928,96 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
     return TraitDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, methods: methods }
 }
 
-fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImplDecl {
-    lexer_next(lex)
-    let type_name = parse_ident(src, lex, errors)
+struct ImplParseResult {
+    is_trait_impl: bool,
+    impl_decl: ImplDecl,
+    impl_trait: ImplTrait,
+}
+
+fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImplParseResult {
+    lexer_next(lex)  // consume 'impl'
+    let first_name = parse_ident(src, lex, errors)
+
+    // Check if this is impl Trait for Type
+    if peek_kind(lex) == TokenKind.For {
+        lexer_next(lex)  // consume 'for'
+        let for_type = parse_type(src, lex, errors)
+        let mut methods: [FunctionDecl] = []
+
+        if peek_kind(lex) != TokenKind.LBrace {
+            add_error(errors, lexer_pos(lex), "expected '{' after impl Trait for Type");
+            sync_to_top_level(lex)
+            let empty_impl = ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: "", methods: methods }
+            let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), methods: methods }
+            return ImplParseResult { is_trait_impl: true, impl_decl: empty_impl, impl_trait: impl_trait }
+        }
+        lexer_next(lex)
+
+        let mut done = false
+        while !done {
+            let k = peek_kind(lex)
+            if k == TokenKind.RBrace || k == TokenKind.Eof {
+                done = true
+            } else if k == TokenKind.Pub || k == TokenKind.Fn {
+                let mvis = parse_visibility(src, lex, errors)
+                let mut fn_pos = lexer_pos(lex)
+                if peek_kind(lex) == TokenKind.Fn {
+                    lexer_next(lex)
+                    let name = parse_ident(src, lex, errors)
+                    let type_params = parse_type_params(src, lex, errors)
+                    let mut params: [Param] = []
+                    let mut has_return = false
+                    let mut ret = ""
+                    let mut body = empty_block()
+                    if peek_kind(lex) == TokenKind.LParen {
+                        lexer_next(lex)
+                        params = parse_params(src, lex, errors)
+                        if peek_kind(lex) == TokenKind.RParen {
+                            lexer_next(lex)
+                        } else {
+                            add_error(errors, lexer_pos(lex), "expected ')'");
+                        }
+                    }
+                    if peek_kind(lex) == TokenKind.Arrow {
+                        lexer_next(lex)
+                        ret = parse_type(src, lex, errors)
+                        has_return = true
+                    }
+                    if peek_kind(lex) == TokenKind.LBrace {
+                        body = parse_block(src, lex, errors)
+                    } else {
+                        add_error(errors, lexer_pos(lex), "expected '{' for function body");
+                    }
+                    push(&mut methods, FunctionDecl {
+                        vis: mvis, module: "", file: "", pos: fn_pos, name: name,
+                        type_params: type_params, is_test: false, params: params,
+                        has_return: has_return, ret: ret, body: body,
+                    })
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected fn");
+                    lexer_next(lex)
+                }
+            } else {
+                add_error(errors, lexer_pos(lex), "expected method");
+                lexer_next(lex)
+            }
+        }
+        if peek_kind(lex) == TokenKind.RBrace {
+            lexer_next(lex)
+        }
+
+        let empty_impl = ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: "", methods: func_list_new() }
+        let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), methods: methods }
+        return ImplParseResult { is_trait_impl: true, impl_decl: empty_impl, impl_trait: impl_trait }
+    }
+
+    // Regular impl Type { ... }
     let mut methods: [FunctionDecl] = []
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{' after impl");
         sync_to_top_level(lex)
-        return ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: type_name, methods: methods }
+        let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), methods: methods }
+        return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: methods }, impl_trait: empty_trait }
     }
     lexer_next(lex)
     let mut done = false
@@ -966,7 +1086,8 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
     if peek_kind(lex) == TokenKind.RBrace {
         lexer_next(lex)
     }
-    return ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: type_name, methods: methods }
+    let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), methods: func_list_new() }
+    return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: methods }, impl_trait: empty_trait }
 }
 
 fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> StructDecl {
@@ -1583,6 +1704,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
     let mut traits: [TraitDecl] = []
     let mut functions: [FunctionDecl] = []
     let mut impls: [ImplDecl] = []
+    let mut impl_traits: [ImplTrait] = []
     let mut pending_repr = ""
     let mut pending_test = false
     while peek_kind(lex) != TokenKind.Eof {
@@ -1680,8 +1802,12 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                     pending_repr = ""
                 }
                 let impl_pos = lexer_pos(lex)
-                let decl = parse_impl(src, lex, errors, vis, impl_pos)
-                push(&mut impls, decl)
+                let result = parse_impl_or_impl_trait(src, lex, errors, vis, impl_pos)
+                if result.is_trait_impl {
+                    push(&mut impl_traits, result.impl_trait)
+                } else {
+                    push(&mut impls, result.impl_decl)
+                }
             } else if kk == TokenKind.Fn {
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
@@ -1752,6 +1878,6 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
         traits: traits,
         functions: functions,
         impls: impls,
-        impl_traits: impl_trait_list_new(),  // TODO: parse impl traits
+        impl_traits: impl_traits,
     }
 }

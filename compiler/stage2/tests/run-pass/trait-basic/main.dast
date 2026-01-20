@@ -1,9 +1,19 @@
-// Test basic trait definition parsing
+// Test trait definition and implementation parsing
 
-trait Display {
-    fn display(s: String) -> String;
+trait Greeter {
+    fn greet(&self) -> String;
+}
+
+struct Person {
+    name: String,
+}
+
+impl Greeter for Person {
+    fn greet(&self) -> String {
+        return "Hello, " + self.name
+    }
 }
 
 fn main() {
-    println("trait parsing test")
+    println("trait impl parsing test passed")
 }

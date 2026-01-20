@@ -32,6 +32,7 @@ fn keyword_kind(s: String) -> TokenKind {
     if s == "false" { return TokenKind.False }
     if s == "impl" { return TokenKind.Impl }
     if s == "trait" { return TokenKind.Trait }
+    if s == "for" { return TokenKind.For }
     if s == "self" { return TokenKind.SelfVal }
     if s == "Self" { return TokenKind.SelfType }
     if s == "const" { return TokenKind.Const }

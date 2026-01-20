@@ -41,6 +41,7 @@ enum TokenKind {
     Loop = 68,
     Break = 69,
     Continue = 70,
+    For = 73,
     LParen = 30,
     RParen = 31,
     LBrace = 32,
