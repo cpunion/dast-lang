@@ -638,6 +638,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
             }
             if ok {
                 let name = parse_ident(src, lex, errors)
+                let type_params = parse_type_params(src, lex, errors)
                 let mut params: [Param] = []
                 let mut has_return = false
                 let mut ret = ""
@@ -669,7 +670,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
                     file: "",
                     pos: fn_pos,
                     name: name,
-                    type_params: generic_param_list_new(),
+                    type_params: type_params,
                     is_test: false,
                     params: params,
                     has_return: has_return,
@@ -1396,6 +1397,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 let fn_pos = lexer_pos(lex)
                 lexer_next(lex)
                 let name = parse_ident(src, lex, errors)
+                let type_params = parse_type_params(src, lex, errors)
                 let mut params: [Param] = []
                 let mut has_return = false
                 let mut ret = ""
@@ -1427,7 +1429,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                     file: "",
                     pos: fn_pos,
                     name: name,
-                    type_params: generic_param_list_new(),
+                    type_params: type_params,
                     is_test: pending_test,
                     params: params,
                     has_return: has_return,

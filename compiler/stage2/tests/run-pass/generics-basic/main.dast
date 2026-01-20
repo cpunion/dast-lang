@@ -9,6 +9,11 @@ enum Option[T] {
     None,
 }
 
+// Test generic function parsing
+fn identity[T](x: i32) -> i32 {  // TODO: change params/return to T
+    return x
+}
+
 fn main() {
     let b = Box { value: 42 }
     println("box", b.value)
@@ -18,4 +23,7 @@ fn main() {
         Option.Some(x) => { println("some", x) }
         Option.None => { println("none") }
     }
+
+    // Test generic function call (not instantiated yet)
+    println("identity", identity(7))
 }
