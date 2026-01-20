@@ -670,7 +670,29 @@ fn parse_type_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) ->
             done = true
         } else {
             let name = next_lexeme(src, lex)
-            push(&mut params, GenericParam { pos: param_pos, name: name })
+            // Parse optional trait bounds after ':'
+            let mut bounds: [TraitBound] = []
+            if peek_kind(lex) == TokenKind.Colon {
+                lexer_next(lex)  // consume ':'
+                // Parse trait bounds (possibly multiple with '+')
+                let mut bounds_done = false
+                while !bounds_done {
+                    if peek_kind(lex) == TokenKind.Ident {
+                        let bound_pos = lexer_pos(lex)
+                        let trait_name = next_lexeme(src, lex)
+                        push(&mut bounds, TraitBound { pos: bound_pos, trait_name: trait_name })
+                        if peek_kind(lex) == TokenKind.Plus {
+                            lexer_next(lex)  // consume '+'
+                        } else {
+                            bounds_done = true
+                        }
+                    } else {
+                        add_error(errors, lexer_pos(lex), "expected trait name after ':'")
+                        bounds_done = true
+                    }
+                }
+            }
+            push(&mut params, GenericParam { pos: param_pos, name: name, bounds: bounds })
             if peek_kind(lex) == TokenKind.Comma {
                 lexer_next(lex)
             } else {

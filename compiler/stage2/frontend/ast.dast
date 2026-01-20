@@ -46,6 +46,7 @@ struct Param {
 struct GenericParam {
     pos: i32,
     name: String,
+    bounds: [TraitBound],
 }
 
 struct Field {
