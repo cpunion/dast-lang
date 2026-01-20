@@ -1,0 +1,11 @@
+// Test mutable capture (FnMut semantics)
+
+fn main() {
+    // Test 1: Simple mutable counter
+    let mut count = 0
+    let incr = || { count = count + 1 }
+    incr()
+    incr()
+    incr()
+    println("counter", count)  // expect 3
+}

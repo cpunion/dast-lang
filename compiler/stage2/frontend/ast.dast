@@ -200,6 +200,14 @@ struct ClosureExpr {
     body: Expr,
 }
 
+// Block expression: { stmt1; stmt2; expr }
+struct BlockExpr {
+    pos: i32,
+    stmts: [Stmt],
+    has_result: bool,
+    result: Expr,
+}
+
 enum Expr {
     Ident(IdentExpr),
     IntLit(IntLit),
@@ -217,6 +225,7 @@ enum Expr {
     Deref(DerefExpr),
     IfLet(IfLetExpr),
     Closure(ClosureExpr),
+    Block(BlockExpr),
 }
 
 struct LetStmt {

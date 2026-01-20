@@ -27,6 +27,7 @@ struct Compiler {
     pending_closures: [IrFunction],
     closure_id: i32,
     current_func_name: String,
+    mutated_captures: [String],  // Names of captured variables that are mutated
 }
 
 fn name_count_list_new() -> [NameCount] {
@@ -200,6 +201,7 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         pending_closures: pending_closures,
         closure_id: 0,
         current_func_name: "",
+        mutated_captures: string_list_new(),
     }
     let mut funcs: [IrFunction] = []
     let mut entry = ""
@@ -418,7 +420,15 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
                 return
             }
             let val = compile_expr(c, s.value, self_name)
-            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val }))
+
+            // Check if this is a mutable captured variable
+            if is_temp_ref(ir_name) && is_mutated_capture(c, id.name) {
+                // Mutable capture: ir_name is tN, use StoreRef
+                let temp_val = parse_temp_name(ir_name)
+                emit_instr(c, IrInstr.StoreRef(IrStoreRef { ref: temp_val, src: val }))
+            } else {
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val }))
+            }
         }
         .Deref(d) => {
             let r = compile_expr(c, d.expr, self_name)
@@ -1165,6 +1175,14 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         Expr.Ident(id) => {
             let ir_name = lookup_var(c, id.name)
             if ir_name != "" {
+                // Check if this is a mutable captured variable
+                if is_temp_ref(ir_name) && is_mutated_capture(c, id.name) {
+                    // Mutable capture: ir_name is tN, need to dereference
+                    let temp_val = parse_temp_name(ir_name)
+                    let t = new_temp(c)
+                    emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: t, src: temp_val }))
+                    return t
+                }
                 let t = new_temp(c)
                 emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name }))
                 return t
@@ -1350,6 +1368,17 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let closure_name = c.current_func_name + "$" + int_to_string(c.closure_id)
             c.closure_id = c.closure_id + 1
 
+            // Analyze free variables and mutations
+            let mut param_names: [String] = []
+            let mut pi = 0
+            while pi < len(cl.params) {
+                push(&mut param_names, cl.params[pi].name)
+                pi = pi + 1
+            }
+            let free_vars = analyze_free_vars(cl.body, param_names)
+            let mutated_vars = get_mutated_free_vars(cl.body, param_names)
+            let has_env = len(free_vars) > 0
+
             // Save current compiler state
             let saved_blocks = c.blocks
             let saved_cur_block = c.cur_block
@@ -1359,6 +1388,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let saved_scope_ir = c.scope_ir
             let saved_scope_marks = c.scope_marks
             let saved_name_counts = c.name_counts
+            let saved_mutated_captures = c.mutated_captures
 
             // Reset for closure function compilation
             c.blocks = block_list_new()
@@ -1369,11 +1399,17 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             c.scope_ir = string_list_new()
             c.scope_marks = int_list_new()
             c.name_counts = name_count_list_new()
+            c.mutated_captures = mutated_vars
             compiler_env_push(c)
 
-            // Build closure params
+            // Build closure params - ALWAYS add $env as first parameter
             let mut params: [String] = []
             let mut param_types: [String] = []
+
+            let env_param = declare_var(c, "$env", 0, false)
+            push(&mut params, env_param)
+            push(&mut param_types, "Env")
+
             let mut i = 0
             while i < len(cl.params) {
                 let p = cl.params[i]
@@ -1389,9 +1425,31 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 i = i + 1
             }
 
-            // Create entry block and compile body
+            // Create entry block
             let entry_block = new_block(c, "entry")
             set_current_block(c, entry_block)
+
+            // Unpack captured variables from environment
+            if has_env {
+                let env_var = lookup_var(c, "$env")
+                let env_loaded = new_temp(c)
+                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: env_loaded, name: env_var }))
+
+                let mut k = 0
+                while k < len(free_vars) {
+                    let var_name = free_vars[k]
+                    let dst = new_temp(c)
+                    emit_instr(c, IrInstr.GetField(IrGetField {
+                        dst: dst,
+                        src: env_loaded,
+                        field: var_name
+                    }))
+                    declare_captured_var(c, var_name, dst)
+                    k = k + 1
+                }
+            }
+
+            // Compile body
             let body_val = compile_expr(c, cl.body, self_name)
 
             // Add return if not present
@@ -1434,12 +1492,73 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             c.scope_ir = saved_scope_ir
             c.scope_marks = saved_scope_marks
             c.name_counts = saved_name_counts
+            c.mutated_captures = saved_mutated_captures
 
             // Emit closure value creation in parent function
             let dst = new_temp(c)
-            // For now, use call instruction with special syntax for closure reference
-            // The runtime/interpreter will treat this as a function pointer
-            emit_instr(c, IrInstr.Const(IrConst { dst: dst, value: ir_value_string(closure_name) }))
+
+            if has_env {
+                // Create environment struct
+                let mut env_fields: [IrStructFieldInit] = []
+                let mut k = 0
+                while k < len(free_vars) {
+                    let var_name = free_vars[k]
+                    let ir_name = lookup_var(c, var_name)
+                    if ir_name == "" {
+                        compiler_add_type_error(c, "cannot capture undefined variable '" + var_name + "'")
+                    } else {
+                        // Check if this variable is mutated
+                        let mut is_mut = false
+                        let mut mi = 0
+                        while mi < len(mutated_vars) {
+                            if mutated_vars[mi] == var_name {
+                                is_mut = true
+                            }
+                            mi = mi + 1
+                        }
+
+                        if is_mut {
+                            // Mutable capture: use AddrOf
+                            let addr_temp = new_temp(c)
+                            emit_instr(c, IrInstr.AddrOf(IrAddrOf { dst: addr_temp, name: ir_name }))
+                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: addr_temp })
+                        } else {
+                            // Immutable capture: load value
+                            let loaded = new_temp(c)
+                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name }))
+                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: loaded })
+                        }
+                    }
+                    k = k + 1
+                }
+
+                let env_temp = new_temp(c)
+                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: env_temp, name: "$Env", fields: env_fields }))
+
+                // Create closure struct { func, env }
+                let func_name_temp = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: func_name_temp, value: ir_value_string(closure_name) }))
+
+                let mut closure_fields: [IrStructFieldInit] = []
+                push(&mut closure_fields, IrStructFieldInit { name: "func", src: func_name_temp })
+                push(&mut closure_fields, IrStructFieldInit { name: "env", src: env_temp })
+
+                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: "Closure", fields: closure_fields }))
+            } else {
+                // No capture - create closure with empty env
+                let env_temp = new_temp(c)
+                let mut empty_fields: [IrStructFieldInit] = []
+                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: env_temp, name: "$Env", fields: empty_fields }))
+
+                let func_name_temp = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: func_name_temp, value: ir_value_string(closure_name) }))
+
+                let mut closure_fields: [IrStructFieldInit] = []
+                push(&mut closure_fields, IrStructFieldInit { name: "func", src: func_name_temp })
+                push(&mut closure_fields, IrStructFieldInit { name: "env", src: env_temp })
+
+                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: "Closure", fields: closure_fields }))
+            }
             return dst
         }
     }
@@ -1968,4 +2087,89 @@ fn collect_free_vars(expr: Expr, local_vars: [String], free: &mut [String]) {
             // For other expressions (Closure), conservatively assume no free vars
         }
     }
+}
+
+// Get list of mutated free variables in a closure
+fn get_mutated_free_vars(expr: Expr, local_vars: [String]) -> [String] {
+    let mut mutated: [String] = []
+    match expr {
+        Expr.Block(b) => {
+            collect_mutated_vars(b.stmts, local_vars, &mut mutated)
+        }
+        _ => {}
+    }
+    return mutated
+}
+
+// Collect variables that are assigned in statements (not local)
+fn collect_mutated_vars(stmts: [Stmt], local_vars: [String], mutated: &mut [String]) {
+    let mut i = 0
+    while i < len(stmts) {
+        match stmts[i] {
+            Stmt.Assign(a) => {
+                match a.target {
+                    Expr.Ident(id) => {
+                        let mut is_local = false
+                        let mut j = 0
+                        while j < len(local_vars) {
+                            if local_vars[j] == id.name {
+                                is_local = true
+                            }
+                            j = j + 1
+                        }
+                        if !is_local {
+                            let mut already = false
+                            let mut k = 0
+                            while k < len(mutated) {
+                                if mutated[k] == id.name {
+                                    already = true
+                                }
+                                k = k + 1
+                            }
+                            if !already {
+                                push(mutated, id.name)
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+}
+
+// Check if a variable is in the mutated_captures list
+fn is_mutated_capture(c: &Compiler, name: String) -> bool {
+    let mut i = 0
+    while i < len(c.mutated_captures) {
+        if c.mutated_captures[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+// Declare a captured variable by mapping its name to a temp
+fn declare_captured_var(c: &mut Compiler, name: String, temp: i32) {
+    // Store the temp value into a variable
+    // The temp holds either a value (immutable capture) or a reference (mutable capture)
+    // We need to make this accessible via the variable name
+    let var_name = declare_var(c, name, 0, false)
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: var_name, src: temp }))
+}
+
+// Check if a string is in temp format (tN)
+fn is_temp_ref(text: String) -> bool {
+    if len(text) < 2 { return false }
+    if char_at(text, 0) != 116 { return false }  // 't' = 116
+    let mut i = 1
+    while i < len(text) {
+        let c = char_at(text, i)
+        if c < 48 || c > 57 { return false }  // not a digit
+        i = i + 1
+    }
+    return true
 }

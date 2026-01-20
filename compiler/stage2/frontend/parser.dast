@@ -345,10 +345,16 @@ fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
     if k == TokenKind.Pipe {
         return parse_closure(src, lex, errors, start_pos)
     }
-    // Also handle empty param closure: || body
+    // Also handle empty param closure: || body or || { block }
     if k == TokenKind.OrOr {
         lexer_next(lex)
-        let body = parse_expr(src, lex, errors, 0)
+        // Check for block body
+        let mut body = dummy_expr()
+        if peek_kind(lex) == TokenKind.LBrace {
+            body = parse_block_expr(src, lex, errors)
+        } else {
+            body = parse_expr(src, lex, errors, 0)
+        }
         let empty_params: [ClosureParam] = []
         return Expr.Closure(ClosureExpr {
             pos: start_pos,
@@ -422,8 +428,15 @@ fn parse_closure(src: String, lex: &mut Lexer, errors: &mut [ParseError], start_
         ret_type = parse_type(src, lex, errors)
     }
 
-    // Parse body expression
-    let body = parse_expr(src, lex, errors, 0)
+    // Parse body expression or block
+    let mut body = dummy_expr()
+    if peek_kind(lex) == TokenKind.LBrace {
+        // Block body: { stmt1; stmt2; result_expr }
+        body = parse_block_expr(src, lex, errors)
+    } else {
+        // Single expression body
+        body = parse_expr(src, lex, errors, 0)
+    }
 
     return Expr.Closure(ClosureExpr {
         pos: start_pos,
@@ -431,6 +444,58 @@ fn parse_closure(src: String, lex: &mut Lexer, errors: &mut [ParseError], start_
         has_ret_type: has_ret_type,
         ret_type: ret_type,
         body: body,
+    })
+}
+
+// Parse block expression: { stmt1; stmt2; result_expr }
+fn parse_block_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    let start_pos = lexer_pos(lex)
+
+    // Consume {
+    if peek_kind(lex) != TokenKind.LBrace {
+        add_error(errors, lexer_pos(lex), "expected '{'")
+        return dummy_expr()
+    }
+    lexer_next(lex)
+
+    let mut stmts: [Stmt] = []
+    let mut has_result = false
+    let mut result = dummy_expr()
+
+    while peek_kind(lex) != TokenKind.RBrace && peek_kind(lex) != TokenKind.Eof {
+        // Try to parse as statement first
+        let stmt_pos = lexer_pos(lex)
+        let stmt = parse_stmt(src, lex, errors)
+
+        // Check if this could be the final expression (no trailing semicolon needed)
+        if peek_kind(lex) == TokenKind.RBrace {
+            // This was the last item - check if it's just an expression
+            match stmt {
+                Stmt.Expr(e) => {
+                    has_result = true
+                    result = e.expr
+                }
+                _ => {
+                    push(&mut stmts, stmt)
+                }
+            }
+        } else {
+            push(&mut stmts, stmt)
+        }
+    }
+
+    // Consume }
+    if peek_kind(lex) == TokenKind.RBrace {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '}'")
+    }
+
+    return Expr.Block(BlockExpr {
+        pos: start_pos,
+        stmts: stmts,
+        has_result: has_result,
+        result: result,
     })
 }
 

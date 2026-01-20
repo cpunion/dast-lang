@@ -226,15 +226,36 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             }
         }
         .CallClosure(i) => {
-            // Get the closure function name from the temp
+            // Get the closure value from the temp
             let closure_val = get_temp(rt, fr, i.closure)
-            if closure_val.kind != ir_kind_string() {
-                runtime_error(rt, "closure call requires string function name")
+
+            let mut func_name = ""
+            let mut env_arg = ir_value_unit()
+
+            // Handle closure struct { func: String, env: Struct }
+            if closure_val.kind == ir_kind_struct() {
+                let f = struct_get_field(rt, closure_val, "func")
+                if f.kind == ir_kind_string() {
+                    func_name = f.str
+                }
+                env_arg = struct_get_field(rt, closure_val, "env")
+            } else if closure_val.kind == ir_kind_string() {
+                // Legacy: simple string function name (no capture)
+                func_name = closure_val.str
+            } else {
+                runtime_error(rt, "closure call requires closure struct or string")
                 return
             }
-            let func_name = closure_val.str
-            // Collect args
+
+            if func_name == "" {
+                runtime_error(rt, "valid function name not found in closure")
+                return
+            }
+
+            // Collect args with env as first argument
             let mut args: [IrValue] = []
+            push(&mut args, env_arg)
+
             let mut j = 0
             while j < len(i.args) {
                 push(&mut args, get_temp(rt, fr, i.args[j]))
