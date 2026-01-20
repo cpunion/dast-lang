@@ -1,9 +1,10 @@
-// Test basic closure syntax (Phase 1: empty closure)
+// Test closure syntax - basic parsing
 
 fn main() {
-    // Simple closure with constant body - works!
+    // Empty closure works
     let f = || 42
-    println("closure_defined", 1)
+    println("closure", 1)
 
-    // TODO: closures with params need more work for variable scope
+    // Note: Closures with params currently have scope issues
+    // let add = |a: i32, b: i32| a + b  // TODO: fix param scope
 }

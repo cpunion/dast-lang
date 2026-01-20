@@ -2507,9 +2507,13 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             let mut i = 0
             while i < len(c.params) {
                 let p = c.params[i]
-                let mut pt = ctx_type_make(ctx, 1, "i32", false, false, -1)
+                let mut pt = 0
                 if p.has_type {
+                    // Parse type with outer type_params available for generics
                     pt = ctx_parse_type(ctx, p.typ, "")
+                } else {
+                    add_type_error(ctx, "closure parameter '" + p.name + "' requires type annotation")
+                    pt = ctx_type_make(ctx, 1, "i32", false, false, -1)
                 }
                 ctx_env_declare(ctx, p.name, pt, false)
                 push(&mut param_types, ctx_type_name(ctx, pt))

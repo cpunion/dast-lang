@@ -1323,10 +1323,12 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 let p = cl.params[i]
                 let mut pt = compiler_type_make(c, 1, "i32", false, false, -1)
                 if p.has_type {
+                    // Parse type - outer type_params are available via c.tctx
                     let mut tctx = c.tctx
                     pt = ctx_parse_type(&mut tctx, p.typ, self_name)
                     c.tctx = tctx
                 }
+                // Type annotation is now required (error added in typecheck)
                 declare_var(c, p.name, pt, false)
                 i = i + 1
             }
