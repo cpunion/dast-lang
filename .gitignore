@@ -1,31 +1,4 @@
-# Editor and IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Build outputs
-target/
-*.o
-*.a
-*.so
-*.dylib
-*.dll
-*.exe
-
-# Rust
-Cargo.lock
-**/*.rs.bk
-
-# macOS
-.DS_Store
-
-# Temporary files
-*.tmp
-*.log
-
-# Stage0 bootstrap binary
-compiler/bootstrap/stage0/dast
-compiler/bootstrap/stage0/dast-stage0
-compiler/bootstrap/stage1/stage1.ir
+# node_modules
+compiler/stage3/vscode-ext/node_modules/
+compiler/stage3/vscode-ext/out/
+compiler/stage3/vscode-ext/*.vsix
