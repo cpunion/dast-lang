@@ -1,4 +1,4 @@
-// Test generic struct parsing
+// Test generic struct (T not yet usable in fields - needs instantiation)
 struct Box[T] {
     value: i32,
 }
