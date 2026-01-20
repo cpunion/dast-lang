@@ -1575,6 +1575,53 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
+fn find_trait_in_module(ctx: &TypeContext, module: String, name: String) -> i32 {
+    let mut i = 0
+    while i < len(ctx.traits) {
+        if ctx.traits[i].module == module && ctx.traits[i].name == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
+    let mut i = 0
+    while i < len(prog.impl_traits) {
+        let it = prog.impl_traits[i]
+        ctx_set_file(ctx, it.file)
+        ctx_set_pos(ctx, it.pos)
+        ctx_set_current_module(ctx, it.module)
+
+        // Check that the trait exists
+        let trait_idx = find_trait_in_module(ctx, it.module, it.trait_name)
+        if trait_idx < 0 {
+            // Try to find trait in other modules (simplified lookup)
+            add_type_error(ctx, "unknown trait '" + it.trait_name + "'")
+        }
+
+        // Collect method names implemented
+        let mut method_names = name_list_new()
+        let mut mi = 0
+        while mi < len(it.methods) {
+            push(&mut method_names, it.methods[mi].name)
+            mi = mi + 1
+        }
+
+        let mut impl_traits_list = ctx.impl_traits
+        push(&mut impl_traits_list, ImplTraitSig {
+            module: it.module,
+            trait_name: it.trait_name,
+            for_type: it.for_type,
+            methods: method_names,
+        })
+        ctx.impl_traits = impl_traits_list
+
+        i = i + 1
+    }
+}
+
 fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.impls) {
@@ -3290,6 +3337,7 @@ fn check_program(prog: Program) -> TypeContext {
     }
     collect_consts(&mut ctx, prog)
     collect_traits(&mut ctx, prog)
+    collect_impl_traits(&mut ctx, prog)
     collect_reexports(&mut ctx, prog)
     collect_func_sigs(&mut ctx, prog)
     collect_method_sigs(&mut ctx, prog)
