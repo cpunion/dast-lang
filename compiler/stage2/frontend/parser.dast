@@ -778,8 +778,11 @@ fn parse_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [Par
     while !done {
         let param_pos = lexer_pos(lex)
 
-        // Handle &self and &mut self
+        // Handle &self and &mut self shorthand
+        // We need lookahead: only if & is followed by 'self' or 'mut self'
         if peek_kind(lex) == TokenKind.Amp {
+            // Peek ahead to check if this is &self or &mut self shorthand
+            let saved_pos = lexer_pos(lex)
             lexer_next(lex)  // consume '&'
             let mut is_mut = false
             if peek_kind(lex) == TokenKind.Mut {
@@ -799,17 +802,51 @@ fn parse_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [Par
                     done = true
                 }
             } else {
-                add_error(errors, lexer_pos(lex), "expected 'self' after '&'");
-                done = true
+                // Not &self or &mut self, restore lexer position and fall through to regular parsing
+                lexer_set_pos(lex, saved_pos)
+                // Regular parameter: name: type
+                let name = parse_param_name(src, lex, errors)
+                if peek_kind(lex) == TokenKind.Colon {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ':' in param");
+                }
+                let typ = parse_type(src, lex, errors)
+                push(&mut params, Param { pos: param_pos, name: name, typ: typ })
+                if peek_kind(lex) == TokenKind.Comma {
+                    lexer_next(lex)
+                } else {
+                    done = true
+                }
             }
         } else if peek_kind(lex) == TokenKind.SelfVal {
-            // Handle self (owned)
-            lexer_next(lex)  // consume 'self'
-            push(&mut params, Param { pos: param_pos, name: "self", typ: "Self" })
-            if peek_kind(lex) == TokenKind.Comma {
-                lexer_next(lex)
+            // Check if this is self shorthand (no colon) or self: Type (explicit type)
+            // Use peek_n to look at next token
+            let next_tok = lexer_peek_n(lex, 1)
+            if next_tok.kind == TokenKind.Colon {
+                // This is self: Type, fall through to regular parameter parsing
+                let name = parse_param_name(src, lex, errors)
+                if peek_kind(lex) == TokenKind.Colon {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ':' in param");
+                }
+                let typ = parse_type(src, lex, errors)
+                push(&mut params, Param { pos: param_pos, name: name, typ: typ })
+                if peek_kind(lex) == TokenKind.Comma {
+                    lexer_next(lex)
+                } else {
+                    done = true
+                }
             } else {
-                done = true
+                // Handle self (owned) shorthand
+                lexer_next(lex)  // consume 'self'
+                push(&mut params, Param { pos: param_pos, name: "self", typ: "Self" })
+                if peek_kind(lex) == TokenKind.Comma {
+                    lexer_next(lex)
+                } else {
+                    done = true
+                }
             }
         } else {
             // Regular parameter: name: type
