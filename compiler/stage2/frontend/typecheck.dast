@@ -2265,6 +2265,19 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                         }
                         return ctx_type_make(ctx, 4, "unit", false, false, -1)
                     }
+                    // Check if it's a closure variable
+                    let var_entry = ctx_env_lookup(ctx, id.name)
+                    let type_kind = ctx_type_kind(ctx, var_entry.typ)
+                    if type_kind == 8 {
+                        // It's a closure variable - check args
+                        let mut i = 0
+                        while i < len(c.args) {
+                            let mut _at = check_expr(ctx, c.args[i])
+                            i = i + 1
+                        }
+                        // For now, return generic i32 (should infer from closure signature)
+                        return ctx_type_make(ctx, 1, "i32", false, false, -1)
+                    }
                     add_type_error(ctx, "undefined function '" + id.name + "'")
                     return 0
                 }

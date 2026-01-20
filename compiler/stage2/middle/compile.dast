@@ -1229,13 +1229,30 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         push(&mut args, v)
                         i = i + 1
                     }
+
+                    // First try to resolve as a function name
                     let fq = compiler_resolve_func_name(c, id.name)
-                    let mut callee = id.name
                     if fq != "" {
-                        callee = fq
+                        // Static function call
+                        let dst = new_temp(c)
+                        emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: fq, args: args }))
+                        return dst
                     }
+
+                    // Check if it's a closure variable
+                    let ir_name = lookup_var(c, id.name)
+                    if ir_name != "" {
+                        // Closure call - load closure value and call dynamically
+                        let closure_temp = new_temp(c)
+                        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: closure_temp, name: ir_name }))
+                        let dst = new_temp(c)
+                        emit_instr(c, IrInstr.CallClosure(IrCallClosure { dst: dst, closure: closure_temp, args: args }))
+                        return dst
+                    }
+
+                    // Fall back to treating as function name (may be builtin)
                     let dst = new_temp(c)
-                    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: callee, args: args }))
+                    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: id.name, args: args }))
                     return dst
                 }
                 _ => {

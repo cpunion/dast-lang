@@ -225,6 +225,25 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
                 set_temp(rt, fr, i.dst, res)
             }
         }
+        .CallClosure(i) => {
+            // Get the closure function name from the temp
+            let closure_val = get_temp(rt, fr, i.closure)
+            if closure_val.kind != ir_kind_string() {
+                runtime_error(rt, "closure call requires string function name")
+                return
+            }
+            let func_name = closure_val.str
+            // Collect args
+            let mut args: [IrValue] = []
+            let mut j = 0
+            while j < len(i.args) {
+                push(&mut args, get_temp(rt, fr, i.args[j]))
+                j = j + 1
+            }
+            // Call the closure function
+            let res = runtime_call(rt, func_name, args)
+            set_temp(rt, fr, i.dst, res)
+        }
         .MakeArray(i) => {
             let mut elems: [IrValue] = []
             let mut j = 0

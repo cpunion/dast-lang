@@ -178,6 +178,13 @@ struct IrCall {
     args: [i32],
 }
 
+// Dynamic closure call - callee is a temp holding function name string
+struct IrCallClosure {
+    dst: i32,
+    closure: i32,  // temp holding closure function name (string)
+    args: [i32],
+}
+
 struct IrMakeArray {
     dst: i32,
     elems: [i32],
@@ -259,6 +266,7 @@ enum IrInstr {
     BinOp(IrBinOp),
     UnaryOp(IrUnaryOp),
     Call(IrCall),
+    CallClosure(IrCallClosure),
     MakeArray(IrMakeArray),
     Index(IrIndex),
     SetIndex(IrSetIndex),
@@ -359,6 +367,16 @@ fn ir_instr_string(inst: IrInstr) -> String {
                 return "t" + int_to_string(i.dst) + " = call " + i.callee + "(" + args + ")"
             }
             return "call " + i.callee + "(" + args + ")"
+        }
+        .CallClosure(i) => {
+            let mut args = ""
+            let mut j = 0
+            while j < len(i.args) {
+                if j > 0 { args = args + ", " }
+                args = args + "t" + int_to_string(i.args[j])
+                j = j + 1
+            }
+            return "t" + int_to_string(i.dst) + " = call_closure t" + int_to_string(i.closure) + "(" + args + ")"
         }
         .MakeArray(i) => {
             let mut elems = ""
@@ -1244,6 +1262,19 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             }
             return ""
         }
+        .CallClosure(i) => {
+            let err = ir_validate_temp(i.dst, temp_count, false)
+            if err != "" { return err }
+            let e2 = ir_validate_temp(i.closure, temp_count, false)
+            if e2 != "" { return e2 }
+            let mut a = 0
+            while a < len(i.args) {
+                let e = ir_validate_temp(i.args[a], temp_count, false)
+                if e != "" { return e }
+                a = a + 1
+            }
+            return ""
+        }
         .MakeArray(i) => {
             let err = ir_validate_temp(i.dst, temp_count, false)
             if err != "" { return err }
@@ -1781,6 +1812,15 @@ fn ir_instr_temps(inst: IrInstr) -> [i32] {
         .UnaryOp(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
         IrInstr.Call(i) => {
             if i.dst >= 0 { push(&mut out, i.dst) }
+            let mut j = 0
+            while j < len(i.args) {
+                push(&mut out, i.args[j])
+                j = j + 1
+            }
+        }
+        .CallClosure(i) => {
+            push(&mut out, i.dst)
+            push(&mut out, i.closure)
             let mut j = 0
             while j < len(i.args) {
                 push(&mut out, i.args[j])

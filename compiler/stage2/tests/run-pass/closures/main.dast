@@ -1,11 +1,13 @@
-// Test closure with typed params
+// Test closure calling
 
 fn main() {
     // Empty closure
     let f = || 42
-    println("empty_closure", 1)
+    let result1 = f()
+    println("empty_closure_result", result1)
 
-    // Closure with typed params
+    // Closure with params
     let add = |a: i32, b: i32| a + b
-    println("typed_closure", 2)
+    let result2 = add(10, 20)
+    println("add_result", result2)
 }
