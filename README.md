@@ -88,7 +88,7 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 |---------|--------|-------|-------|
 | **Package Management** | ✅ Complete | Stage 2 | Directory-based packages |
 | **Build System** | ✅ Complete | Stage 0 | dast build/run/test |
-| **LSP Server** | ✅ Production | Stage 3 | Diagnostics, go-to-def |
+| **LSP Server** | ✅ Production | Stage 3 | Diagnostics, hover, completion |
 | **VSCode Extension** | ✅ Complete | Stage 3 | Syntax highlighting, LSP |
 | **IR Optimizer** | 🚧 Planned | Stage 2 | Optimization passes |
 | **Better Errors** | 🚧 Planned | Stage 2 | Improved error messages |
@@ -99,12 +99,12 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 - **Stage 0**: 12 tests passing
 - **Stage 1**: Self-hosting IR check passing
 - **Stage 2**: 44/45 tests passing (type-alias bug)
-- **LSP**: 35/35 tests passing
+- **LSP**: 39/39 tests passing
 
 
 ## Language Server Protocol (LSP) Support
 
-**Status**: ✅ **Production Ready** (35/35 tests passing)
+**Status**: ✅ **Production Ready** (39/39 tests passing)
 
 The Dast LSP provides real-time language support in VSCode and other LSP-compatible editors.
 
@@ -114,21 +114,34 @@ The Dast LSP provides real-time language support in VSCode and other LSP-compati
 |---------|--------|-------------|
 | **Diagnostics** | ✅ Complete | Real-time syntax and type error detection |
 | **Go to Definition** | ✅ MVP | Jump to function/struct definitions (F12) |
-| **Hover** | 🚧 Planned | Type information on hover |
+| **Hover** | ✅ Complete | Show function signatures and struct info |
+| **Code Completion** | ✅ MVP | Suggest function and struct names |
 | **Find References** | 🚧 Planned | Find all symbol usages |
-| **Code Completion** | 🚧 Planned | Context-aware suggestions |
 
 ### Installation
 
 1. **Install VSCode Extension**:
    ```bash
-   cd compiler/stage3/vscode-ext
-   ./build-and-install.sh
+   make vscode-ext-install
    ```
 
 2. **Reload VSCode** and open any `.dast` file
 
-3. **Enjoy** real-time diagnostics and navigation!
+3. **Verify**: Check `View → Output → Dast Language Server`
+
+### Quick Start
+
+```bash
+# Build and install extension
+make vscode-ext-install
+
+# Or manually
+cd compiler/stage3/vscode-ext
+./build-and-install.sh
+
+# Diagnostic check
+./check-lsp.sh
+```
 
 ### Architecture
 
@@ -136,7 +149,7 @@ The Dast LSP provides real-time language support in VSCode and other LSP-compati
 - **Real compiler integration**: Uses actual Stage 2 lexer, parser, and type checker
 - **Zero dependencies**: Native JSON parser and JSON-RPC implementation
 
-See [`.vscode/LSP_SETUP.md`](.vscode/LSP_SETUP.md) for detailed setup and usage.
+See [`.vscode/LSP_SETUP.md`](.vscode/LSP_SETUP.md) for detailed setup and [`LSP_TROUBLESHOOTING.md`](.vscode/LSP_TROUBLESHOOTING.md) for debugging.
 
 
 ## Platform Support
