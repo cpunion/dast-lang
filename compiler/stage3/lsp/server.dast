@@ -116,8 +116,10 @@ fn handle_did_open(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcRespon
         server.documents = docs
     }
 
-    // Trigger diagnostics (returns notification to send)
-    // TODO: integrate with Stage 2 parser
+    // Generate and publish diagnostics
+    let diagnostics = generate_diagnostics(item.uri, item.text)
+    let notif = publish_diagnostics_notification(item.uri, diagnostics)
+    print(notif)
 
     return jsonrpc_success(0, json_null())
 }
@@ -141,8 +143,14 @@ fn handle_did_change(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResp
         }
     }
 
-    // Trigger diagnostics
-    // TODO: integrate with Stage 2 parser
+    // Generate and publish diagnostics
+    let idx = server_get_document(server, uri)
+    if idx >= 0 {
+        let content = server.documents[idx].content
+        let diagnostics = generate_diagnostics(uri, content)
+        let notif = publish_diagnostics_notification(uri, diagnostics)
+        print(notif)
+    }
 
     return jsonrpc_success(0, json_null())
 }
@@ -171,19 +179,6 @@ fn handle_did_save(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcRespon
     // Trigger diagnostics on save
     // TODO: integrate with Stage 2 parser
     return jsonrpc_success(0, json_null())
-}
-
-// Generate diagnostics for a document
-fn generate_diagnostics(uri: String, content: String) -> [Diagnostic] {
-    let mut diagnostics: [Diagnostic] = []
-
-    // TODO: Call Stage 2 parser here
-    // let mut lex = lexer_new(content)
-    // let mut errors: [ParseError] = []
-    // let prog = parse_program(content, &mut lex, &mut errors)
-    // Convert ParseError to Diagnostic
-
-    return diagnostics
 }
 
 // Create publishDiagnostics notification

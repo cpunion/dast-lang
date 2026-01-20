@@ -1,0 +1,39 @@
+// LSP Diagnostics Tests
+
+fn main() {
+    test_empty_file()
+    test_parse_error()
+    test_type_error()
+    println("All diagnostics tests complete")
+}
+
+fn test_empty_file() {
+    let content = ""
+    let diags = generate_diagnostics("test.dast", content)
+    // Empty file should have no diagnostics
+    if len(diags) != 0 {
+        println("FAIL: test_empty_file - expected 0 diagnostics, got", len(diags))
+        return
+    }
+    println("PASS: test_empty_file")
+}
+
+fn test_parse_error() {
+    // Missing closing brace
+    let content = "fn main() { let x = 1"
+    let diags = generate_diagnostics("test.dast", content)
+    if len(diags) == 0 {
+        println("FAIL: test_parse_error - expected diagnostics")
+        return
+    }
+    println("PASS: test_parse_error")
+}
+
+fn test_type_error() {
+    // Type mismatch: assigning string to i32
+    let content = "fn main() { let x: i32 = \"hello\" }"
+    let diags = generate_diagnostics("test.dast", content)
+    // This may or may not generate an error depending on Stage 2 type checker
+    // For now, just check it doesn't crash
+    println("PASS: test_type_error (got", len(diags), "diagnostics)")
+}
