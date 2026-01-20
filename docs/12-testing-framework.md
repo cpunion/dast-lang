@@ -154,39 +154,6 @@ my_project/
 
 ---
 
-## 集成测试
-
-### 目录结构
-
-```
-my_project/
-├── src/
-│   └── lib.dast
-├── tests/
-│   ├── integration_test.dast
-│   └── api_test.dast
-└── dast.toml
-```
-
-### 集成测试文件
-
-```dast
-// tests/integration_test.dast
-import my_project
-
-fn test_public_api() {
-    let result = my_project.process_data("input")
-    assert_eq!(result, "expected")
-}
-
-fn test_error_handling() {
-    let result = my_project.process_data("")
-    assert_err!(result)
-}
-```
-
----
-
 ## 基准测试
 
 ### 基础语法
@@ -316,7 +283,6 @@ $ dast test --coverage --min-coverage=80
 | 基准测试 | `bench_*` 前缀 |
 | Fuzz 测试 | `fuzz_*` 前缀 |
 | 断言 | `assert!` 宏 |
-| 集成测试 | `tests/` 目录 |
 | 覆盖率 | 内置支持 |
 
 **核心**: 完全采用 Go 风格，简洁直观

@@ -3,6 +3,14 @@ struct ArgSplit {
     rest: [String],
 }
 
+struct ArgSplitPkg {
+    files: [String],
+    rest: [String],
+    package: String,
+    example: String,
+    debug: bool,
+}
+
 struct LineCol {
     line: i32,
     col: i32,
@@ -19,6 +27,9 @@ struct Manifest {
     name: String,
     version: String,
     edition: String,
+    has_workspace: bool,
+    workspace_line: i32,
+    workspace_members: [String],
     deps: [String],
     dev_deps: [String],
     build_deps: [String],
@@ -71,6 +82,9 @@ fn manifest_empty() -> Manifest {
         name: "",
         version: "",
         edition: "",
+        has_workspace: false,
+        workspace_line: 0,
+        workspace_members: driver_string_list_new(),
         deps: driver_string_list_new(),
         dev_deps: driver_string_list_new(),
         build_deps: driver_string_list_new(),
@@ -95,10 +109,10 @@ fn driver_qualify_name(module: String, name: String) -> String {
 
 fn usage() {
     println("usage:")
-    println("  dast build <file.dast|dir> [more ...]")
-    println("  dast run <file.dast|dir> [more ...] [-- args...]")
-    println("  dast ir <file.dast|dir> [more ...]")
-    println("  dast test <file.dast|dir> [more ...]")
+    println("  dast build [--package name] [--example name] <file.dast|dir> [more ...]")
+    println("  dast run [--package name] [--example name] <file.dast|dir> [more ...] [-- args...]")
+    println("  dast ir [--package name] [--example name] <file.dast|dir> [more ...]")
+    println("  dast test [--package name] <file.dast|dir> [more ...]")
     println("  dast ir-run <file.ir> [-- args...]")
     println("  dast ir-verify <file.ir>")
     println("  dast ir-opt <file.ir>")
@@ -153,6 +167,45 @@ fn split_args(args: [String], start: i32) -> ArgSplit {
         i = i + 1
     }
     return ArgSplit { files: files, rest: rest }
+}
+
+fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
+    let mut files: [String] = []
+    let mut rest: [String] = []
+    let mut pkg = ""
+    let mut example = ""
+    let mut debug = false
+    let mut i = start
+    let mut done = false
+    while i < len(args) && !done {
+        if args[i] == "--" {
+            i = i + 1
+            done = true
+        } else if args[i] == "--debug" {
+            debug = true
+            i = i + 1
+        } else if args[i] == "--package" || args[i] == "-p" {
+            if i + 1 >= len(args) {
+                die_usage()
+            }
+            pkg = args[i + 1]
+            i = i + 2
+        } else if args[i] == "--example" || args[i] == "-e" {
+            if i + 1 >= len(args) {
+                die_usage()
+            }
+            example = args[i + 1]
+            i = i + 2
+        } else {
+            push(&mut files, args[i])
+            i = i + 1
+        }
+    }
+    while i < len(args) {
+        push(&mut rest, args[i])
+        i = i + 1
+    }
+    return ArgSplitPkg { files: files, rest: rest, package: pkg, example: example, debug: debug }
 }
 
 fn parse_files(files: [String]) -> ParseResult {
@@ -571,12 +624,51 @@ fn driver_find_package_root(path: String) -> String {
     return ""
 }
 
+fn driver_find_workspace_root(path: String) -> String {
+    let mut dir = path
+    if driver_is_dast_file(path) {
+        dir = driver_path_dir(path)
+    }
+    let mut cur = dir
+    let mut done = false
+    while cur != "" && !done {
+        if driver_dir_has_entry(cur, "dast.toml") {
+            let res = driver_load_manifest(cur)
+            if res.manifest.has_workspace {
+                return cur
+            }
+        }
+        let parent = driver_path_dir(cur)
+        if parent == cur || parent == "" {
+            done = true
+        } else {
+            cur = parent
+        }
+    }
+    return ""
+}
+
 fn driver_code_root(pkg_root: String) -> String {
     if pkg_root == "" { return "" }
     if driver_dir_has_entry(pkg_root, "src") {
         return driver_path_join(pkg_root, "src")
     }
     return pkg_root
+}
+
+fn driver_examples_root(pkg_root: String) -> String {
+    if pkg_root == "" { return "" }
+    if driver_dir_has_entry(pkg_root, "examples") {
+        return driver_path_join(pkg_root, "examples")
+    }
+    return ""
+}
+
+fn driver_module_root_for_dir(dir: String, code_root: String, examples_root: String) -> String {
+    if examples_root != "" && driver_path_is_within(examples_root, dir) {
+        return examples_root
+    }
+    return code_root
 }
 
 fn driver_parse_package_name(toml: String) -> String {
@@ -625,6 +717,74 @@ fn driver_manifest_add_error(errors: &mut [ParseError], line: i32, msg: String) 
     push(errors, ParseError { pos: 0, file: "", line: line, col: 1, msg: msg })
 }
 
+struct StringArrayParse {
+    items: [String],
+    end_idx: i32,
+    ok: bool,
+}
+
+fn driver_collect_string_literals(text: String) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    let n = len(text)
+    while i < n {
+        let c = char_at(text, i)
+        if c == '"' {
+            let start = i
+            i = i + 1
+            let mut done = false
+            while i < n && !done {
+                let ch = char_at(text, i)
+                if ch == '\\' {
+                    if i + 1 < n {
+                        i = i + 2
+                    } else {
+                        i = i + 1
+                    }
+                } else if ch == '"' {
+                    done = true
+                    i = i + 1
+                } else {
+                    i = i + 1
+                }
+            }
+            let raw = substr(text, start, i - start)
+            if raw != "" {
+                push(&mut out, parse_string_lit_token(raw))
+            }
+        } else {
+            i = i + 1
+        }
+    }
+    return out
+}
+
+fn driver_parse_string_array(lines: [String], start_idx: i32, first_value: String) -> StringArrayParse {
+    let mut combined = first_value
+    let mut idx = start_idx
+    let mut ok = driver_string_contains(first_value, "[")
+    if !ok {
+        return StringArrayParse { items: driver_string_list_new(), end_idx: start_idx, ok: false }
+    }
+    if !driver_string_contains(first_value, "]") {
+        let mut done = false
+        while idx + 1 < len(lines) && !done {
+            idx = idx + 1
+            let mut line = driver_trim_space(lines[idx])
+            line = driver_trim_space(driver_strip_inline_comment(line))
+            combined = combined + "\n" + line
+            if driver_string_contains(line, "]") {
+                done = true
+            }
+        }
+        if !done {
+            ok = false
+        }
+    }
+    let items = driver_collect_string_literals(combined)
+    return StringArrayParse { items: items, end_idx: idx, ok: ok }
+}
+
 fn driver_parse_manifest(toml: String) -> ManifestResult {
     let mut manifest = manifest_empty()
     let mut errors: [ParseError] = []
@@ -648,6 +808,10 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
                 section = "package"
                 manifest.has_package = true
                 manifest.package_line = line_no
+            } else if line == "[workspace]" {
+                section = "workspace"
+                manifest.has_workspace = true
+                manifest.workspace_line = line_no
             } else if line == "[dependencies]" {
                 section = "dependencies"
             } else if line == "[dev-dependencies]" {
@@ -690,6 +854,20 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
                             manifest.edition = parse_string_lit_token(value)
                         }
                     }
+                } else if section == "workspace" {
+                    if key == "members" {
+                        if len(manifest.workspace_members) > 0 {
+                            driver_manifest_add_error(&mut errors, line_no, "duplicate workspace.members")
+                        } else {
+                            let parsed = driver_parse_string_array(lines, i, value)
+                            if !parsed.ok {
+                                driver_manifest_add_error(&mut errors, line_no, "workspace.members must be array of strings")
+                            } else {
+                                manifest.workspace_members = parsed.items
+                                i = parsed.end_idx
+                            }
+                        }
+                    }
                 } else if section == "dependencies" || section == "dev-dependencies" || section == "build-dependencies" {
                     if key != "" {
                         if section == "dependencies" {
@@ -714,6 +892,10 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
     if manifest.has_package && manifest.name == "" {
         let line_no = manifest.package_line
         driver_manifest_add_error(&mut errors, line_no, "package.name is required")
+    }
+    if manifest.has_workspace && len(manifest.workspace_members) == 0 {
+        let line_no = manifest.workspace_line
+        driver_manifest_add_error(&mut errors, line_no, "workspace.members is required")
     }
     return ManifestResult { manifest: manifest, errors: errors }
 }
@@ -755,12 +937,15 @@ fn driver_import_rel_to_path(rel: String) -> String {
     return driver_replace_dots(rel)
 }
 
-fn driver_import_path_to_dir(base_dir: String, root_dir: String, path: String, is_string: bool) -> String {
+fn driver_import_path_to_dir(base_dir: String, path: String, is_string: bool, pkg_name: String, code_root: String) -> String {
     let mut rel = path
     let mut from_dir = base_dir
     if is_string {
         if !driver_is_relative_import(path) {
-            from_dir = root_dir
+            if pkg_name != "" && path == pkg_name {
+                return code_root
+            }
+            from_dir = code_root
         }
         if driver_string_starts_with(rel, "./") {
             rel = substr(rel, 2, len(rel) - 2)
@@ -982,7 +1167,7 @@ fn load_state_new() -> LoadState {
     return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new(), sources: driver_string_list_new() }
 }
 
-fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState, include_tests: bool) {
+fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState, include_tests: bool, pkg_name: String, code_root: String, examples_root: String, stack: [String]) {
     if driver_list_contains(state.loaded, path) {
         return
     }
@@ -1007,14 +1192,31 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
         let imp = prog.imports[j]
         if imp.path != "" {
             let orig_path = imp.path
-            let child_dir = driver_import_path_to_dir(base, root_dir, imp.path, imp.path_is_string)
-            if !driver_path_is_within(root_dir, child_dir) {
+            let mut pkg_import = false
+            if imp.path_is_string && !driver_is_relative_import(orig_path) && pkg_name != "" && orig_path == pkg_name {
+                pkg_import = true
+            }
+            let child_dir = driver_import_path_to_dir(base, imp.path, imp.path_is_string, pkg_name, code_root)
+            let mut allowed = driver_path_is_within(root_dir, child_dir)
+            if !allowed && root_dir != code_root {
+                allowed = driver_path_is_within(code_root, child_dir)
+            }
+            if !allowed {
                 push(&mut local_errs, ParseError { pos: imp.pos, file: "", line: 0, col: 0, msg: "import path escapes package root: " + imp.path })
             } else {
-                let child_mod = driver_module_path_from_dir(root_dir, child_dir)
+                let child_root = driver_module_root_for_dir(child_dir, code_root, examples_root)
+                let child_mod = driver_module_path_from_dir(child_root, child_dir)
                 let mut new_path = child_mod
-                if child_mod != "" {
+                if pkg_import {
+                    new_path = "::"
+                } else if child_mod != "" {
                     new_path = "::" + child_mod
+                }
+                let mut has_alias = imp.has_alias
+                let mut alias = imp.alias
+                if pkg_import && !has_alias {
+                    has_alias = true
+                    alias = pkg_name
                 }
                 push(&mut imports, ImportDecl {
                     vis: imp.vis,
@@ -1025,8 +1227,8 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
                     items: imp.items,
                     path: new_path,
                     path_is_string: false,
-                    has_alias: imp.has_alias,
-                    alias: imp.alias,
+                    has_alias: has_alias,
+                    alias: alias,
                 })
                 push(&mut child_dirs, ImportLoad { dir: child_dir, file: path, pos: imp.pos, path: orig_path })
             }
@@ -1064,12 +1266,43 @@ fn load_file_recursive(path: String, root_dir: String, module_path: String, stat
 
     j = 0
     while j < len(child_dirs) {
-        load_dir_recursive(child_dirs[j], root_dir, state, false)
+        let child_root = driver_module_root_for_dir(child_dirs[j].dir, code_root, examples_root)
+        load_dir_recursive(child_dirs[j], child_root, state, false, pkg_name, code_root, examples_root, stack)
         j = j + 1
     }
 }
 
-fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, include_tests: bool) {
+fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, include_tests: bool, pkg_name: String, code_root: String, examples_root: String, stack: [String]) {
+    let mut cycle_idx = -1
+    if len(stack) > 0 {
+        cycle_idx = driver_list_index(stack, req.dir)
+    }
+    if cycle_idx >= 0 {
+        let mut msg = "circular import: "
+        let mut i = cycle_idx
+        while i < len(stack) {
+            let stack_root = driver_module_root_for_dir(stack[i], code_root, examples_root)
+            let mut name = driver_module_path_from_dir(stack_root, stack[i])
+            if name == "" { name = "<root>" }
+            if i > cycle_idx {
+                msg = msg + " -> "
+            }
+            msg = msg + name
+            i = i + 1
+        }
+        let req_root = driver_module_root_for_dir(req.dir, code_root, examples_root)
+        let mut last = driver_module_path_from_dir(req_root, req.dir)
+        if last == "" { last = "<root>" }
+        msg = msg + " -> " + last
+        let mut errs = state.errors
+        if req.file != "" {
+            push(&mut errs, ParseError { pos: req.pos, file: req.file, line: 0, col: 0, msg: msg })
+        } else {
+            push(&mut errs, ParseError { pos: 0, file: req.dir, line: 1, col: 1, msg: msg })
+        }
+        state.errors = errs
+        return
+    }
     let module_path = driver_module_path_from_dir(root_dir, req.dir)
     let files = driver_list_dast_files(req.dir, include_tests)
     if len(files) == 0 {
@@ -1082,9 +1315,16 @@ fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, 
         state.errors = errs
         return
     }
+    let mut next_stack: [String] = []
+    let mut si = 0
+    while si < len(stack) {
+        push(&mut next_stack, stack[si])
+        si = si + 1
+    }
+    push(&mut next_stack, req.dir)
     let mut i = 0
     while i < len(files) {
-        load_file_recursive(files[i], root_dir, module_path, state, include_tests)
+        load_file_recursive(files[i], root_dir, module_path, state, include_tests, pkg_name, code_root, examples_root, next_stack)
         i = i + 1
     }
 }
@@ -1175,6 +1415,172 @@ fn collect_tests(prog: Program) -> [String] {
     return out
 }
 
+fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, example: String) {
+    let mut pkg_root = driver_find_package_root(files[0])
+    let mut pkg_has_toml = pkg_root != ""
+    if !pkg_has_toml {
+        pkg_root = files[0]
+        if driver_is_dast_file(pkg_root) {
+            pkg_root = driver_path_dir(pkg_root)
+        }
+    }
+    let code_root = driver_code_root(pkg_root)
+    let examples_root = driver_examples_root(pkg_root)
+    let mut pkg_name = ""
+    if pkg_has_toml {
+        let manifest = driver_load_manifest(pkg_root)
+        if len(manifest.errors) > 0 {
+            die_errors(manifest.errors)
+        }
+        pkg_name = manifest.manifest.name
+    }
+
+    let mut entry_files = files
+    let mut module_root = code_root
+    if example != "" {
+        if len(files) != 1 {
+            die_error("example expects single package path")
+        }
+        if cmd == "test" {
+            die_error("example flag not supported for test")
+        }
+        if examples_root == "" {
+            die_error("examples directory not found")
+        }
+        let mut ex_path = ""
+        if driver_dir_has_entry(examples_root, example) {
+            ex_path = driver_path_join(examples_root, example)
+        } else {
+            let file_name = example + ".dast"
+            if driver_dir_has_entry(examples_root, file_name) {
+                ex_path = driver_path_join(examples_root, file_name)
+            }
+        }
+        if ex_path == "" {
+            die_error("example not found: " + example)
+        }
+        let mut only: [String] = []
+        push(&mut only, ex_path)
+        entry_files = only
+        module_root = examples_root
+    }
+
+    let mut state = load_state_new()
+    let mut i = 0
+    while i < len(entry_files) {
+        let path = entry_files[i]
+        let mut dir = path
+        if driver_is_dast_file(path) {
+            dir = driver_path_dir(path)
+        }
+        if pkg_has_toml {
+            let other_root = driver_find_package_root(path)
+            if other_root != pkg_root {
+                die_error("multiple package roots not supported")
+            }
+        } else {
+            let other_root = driver_find_package_root(path)
+            if other_root != "" && other_root != pkg_root {
+                die_error("multiple package roots not supported")
+            }
+            if !driver_path_is_within(pkg_root, dir) {
+                die_error("multiple package roots not supported")
+            }
+        }
+        if dir == pkg_root {
+            dir = code_root
+        }
+        if !driver_path_is_within(module_root, dir) {
+            die_error("path outside module root: " + path)
+        }
+        let include_tests = cmd == "test"
+        let stack = driver_string_list_new()
+        load_dir_recursive(ImportLoad { dir: dir, file: "", pos: -1, path: dir }, module_root, &mut state, include_tests, pkg_name, code_root, examples_root, stack)
+        i = i + 1
+    }
+
+    if debug {
+        let mut di = 0
+        while di < len(state.loaded) {
+            println("stage2: loaded", state.loaded[di])
+            di = di + 1
+        }
+    }
+    let parse_res = ParseResult { prog: state.merged, errors: state.errors }
+    if len(parse_res.errors) > 0 {
+        let perrs = attach_error_locations(parse_res.errors, &state)
+        die_errors(perrs)
+    }
+    if debug { println("stage2: parsed") }
+    if debug {
+        let mut ii = 0
+        while ii < len(parse_res.prog.imports) {
+            let imp = parse_res.prog.imports[ii]
+            println("stage2: import", imp.module, imp.path, imp.alias)
+            ii = ii + 1
+        }
+        let mut fi = 0
+        while fi < len(parse_res.prog.functions) {
+            let f = parse_res.prog.functions[fi]
+            println("stage2: func", f.name, "module", f.module, "file", f.file)
+            fi = fi + 1
+        }
+    }
+    let tctx = check_program(parse_res.prog)
+    let terrs = attach_error_locations(tctx.errors, &state)
+    if len(terrs) > 0 { die_errors(terrs) }
+    if debug { println("stage2: typechecked") }
+    let comp = compile_program(parse_res.prog, tctx)
+    let cerrs = attach_error_locations(comp.errors, &state)
+    if len(cerrs) > 0 { die_errors(cerrs) }
+    if debug { println("stage2: compiled") }
+    let verr = ir_validate(comp.prog)
+    if verr != "" {
+        die_error(verr)
+    }
+    if cmd == "ir" {
+        print(ir_program_format(comp.prog))
+        return
+    }
+    if cmd == "build" {
+        let mut name = "main"
+        if example != "" {
+            name = example
+        } else if pkg_has_toml {
+            if pkg_name != "" { name = pkg_name }
+        }
+        let target_dir = driver_path_join(pkg_root, "target")
+        mkdir(target_dir)
+        let out_path = driver_path_join(target_dir, name + ".ir")
+        write_file(out_path, ir_program_format(comp.prog))
+        return
+    }
+    if cmd == "test" {
+        let tests = collect_tests(parse_res.prog)
+        if len(tests) == 0 {
+            println("ok 0")
+            return
+        }
+        let mut ti = 0
+        while ti < len(tests) {
+            let name = tests[ti]
+            if debug { println("stage2: test", name) }
+            let mut rt = runtime_new(comp.prog, driver_string_list_new())
+            runtime_run(&mut rt, name)
+            if rt.error != "" {
+                handle_runtime_error(rt.error)
+            }
+            ti = ti + 1
+        }
+        println("ok", len(tests))
+        return
+    }
+    let mut rt = runtime_new(comp.prog, rest)
+    if debug { println("stage2: running") }
+    runtime_run(&mut rt, comp.prog.entry)
+    handle_runtime_error(rt.error)
+}
+
 fn main() {
     let argv = args()
     if len(argv) < 1 {
@@ -1184,16 +1590,14 @@ fn main() {
     if cmd != "build" && cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "ir-verify" && cmd != "ir-opt" && cmd != "test" {
         die_usage()
     }
-    let mut debug = false
-    let mut start = 1
-    if len(argv) > 1 && argv[1] == "--debug" {
-        debug = true
-        start = 2
-    }
+    let split = split_args_with_pkg(argv, 1)
+    let debug = split.debug
     if debug { println("stage2: start") }
-    let split = split_args(argv, start)
     if len(split.files) == 0 {
         die_usage()
+    }
+    if cmd == "test" && split.example != "" {
+        die_error("example flag not supported for test")
     }
 
     if cmd == "ir-run" {
@@ -1251,107 +1655,66 @@ fn main() {
         print(ir_program_format(opt))
         return
     }
-    let mut pkg_root = driver_find_package_root(split.files[0])
-    let mut pkg_has_toml = pkg_root != ""
-    if !pkg_has_toml {
-        pkg_root = split.files[0]
-        if driver_is_dast_file(pkg_root) {
-            pkg_root = driver_path_dir(pkg_root)
-        }
-    }
-    let code_root = driver_code_root(pkg_root)
-
-    let mut state = load_state_new()
-    let mut i = 0
-    while i < len(split.files) {
-        let path = split.files[i]
-        let mut dir = path
-        if driver_is_dast_file(path) {
-            dir = driver_path_dir(path)
-        }
-        if pkg_has_toml {
-            let other_root = driver_find_package_root(path)
-            if other_root != pkg_root {
-                die_error("multiple package roots not supported")
-            }
-        } else {
-            let other_root = driver_find_package_root(path)
-            if other_root != "" && other_root != pkg_root {
-                die_error("multiple package roots not supported")
-            }
-            if !driver_path_is_within(pkg_root, dir) {
-                die_error("multiple package roots not supported")
+    let mut use_workspace = false
+    let ws_root = driver_find_workspace_root(split.files[0])
+    if cmd == "build" || cmd == "run" || cmd == "test" {
+        if ws_root != "" && len(split.files) == 1 {
+            let in_path = driver_path_clean(split.files[0])
+            let root_path = driver_path_clean(ws_root)
+            if in_path == root_path {
+                use_workspace = true
             }
         }
-        if dir == pkg_root {
-            dir = code_root
+    }
+    if use_workspace {
+        let manifest = driver_load_manifest(ws_root)
+        if len(manifest.errors) > 0 {
+            die_errors(manifest.errors)
         }
-        if !driver_path_is_within(code_root, dir) {
-            die_error("path outside package root: " + path)
+        let members = manifest.manifest.workspace_members
+        let mut member_paths: [String] = []
+        let mut i = 0
+        while i < len(members) {
+            let mpath = driver_path_clean(driver_path_join(ws_root, members[i]))
+            push(&mut member_paths, mpath)
+            i = i + 1
         }
-        let include_tests = cmd == "test"
-        load_dir_recursive(ImportLoad { dir: dir, file: "", pos: -1, path: dir }, code_root, &mut state, include_tests)
-        i = i + 1
-    }
-    let parse_res = ParseResult { prog: state.merged, errors: state.errors }
-    if len(parse_res.errors) > 0 {
-        let perrs = attach_error_locations(parse_res.errors, &state)
-        die_errors(perrs)
-    }
-    if debug { println("stage2: parsed") }
-    let tctx = check_program(parse_res.prog)
-    let terrs = attach_error_locations(tctx.errors, &state)
-    if len(terrs) > 0 { die_errors(terrs) }
-    if debug { println("stage2: typechecked") }
-    let comp = compile_program(parse_res.prog, tctx)
-    let cerrs = attach_error_locations(comp.errors, &state)
-    if len(cerrs) > 0 { die_errors(cerrs) }
-    if debug { println("stage2: compiled") }
-    let verr = ir_validate(comp.prog)
-    if verr != "" {
-        die_error(verr)
-    }
-    if cmd == "ir" {
-        print(ir_program_format(comp.prog))
+        if split.package != "" {
+            let mut filtered: [String] = []
+            let mut j = 0
+            while j < len(member_paths) {
+                let mroot = member_paths[j]
+                let res = driver_load_manifest(mroot)
+                if len(res.errors) > 0 {
+                    die_errors(res.errors)
+                }
+                if res.manifest.name == split.package {
+                    push(&mut filtered, mroot)
+                }
+                j = j + 1
+            }
+            if len(filtered) == 0 {
+                die_error("package not found: " + split.package)
+            }
+            member_paths = filtered
+        } else if cmd == "run" && len(member_paths) > 1 {
+            die_error("multiple packages in workspace, use --package")
+        }
+        if split.example != "" && split.package == "" && len(member_paths) > 1 {
+            die_error("example requires --package in workspace")
+        }
+        let mut k = 0
+        while k < len(member_paths) {
+            if debug { println("stage2: workspace", member_paths[k]) }
+            let mut files: [String] = []
+            push(&mut files, member_paths[k])
+            driver_execute(cmd, files, split.rest, debug, split.example)
+            k = k + 1
+        }
         return
     }
-    if cmd == "build" {
-        let mut name = "main"
-        if pkg_has_toml {
-            let manifest = driver_load_manifest(pkg_root)
-            if len(manifest.errors) > 0 {
-                die_errors(manifest.errors)
-            }
-            if manifest.manifest.name != "" { name = manifest.manifest.name }
-        }
-        let target_dir = driver_path_join(pkg_root, "target")
-        mkdir(target_dir)
-        let out_path = driver_path_join(target_dir, name + ".ir")
-        write_file(out_path, ir_program_format(comp.prog))
-        return
+    if split.package != "" {
+        die_error("package flag only valid for workspace root")
     }
-    if cmd == "test" {
-        let tests = collect_tests(parse_res.prog)
-        if len(tests) == 0 {
-            println("ok 0")
-            return
-        }
-        let mut ti = 0
-        while ti < len(tests) {
-            let name = tests[ti]
-            if debug { println("stage2: test", name) }
-            let mut rt = runtime_new(comp.prog, driver_string_list_new())
-            runtime_run(&mut rt, name)
-            if rt.error != "" {
-                handle_runtime_error(rt.error)
-            }
-            ti = ti + 1
-        }
-        println("ok", len(tests))
-        return
-    }
-    let mut rt = runtime_new(comp.prog, split.rest)
-    if debug { println("stage2: running") }
-    runtime_run(&mut rt, comp.prog.entry)
-    handle_runtime_error(rt.error)
+    driver_execute(cmd, split.files, split.rest, debug, split.example)
 }

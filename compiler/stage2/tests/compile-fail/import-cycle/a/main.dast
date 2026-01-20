@@ -1,0 +1,3 @@
+import "b"
+
+pub fn a() -> i32 { 1 }

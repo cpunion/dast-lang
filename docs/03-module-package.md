@@ -100,8 +100,6 @@ my_project/
 ├── src/
 │   ├── main.dast      # 可执行包入口
 │   └── lib.dast       # 库包入口
-├── tests/
-│   └── test_all.dast
 └── examples/
     └── demo.dast
 ```

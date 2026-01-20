@@ -290,7 +290,10 @@ fn module_aliases_from_imports(imports: [ImportDecl], module: String) -> [Module
                 name = path_last_segment(imp.path)
             }
             if name != "" {
-                let full = module_join(module, imp.path)
+                let mut full = module_join(module, imp.path)
+                if full == "" && imp.path == "::" {
+                    full = "::"
+                }
                 push(&mut aliases, ModuleAlias { alias: name, module: full })
             }
         }
@@ -393,7 +396,11 @@ fn module_alias_module(ctx: &TypeContext, name: String) -> String {
     let mut i = 0
     while i < len(ctx.module_aliases) {
         if ctx.module_aliases[i].alias == name {
-            return ctx.module_aliases[i].module
+            let mod = ctx.module_aliases[i].module
+            if mod == "" {
+                return "::"
+            }
+            return mod
         }
         i = i + 1
     }
@@ -2171,7 +2178,8 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     if ctx_env_lookup(ctx, id.name).name == "" {
                         let alias_mod = module_alias_module(ctx, id.name)
                         if alias_mod != "" {
-                            let fidx = find_func_in_module(ctx, alias_mod, m.method)
+                            let mod_name = module_strip_root(alias_mod)
+                            let fidx = find_func_in_module(ctx, mod_name, m.method)
                             if fidx >= 0 {
                                 let sig = ctx.funcs[fidx]
                                 if !visibility_allows(sig.vis, sig.module, ctx.current_module) {

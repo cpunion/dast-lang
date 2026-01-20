@@ -26,6 +26,8 @@ STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
 STAGE2_BUILD := $(wildcard compiler/stage2/tests/build/*)
 STAGE2_BUILD_FAIL := $(wildcard compiler/stage2/tests/build-fail/*)
+STAGE2_WORKSPACE := $(wildcard compiler/stage2/tests/workspace/*)
+STAGE2_EXAMPLES := $(wildcard compiler/stage2/tests/examples/*)
 
 .PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean
 
@@ -132,6 +134,48 @@ test-stage2: build-stage0
 		echo "$$out"; \
 		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
 		echo "$$out" | grep -q '^stage[0-9]:' || exit 1; \
+	done
+	@for d in $(STAGE2_WORKSPACE); do \
+		echo "[stage2-workspace-run] $$d"; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run --package app $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+	done
+	@for d in $(STAGE2_WORKSPACE); do \
+		echo "[stage2-workspace-test] $$d"; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- test --package app $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+	done
+	@for d in $(STAGE2_WORKSPACE); do \
+		echo "[stage2-workspace-build] $$d"; \
+		rm -rf $$d/app/target; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --package app $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if ! ls $$d/app/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
+	done
+	@for d in $(STAGE2_EXAMPLES); do \
+		echo "[stage2-example-run] $$d"; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run --example hello $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+	done
+	@for d in $(STAGE2_EXAMPLES); do \
+		echo "[stage2-example-build] $$d"; \
+		rm -rf $$d/target; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --example hello $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
 	done
 
 test-stage1-ir: build-stage0 build-stage1-ir
