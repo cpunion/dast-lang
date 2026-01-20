@@ -1872,3 +1872,100 @@ fn new_temp(c: &mut Compiler) -> i32 {
     c.temp_id = c.temp_id + 1
     return t
 }
+// Analyze free variables in an expression
+// Returns list of variable names that are referenced but not defined locally
+fn analyze_free_vars(expr: Expr, local_vars: [String]) -> [String] {
+    let mut free: [String] = []
+    collect_free_vars(expr, local_vars, &mut free)
+    return free
+}
+
+fn collect_free_vars(expr: Expr, local_vars: [String], free: &mut [String]) {
+    match expr {
+        Expr.Ident(id) => {
+            // Check if this identifier is a local variable
+            let mut is_local = false
+            let mut i = 0
+            while i < len(local_vars) {
+                if local_vars[i] == id.name {
+                    is_local = true
+                }
+                i = i + 1
+            }
+            // If not local and not already in free list, add it
+            if !is_local {
+                let mut already_captured = false
+                let mut j = 0
+                while j < len(free) {
+                    if free[j] == id.name {
+                        already_captured = true
+                    }
+                    j = j + 1
+                }
+                if !already_captured {
+                    push(free, id.name)
+                }
+            }
+        }
+        Expr.IntLit(_) => {}
+        Expr.BoolLit(_) => {}
+        Expr.StringLit(_) => {}
+        Expr.Binary(b) => {
+            collect_free_vars(b.left, local_vars, free)
+            collect_free_vars(b.right, local_vars, free)
+        }
+        Expr.Unary(u) => {
+            collect_free_vars(u.expr, local_vars, free)
+        }
+        Expr.Call(c) => {
+            collect_free_vars(c.callee, local_vars, free)
+            let mut i = 0
+            while i < len(c.args) {
+                collect_free_vars(c.args[i], local_vars, free)
+                i = i + 1
+            }
+        }
+        Expr.MethodCall(m) => {
+            collect_free_vars(m.recv, local_vars, free)
+            let mut i = 0
+            while i < len(m.args) {
+                collect_free_vars(m.args[i], local_vars, free)
+                i = i + 1
+            }
+        }
+        Expr.Field(f) => {
+            collect_free_vars(f.recv, local_vars, free)
+        }
+        Expr.Index(ix) => {
+            collect_free_vars(ix.recv, local_vars, free)
+            collect_free_vars(ix.index, local_vars, free)
+        }
+        Expr.StructLit(s) => {
+            let mut i = 0
+            while i < len(s.fields) {
+                collect_free_vars(s.fields[i].value, local_vars, free)
+                i = i + 1
+            }
+        }
+        Expr.ArrayLit(a) => {
+            let mut i = 0
+            while i < len(a.elems) {
+                collect_free_vars(a.elems[i], local_vars, free)
+                i = i + 1
+            }
+        }
+        Expr.Ref(r) => {
+            collect_free_vars(r.expr, local_vars, free)
+        }
+        Expr.Deref(d) => {
+            collect_free_vars(d.expr, local_vars, free)
+        }
+        Expr.IfLet(il) => {
+            collect_free_vars(il.expr, local_vars, free)
+            // Would need to track pattern bindings - skip for now
+        }
+        _ => {
+            // For other expressions (Closure), conservatively assume no free vars
+        }
+    }
+}
