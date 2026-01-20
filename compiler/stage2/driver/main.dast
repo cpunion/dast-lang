@@ -104,16 +104,6 @@ fn program_empty() -> Program {
     }
 }
 
-fn trait_list_new() -> [TraitDecl] {
-    let mut items: [TraitDecl] = []
-    return items
-}
-
-fn impl_trait_list_new() -> [ImplTrait] {
-    let mut items: [ImplTrait] = []
-    return items
-}
-
 fn driver_qualify_name(module: String, name: String) -> String {
     if module == "" { return name }
     return module + "::" + name
