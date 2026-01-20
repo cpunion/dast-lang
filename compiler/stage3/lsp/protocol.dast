@@ -1,0 +1,208 @@
+// LSP Protocol Types for Dast LSP
+// Based on LSP 3.17 specification
+
+@repr(i32)
+enum DiagnosticSeverity {
+    Error = 1,
+    Warning = 2,
+    Information = 3,
+    Hint = 4,
+}
+
+struct Position {
+    line: i32,
+    character: i32,
+}
+
+struct Range {
+    start: Position,
+    end: Position,
+}
+
+struct Location {
+    uri: String,
+    range: Range,
+}
+
+struct Diagnostic {
+    range: Range,
+    severity: DiagnosticSeverity,
+    source: String,
+    message: String,
+}
+
+struct TextDocumentIdentifier {
+    uri: String,
+}
+
+struct TextDocumentItem {
+    uri: String,
+    language_id: String,
+    version: i32,
+    text: String,
+}
+
+struct VersionedTextDocumentIdentifier {
+    uri: String,
+    version: i32,
+}
+
+struct TextDocumentContentChangeEvent {
+    text: String,  // Full sync: entire new text
+}
+
+// Initialize request params
+struct InitializeParams {
+    process_id: i32,
+    root_uri: String,
+}
+
+// Server capabilities
+struct ServerCapabilities {
+    text_document_sync_kind: i32,  // 0=None, 1=Full, 2=Incremental
+    hover_provider: bool,
+    definition_provider: bool,
+    references_provider: bool,
+}
+
+struct InitializeResult {
+    capabilities: ServerCapabilities,
+}
+
+// Create helpers
+fn position_new(line: i32, character: i32) -> Position {
+    return Position { line: line, character: character }
+}
+
+fn range_new(start_line: i32, start_char: i32, end_line: i32, end_char: i32) -> Range {
+    return Range {
+        start: position_new(start_line, start_char),
+        end: position_new(end_line, end_char),
+    }
+}
+
+fn diagnostic_new(range: Range, severity: DiagnosticSeverity, message: String) -> Diagnostic {
+    return Diagnostic {
+        range: range,
+        severity: severity,
+        source: "dast",
+        message: message,
+    }
+}
+
+// Convert Position to JSON
+fn position_to_json(pos: Position) -> JsonValue {
+    let mut obj = json_object()
+    obj = json_set(obj, "line", json_number(pos.line))
+    obj = json_set(obj, "character", json_number(pos.character))
+    return obj
+}
+
+// Convert Range to JSON
+fn range_to_json(r: Range) -> JsonValue {
+    let mut obj = json_object()
+    obj = json_set(obj, "start", position_to_json(r.start))
+    obj = json_set(obj, "end", position_to_json(r.end))
+    return obj
+}
+
+// Convert Diagnostic to JSON
+fn diagnostic_to_json(d: Diagnostic) -> JsonValue {
+    let mut obj = json_object()
+    obj = json_set(obj, "range", range_to_json(d.range))
+    let sev = severity_to_int(d.severity)
+    obj = json_set(obj, "severity", json_number(sev))
+    obj = json_set(obj, "source", json_string(d.source))
+    obj = json_set(obj, "message", json_string(d.message))
+    return obj
+}
+
+fn severity_to_int(s: DiagnosticSeverity) -> i32 {
+    match s {
+        DiagnosticSeverity.Error => { return 1 }
+        .Warning => { return 2 }
+        .Information => { return 3 }
+        .Hint => { return 4 }
+    }
+}
+
+// Convert diagnostics array to JSON
+fn diagnostics_to_json(diagnostics: [Diagnostic]) -> JsonValue {
+    let mut arr = json_array()
+    let mut items: [JsonValue] = []
+    let mut i = 0
+    while i < len(diagnostics) {
+        push(&mut items, diagnostic_to_json(diagnostics[i]))
+        i = i + 1
+    }
+    return JsonValue {
+        kind: JsonKind.Array,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: items,
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+// Convert ServerCapabilities to JSON
+fn server_capabilities_to_json(caps: ServerCapabilities) -> JsonValue {
+    let mut obj = json_object()
+
+    // TextDocumentSync as number (Full=1)
+    obj = json_set(obj, "textDocumentSync", json_number(caps.text_document_sync_kind))
+    obj = json_set(obj, "hoverProvider", json_bool(caps.hover_provider))
+    obj = json_set(obj, "definitionProvider", json_bool(caps.definition_provider))
+    obj = json_set(obj, "referencesProvider", json_bool(caps.references_provider))
+
+    return obj
+}
+
+// Convert InitializeResult to JSON
+fn initialize_result_to_json(result: InitializeResult) -> JsonValue {
+    let mut obj = json_object()
+    obj = json_set(obj, "capabilities", server_capabilities_to_json(result.capabilities))
+    return obj
+}
+
+// Parse Position from JSON
+fn position_from_json(json: JsonValue) -> Position {
+    return Position {
+        line: json_get_int(json, "line", 0),
+        character: json_get_int(json, "character", 0),
+    }
+}
+
+// Parse Range from JSON
+fn range_from_json(json: JsonValue) -> Range {
+    return Range {
+        start: position_from_json(json_get(json, "start")),
+        end: position_from_json(json_get(json, "end")),
+    }
+}
+
+// Parse TextDocumentIdentifier from JSON
+fn text_document_identifier_from_json(json: JsonValue) -> TextDocumentIdentifier {
+    return TextDocumentIdentifier {
+        uri: json_get_string(json, "uri", ""),
+    }
+}
+
+// Parse TextDocumentItem from JSON
+fn text_document_item_from_json(json: JsonValue) -> TextDocumentItem {
+    return TextDocumentItem {
+        uri: json_get_string(json, "uri", ""),
+        language_id: json_get_string(json, "languageId", ""),
+        version: json_get_int(json, "version", 0),
+        text: json_get_string(json, "text", ""),
+    }
+}
+
+// Parse InitializeParams from JSON
+fn initialize_params_from_json(json: JsonValue) -> InitializeParams {
+    return InitializeParams {
+        process_id: json_get_int(json, "processId", 0),
+        root_uri: json_get_string(json, "rootUri", ""),
+    }
+}

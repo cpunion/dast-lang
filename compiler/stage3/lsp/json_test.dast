@@ -1,0 +1,224 @@
+// JSON Parser Tests
+
+fn main() {
+    test_parse_null()
+    test_parse_bool()
+    test_parse_number()
+    test_parse_negative()
+    test_parse_string()
+    test_parse_escape()
+    test_parse_array()
+    test_parse_object()
+    test_stringify_null()
+    test_stringify_bool()
+    test_stringify_number()
+    test_stringify_string()
+    test_stringify_array()
+    test_stringify_object()
+    test_json_get_int()
+    test_json_get_string()
+    test_nested_object()
+    test_nested_array()
+    println("All JSON tests complete")
+}
+
+fn test_parse_null() {
+    let v = json_parse("null")
+    if v.kind != JsonKind.Null {
+        println("FAIL: test_parse_null")
+        return
+    }
+    println("PASS: test_parse_null")
+}
+
+fn test_parse_bool() {
+    let t = json_parse("true")
+    let f = json_parse("false")
+    if t.kind != JsonKind.Bool || !t.bool_val {
+        println("FAIL: test_parse_bool - true")
+        return
+    }
+    if f.kind != JsonKind.Bool || f.bool_val {
+        println("FAIL: test_parse_bool - false")
+        return
+    }
+    println("PASS: test_parse_bool")
+}
+
+fn test_parse_number() {
+    let v = json_parse("42")
+    if v.kind != JsonKind.Number || v.num_val != 42 {
+        println("FAIL: test_parse_number")
+        return
+    }
+    println("PASS: test_parse_number")
+}
+
+fn test_parse_negative() {
+    let v = json_parse("-123")
+    if v.kind != JsonKind.Number || v.num_val != -123 {
+        println("FAIL: test_parse_negative")
+        return
+    }
+    println("PASS: test_parse_negative")
+}
+
+fn test_parse_string() {
+    let v = json_parse("\"hello\"")
+    if v.kind != JsonKind.String || v.str_val != "hello" {
+        println("FAIL: test_parse_string")
+        return
+    }
+    println("PASS: test_parse_string")
+}
+
+fn test_parse_escape() {
+    let v = json_parse("\"hello\\nworld\"")
+    if v.kind != JsonKind.String {
+        println("FAIL: test_parse_escape - not string")
+        return
+    }
+    if len(v.str_val) != 11 {
+        println("FAIL: test_parse_escape - wrong length")
+        return
+    }
+    println("PASS: test_parse_escape")
+}
+
+fn test_parse_array() {
+    let v = json_parse("[1, 2, 3]")
+    if v.kind != JsonKind.Array || len(v.arr_val) != 3 {
+        println("FAIL: test_parse_array")
+        return
+    }
+    println("PASS: test_parse_array")
+}
+
+fn test_parse_object() {
+    let v = json_parse("{\"name\": \"test\", \"value\": 42}")
+    if v.kind != JsonKind.Object {
+        println("FAIL: test_parse_object - not object")
+        return
+    }
+    let name = json_get(v, "name")
+    if name.kind != JsonKind.String || name.str_val != "test" {
+        println("FAIL: test_parse_object - wrong name")
+        return
+    }
+    let val = json_get(v, "value")
+    if val.kind != JsonKind.Number || val.num_val != 42 {
+        println("FAIL: test_parse_object - wrong value")
+        return
+    }
+    println("PASS: test_parse_object")
+}
+
+fn test_stringify_null() {
+    let v = json_null()
+    let s = json_stringify(v)
+    if s != "null" {
+        println("FAIL: test_stringify_null")
+        return
+    }
+    println("PASS: test_stringify_null")
+}
+
+fn test_stringify_bool() {
+    let t = json_bool(true)
+    let f = json_bool(false)
+    if json_stringify(t) != "true" || json_stringify(f) != "false" {
+        println("FAIL: test_stringify_bool")
+        return
+    }
+    println("PASS: test_stringify_bool")
+}
+
+fn test_stringify_number() {
+    let v = json_number(42)
+    if json_stringify(v) != "42" {
+        println("FAIL: test_stringify_number")
+        return
+    }
+    println("PASS: test_stringify_number")
+}
+
+fn test_stringify_string() {
+    let v = json_string("hello")
+    if json_stringify(v) != "\"hello\"" {
+        println("FAIL: test_stringify_string")
+        return
+    }
+    println("PASS: test_stringify_string")
+}
+
+fn test_stringify_array() {
+    let mut arr: [JsonValue] = []
+    push(&mut arr, json_number(1))
+    push(&mut arr, json_number(2))
+    let v = JsonValue {
+        kind: JsonKind.Array,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: arr,
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+    let s = json_stringify(v)
+    if s != "[1,2]" {
+        println("FAIL: test_stringify_array - got:", s)
+        return
+    }
+    println("PASS: test_stringify_array")
+}
+
+fn test_stringify_object() {
+    let mut obj = json_object()
+    obj = json_set(obj, "a", json_number(1))
+    let s = json_stringify(obj)
+    if s != "{\"a\":1}" {
+        println("FAIL: test_stringify_object - got:", s)
+        return
+    }
+    println("PASS: test_stringify_object")
+}
+
+fn test_json_get_int() {
+    let v = json_parse("{\"count\": 42}")
+    let i = json_get_int(v, "count", 0)
+    if i != 42 {
+        println("FAIL: test_json_get_int")
+        return
+    }
+    println("PASS: test_json_get_int")
+}
+
+fn test_json_get_string() {
+    let v = json_parse("{\"name\": \"test\"}")
+    let s = json_get_string(v, "name", "")
+    if s != "test" {
+        println("FAIL: test_json_get_string")
+        return
+    }
+    println("PASS: test_json_get_string")
+}
+
+fn test_nested_object() {
+    let v = json_parse("{\"outer\": {\"inner\": 123}}")
+    let outer = json_get(v, "outer")
+    let inner = json_get(outer, "inner")
+    if inner.kind != JsonKind.Number || inner.num_val != 123 {
+        println("FAIL: test_nested_object")
+        return
+    }
+    println("PASS: test_nested_object")
+}
+
+fn test_nested_array() {
+    let v = json_parse("[[1, 2], [3, 4]]")
+    if len(v.arr_val) != 2 {
+        println("FAIL: test_nested_array")
+        return
+    }
+    println("PASS: test_nested_array")
+}

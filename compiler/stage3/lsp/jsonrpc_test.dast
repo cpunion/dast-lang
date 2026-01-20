@@ -1,0 +1,158 @@
+// JSON-RPC Layer Tests
+
+fn main() {
+    test_parse_content_length()
+    test_parse_jsonrpc_request()
+    test_parse_notification()
+    test_jsonrpc_success()
+    test_jsonrpc_error()
+    test_jsonrpc_notification()
+    test_jsonrpc_format_message()
+    test_response_to_json()
+    println("All JSON-RPC tests complete")
+}
+
+fn test_parse_content_length() {
+    let len1 = parse_content_length("Content-Length: 42")
+    if len1 != 42 {
+        println("FAIL: test_parse_content_length - basic")
+        return
+    }
+    let len2 = parse_content_length("Invalid-Header: foo")
+    if len2 != -1 {
+        println("FAIL: test_parse_content_length - invalid")
+        return
+    }
+    println("PASS: test_parse_content_length")
+}
+
+fn test_parse_jsonrpc_request() {
+    let json = json_parse("{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"test\", \"params\": {}}")
+    let req = parse_jsonrpc_request(json)
+    if req.jsonrpc != "2.0" {
+        println("FAIL: test_parse_jsonrpc_request - jsonrpc")
+        return
+    }
+    if req.id != 1 || !req.has_id {
+        println("FAIL: test_parse_jsonrpc_request - id")
+        return
+    }
+    if req.method != "test" {
+        println("FAIL: test_parse_jsonrpc_request - method")
+        return
+    }
+    println("PASS: test_parse_jsonrpc_request")
+}
+
+fn test_parse_notification() {
+    let json = json_parse("{\"jsonrpc\": \"2.0\", \"method\": \"notify\"}")
+    let req = parse_jsonrpc_request(json)
+    if req.has_id {
+        println("FAIL: test_parse_notification - has_id should be false")
+        return
+    }
+    if req.method != "notify" {
+        println("FAIL: test_parse_notification - method")
+        return
+    }
+    println("PASS: test_parse_notification")
+}
+
+fn test_jsonrpc_success() {
+    let result = json_string("ok")
+    let resp = jsonrpc_success(1, result)
+    if resp.has_error {
+        println("FAIL: test_jsonrpc_success - has_error")
+        return
+    }
+    if resp.result.kind != JsonKind.String {
+        println("FAIL: test_jsonrpc_success - result type")
+        return
+    }
+    println("PASS: test_jsonrpc_success")
+}
+
+fn test_jsonrpc_error() {
+    let resp = jsonrpc_error(1, -32600, "Invalid Request")
+    if !resp.has_error {
+        println("FAIL: test_jsonrpc_error - has_error")
+        return
+    }
+    if resp.error_code != -32600 {
+        println("FAIL: test_jsonrpc_error - error_code")
+        return
+    }
+    if resp.error_message != "Invalid Request" {
+        println("FAIL: test_jsonrpc_error - error_message")
+        return
+    }
+    println("PASS: test_jsonrpc_error")
+}
+
+fn test_jsonrpc_notification() {
+    let params = json_object()
+    let notif = jsonrpc_notification("test/event", params)
+    // notif is a formatted string, check it contains the method
+    if !contains(notif, "test/event") {
+        println("FAIL: test_jsonrpc_notification")
+        return
+    }
+    println("PASS: test_jsonrpc_notification")
+}
+
+fn test_jsonrpc_format_message() {
+    let content = "{\"test\": true}"
+    let msg = jsonrpc_format_message(content)
+    // Should start with Content-Length header
+    if !starts_with(msg, "Content-Length:") {
+        println("FAIL: test_jsonrpc_format_message - header")
+        return
+    }
+    // Should contain the content
+    if !contains(msg, content) {
+        println("FAIL: test_jsonrpc_format_message - content")
+        return
+    }
+    println("PASS: test_jsonrpc_format_message")
+}
+
+fn test_response_to_json() {
+    let resp = jsonrpc_success(42, json_number(123))
+    let json = jsonrpc_response_to_json(resp)
+    let id = json_get_int(json, "id", 0)
+    if id != 42 {
+        println("FAIL: test_response_to_json - id")
+        return
+    }
+    println("PASS: test_response_to_json")
+}
+
+// Helper functions
+fn starts_with(s: String, prefix: String) -> bool {
+    if len(s) < len(prefix) { return false }
+    let mut i = 0
+    while i < len(prefix) {
+        if char_at(s, i) != char_at(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn contains(s: String, sub: String) -> bool {
+    if len(sub) == 0 { return true }
+    if len(s) < len(sub) { return false }
+    let mut i = 0
+    while i <= len(s) - len(sub) {
+        let mut j = 0
+        let mut matched = true
+        while j < len(sub) && matched {
+            if char_at(s, i + j) != char_at(sub, j) {
+                matched = false
+            }
+            j = j + 1
+        }
+        if matched { return true }
+        i = i + 1
+    }
+    return false
+}

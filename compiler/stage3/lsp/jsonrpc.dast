@@ -1,0 +1,213 @@
+// JSON-RPC 2.0 Layer for Dast LSP
+// Handles message framing and request/response protocol
+
+struct JsonRpcRequest {
+    jsonrpc: String,
+    id: i32,
+    has_id: bool,     // notifications have no id
+    method: String,
+    params: JsonValue,
+}
+
+struct JsonRpcResponse {
+    jsonrpc: String,
+    id: i32,
+    has_result: bool,
+    result: JsonValue,
+    has_error: bool,
+    error_code: i32,
+    error_message: String,
+}
+
+struct JsonRpcError {
+    code: i32,
+    message: String,
+}
+
+// Error codes
+fn jsonrpc_parse_error() -> i32 { return -32700 }
+fn jsonrpc_invalid_request() -> i32 { return -32600 }
+fn jsonrpc_method_not_found() -> i32 { return -32601 }
+fn jsonrpc_invalid_params() -> i32 { return -32602 }
+fn jsonrpc_internal_error() -> i32 { return -32603 }
+
+// Parse Content-Length header from a line
+fn parse_content_length(line: String) -> i32 {
+    let prefix = "Content-Length: "
+    if !jsonrpc_starts_with(line, prefix) {
+        return -1
+    }
+    let num_str = jsonrpc_trim(substr(line, len(prefix), len(line) - len(prefix)))
+    return jsonrpc_parse_int(num_str)
+}
+
+fn jsonrpc_parse_int(s: String) -> i32 {
+    let mut result = 0
+    let mut i = 0
+    let mut neg = false
+    if len(s) > 0 && char_at(s, 0) == 45 {
+        neg = true
+        i = 1
+    }
+    while i < len(s) {
+        let c = char_at(s, i)
+        if c >= 48 && c <= 57 {
+            result = result * 10 + (c - 48)
+        }
+        i = i + 1
+    }
+    if neg { return 0 - result }
+    return result
+}
+
+fn jsonrpc_starts_with(text: String, prefix: String) -> bool {
+    if len(text) < len(prefix) {
+        return false
+    }
+    return substr(text, 0, len(prefix)) == prefix
+}
+
+fn jsonrpc_trim(text: String) -> String {
+    let mut start = 0
+    let mut end = len(text)
+    let mut cont = true
+    while start < end && cont {
+        let c = char_at(text, start)
+        if c == 32 || c == 9 || c == 10 || c == 13 {
+            start = start + 1
+        } else {
+            cont = false
+        }
+    }
+    cont = true
+    while end > start && cont {
+        let c = char_at(text, end - 1)
+        if c == 32 || c == 9 || c == 10 || c == 13 {
+            end = end - 1
+        } else {
+            cont = false
+        }
+    }
+    if end <= start {
+        return ""
+    }
+    return substr(text, start, end - start)
+}
+
+// Parse a JSON-RPC request from JSON
+fn parse_jsonrpc_request(json: JsonValue) -> JsonRpcRequest {
+    let jsonrpc = json_get_string(json, "jsonrpc", "2.0")
+    let method = json_get_string(json, "method", "")
+
+    let id_val = json_get(json, "id")
+    let mut has_id = false
+    let mut id = 0
+    if id_val.kind == JsonKind.Number {
+        has_id = true
+        id = id_val.num_val
+    }
+
+    let params = json_get(json, "params")
+
+    return JsonRpcRequest {
+        jsonrpc: jsonrpc,
+        id: id,
+        has_id: has_id,
+        method: method,
+        params: params,
+    }
+}
+
+// Create a JSON-RPC success response
+fn jsonrpc_success(id: i32, result: JsonValue) -> JsonRpcResponse {
+    return JsonRpcResponse {
+        jsonrpc: "2.0",
+        id: id,
+        has_result: true,
+        result: result,
+        has_error: false,
+        error_code: 0,
+        error_message: "",
+    }
+}
+
+// Create a JSON-RPC error response
+fn jsonrpc_error(id: i32, code: i32, message: String) -> JsonRpcResponse {
+    return JsonRpcResponse {
+        jsonrpc: "2.0",
+        id: id,
+        has_result: false,
+        result: json_null(),
+        has_error: true,
+        error_code: code,
+        error_message: message,
+    }
+}
+
+// Convert response to JSON
+fn jsonrpc_response_to_json(resp: JsonRpcResponse) -> JsonValue {
+    let mut obj = json_object()
+    obj = json_set(obj, "jsonrpc", json_string(resp.jsonrpc))
+    obj = json_set(obj, "id", json_number(resp.id))
+
+    if resp.has_error {
+        let mut err = json_object()
+        err = json_set(err, "code", json_number(resp.error_code))
+        err = json_set(err, "message", json_string(resp.error_message))
+        obj = json_set(obj, "error", err)
+    } else {
+        obj = json_set(obj, "result", resp.result)
+    }
+
+    return obj
+}
+
+// Format a JSON-RPC message with headers for sending
+fn jsonrpc_format_message(content: String) -> String {
+    let length = len(content)
+    return "Content-Length: " + jsonrpc_int_to_string(length) + "\r\n\r\n" + content
+}
+
+fn jsonrpc_int_to_string(n: i32) -> String {
+    if n == 0 { return "0" }
+    let mut result = ""
+    let mut num = n
+    let mut neg = false
+    if num < 0 {
+        neg = true
+        num = 0 - num
+    }
+    while num > 0 {
+        let digit = num % 10
+        let c = digit + 48
+        result = chr(c) + result
+        num = num / 10
+    }
+    if neg { result = "-" + result }
+    return result
+}
+
+fn chr(code: i32) -> String {
+    // Return single character string from ASCII code
+    if code == 48 { return "0" }
+    if code == 49 { return "1" }
+    if code == 50 { return "2" }
+    if code == 51 { return "3" }
+    if code == 52 { return "4" }
+    if code == 53 { return "5" }
+    if code == 54 { return "6" }
+    if code == 55 { return "7" }
+    if code == 56 { return "8" }
+    if code == 57 { return "9" }
+    return ""
+}
+
+// Send a notification (no id, no response expected)
+fn jsonrpc_notification(method: String, params: JsonValue) -> String {
+    let mut obj = json_object()
+    obj = json_set(obj, "jsonrpc", json_string("2.0"))
+    obj = json_set(obj, "method", json_string(method))
+    obj = json_set(obj, "params", params)
+    let content = json_stringify(obj)
+    return jsonrpc_format_message(content)
+}

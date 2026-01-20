@@ -1,0 +1,195 @@
+// LSP Server Core for Dast LSP
+// Main server implementation with request handling
+
+struct Document {
+    uri: String,
+    version: i32,
+    content: String,
+}
+
+struct LspServer {
+    initialized: bool,
+    root_uri: String,
+    documents: [Document],
+}
+
+fn lsp_server_new() -> LspServer {
+    let mut docs: [Document] = []
+    return LspServer {
+        initialized: false,
+        root_uri: "",
+        documents: docs,
+    }
+}
+
+// Find document by URI
+fn server_get_document(server: &LspServer, uri: String) -> i32 {
+    let mut i = 0
+    while i < len(server.documents) {
+        if server.documents[i].uri == uri {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// Handle incoming request/notification
+fn server_handle_request(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    if req.method == "initialize" {
+        return handle_initialize(server, req)
+    }
+    if req.method == "initialized" {
+        return handle_initialized(server, req)
+    }
+    if req.method == "shutdown" {
+        return handle_shutdown(server, req)
+    }
+    if req.method == "textDocument/didOpen" {
+        return handle_did_open(server, req)
+    }
+    if req.method == "textDocument/didChange" {
+        return handle_did_change(server, req)
+    }
+    if req.method == "textDocument/didClose" {
+        return handle_did_close(server, req)
+    }
+    if req.method == "textDocument/didSave" {
+        return handle_did_save(server, req)
+    }
+
+    // Method not found
+    if req.has_id {
+        return jsonrpc_error(req.id, jsonrpc_method_not_found(), "Method not found: " + req.method)
+    }
+
+    // Notification - no response needed
+    return jsonrpc_success(0, json_null())
+}
+
+// Handle initialize request
+fn handle_initialize(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let params = initialize_params_from_json(req.params)
+    server.root_uri = params.root_uri
+
+    let caps = ServerCapabilities {
+        text_document_sync_kind: 1,  // Full sync
+        hover_provider: false,       // Phase 3
+        definition_provider: false,  // Phase 3
+        references_provider: false,  // Phase 4
+    }
+
+    let result = InitializeResult { capabilities: caps }
+    return jsonrpc_success(req.id, initialize_result_to_json(result))
+}
+
+// Handle initialized notification
+fn handle_initialized(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    server.initialized = true
+    // No response for notifications
+    return jsonrpc_success(0, json_null())
+}
+
+// Handle shutdown request
+fn handle_shutdown(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    return jsonrpc_success(req.id, json_null())
+}
+
+// Handle textDocument/didOpen
+fn handle_did_open(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let text_doc = json_get(req.params, "textDocument")
+    let item = text_document_item_from_json(text_doc)
+
+    let doc = Document {
+        uri: item.uri,
+        version: item.version,
+        content: item.text,
+    }
+
+    // Add or update document
+    let idx = server_get_document(server, item.uri)
+    if idx >= 0 {
+        server.documents[idx] = doc
+    } else {
+        let mut docs = server.documents
+        push(&mut docs, doc)
+        server.documents = docs
+    }
+
+    // Trigger diagnostics (returns notification to send)
+    // TODO: integrate with Stage 2 parser
+
+    return jsonrpc_success(0, json_null())
+}
+
+// Handle textDocument/didChange
+fn handle_did_change(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let text_doc = json_get(req.params, "textDocument")
+    let uri = json_get_string(text_doc, "uri", "")
+    let version = json_get_int(text_doc, "version", 0)
+
+    let changes = json_get(req.params, "contentChanges")
+    if changes.kind == JsonKind.Array && len(changes.arr_val) > 0 {
+        // Full sync: use the last change
+        let last_change = changes.arr_val[len(changes.arr_val) - 1]
+        let new_text = json_get_string(last_change, "text", "")
+
+        let idx = server_get_document(server, uri)
+        if idx >= 0 {
+            server.documents[idx].content = new_text
+            server.documents[idx].version = version
+        }
+    }
+
+    // Trigger diagnostics
+    // TODO: integrate with Stage 2 parser
+
+    return jsonrpc_success(0, json_null())
+}
+
+// Handle textDocument/didClose
+fn handle_did_close(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let text_doc = json_get(req.params, "textDocument")
+    let uri = json_get_string(text_doc, "uri", "")
+
+    // Remove document from list
+    let mut new_docs: [Document] = []
+    let mut i = 0
+    while i < len(server.documents) {
+        if server.documents[i].uri != uri {
+            push(&mut new_docs, server.documents[i])
+        }
+        i = i + 1
+    }
+    server.documents = new_docs
+
+    return jsonrpc_success(0, json_null())
+}
+
+// Handle textDocument/didSave
+fn handle_did_save(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    // Trigger diagnostics on save
+    // TODO: integrate with Stage 2 parser
+    return jsonrpc_success(0, json_null())
+}
+
+// Generate diagnostics for a document
+fn generate_diagnostics(uri: String, content: String) -> [Diagnostic] {
+    let mut diagnostics: [Diagnostic] = []
+
+    // TODO: Call Stage 2 parser here
+    // let mut lex = lexer_new(content)
+    // let mut errors: [ParseError] = []
+    // let prog = parse_program(content, &mut lex, &mut errors)
+    // Convert ParseError to Diagnostic
+
+    return diagnostics
+}
+
+// Create publishDiagnostics notification
+fn publish_diagnostics_notification(uri: String, diagnostics: [Diagnostic]) -> String {
+    let mut params = json_object()
+    params = json_set(params, "uri", json_string(uri))
+    params = json_set(params, "diagnostics", diagnostics_to_json(diagnostics))
+    return jsonrpc_notification("textDocument/publishDiagnostics", params)
+}

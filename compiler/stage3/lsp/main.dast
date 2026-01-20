@@ -1,0 +1,244 @@
+// Dast Language Server - Main Entry Point
+// Usage: dast run compiler/stage3/lsp/main.dast
+//
+// This LSP server is designed to be run by Stage 0/1, executing Stage 2,
+// which in turn runs this Stage 3 code.
+
+// Main server loop - uses read_line() and read_bytes() for stdio
+fn lsp_main() {
+    let mut server = lsp_server_new()
+    let mut running = true
+
+    while running {
+        // Read Content-Length header
+        let header = read_line()
+        if len(header) == 0 {
+            // EOF or empty input - exit gracefully
+            running = false
+            continue
+        }
+
+        let content_length = parse_content_length(header)
+        if content_length < 0 {
+            // Skip invalid headers
+            continue
+        }
+
+        // Skip empty line after headers
+        let _ = read_line()
+
+        // Read JSON body
+        let body = read_bytes(content_length)
+        if len(body) == 0 {
+            continue
+        }
+
+        // Parse and handle request
+        let json = json_parse(body)
+        let req = parse_jsonrpc_request(json)
+        let resp = server_handle_request(&mut server, req)
+
+        // Send response (only for requests, not notifications)
+        if req.has_id {
+            let resp_json = jsonrpc_response_to_json(resp)
+            let content = json_stringify(resp_json)
+            let msg = jsonrpc_format_message(content)
+            print(msg)
+        }
+
+        // Handle shutdown/exit
+        if req.method == "shutdown" {
+            running = false
+        }
+    }
+}
+
+// Test the LSP server components
+fn test_server_initialize() {
+    let mut server = lsp_server_new()
+
+    // Create mock initialize request
+    let mut params = json_object()
+    params = json_set(params, "processId", json_number(1234))
+    params = json_set(params, "rootUri", json_string("file:///test"))
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0",
+        id: 1,
+        has_id: true,
+        method: "initialize",
+        params: params,
+    }
+
+    let resp = server_handle_request(&mut server, req)
+
+    if resp.has_error {
+        println("FAIL: test_server_initialize - got error")
+        return
+    }
+
+    // Check capabilities in response
+    let caps = json_get(resp.result, "capabilities")
+    if caps.kind != JsonKind.Object {
+        println("FAIL: test_server_initialize - no capabilities")
+        return
+    }
+
+    let sync = json_get_int(caps, "textDocumentSync", -1)
+    if sync != 1 {
+        println("FAIL: test_server_initialize - wrong sync kind")
+        return
+    }
+
+    println("PASS: test_server_initialize")
+}
+
+fn test_server_did_open() {
+    let mut server = lsp_server_new()
+    server.initialized = true
+
+    // Create didOpen params
+    let mut text_doc = json_object()
+    text_doc = json_set(text_doc, "uri", json_string("file:///test.dast"))
+    text_doc = json_set(text_doc, "languageId", json_string("dast"))
+    text_doc = json_set(text_doc, "version", json_number(1))
+    text_doc = json_set(text_doc, "text", json_string("fn main() { println(\"hello\") }"))
+
+    let mut params = json_object()
+    params = json_set(params, "textDocument", text_doc)
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0",
+        id: 0,
+        has_id: false,  // notification
+        method: "textDocument/didOpen",
+        params: params,
+    }
+
+    let _ = server_handle_request(&mut server, req)
+
+    // Check document was added
+    let idx = server_get_document(&server, "file:///test.dast")
+    if idx < 0 {
+        println("FAIL: test_server_did_open - document not found")
+        return
+    }
+
+    if server.documents[idx].content != "fn main() { println(\"hello\") }" {
+        println("FAIL: test_server_did_open - wrong content")
+        return
+    }
+
+    println("PASS: test_server_did_open")
+}
+
+fn test_server_did_change() {
+    let mut server = lsp_server_new()
+    server.initialized = true
+
+    // First open a document
+    let mut docs = server.documents
+    push(&mut docs, Document {
+        uri: "file:///test.dast",
+        version: 1,
+        content: "fn main() {}",
+    })
+    server.documents = docs
+
+    // Create didChange params
+    let mut text_doc = json_object()
+    text_doc = json_set(text_doc, "uri", json_string("file:///test.dast"))
+    text_doc = json_set(text_doc, "version", json_number(2))
+
+    let mut change = json_object()
+    change = json_set(change, "text", json_string("fn main() { let x = 1 }"))
+
+    let mut changes: [JsonValue] = []
+    push(&mut changes, change)
+    let changes_arr = JsonValue {
+        kind: JsonKind.Array,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: changes,
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+
+    let mut params = json_object()
+    params = json_set(params, "textDocument", text_doc)
+    params = json_set(params, "contentChanges", changes_arr)
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0",
+        id: 0,
+        has_id: false,
+        method: "textDocument/didChange",
+        params: params,
+    }
+
+    let _ = server_handle_request(&mut server, req)
+
+    // Check content was updated
+    let idx = server_get_document(&server, "file:///test.dast")
+    if idx < 0 || server.documents[idx].content != "fn main() { let x = 1 }" {
+        println("FAIL: test_server_did_change - wrong content")
+        return
+    }
+    if server.documents[idx].version != 2 {
+        println("FAIL: test_server_did_change - wrong version")
+        return
+    }
+
+    println("PASS: test_server_did_change")
+}
+
+fn test_server_did_close() {
+    let mut server = lsp_server_new()
+    server.initialized = true
+
+    // Add a document
+    let mut docs = server.documents
+    push(&mut docs, Document {
+        uri: "file:///test.dast",
+        version: 1,
+        content: "fn main() {}",
+    })
+    server.documents = docs
+
+    // Create didClose params
+    let mut text_doc = json_object()
+    text_doc = json_set(text_doc, "uri", json_string("file:///test.dast"))
+
+    let mut params = json_object()
+    params = json_set(params, "textDocument", text_doc)
+
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0",
+        id: 0,
+        has_id: false,
+        method: "textDocument/didClose",
+        params: params,
+    }
+
+    let _ = server_handle_request(&mut server, req)
+
+    // Check document was removed
+    if len(server.documents) != 0 {
+        println("FAIL: test_server_did_close - document not removed")
+        return
+    }
+
+    println("PASS: test_server_did_close")
+}
+
+fn main() {
+    println("Running LSP Server tests...")
+    test_server_initialize()
+    test_server_did_open()
+    test_server_did_change()
+    test_server_did_close()
+    println("LSP Server tests complete")
+    println("")
+    lsp_main()
+}

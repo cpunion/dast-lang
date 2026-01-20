@@ -1,0 +1,570 @@
+// JSON Parser for Dast LSP
+// Implements a simple recursive descent JSON parser
+
+@repr(i32)
+enum JsonKind {
+    Null = 0,
+    Bool = 1,
+    Number = 2,
+    String = 3,
+    Array = 4,
+    Object = 5,
+}
+
+struct JsonValue {
+    kind: JsonKind,
+    str_val: String,
+    num_val: i32,
+    bool_val: bool,
+    arr_val: [JsonValue],
+    obj_keys: [String],
+    obj_vals: [JsonValue],
+}
+
+struct JsonParser {
+    src: String,
+    pos: i32,
+}
+
+// Helper: create null value
+fn json_null() -> JsonValue {
+    return JsonValue {
+        kind: JsonKind.Null,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+fn json_array_new() -> [JsonValue] {
+    let mut arr: [JsonValue] = []
+    return arr
+}
+
+fn json_keys_new() -> [String] {
+    let mut arr: [String] = []
+    return arr
+}
+
+// Create a boolean JSON value
+fn json_bool(val: bool) -> JsonValue {
+    return JsonValue {
+        kind: JsonKind.Bool,
+        str_val: "",
+        num_val: 0,
+        bool_val: val,
+        arr_val: json_array_new(),
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+// Create a number JSON value
+fn json_number(val: i32) -> JsonValue {
+    return JsonValue {
+        kind: JsonKind.Number,
+        str_val: "",
+        num_val: val,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+// Create a string JSON value
+fn json_string(val: String) -> JsonValue {
+    return JsonValue {
+        kind: JsonKind.String,
+        str_val: val,
+        num_val: 0,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+// Create an empty object
+fn json_object() -> JsonValue {
+    return JsonValue {
+        kind: JsonKind.Object,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+// Create an empty array
+fn json_array() -> JsonValue {
+    return JsonValue {
+        kind: JsonKind.Array,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+// Get a field from an object
+fn json_get(obj: JsonValue, key: String) -> JsonValue {
+    if obj.kind != JsonKind.Object {
+        return json_null()
+    }
+    let mut i = 0
+    while i < len(obj.obj_keys) {
+        if obj.obj_keys[i] == key {
+            return obj.obj_vals[i]
+        }
+        i = i + 1
+    }
+    return json_null()
+}
+
+// Get string value or default
+fn json_get_string(obj: JsonValue, key: String, default: String) -> String {
+    let v = json_get(obj, key)
+    if v.kind == JsonKind.String {
+        return v.str_val
+    }
+    return default
+}
+
+// Get int value or default
+fn json_get_int(obj: JsonValue, key: String, default: i32) -> i32 {
+    let v = json_get(obj, key)
+    if v.kind == JsonKind.Number {
+        return v.num_val
+    }
+    return default
+}
+
+// Set a field in an object (returns new object)
+fn json_set(obj: JsonValue, key: String, val: JsonValue) -> JsonValue {
+    let mut keys = obj.obj_keys
+    let mut vals = obj.obj_vals
+
+    // Check if key exists
+    let mut i = 0
+    let mut found = false
+    while i < len(keys) {
+        if keys[i] == key {
+            vals[i] = val
+            found = true
+        }
+        i = i + 1
+    }
+
+    if !found {
+        push(&mut keys, key)
+        push(&mut vals, val)
+    }
+
+    return JsonValue {
+        kind: JsonKind.Object,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: keys,
+        obj_vals: vals,
+    }
+}
+
+// Parser helpers
+fn json_parser_new(src: String) -> JsonParser {
+    return JsonParser { src: src, pos: 0 }
+}
+
+fn json_parser_eof(p: &JsonParser) -> bool {
+    return p.pos >= len(p.src)
+}
+
+fn json_parser_peek(p: &JsonParser) -> i32 {
+    if p.pos >= len(p.src) {
+        return 0
+    }
+    return char_at(p.src, p.pos)
+}
+
+fn json_parser_next(p: &mut JsonParser) -> i32 {
+    if p.pos >= len(p.src) {
+        return 0
+    }
+    let c = char_at(p.src, p.pos)
+    p.pos = p.pos + 1
+    return c
+}
+
+fn json_is_whitespace(c: i32) -> bool {
+    return c == 32 || c == 9 || c == 10 || c == 13
+}
+
+fn json_skip_whitespace(p: &mut JsonParser) {
+    while !json_parser_eof(p) && json_is_whitespace(json_parser_peek(p)) {
+        let _ = json_parser_next(p)
+    }
+}
+
+fn json_is_digit(c: i32) -> bool {
+    return c >= 48 && c <= 57  // '0'-'9'
+}
+
+// Parse a JSON value
+fn json_parse(text: String) -> JsonValue {
+    let mut p = json_parser_new(text)
+    return json_parse_value(&mut p)
+}
+
+fn json_parse_value(p: &mut JsonParser) -> JsonValue {
+    json_skip_whitespace(p)
+
+    if json_parser_eof(p) {
+        return json_null()
+    }
+
+    let c = json_parser_peek(p)
+
+    // null
+    if c == 110 {  // 'n'
+        return json_parse_null(p)
+    }
+
+    // true
+    if c == 116 {  // 't'
+        return json_parse_true(p)
+    }
+
+    // false
+    if c == 102 {  // 'f'
+        return json_parse_false(p)
+    }
+
+    // string
+    if c == 34 {  // '"'
+        return json_parse_string(p)
+    }
+
+    // array
+    if c == 91 {  // '['
+        return json_parse_array(p)
+    }
+
+    // object
+    if c == 123 {  // '{'
+        return json_parse_object(p)
+    }
+
+    // number (digit or minus)
+    if json_is_digit(c) || c == 45 {  // '-'
+        return json_parse_number(p)
+    }
+
+    return json_null()
+}
+
+fn json_parse_null(p: &mut JsonParser) -> JsonValue {
+    // consume "null"
+    let _ = json_parser_next(p)  // n
+    let _ = json_parser_next(p)  // u
+    let _ = json_parser_next(p)  // l
+    let _ = json_parser_next(p)  // l
+    return json_null()
+}
+
+fn json_parse_true(p: &mut JsonParser) -> JsonValue {
+    // consume "true"
+    let _ = json_parser_next(p)  // t
+    let _ = json_parser_next(p)  // r
+    let _ = json_parser_next(p)  // u
+    let _ = json_parser_next(p)  // e
+    return json_bool(true)
+}
+
+fn json_parse_false(p: &mut JsonParser) -> JsonValue {
+    // consume "false"
+    let _ = json_parser_next(p)  // f
+    let _ = json_parser_next(p)  // a
+    let _ = json_parser_next(p)  // l
+    let _ = json_parser_next(p)  // s
+    let _ = json_parser_next(p)  // e
+    return json_bool(false)
+}
+
+fn json_parse_number(p: &mut JsonParser) -> JsonValue {
+    let mut sign = 1
+    if json_parser_peek(p) == 45 {  // '-'
+        sign = -1
+        let _ = json_parser_next(p)
+    }
+
+    let mut num = 0
+    while !json_parser_eof(p) && json_is_digit(json_parser_peek(p)) {
+        num = num * 10 + (json_parser_next(p) - 48)
+    }
+
+    return json_number(sign * num)
+}
+
+fn json_parse_string(p: &mut JsonParser) -> JsonValue {
+    let _ = json_parser_next(p)  // consume opening '"'
+
+    let mut result = ""
+    let mut done = false
+
+    while !json_parser_eof(p) && !done {
+        let c = json_parser_next(p)
+
+        if c == 34 {  // '"' closing quote
+            done = true
+        } else if c == 92 {  // '\' escape
+            let next = json_parser_next(p)
+            if next == 110 {  // 'n'
+                result = result + "\n"
+            } else if next == 116 {  // 't'
+                result = result + "\t"
+            } else if next == 114 {  // 'r'
+                result = result + "\r"
+            } else if next == 34 {  // '"'
+                result = result + "\""
+            } else if next == 92 {  // '\'
+                result = result + "\\"
+            } else {
+                result = result + substr(p.src, p.pos - 1, 1)
+            }
+        } else {
+            result = result + substr(p.src, p.pos - 1, 1)
+        }
+    }
+
+    return json_string(result)
+}
+
+fn json_parse_array(p: &mut JsonParser) -> JsonValue {
+    let _ = json_parser_next(p)  // consume '['
+    json_skip_whitespace(p)
+
+    let mut arr: [JsonValue] = []
+
+    if json_parser_peek(p) == 93 {  // ']' empty array
+        let _ = json_parser_next(p)
+        return JsonValue {
+            kind: JsonKind.Array,
+            str_val: "",
+            num_val: 0,
+            bool_val: false,
+            arr_val: arr,
+            obj_keys: json_keys_new(),
+            obj_vals: json_array_new(),
+        }
+    }
+
+    let mut done = false
+    while !json_parser_eof(p) && !done {
+        let val = json_parse_value(p)
+        push(&mut arr, val)
+
+        json_skip_whitespace(p)
+
+        if json_parser_peek(p) == 44 {  // ','
+            let _ = json_parser_next(p)
+            json_skip_whitespace(p)
+        } else if json_parser_peek(p) == 93 {  // ']'
+            let _ = json_parser_next(p)
+            done = true
+        } else {
+            done = true  // error or unexpected
+        }
+    }
+
+    return JsonValue {
+        kind: JsonKind.Array,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: arr,
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new(),
+    }
+}
+
+fn json_parse_object(p: &mut JsonParser) -> JsonValue {
+    let _ = json_parser_next(p)  // consume '{'
+    json_skip_whitespace(p)
+
+    let mut keys: [String] = []
+    let mut vals: [JsonValue] = []
+
+    if json_parser_peek(p) == 125 {  // '}' empty object
+        let _ = json_parser_next(p)
+        return JsonValue {
+            kind: JsonKind.Object,
+            str_val: "",
+            num_val: 0,
+            bool_val: false,
+            arr_val: json_array_new(),
+            obj_keys: keys,
+            obj_vals: vals,
+        }
+    }
+
+    let mut done = false
+    while !json_parser_eof(p) && !done {
+        json_skip_whitespace(p)
+
+        // Parse key (must be string)
+        let key_val = json_parse_string(p)
+        let key = key_val.str_val
+
+        json_skip_whitespace(p)
+
+        // Expect ':'
+        if json_parser_peek(p) == 58 {  // ':'
+            let _ = json_parser_next(p)
+        }
+
+        json_skip_whitespace(p)
+
+        // Parse value
+        let val = json_parse_value(p)
+
+        push(&mut keys, key)
+        push(&mut vals, val)
+
+        json_skip_whitespace(p)
+
+        if json_parser_peek(p) == 44 {  // ','
+            let _ = json_parser_next(p)
+        } else if json_parser_peek(p) == 125 {  // '}'
+            let _ = json_parser_next(p)
+            done = true
+        } else {
+            done = true
+        }
+    }
+
+    return JsonValue {
+        kind: JsonKind.Object,
+        str_val: "",
+        num_val: 0,
+        bool_val: false,
+        arr_val: json_array_new(),
+        obj_keys: keys,
+        obj_vals: vals,
+    }
+}
+
+// Stringify JSON value
+fn json_stringify(val: JsonValue) -> String {
+    match val.kind {
+        JsonKind.Null => { return "null" }
+        JsonKind.Bool => {
+            if val.bool_val {
+                return "true"
+            }
+            return "false"
+        }
+        JsonKind.Number => {
+            return int_to_string(val.num_val)
+        }
+        JsonKind.String => {
+            return json_stringify_string(val.str_val)
+        }
+        JsonKind.Array => {
+            return json_stringify_array(val)
+        }
+        JsonKind.Object => {
+            return json_stringify_object(val)
+        }
+    }
+    return "null"
+}
+
+fn json_stringify_string(s: String) -> String {
+    let mut out = "\""
+    let mut i = 0
+    while i < len(s) {
+        let c = char_at(s, i)
+        if c == 34 {  // '"'
+            out = out + "\\\""
+        } else if c == 92 {  // '\'
+            out = out + "\\\\"
+        } else if c == 10 {  // '\n'
+            out = out + "\\n"
+        } else if c == 13 {  // '\r'
+            out = out + "\\r"
+        } else if c == 9 {  // '\t'
+            out = out + "\\t"
+        } else {
+            out = out + substr(s, i, 1)
+        }
+        i = i + 1
+    }
+    out = out + "\""
+    return out
+}
+
+fn json_stringify_array(val: JsonValue) -> String {
+    let mut out = "["
+    let mut i = 0
+    while i < len(val.arr_val) {
+        if i > 0 {
+            out = out + ","
+        }
+        out = out + json_stringify(val.arr_val[i])
+        i = i + 1
+    }
+    out = out + "]"
+    return out
+}
+
+fn json_stringify_object(val: JsonValue) -> String {
+    let mut out = "{"
+    let mut i = 0
+    while i < len(val.obj_keys) {
+        if i > 0 {
+            out = out + ","
+        }
+        out = out + json_stringify_string(val.obj_keys[i])
+        out = out + ":"
+        out = out + json_stringify(val.obj_vals[i])
+        i = i + 1
+    }
+    out = out + "}"
+    return out
+}
+
+// int_to_string helper (if not available in Stage 2)
+fn int_to_string(n: i32) -> String {
+    if n == 0 {
+        return "0"
+    }
+
+    let mut neg = false
+    let mut val = n
+    if val < 0 {
+        neg = true
+        val = -val
+    }
+
+    let mut result = ""
+    while val > 0 {
+        let digit = val % 10
+        result = substr("0123456789", digit, 1) + result
+        val = val / 10
+    }
+
+    if neg {
+        result = "-" + result
+    }
+
+    return result
+}

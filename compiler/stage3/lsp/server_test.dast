@@ -1,0 +1,102 @@
+// LSP Server Tests - Stage 0 compatible subset
+
+fn main() {
+    test_server_capabilities()
+    test_position_to_json()
+    test_range_to_json()
+    test_diagnostic_to_json()
+    test_initialize_result_to_json()
+    println("All server tests complete")
+}
+
+fn test_server_capabilities() {
+    let caps = ServerCapabilities {
+        text_document_sync_kind: 1,
+        hover_provider: false,
+        definition_provider: true,
+        references_provider: false,
+    }
+    let json = server_capabilities_to_json(caps)
+    let sync = json_get_int(json, "textDocumentSync", 0)
+    if sync != 1 {
+        println("FAIL: test_server_capabilities - textDocumentSync")
+        return
+    }
+    let def = json_get(json, "definitionProvider")
+    if def.kind != JsonKind.Bool || !def.bool_val {
+        println("FAIL: test_server_capabilities - definitionProvider")
+        return
+    }
+    println("PASS: test_server_capabilities")
+}
+
+fn test_position_to_json() {
+    let pos = position_new(10, 5)
+    let json = position_to_json(pos)
+    let line = json_get_int(json, "line", -1)
+    let char = json_get_int(json, "character", -1)
+    if line != 10 || char != 5 {
+        println("FAIL: test_position_to_json")
+        return
+    }
+    println("PASS: test_position_to_json")
+}
+
+fn test_range_to_json() {
+    let r = range_new(1, 0, 1, 10)
+    let json = range_to_json(r)
+    let start = json_get(json, "start")
+    let end = json_get(json, "end")
+    if start.kind != JsonKind.Object || end.kind != JsonKind.Object {
+        println("FAIL: test_range_to_json - structure")
+        return
+    }
+    let start_line = json_get_int(start, "line", -1)
+    let end_char = json_get_int(end, "character", -1)
+    if start_line != 1 || end_char != 10 {
+        println("FAIL: test_range_to_json - values")
+        return
+    }
+    println("PASS: test_range_to_json")
+}
+
+fn test_diagnostic_to_json() {
+    let r = range_new(0, 0, 0, 5)
+    let d = diagnostic_new(r, DiagnosticSeverity.Error, "test error")
+    let json = diagnostic_to_json(d)
+
+    let sev = json_get_int(json, "severity", 0)
+    if sev != 1 {
+        println("FAIL: test_diagnostic_to_json - severity")
+        return
+    }
+    let msg = json_get_string(json, "message", "")
+    if msg != "test error" {
+        println("FAIL: test_diagnostic_to_json - message")
+        return
+    }
+    println("PASS: test_diagnostic_to_json")
+}
+
+fn test_initialize_result_to_json() {
+    let caps = ServerCapabilities {
+        text_document_sync_kind: 2,
+        hover_provider: true,
+        definition_provider: false,
+        references_provider: false,
+    }
+    let result = InitializeResult { capabilities: caps }
+    let json = initialize_result_to_json(result)
+
+    let caps_json = json_get(json, "capabilities")
+    if caps_json.kind != JsonKind.Object {
+        println("FAIL: test_initialize_result_to_json - capabilities")
+        return
+    }
+    let sync = json_get_int(caps_json, "textDocumentSync", 0)
+    if sync != 2 {
+        println("FAIL: test_initialize_result_to_json - sync kind")
+        return
+    }
+    println("PASS: test_initialize_result_to_json")
+}

@@ -1154,6 +1154,31 @@ fn find_type_param_idx(type_params: [String], name: String) -> i32 {
     return -1
 }
 
+// Infer type params from argument types
+// Returns array of inferred types, one per type param in sig.type_params
+fn infer_type_params_from_args(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]) -> [String] {
+    let mut inferred: [String] = []
+    let mut ti = 0
+    while ti < len(sig.type_params) {
+        let type_param = sig.type_params[ti]
+        // Find first param that uses this type param
+        let mut found_type = ""
+        let mut pi = 0
+        while pi < len(sig.params) && found_type == "" {
+            let param_name = ctx_type_name(ctx, sig.params[pi])
+            if param_name == type_param {
+                if pi < len(arg_types) && arg_types[pi] != 0 {
+                    found_type = ctx_type_name(ctx, arg_types[pi])
+                }
+            }
+            pi = pi + 1
+        }
+        push(&mut inferred, found_type)
+        ti = ti + 1
+    }
+    return inferred
+}
+
 // Infer generic return type from arguments
 // sig.params and arg_types have same length
 // sig.type_params contains type param names like ["T", "U"]
@@ -2528,6 +2553,26 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     }
                                     return resolve_explicit_return(ctx, sig, c.type_args)
                                 }
+                                // Infer type params and verify bounds
+                                let inferred_types = infer_type_params_from_args(ctx, sig, arg_types)
+                                // Verify trait bounds for each inferred type
+                                let mut ti = 0
+                                while ti < len(inferred_types) && ti < len(sig.type_param_bounds) {
+                                    let type_arg = inferred_types[ti]
+                                    if type_arg != "" {
+                                        let param_sig = sig.type_param_bounds[ti]
+                                        // Check each bound
+                                        let mut bi = 0
+                                        while bi < len(param_sig.bounds) {
+                                            let bound_trait = param_sig.bounds[bi]
+                                            if !type_implements_trait(ctx, type_arg, bound_trait) {
+                                                add_type_error(ctx, "type '" + type_arg + "' does not implement trait '" + bound_trait + "'")
+                                            }
+                                            bi = bi + 1
+                                        }
+                                    }
+                                    ti = ti + 1
+                                }
                                 return infer_generic_return(ctx, sig, arg_types)
                             }
                             return sig.ret
@@ -2637,6 +2682,23 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             }
                             let elem = ctx_type_make(ctx, 3, "string", false, false, -1)
                             return ctx_type_make(ctx, 7, "", false, false, elem)
+                        }
+                        if id.name == "read_line" {
+                            if len(c.args) != 0 {
+                                add_type_error(ctx, "read_line expects no arguments")
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
+                        if id.name == "read_bytes" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "read_bytes expects 1 argument")
+                            } else {
+                                let ct = check_expr(ctx, c.args[0])
+                                if !ctx_is_int(ctx, ct) && ct != 0 {
+                                    add_type_error(ctx, "read_bytes expects int count")
+                                }
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
                         }
                         if id.name == "push" {
                             if len(c.args) != 2 {
