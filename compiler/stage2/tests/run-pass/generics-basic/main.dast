@@ -1,0 +1,21 @@
+// Test basic generic struct parsing
+struct Box[T] {
+    value: i32,  // TODO: change to T when typecheck supports generics
+}
+
+// Test generic enum parsing
+enum Option[T] {
+    Some(i32),  // TODO: change to T when typecheck supports generics
+    None,
+}
+
+fn main() {
+    let b = Box { value: 42 }
+    println("box", b.value)
+
+    let opt = Option.Some(10)
+    match opt {
+        Option.Some(x) => { println("some", x) }
+        Option.None => { println("none") }
+    }
+}

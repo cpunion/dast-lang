@@ -444,6 +444,45 @@ fn import_item_list_new() -> [ImportItemSpec] {
     return items
 }
 
+fn generic_param_list_new() -> [GenericParam] {
+    let mut params: [GenericParam] = []
+    return params
+}
+
+fn parse_type_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [GenericParam] {
+    let mut params: [GenericParam] = []
+    if peek_kind(lex) != TokenKind.LBracket {
+        return params
+    }
+    lexer_next(lex)
+    if peek_kind(lex) == TokenKind.RBracket {
+        lexer_next(lex)
+        return params
+    }
+    let mut done = false
+    while !done {
+        let param_pos = lexer_pos(lex)
+        if peek_kind(lex) != TokenKind.Ident {
+            add_error(errors, lexer_pos(lex), "expected type parameter name")
+            done = true
+        } else {
+            let name = next_lexeme(src, lex)
+            push(&mut params, GenericParam { pos: param_pos, name: name })
+            if peek_kind(lex) == TokenKind.Comma {
+                lexer_next(lex)
+            } else {
+                done = true
+            }
+        }
+    }
+    if peek_kind(lex) == TokenKind.RBracket {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected ']' after type parameters")
+    }
+    return params
+}
+
 fn parse_attribute(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ParsedAttr {
     let name = parse_ident(src, lex, errors)
     if name == "test" {
@@ -630,6 +669,7 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
                     file: "",
                     pos: fn_pos,
                     name: name,
+                    type_params: generic_param_list_new(),
                     is_test: false,
                     params: params,
                     has_return: has_return,
@@ -651,11 +691,12 @@ fn parse_impl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visi
 fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> StructDecl {
     lexer_next(lex)
     let name = parse_ident(src, lex, errors)
+    let type_params = parse_type_params(src, lex, errors)
     let mut fields: [Field] = []
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{' after struct");
         sync_to_top_level(lex)
-        return StructDecl { vis: vis, module: "", file: "", pos: pos, name: name, fields: fields }
+        return StructDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, fields: fields }
     }
     lexer_next(lex)
     let mut done = false
@@ -687,17 +728,18 @@ fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
     if peek_kind(lex) == TokenKind.RBrace {
         lexer_next(lex)
     }
-    return StructDecl { vis: vis, module: "", file: "", pos: pos, name: name, fields: fields }
+    return StructDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, fields: fields }
 }
 
 fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr: String, vis: Visibility, pos: i32) -> EnumDecl {
     lexer_next(lex)
     let name = parse_ident(src, lex, errors)
+    let type_params = parse_type_params(src, lex, errors)
     let mut variants: [Variant] = []
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{' after enum");
         sync_to_top_level(lex)
-        return EnumDecl { vis: vis, module: "", file: "", pos: pos, name: name, repr: repr, variants: variants }
+        return EnumDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, repr: repr, variants: variants }
     }
     lexer_next(lex)
     let mut done = false
@@ -746,7 +788,7 @@ fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr
     if peek_kind(lex) == TokenKind.RBrace {
         lexer_next(lex)
     }
-    return EnumDecl { vis: vis, module: "", file: "", pos: pos, name: name, repr: repr, variants: variants }
+    return EnumDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, repr: repr, variants: variants }
 }
 
 fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImportDecl {
@@ -1385,6 +1427,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                     file: "",
                     pos: fn_pos,
                     name: name,
+                    type_params: generic_param_list_new(),
                     is_test: pending_test,
                     params: params,
                     has_return: has_return,

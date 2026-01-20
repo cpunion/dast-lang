@@ -982,7 +982,7 @@ fn program_set_module(prog: &mut Program, module: String) {
     i = 0
     while i < len(prog.structs) {
         let st = prog.structs[i]
-        push(&mut structs, StructDecl { vis: st.vis, module: module, file: st.file, pos: st.pos, name: st.name, fields: st.fields })
+        push(&mut structs, StructDecl { vis: st.vis, module: module, file: st.file, pos: st.pos, name: st.name, type_params: st.type_params, fields: st.fields })
         i = i + 1
     }
     prog.structs = structs
@@ -991,7 +991,7 @@ fn program_set_module(prog: &mut Program, module: String) {
     i = 0
     while i < len(prog.enums) {
         let en = prog.enums[i]
-        push(&mut enums, EnumDecl { vis: en.vis, module: module, file: en.file, pos: en.pos, name: en.name, repr: en.repr, variants: en.variants })
+        push(&mut enums, EnumDecl { vis: en.vis, module: module, file: en.file, pos: en.pos, name: en.name, type_params: en.type_params, repr: en.repr, variants: en.variants })
         i = i + 1
     }
     prog.enums = enums
@@ -1015,6 +1015,7 @@ fn program_set_module(prog: &mut Program, module: String) {
             file: f.file,
             pos: f.pos,
             name: f.name,
+            type_params: f.type_params,
             is_test: f.is_test,
             params: f.params,
             has_return: f.has_return,
@@ -1039,6 +1040,7 @@ fn program_set_module(prog: &mut Program, module: String) {
                 file: m.file,
                 pos: m.pos,
                 name: m.name,
+                type_params: m.type_params,
                 is_test: m.is_test,
                 params: m.params,
                 has_return: m.has_return,
@@ -1078,7 +1080,7 @@ fn program_set_file(prog: &mut Program, file: String) {
     i = 0
     while i < len(prog.structs) {
         let st = prog.structs[i]
-        push(&mut structs, StructDecl { vis: st.vis, module: st.module, file: file, pos: st.pos, name: st.name, fields: st.fields })
+        push(&mut structs, StructDecl { vis: st.vis, module: st.module, file: file, pos: st.pos, name: st.name, type_params: st.type_params, fields: st.fields })
         i = i + 1
     }
     prog.structs = structs
@@ -1087,7 +1089,7 @@ fn program_set_file(prog: &mut Program, file: String) {
     i = 0
     while i < len(prog.enums) {
         let en = prog.enums[i]
-        push(&mut enums, EnumDecl { vis: en.vis, module: en.module, file: file, pos: en.pos, name: en.name, repr: en.repr, variants: en.variants })
+        push(&mut enums, EnumDecl { vis: en.vis, module: en.module, file: file, pos: en.pos, name: en.name, type_params: en.type_params, repr: en.repr, variants: en.variants })
         i = i + 1
     }
     prog.enums = enums
@@ -1111,6 +1113,7 @@ fn program_set_file(prog: &mut Program, file: String) {
             file: file,
             pos: f.pos,
             name: f.name,
+            type_params: f.type_params,
             is_test: f.is_test,
             params: f.params,
             has_return: f.has_return,
@@ -1135,6 +1138,7 @@ fn program_set_file(prog: &mut Program, file: String) {
                 file: file,
                 pos: m.pos,
                 name: m.name,
+                type_params: m.type_params,
                 is_test: m.is_test,
                 params: m.params,
                 has_return: m.has_return,

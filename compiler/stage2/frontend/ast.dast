@@ -43,6 +43,11 @@ struct Param {
     typ: String,
 }
 
+struct GenericParam {
+    pos: i32,
+    name: String,
+}
+
 struct Field {
     vis: Visibility,
     pos: i32,
@@ -56,6 +61,7 @@ struct StructDecl {
     file: String,
     pos: i32,
     name: String,
+    type_params: [GenericParam],
     fields: [Field],
 }
 
@@ -74,6 +80,7 @@ struct EnumDecl {
     file: String,
     pos: i32,
     name: String,
+    type_params: [GenericParam],
     repr: String,
     variants: [Variant],
 }
@@ -330,6 +337,7 @@ struct FunctionDecl {
     file: String,
     pos: i32,
     name: String,
+    type_params: [GenericParam],
     is_test: bool,
     params: [Param],
     has_return: bool,
