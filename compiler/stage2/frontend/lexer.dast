@@ -185,6 +185,10 @@ fn lex(src: String) -> Tokens {
                 push(&mut items, Token { kind: TokenKind.OrOr, start: start, len: 2 })
                 i = i + 2
                 handled = true
+            } else if c == ':' && next == ':' {
+                push(&mut items, Token { kind: TokenKind.ColonColon, start: start, len: 2 })
+                i = i + 2
+                handled = true
             } else {
                 let kind = single_char_kind(c)
                 if kind != TokenKind.Invalid {

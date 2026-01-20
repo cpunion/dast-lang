@@ -121,6 +121,7 @@ struct BinaryExpr {
 struct CallExpr {
     pos: i32,
     callee: Expr,
+    type_args: [String],
     args: [Expr],
 }
 

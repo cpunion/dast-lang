@@ -70,6 +70,7 @@ enum TokenKind {
     GtEq = 64,
     AndAnd = 65,
     OrOr = 66,
+    ColonColon = 71,
 }
 
 fn single_char_kind(c: i32) -> TokenKind {

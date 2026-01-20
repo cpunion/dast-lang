@@ -98,4 +98,14 @@ fn main() {
     println("mixed1", t1)
     println("mixed2", t2)
     println("mixed3", t3)
+
+    // ===== Turbofish syntax - explicit type args =====
+    let tf1 = identity::[i32](42)
+    println("turbo_int", tf1)
+
+    let tf2 = identity::[String]("explicit")
+    println("turbo_str", tf2)
+
+    let tf3 = first::[i32, String](999, "ignored")
+    println("turbo_first", tf3)
 }

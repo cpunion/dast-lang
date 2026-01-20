@@ -1139,6 +1139,25 @@ fn infer_generic_return(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]) -> i3
     return sig.ret
 }
 
+// Resolve return type from explicit turbofish type args
+// type_args contains explicit type names like ["i32", "String"]
+// If sig.ret is a type param, find its position and return the corresponding type
+fn resolve_explicit_return(ctx: &TypeContext, sig: FuncSig, type_args: [String]) -> i32 {
+    let ret_name = ctx_type_name(ctx, sig.ret)
+    let ret_idx = find_type_param_idx(sig.type_params, ret_name)
+    if ret_idx < 0 {
+        // Return type is not a type param, use as-is
+        return sig.ret
+    }
+    // Get the explicit type from type_args
+    if ret_idx < len(type_args) {
+        // Parse the explicit type
+        let mut tctx = *ctx
+        return ctx_parse_type(&mut tctx, type_args[ret_idx], "")
+    }
+    // Not enough type args provided
+    return sig.ret
+}
 // Check if arg type matches param type (handling type params)
 fn type_matches_generic(ctx: &TypeContext, arg_type: i32, param_type: i32, type_params: [String]) -> bool {
     if ctx_type_assignable(ctx, arg_type, param_type) {
@@ -2075,8 +2094,12 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 }
                                 i = i + 1
                             }
-                            // Infer return type for generic functions
+                            // Infer or use explicit return type for generic functions
                             if len(sig.type_params) > 0 {
+                                // Check for turbofish explicit type args
+                                if len(c.type_args) > 0 {
+                                    return resolve_explicit_return(ctx, sig, c.type_args)
+                                }
                                 return infer_generic_return(ctx, sig, arg_types)
                             }
                             return sig.ret

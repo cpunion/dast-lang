@@ -147,6 +147,56 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
                 add_error(errors, lexer_pos(lex), "expected ']'");
             }
             expr = Expr.Index(IndexExpr { pos: idx_pos, recv: expr, index: index })
+        } else if k == TokenKind.ColonColon {
+            // Turbofish syntax: ident::[Type, ...](args)
+            lexer_next(lex) // consume ::
+            let mut type_args: [String] = []
+            if peek_kind(lex) == TokenKind.LBracket {
+                lexer_next(lex) // consume [
+                if peek_kind(lex) != TokenKind.RBracket {
+                    let mut more = true
+                    while more {
+                        let type_arg = parse_type(src, lex, errors)
+                        push(&mut type_args, type_arg)
+                        if peek_kind(lex) == TokenKind.Comma {
+                            lexer_next(lex)
+                        } else {
+                            more = false
+                        }
+                    }
+                }
+                if peek_kind(lex) == TokenKind.RBracket {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ']'")
+                }
+            }
+            // Now expect ( for function call
+            if peek_kind(lex) == TokenKind.LParen {
+                let call_pos = lexer_pos(lex)
+                lexer_next(lex)
+                let mut args: [Expr] = []
+                if peek_kind(lex) != TokenKind.RParen {
+                    let mut more = true
+                    while more {
+                        let arg = parse_expr(src, lex, errors, 0)
+                        push(&mut args, arg)
+                        if peek_kind(lex) == TokenKind.Comma {
+                            lexer_next(lex)
+                        } else {
+                            more = false
+                        }
+                    }
+                }
+                if peek_kind(lex) == TokenKind.RParen {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ')'")
+                }
+                expr = Expr.Call(CallExpr { pos: call_pos, callee: expr, type_args: type_args, args: args })
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '(' after turbofish")
+            }
         } else if k == TokenKind.LParen {
             let call_pos = lexer_pos(lex)
             lexer_next(lex)
@@ -170,7 +220,7 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
             }
             match expr {
                 Expr.Ident(_) => {
-                    expr = Expr.Call(CallExpr { pos: call_pos, callee: expr, args: args })
+                    expr = Expr.Call(CallExpr { pos: call_pos, callee: expr, type_args: string_list_new(), args: args })
                 }
                 .Field(f) => {
                     expr = Expr.MethodCall(MethodCallExpr {
