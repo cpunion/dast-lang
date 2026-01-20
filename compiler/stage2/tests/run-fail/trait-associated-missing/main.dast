@@ -1,0 +1,24 @@
+// Test missing associated type error
+
+trait Iterator {
+    type Item;
+    fn next(&mut self) -> int;
+}
+
+struct Counter {
+    count: int,
+}
+
+impl Iterator for Counter {
+    // Missing: type Item = int;
+    fn next(&mut self) -> int {
+        self.count = self.count + 1
+        return self.count
+    }
+}
+
+fn main() {
+    let mut c = Counter { count: 0 }
+    let n = (&mut c).next()
+    println("n", n)
+}

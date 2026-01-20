@@ -1833,11 +1833,43 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
             }
         }
 
+        // Collect associated type names from impl
+        let mut assoc_type_names = name_list_new()
+        let mut ai = 0
+        while ai < len(it.associated_types) {
+            push(&mut assoc_type_names, it.associated_types[ai].name)
+            ai = ai + 1
+        }
+
+        // Validate that all required associated types are provided
+        if trait_idx >= 0 {
+            let trait_sig = ctx.traits[trait_idx]
+            let mut ti = 0
+            while ti < len(trait_sig.associated_types) {
+                let required_type = trait_sig.associated_types[ti]
+                // Check if this associated type is implemented
+                let mut found = false
+                let mut fi = 0
+                while fi < len(it.associated_types) {
+                    if it.associated_types[fi].name == required_type {
+                        found = true
+                    }
+                    fi = fi + 1
+                }
+                if !found {
+                    ctx_set_pos(ctx, it.pos)
+                    add_type_error(ctx, "missing associated type '" + required_type + "' required by trait '" + it.trait_name + "'")
+                }
+                ti = ti + 1
+            }
+        }
+
         let mut impl_traits_list = ctx.impl_traits
         push(&mut impl_traits_list, ImplTraitSig {
             module: it.module,
             trait_name: it.trait_name,
             for_type: it.for_type,
+            associated_types: assoc_type_names,
             methods: method_names,
         })
         ctx.impl_traits = impl_traits_list
@@ -1992,6 +2024,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
         vis: Visibility { kind: 2 },  // pub
         name: "Fn",
         type_params: name_list_new(),
+        associated_types: name_list_new(),
         methods: fn_methods,
     }
 
@@ -2011,6 +2044,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
         vis: Visibility { kind: 2 },  // pub
         name: "FnMut",
         type_params: name_list_new(),
+        associated_types: name_list_new(),
         methods: fn_mut_methods,
     }
 
@@ -2030,6 +2064,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
         vis: Visibility { kind: 2 },  // pub
         name: "FnOnce",
         type_params: name_list_new(),
+        associated_types: name_list_new(),
         methods: fn_once_methods,
     }
 
