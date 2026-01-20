@@ -104,6 +104,37 @@ fn lsp_get_hover(content: String, target_line: i32, target_col: i32) -> String {
     return ""
 }
 
+// Get code completions
+// Returns: list of completion items (function and struct names)
+fn lsp_get_completions(content: String, target_line: i32, target_col: i32) -> [String] {
+    let mut completions: [String] = []
+
+    // Parse the source
+    let mut lex = lexer_new(content)
+    let mut parse_errors: [ParseError] = []
+    let prog = parse_program(content, &mut lex, &mut parse_errors)
+
+    if len(parse_errors) > 0 {
+        return completions
+    }
+
+    // Add all function names
+    let mut i = 0
+    while i < len(prog.functions) {
+        push(&mut completions, prog.functions[i].name)
+        i = i + 1
+    }
+
+    // Add all struct names
+    let mut j = 0
+    while j < len(prog.structs) {
+        push(&mut completions, prog.structs[j].name)
+        j = j + 1
+    }
+
+    return completions
+}
+
 // Format function signature for hover
 fn format_function_signature(func: FunctionDecl) -> String {
     let mut sig = "fn " + func.name + "("

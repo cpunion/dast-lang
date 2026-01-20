@@ -195,7 +195,13 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
             example = args[i + 1]
             i = i + 2
         } else {
-            push(&mut files, args[i])
+            // Expand path (directory or file) to file list
+            let expanded = expand_path_to_files(args[i], false)
+            let mut j = 0
+            while j < len(expanded) {
+                push(&mut files, expanded[j])
+                j = j + 1
+            }
             i = i + 1
         }
     }
@@ -204,6 +210,19 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
         i = i + 1
     }
     return ArgSplitPkg { files: files, rest: rest, package: pkg, example: example, debug: debug }
+}
+
+fn expand_path_to_files(path: String, include_tests: bool) -> [String] {
+    // Try to read as directory
+    let names = read_dir(path)
+    if len(names) > 0 {
+        // It's a directory - scan for .dast files
+        return driver_list_dast_files(path, include_tests)
+    }
+    // It's a file - return as single-item list
+    let mut result: [String] = []
+    push(&mut result, path)
+    return result
 }
 
 fn parse_files(files: [String]) -> ParseResult {
