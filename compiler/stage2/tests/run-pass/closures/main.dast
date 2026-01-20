@@ -1,13 +1,8 @@
-// Test closure calling
+// Test closure with free variable capture
 
 fn main() {
-    // Empty closure
-    let f = || 42
-    let result1 = f()
-    println("empty_closure_result", result1)
-
-    // Closure with params
-    let add = |a: i32, b: i32| a + b
-    let result2 = add(10, 20)
-    println("add_result", result2)
+    let y = 10
+    let f = |x: i32| x + y
+    let result = f(5)
+    println("capture_test", result)
 }
