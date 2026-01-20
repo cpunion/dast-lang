@@ -4,4 +4,5 @@ fn main() {
     lsp_diagnostics_test_main()
     lsp_definition_test_main()
     lsp_hover_test_main()
+    lsp_completion_test_main()
 }

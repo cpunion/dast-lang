@@ -1,0 +1,33 @@
+// LSP Completion Tests
+
+fn lsp_completion_test_main() {
+    test_completion_functions()
+    test_completion_structs()
+    println("All completion tests complete")
+}
+
+fn test_completion_functions() {
+    let content = "fn add() {}\nfn sub() {}\nfn mul() {}"
+    let completions = lsp_get_completions(content, 0, 0)
+
+    // Should return all function names
+    if len(completions) != 3 {
+        println("FAIL: test_completion_functions - expected 3, got: " + int_to_string(len(completions)))
+        return
+    }
+
+    println("PASS: test_completion_functions (count: " + int_to_string(len(completions)) + ")")
+}
+
+fn test_completion_structs() {
+    let content = "struct Point {}\nstruct Line {}"
+    let completions = lsp_get_completions(content, 0, 0)
+
+    // Should return all struct names
+    if len(completions) != 2 {
+        println("FAIL: test_completion_structs - expected 2, got: " + int_to_string(len(completions)))
+        return
+    }
+
+    println("PASS: test_completion_structs (count: " + int_to_string(len(completions)) + ")")
+}

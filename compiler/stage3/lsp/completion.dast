@@ -1,0 +1,49 @@
+// LSP Completion Handler
+// Handles textDocument/completion requests
+
+// Handle textDocument/completion request
+fn handle_completion(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let params = req.params
+    let text_doc = json_get(params, "textDocument")
+    let uri = json_get_string(text_doc, "uri", "")
+    let position = json_get(params, "position")
+    let line = json_get_int(position, "line", 0)
+    let character = json_get_int(position, "character", 0)
+
+    // Get document content
+    let idx = server_get_document(server, uri)
+    if idx < 0 {
+        return jsonrpc_success(req.id, json_null())
+    }
+
+    let content = server.documents[idx].content
+
+    // Get completions using Stage 2 bridge
+    let completions = lsp_get_completions(content, line, character)
+
+    if len(completions) == 0 {
+        // No completions available - return empty array
+        return jsonrpc_success(req.id, json_array())
+    }
+
+    // Create completion items array
+    // For MVP, just return array of strings (simplified)
+    let mut items: [JsonValue] = []
+    let mut i = 0
+    while i < len(completions) {
+        push(&mut items, json_string(completions[i]))
+        i = i + 1
+    }
+
+    // Wrap in JsonValue array using correct field names
+    let result = JsonValue {
+        kind: 3,  // Array
+        str_val: "",
+        num_val: 0,
+        arr_val: items,
+        obj_keys: [],
+        obj_vals: []
+    }
+
+    return jsonrpc_success(req.id, result)
+}

@@ -63,6 +63,7 @@ struct ServerCapabilities {
     hover_provider: bool,
     definition_provider: bool,
     references_provider: bool,
+    completion_provider: bool,
 }
 
 struct InitializeResult {
