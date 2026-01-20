@@ -543,28 +543,3 @@ fn json_stringify_object(val: JsonValue) -> String {
 }
 
 // int_to_string helper (if not available in Stage 2)
-fn int_to_string(n: i32) -> String {
-    if n == 0 {
-        return "0"
-    }
-
-    let mut neg = false
-    let mut val = n
-    if val < 0 {
-        neg = true
-        val = -val
-    }
-
-    let mut result = ""
-    while val > 0 {
-        let digit = val % 10
-        result = substr("0123456789", digit, 1) + result
-        val = val / 10
-    }
-
-    if neg {
-        result = "-" + result
-    }
-
-    return result
-}

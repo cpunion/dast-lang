@@ -117,7 +117,7 @@ fn handle_did_open(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcRespon
     }
 
     // Generate and publish diagnostics
-    let diagnostics = generate_diagnostics(item.uri, item.text)
+    let diagnostics = lsp_generate_diagnostics(item.uri, item.text)
     let notif = publish_diagnostics_notification(item.uri, diagnostics)
     print(notif)
 
@@ -149,7 +149,7 @@ fn handle_did_change(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResp
     let idx = server_get_document(server, uri)
     if idx >= 0 {
         let content = server.documents[idx].content
-        let diagnostics = generate_diagnostics(uri, content)
+        let diagnostics = lsp_generate_diagnostics(uri, content)
         let notif = publish_diagnostics_notification(uri, diagnostics)
         print(notif)
     }

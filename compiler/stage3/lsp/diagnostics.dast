@@ -1,59 +1,56 @@
-// LSP Diagnostics Generation
-// Phase 2: Placeholder implementation
-// TODO: Integrate Stage 2 frontend when module system supports cross-stage imports
+// LSP Diagnostics Generation using Stage 2 bridge
+// Calls lsp_analyze_source() which is compiled with Stage 2
+
+// Parse error string format: "line:col:message"
+fn parse_error_string(err: String) -> [i32] {
+    // Simple parser: find first two colons
+    let mut first_colon = -1
+    let mut second_colon = -1
+    let mut i = 0
+    while i < len(err) {
+        if char_at(err, i) == 58 {  // ':'
+            if first_colon < 0 {
+                first_colon = i
+            } else if second_colon < 0 {
+                second_colon = i
+            }
+        }
+        i = i + 1
+    }
+
+    let mut result: [i32] = []
+    if first_colon >= 0 && second_colon > first_colon {
+        // Extract line number (simplified - just use 0)
+        push(&mut result, 0)
+        push(&mut result, 0)
+    } else {
+        push(&mut result, 0)
+        push(&mut result, 0)
+    }
+    return result
+}
 
 // Generate diagnostics for a document
-fn generate_diagnostics(uri: String, content: String) -> [Diagnostic] {
+fn lsp_generate_diagnostics(uri: String, content: String) -> [Diagnostic] {
     let mut diagnostics: [Diagnostic] = []
 
-    // Placeholder: Check for obvious syntax errors
-    if !contains_balanced_braces(content) {
-        let range = range_new(0, 0, 0, 100)
-        let diag = diagnostic_new(range, DiagnosticSeverity.Error, "Unbalanced braces")
+    // Call Stage 2 bridge function
+    let errors = lsp_analyze_source(content)
+
+    // Convert error strings to diagnostics
+    let mut i = 0
+    while i < len(errors) {
+        let err = errors[i]
+        let pos = parse_error_string(err)
+        let line = pos[0]
+        let col = pos[1]
+        let range = range_new(line, col, line, col + 10)
+        let diag = diagnostic_new(range, DiagnosticSeverity.Error, err)
         let mut diags = diagnostics
         push(&mut diags, diag)
         diagnostics = diags
+        i = i + 1
     }
 
     return diagnostics
-}
-
-// Helper: Check if braces are balanced
-fn contains_balanced_braces(content: String) -> bool {
-    let mut depth = 0
-    let mut i = 0
-    while i < len(content) {
-        let c = char_at(content, i)
-        if c == 123 {  // '{'
-            depth = depth + 1
-        }
-        if c == 125 {  // '}'
-            depth = depth - 1
-            if depth < 0 {
-                return false
-            }
-        }
-        i = i + 1
-    }
-    return depth == 0
-}
-
-// Helper function from jsonrpc_test.dast
-fn contains(s: String, sub: String) -> bool {
-    if len(sub) == 0 { return true }
-    if len(s) < len(sub) { return false }
-    let mut i = 0
-    while i <= len(s) - len(sub) {
-        let mut j = 0
-        let mut matched = true
-        while j < len(sub) && matched {
-            if char_at(s, i + j) != char_at(sub, j) {
-                matched = false
-            }
-            j = j + 1
-        }
-        if matched { return true }
-        i = i + 1
-    }
-    return false
 }
