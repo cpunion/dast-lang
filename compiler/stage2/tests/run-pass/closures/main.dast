@@ -1,10 +1,11 @@
-// Test closure syntax - basic parsing
+// Test closure with typed params
 
 fn main() {
-    // Empty closure works
+    // Empty closure
     let f = || 42
-    println("closure", 1)
+    println("empty_closure", 1)
 
-    // Note: Closures with params currently have scope issues
-    // let add = |a: i32, b: i32| a + b  // TODO: fix param scope
+    // Closure with typed params
+    let add = |a: i32, b: i32| a + b
+    println("typed_closure", 2)
 }

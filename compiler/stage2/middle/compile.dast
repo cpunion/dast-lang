@@ -23,6 +23,9 @@ struct Compiler {
     cur_block: i32,
     block_id: i32,
     temp_id: i32,
+    // Closure support
+    pending_closures: [IrFunction],
+    closure_id: i32,
 }
 
 fn name_count_list_new() -> [NameCount] {
@@ -177,6 +180,7 @@ fn compiler_find_method(c: &Compiler, type_name: String, name: String) -> i32 {
 }
 
 fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
+    let mut pending_closures: [IrFunction] = []
     let mut c = Compiler {
         tctx: tctx,
         structs: prog.structs,
@@ -192,6 +196,8 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         cur_block: -1,
         block_id: 0,
         temp_id: 0,
+        pending_closures: pending_closures,
+        closure_id: 0,
     }
     let mut funcs: [IrFunction] = []
     let mut entry = ""
@@ -224,6 +230,12 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
             }
         }
         j = j + 1
+    }
+    // Add closure functions to output
+    let mut ci = 0
+    while ci < len(c.pending_closures) {
+        push(&mut funcs, c.pending_closures[ci])
+        ci = ci + 1
     }
     let ir_prog = IrProgram { version: "v0", features: string_list_new(), functions: funcs, entry: entry }
     return CompileResult { prog: ir_prog, errors: c.tctx.errors }
@@ -1313,32 +1325,101 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return compile_if_let_expr(c, x, self_name)
         }
         Expr.Closure(cl) => {
-            // Generate closure - compile body and create closure value
-            // For now, just compile the body and return it as a closure
+            // Generate unique closure function name
+            let closure_name = "_closure_" + int_to_string(c.closure_id)
+            c.closure_id = c.closure_id + 1
 
-            // Push a new scope for closure params
-            push_scope(c)
+            // Save current compiler state
+            let saved_blocks = c.blocks
+            let saved_cur_block = c.cur_block
+            let saved_block_id = c.block_id
+            let saved_temp_id = c.temp_id
+            let saved_scope_names = c.scope_names
+            let saved_scope_ir = c.scope_ir
+            let saved_scope_marks = c.scope_marks
+            let saved_name_counts = c.name_counts
+
+            // Reset for closure function compilation
+            c.blocks = block_list_new()
+            c.cur_block = -1
+            c.block_id = 0
+            c.temp_id = 0
+            c.scope_names = string_list_new()
+            c.scope_ir = string_list_new()
+            c.scope_marks = int_list_new()
+            c.name_counts = name_count_list_new()
+            compiler_env_push(c)
+
+            // Build closure params
+            let mut params: [String] = []
+            let mut param_types: [String] = []
             let mut i = 0
             while i < len(cl.params) {
                 let p = cl.params[i]
                 let mut pt = compiler_type_make(c, 1, "i32", false, false, -1)
                 if p.has_type {
-                    // Parse type - outer type_params are available via c.tctx
                     let mut tctx = c.tctx
                     pt = ctx_parse_type(&mut tctx, p.typ, self_name)
                     c.tctx = tctx
                 }
-                // Type annotation is now required (error added in typecheck)
-                declare_var(c, p.name, pt, false)
+                let ir_name = declare_var(c, p.name, pt, false)
+                push(&mut params, ir_name)
+                push(&mut param_types, compiler_type_string(c, pt))
                 i = i + 1
             }
 
-            // Compile closure body
+            // Create entry block and compile body
+            let entry_block = new_block(c, "entry")
+            set_current_block(c, entry_block)
             let body_val = compile_expr(c, cl.body, self_name)
-            pop_scope(c)
 
-            // Return body value (simplified closure - just returns the body result)
-            return body_val
+            // Add return if not present
+            if !current_block_has_term(c) {
+                emit_term(c, IrTerm.Return(IrReturn { has_value: true, value: body_val }))
+            }
+
+            compiler_env_pop(c)
+
+            // Determine return type from closure
+            let mut return_type = ""
+            if cl.has_ret_type {
+                let mut tctx = c.tctx
+                let rt = ctx_parse_type(&mut tctx, cl.ret_type, self_name)
+                c.tctx = tctx
+                return_type = compiler_type_string(c, rt)
+            }
+
+            // Build the closure IrFunction
+            let closure_func = IrFunction {
+                name: closure_name,
+                params: params,
+                param_types: param_types,
+                return_type: return_type,
+                blocks: c.blocks,
+                temp_count: c.temp_id,
+            }
+
+            // Add to pending closures
+            let mut pending = c.pending_closures
+            push(&mut pending, closure_func)
+            c.pending_closures = pending
+
+            // Restore compiler state
+            c.blocks = saved_blocks
+            c.cur_block = saved_cur_block
+            c.block_id = saved_block_id
+            c.temp_id = saved_temp_id
+            c.scope_names = saved_scope_names
+            c.scope_ir = saved_scope_ir
+            c.scope_marks = saved_scope_marks
+            c.name_counts = saved_name_counts
+
+            // Emit closure value creation in parent function
+            let dst = new_temp(c)
+            // For now, use call instruction with special syntax for closure reference
+            // The runtime/interpreter will treat this as a function pointer
+            emit_instr(c, IrInstr.Const(IrConst { dst: dst, value: ir_value_string(closure_name) }))
+            return dst
         }
     }
     return const_zero(c)
