@@ -26,6 +26,7 @@ struct Compiler {
     // Closure support
     pending_closures: [IrFunction],
     closure_id: i32,
+    current_func_name: String,
 }
 
 fn name_count_list_new() -> [NameCount] {
@@ -198,6 +199,7 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         temp_id: 0,
         pending_closures: pending_closures,
         closure_id: 0,
+        current_func_name: "",
     }
     let mut funcs: [IrFunction] = []
     let mut entry = ""
@@ -249,6 +251,8 @@ fn compiler_module_alias(c: &Compiler, name: String) -> String {
 fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: String) -> IrFunction {
     c.block_id = 0
     c.temp_id = 0
+    c.closure_id = 0
+    c.current_func_name = name
     c.name_counts = name_count_list_new()
     c.scope_names = string_list_new()
     c.scope_ir = string_list_new()
@@ -1325,8 +1329,8 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return compile_if_let_expr(c, x, self_name)
         }
         Expr.Closure(cl) => {
-            // Generate unique closure function name
-            let closure_name = "_closure_" + int_to_string(c.closure_id)
+            // Generate unique closure function name: outer$N
+            let closure_name = c.current_func_name + "$" + int_to_string(c.closure_id)
             c.closure_id = c.closure_id + 1
 
             // Save current compiler state
