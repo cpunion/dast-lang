@@ -740,6 +740,8 @@ fn builtin_list() -> [String] {
     push(&mut b, "args")
     push(&mut b, "char_at")
     push(&mut b, "substr")
+    push(&mut b, "read_line")
+    push(&mut b, "read_bytes")
     return b
 }
 

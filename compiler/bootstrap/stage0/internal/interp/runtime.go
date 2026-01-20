@@ -44,6 +44,8 @@ func New(prog *ir.Program) *Runtime {
 		"char_at":    rt.builtinCharAt(),
 		"substr":     rt.builtinSubstr(),
 		"pop":        rt.builtinPop(),
+		"read_line":  rt.builtinReadLine(),
+		"read_bytes": rt.builtinReadBytes(),
 	}
 	return rt
 }

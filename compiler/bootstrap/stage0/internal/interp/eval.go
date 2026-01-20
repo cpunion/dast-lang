@@ -3,6 +3,7 @@ package interp
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 
@@ -276,13 +277,13 @@ func (rt *Runtime) builtinReadDir() Builtin {
 		if pathVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_dir expects string path")
 		}
-	entries, err := os.ReadDir(pathVal.Str)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
-			return ir.Value{Kind: ir.KindArray, Array: &ir.ArrayValue{Elems: nil}}, nil
+		entries, err := os.ReadDir(pathVal.Str)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+				return ir.Value{Kind: ir.KindArray, Array: &ir.ArrayValue{Elems: nil}}, nil
+			}
+			return ir.Value{Kind: ir.KindUnit}, err
 		}
-		return ir.Value{Kind: ir.KindUnit}, err
-	}
 		elems := make([]ir.Value, 0, len(entries))
 		for _, entry := range entries {
 			elems = append(elems, ir.Value{Kind: ir.KindString, Str: entry.Name()})
@@ -373,5 +374,63 @@ func (rt *Runtime) builtinArgs() Builtin {
 			elems = append(elems, ir.Value{Kind: ir.KindString, Str: arg})
 		}
 		return ir.Value{Kind: ir.KindArray, Array: &ir.ArrayValue{Elems: elems}}, nil
+	}
+}
+
+func (rt *Runtime) builtinReadLine() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 0 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("read_line expects no arguments")
+		}
+		// Read line from stdin (until \n or \r\n)
+		var line []byte
+		buf := make([]byte, 1)
+		for {
+			n, err := os.Stdin.Read(buf)
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			if n == 0 {
+				break
+			}
+			if buf[0] == '\n' {
+				break
+			}
+			if buf[0] != '\r' {
+				line = append(line, buf[0])
+			}
+		}
+		return ir.Value{Kind: ir.KindString, Str: string(line)}, nil
+	}
+}
+
+func (rt *Runtime) builtinReadBytes() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("read_bytes expects 1 argument")
+		}
+		if args[0].Kind != ir.KindInt {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("read_bytes expects int count")
+		}
+		count := int(args[0].Int)
+		if count < 0 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("read_bytes count must be non-negative")
+		}
+		buf := make([]byte, count)
+		totalRead := 0
+		for totalRead < count {
+			n, err := os.Stdin.Read(buf[totalRead:])
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			totalRead += n
+		}
+		return ir.Value{Kind: ir.KindString, Str: string(buf[:totalRead])}, nil
 	}
 }
