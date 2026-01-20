@@ -29,6 +29,7 @@ enum TokenKind {
     True = 20,
     False = 21,
     Impl = 22,
+    Trait = 72,
     SelfVal = 23,
     SelfType = 24,
     Const = 25,

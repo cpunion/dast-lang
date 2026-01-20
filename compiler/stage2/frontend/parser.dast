@@ -637,6 +637,16 @@ fn import_item_list_new() -> [ImportItemSpec] {
     return items
 }
 
+fn trait_list_new() -> [TraitDecl] {
+    let mut items: [TraitDecl] = []
+    return items
+}
+
+fn impl_trait_list_new() -> [ImplTrait] {
+    let mut items: [ImplTrait] = []
+    return items
+}
+
 fn generic_param_list_new() -> [GenericParam] {
     let mut params: [GenericParam] = []
     return params
@@ -1644,5 +1654,14 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
             }
         }
     }
-    return Program { imports: imports, structs: structs, enums: enums, consts: consts, functions: functions, impls: impls }
+    return Program {
+        imports: imports,
+        structs: structs,
+        enums: enums,
+        consts: consts,
+        traits: trait_list_new(),  // TODO: parse traits
+        functions: functions,
+        impls: impls,
+        impl_traits: impl_trait_list_new(),  // TODO: parse impl traits
+    }
 }

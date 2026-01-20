@@ -401,11 +401,51 @@ struct ImportDecl {
     alias: String,
 }
 
+// Trait system structures
+struct TraitMethod {
+    pos: i32,
+    name: String,
+    params: [Param],
+    has_return: bool,
+    ret: String,
+    has_default: bool,
+    default_body: Block,
+}
+
+struct TraitDecl {
+    vis: Visibility,
+    module: String,
+    file: String,
+    pos: i32,
+    name: String,
+    type_params: [GenericParam],
+    methods: [TraitMethod],
+}
+
+struct ImplTrait {
+    vis: Visibility,
+    module: String,
+    file: String,
+    pos: i32,
+    trait_name: String,
+    for_type: String,
+    type_args: [String],
+    methods: [FunctionDecl],
+}
+
+struct TraitBound {
+    pos: i32,
+    trait_name: String,
+}
+
 struct Program {
     imports: [ImportDecl],
     structs: [StructDecl],
     enums: [EnumDecl],
     consts: [ConstDecl],
+    traits: [TraitDecl],
     functions: [FunctionDecl],
     impls: [ImplDecl],
+    impl_traits: [ImplTrait],
 }
+
