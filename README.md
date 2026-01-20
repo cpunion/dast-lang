@@ -35,6 +35,73 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 - **Testing**: Go-style (`*_test.dast`, `test_*` prefix)
 - **Tooling**: Unified `dast` CLI with built-in LSP
 
+## Language Features Implementation Status
+
+### Core Language Features
+
+| Feature | Status | Stage | Notes |
+|---------|--------|-------|-------|
+| **Basic Types** | ✅ Complete | Stage 0 | int, bool, String, arrays |
+| **Structs** | ✅ Complete | Stage 0 | Definition, instantiation, field access |
+| **Enums** | ✅ Complete | Stage 0 | Variants, pattern matching |
+| **Functions** | ✅ Complete | Stage 0 | Parameters, return types, recursion |
+| **Generics** | ✅ Complete | Stage 0 | Generic functions and structs |
+| **References** | ✅ Complete | Stage 0 | `&T`, `&mut T`, borrow checking |
+| **Pattern Matching** | ✅ Complete | Stage 0 | match, if-let, guards, ranges |
+| **Closures** | ✅ Complete | Stage 2 | Immutable and mutable captures |
+| **Traits** | ✅ Complete | Stage 2 | Definition, impl, methods |
+| **Associated Types** | ✅ Complete | Stage 2 | Trait associated types |
+| **Trait Bounds** | ✅ Complete | Stage 2 | Single and multiple bounds |
+| **Type Aliases** | ⚠️ Partial | Stage 2 | Parser done, resolution bug |
+| **Impl Blocks** | ✅ Complete | Stage 0 | Methods, static methods, Self |
+| **Modules** | ✅ Complete | Stage 0 | Nested modules, visibility |
+| **Imports** | ✅ Complete | Stage 0 | Selective, aliased, re-exports |
+| **Const** | ✅ Complete | Stage 0 | Compile-time constants |
+| **Type Inference** | ✅ Complete | Stage 0 | Local variable types |
+| **Lifetimes** | 🚧 Planned | - | Explicit lifetime annotations |
+| **Async/Await** | 🚧 Planned | - | Async functions, futures |
+| **Macros** | 🚧 Planned | - | Declarative and procedural |
+
+### Memory & Safety
+
+| Feature | Status | Stage | Notes |
+|---------|--------|-------|-------|
+| **RAII** | ✅ Complete | Stage 0 | Automatic resource management |
+| **Borrow Checker** | ✅ Complete | Stage 0 | Compile-time safety |
+| **Move Semantics** | ✅ Complete | Stage 0 | Ownership transfer |
+| **Mutable Closure Capture** | 🚧 In Progress | Stage 2 | Variable promotion needed |
+| **Full Lifetimes** | 🚧 Planned | - | Explicit annotations |
+
+### Standard Library
+
+| Feature | Status | Stage | Notes |
+|---------|--------|-------|-------|
+| **Prelude** | ✅ Package Created | Stage 2 | I/O, arrays, strings, system |
+| **Collections** | 🚧 Planned | - | Vec, HashMap, etc. |
+| **Error Handling** | 🚧 Planned | - | Result, Option |
+| **Iterators** | 🚧 Planned | - | Iterator trait, adapters |
+| **String Utilities** | 🚧 Planned | - | String manipulation |
+
+### Tooling & Infrastructure
+
+| Feature | Status | Stage | Notes |
+|---------|--------|-------|-------|
+| **Package Management** | ✅ Complete | Stage 2 | Directory-based packages |
+| **Build System** | ✅ Complete | Stage 0 | dast build/run/test |
+| **LSP Server** | ✅ Production | Stage 3 | Diagnostics, go-to-def |
+| **VSCode Extension** | ✅ Complete | Stage 3 | Syntax highlighting, LSP |
+| **IR Optimizer** | 🚧 Planned | Stage 2 | Optimization passes |
+| **Better Errors** | 🚧 Planned | Stage 2 | Improved error messages |
+| **Incremental Compilation** | 🚧 Planned | - | Dependency tracking |
+
+### Test Coverage
+
+- **Stage 0**: 12 tests passing
+- **Stage 1**: Self-hosting IR check passing
+- **Stage 2**: 44/45 tests passing (type-alias bug)
+- **LSP**: 35/35 tests passing
+
+
 ## Language Server Protocol (LSP) Support
 
 **Status**: ✅ **Production Ready** (35/35 tests passing)
