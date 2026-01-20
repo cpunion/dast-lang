@@ -38,3 +38,33 @@ fn lsp_analyze_source(content: String) -> [String] {
 
     return all_errors
 }
+
+// Find definition of symbol at given position
+// Returns: "line:col:name" or "" if not found
+// MVP: Only supports function definitions
+fn lsp_find_definition(content: String, target_line: i32, target_col: i32) -> String {
+    // Parse the source
+    let mut lex = lexer_new(content)
+    let mut parse_errors: [ParseError] = []
+    let prog = parse_program(content, &mut lex, &mut parse_errors)
+
+    if len(parse_errors) > 0 {
+        return ""  // Cannot find definition with parse errors
+    }
+
+    // For MVP: Search for function definitions
+    // TODO: This is a simplified implementation - we need to:
+    // 1. Find identifier at cursor position
+    // 2. Resolve what it refers to
+    // 3. Return the definition location
+
+    // For now, just return the first function definition as a test
+    if len(prog.functions) > 0 {
+        let func = prog.functions[0]
+        // Return format: "line:col:name"
+        // Note: We don't have line/col from pos yet, using 0:0
+        return "0:0:" + func.name
+    }
+
+    return ""
+}

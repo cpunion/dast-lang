@@ -451,12 +451,23 @@ struct TraitBound {
     trait_name: String,
 }
 
+struct TypeAlias {
+    vis: Visibility,
+    module: String,
+    file: String,
+    pos: i32,
+    name: String,
+    type_params: [GenericParam],
+    target: String,
+}
+
 struct Program {
     imports: [ImportDecl],
     structs: [StructDecl],
     enums: [EnumDecl],
     consts: [ConstDecl],
     traits: [TraitDecl],
+    type_aliases: [TypeAlias],
     functions: [FunctionDecl],
     impls: [ImplDecl],
     impl_traits: [ImplTrait],
