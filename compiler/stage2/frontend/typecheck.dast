@@ -1990,9 +1990,16 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     }
                     let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
                     let vt = check_expr(ctx, f.value)
-                    if !ctx_type_assignable(ctx, vt, ft) && ft != 0 && vt != 0 {
-                        add_type_error(ctx, "field type mismatch")
+                    // Check if field type is a type param - if so, T is inferred from value
+                    let ft_name = ctx_type_name(ctx, ft)
+                    let is_param = find_type_param_idx(ctx.type_params, ft_name) >= 0
+                    if !is_param {
+                        // Concrete type - require exact match
+                        if !ctx_type_assignable(ctx, vt, ft) && ft != 0 && vt != 0 {
+                            add_type_error(ctx, "field type mismatch")
+                        }
                     }
+                    // If field type is T, we accept any value type (T inferred from value)
                 }
                 push(&mut seen, f.name)
                 i = i + 1

@@ -1,6 +1,6 @@
-// Test generic struct (T not yet usable in fields - needs instantiation)
+// Test generic struct with T as field type
 struct Box[T] {
-    value: i32,
+    value: T,
 }
 
 // Test generic enum parsing
@@ -37,8 +37,13 @@ fn swap_take_first[T, U](a: T, b: U, c: T) -> T {
 }
 
 fn main() {
+    // Test Box with i32
     let b = Box { value: 42 }
-    println("box", b.value)
+    println("box_int", b.value)
+
+    // Test Box with String
+    let b2 = Box { value: "hello" }
+    println("box_str", b2.value)
 
     let opt = Option.Some(10)
     match opt {
