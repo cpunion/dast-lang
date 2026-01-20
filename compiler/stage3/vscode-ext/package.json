@@ -1,0 +1,68 @@
+{
+    "name": "dast-language",
+    "displayName": "Dast Language",
+    "description": "Language support for the Dast programming language",
+    "version": "0.1.0",
+    "publisher": "cpunion",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "onLanguage:dast"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "dast",
+                "aliases": ["Dast", "dast"],
+                "extensions": [".dast"],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "dast",
+                "scopeName": "source.dast",
+                "path": "./syntaxes/dast.tmLanguage.json"
+            }
+        ],
+        "configuration": {
+            "type": "object",
+            "title": "Dast",
+            "properties": {
+                "dast.server.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the dast-lsp executable. If empty, uses PATH."
+                },
+                "dast.trace.server": {
+                    "type": "string",
+                    "enum": ["off", "messages", "verbose"],
+                    "default": "off",
+                    "description": "Traces the communication between VS Code and the language server."
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "lint": "eslint src --ext ts"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^18.0.0",
+        "@types/vscode": "^1.75.0",
+        "@typescript-eslint/eslint-plugin": "^6.0.0",
+        "@typescript-eslint/parser": "^6.0.0",
+        "eslint": "^8.0.0",
+        "typescript": "^5.0.0"
+    }
+}
