@@ -54,7 +54,7 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 | **Traits** | ✅ Complete | Stage 2 | Definition, impl, methods |
 | **Associated Types** | ✅ Complete | Stage 2 | Trait associated types |
 | **Trait Bounds** | ✅ Complete | Stage 2 | Single and multiple bounds |
-| **Type Aliases** | ⚠️ Partial | Stage 2 | Parser done, resolution bug |
+| **Type Aliases** | ✅ Complete | Stage 2 | Parser and resolution working |
 | **Impl Blocks** | ✅ Complete | Stage 0 | Methods, static methods, Self |
 | **Modules** | ✅ Complete | Stage 0 | Nested modules, visibility |
 | **Imports** | ✅ Complete | Stage 0 | Selective, aliased, re-exports |
@@ -100,7 +100,7 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 
 - **Stage 0**: 12 tests passing
 - **Stage 1**: Self-hosting IR check passing
-- **Stage 2**: 44/45 tests passing (type-alias bug)
+- **Stage 2**: 45/45 tests passing
 - **LSP**: 39/39 tests passing
 
 
