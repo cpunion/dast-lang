@@ -1,0 +1,9 @@
+// Test basic trait definition parsing
+
+trait Display {
+    fn display(s: String) -> String;
+}
+
+fn main() {
+    println("trait parsing test")
+}
