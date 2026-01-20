@@ -274,6 +274,13 @@ fn append_program(dst: &mut Program, src: Program) {
         i = i + 1
     }
     dst.consts = consts
+    let mut traits_list = dst.traits
+    i = 0
+    while i < len(src.traits) {
+        push(&mut traits_list, src.traits[i])
+        i = i + 1
+    }
+    dst.traits = traits_list
     let mut funcs = dst.functions
     i = 0
     while i < len(src.functions) {
