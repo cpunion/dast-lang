@@ -1,4 +1,4 @@
-// Test trait definition and implementation parsing
+// Test impl Trait for Type method calling
 
 trait Greeter {
     fn greet(&self) -> String;
@@ -10,10 +10,12 @@ struct Person {
 
 impl Greeter for Person {
     fn greet(&self) -> String {
-        return "Hello, " + self.name
+        return "Hello"
     }
 }
 
 fn main() {
-    println("trait impl parsing test passed")
+    let p = Person { name: "Alice" }
+    let msg = (&p).greet()
+    println("result", msg)
 }

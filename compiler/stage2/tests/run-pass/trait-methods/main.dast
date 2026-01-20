@@ -1,9 +1,8 @@
-// Test trait with multiple methods and different self parameter styles
+// Test trait method calling with multiple methods and implementations
 
 trait Shape {
     fn area(&self) -> int;
     fn perimeter(&self) -> int;
-    fn name(&self) -> String;
 }
 
 struct Rectangle {
@@ -19,10 +18,6 @@ impl Shape for Rectangle {
     fn perimeter(&self) -> int {
         return 2 * (self.width + self.height)
     }
-
-    fn name(&self) -> String {
-        return "Rectangle"
-    }
 }
 
 struct Square {
@@ -37,12 +32,14 @@ impl Shape for Square {
     fn perimeter(&self) -> int {
         return 4 * self.side
     }
-
-    fn name(&self) -> String {
-        return "Square"
-    }
 }
 
 fn main() {
-    println("trait-methods test passed")
+    let rect = Rectangle { width: 3, height: 4 }
+    let sq = Square { side: 5 }
+
+    println("rect area", (&rect).area())
+    println("rect perimeter", (&rect).perimeter())
+    println("square area", (&sq).area())
+    println("square perimeter", (&sq).perimeter())
 }

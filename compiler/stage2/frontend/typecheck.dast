@@ -1601,12 +1601,73 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
             add_type_error(ctx, "unknown trait '" + it.trait_name + "'")
         }
 
-        // Collect method names implemented
-        let mut method_names = name_list_new()
+        // Resolve the for_type to get qualified name
+        let type_qname = ctx_resolve_type_name(ctx, it.for_type, "")
+
+        // Register each method from the impl Trait for Type
         let mut mi = 0
         while mi < len(it.methods) {
-            push(&mut method_names, it.methods[mi].name)
+            let f = it.methods[mi]
+            ctx_set_file(ctx, f.file)
+            ctx_set_pos(ctx, f.pos)
+
+            if type_qname != "" {
+                if find_method(ctx, type_qname, f.name) >= 0 {
+                    add_type_error(ctx, "duplicate method '" + f.name + "' for '" + it.for_type + "'")
+                } else {
+                    // Parse parameter types
+                    let mut params: [i32] = []
+                    let mut k = 0
+                    while k < len(f.params) {
+                        let p = f.params[k]
+                        if p.name == "self" && k != 0 {
+                            ctx_set_pos(ctx, p.pos)
+                            add_type_error(ctx, "self must be first parameter")
+                        }
+                        ctx_set_pos(ctx, p.pos)
+                        let t = ctx_parse_type(ctx, p.typ, type_qname)
+                        push(&mut params, t)
+                        k = k + 1
+                    }
+
+                    // Parse return type
+                    let mut ret = 0
+                    let mut explicit = false
+                    if f.has_return {
+                        ctx_set_pos(ctx, f.pos)
+                        ret = ctx_parse_type(ctx, f.ret, type_qname)
+                        explicit = true
+                    }
+
+                    // Check if method has self parameter
+                    let mut has_self = false
+                    if len(f.params) > 0 && f.params[0].name == "self" {
+                        has_self = true
+                    }
+
+                    // Register the method so it can be called
+                    ctx_push_method(ctx, MethodSig {
+                        module: it.module,
+                        vis: f.vis,
+                        type_name: type_qname,
+                        name: f.name,
+                        func_name: type_qname + "." + f.name,
+                        params: params,
+                        ret: ret,
+                        ret_explicit: explicit,
+                        has_self: has_self,
+                    })
+                }
+            }
             mi = mi + 1
+        }
+
+        // Collect method names for trait impl tracking
+        let mut method_names = name_list_new()
+        let mut mi2 = 0
+        while mi2 < len(it.methods) {
+            push(&mut method_names, it.methods[mi2].name)
+            mi2 = mi2 + 1
         }
 
         let mut impl_traits_list = ctx.impl_traits
@@ -3429,6 +3490,23 @@ fn check_program(prog: Program) -> TypeContext {
             k = k + 1
         }
         j = j + 1
+    }
+    // Check impl Trait for Type method bodies
+    let mut jt = 0
+    while jt < len(prog.impl_traits) {
+        let it = prog.impl_traits[jt]
+        ctx_set_file(&mut ctx, it.file)
+        ctx_set_pos(&mut ctx, it.pos)
+        ctx_set_current_module(&mut ctx, it.module)
+        let type_qname = ctx_resolve_type_name(&mut ctx, it.for_type, "")
+        let mut kt = 0
+        while kt < len(it.methods) {
+            if type_qname != "" {
+                check_method(&mut ctx, type_qname, it.methods[kt])
+            }
+            kt = kt + 1
+        }
+        jt = jt + 1
     }
     return ctx
 }

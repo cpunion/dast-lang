@@ -235,6 +235,26 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         }
         j = j + 1
     }
+    // Compile impl Trait for Type methods
+    let mut jt = 0
+    while jt < len(prog.impl_traits) {
+        let it = prog.impl_traits[jt]
+        let mut tctx2 = c.tctx
+        ctx_set_current_module(&mut tctx2, it.module)
+        c.tctx = tctx2
+        let type_qname2 = compiler_resolve_type_name(&mut c, it.for_type, "")
+        if type_qname2 != "" {
+            let mut kt = 0
+            while kt < len(it.methods) {
+                let mt = it.methods[kt]
+                let name_t = type_qname2 + "." + mt.name
+                let ft = compile_function(&mut c, mt, name_t, type_qname2)
+                push(&mut funcs, ft)
+                kt = kt + 1
+            }
+        }
+        jt = jt + 1
+    }
     // Add closure functions to output
     let mut ci = 0
     while ci < len(c.pending_closures) {
