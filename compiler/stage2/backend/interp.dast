@@ -749,6 +749,8 @@ fn is_builtin_name(name: String) -> bool {
     if name == "args" { return true }
     if name == "char_at" { return true }
     if name == "substr" { return true }
+    if name == "read_line" { return true }
+    if name == "read_bytes" { return true }
     return false
 }
 
@@ -899,6 +901,18 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
             return ir_value_unit()
         }
         return ir_value_string(substr(args[0].str, start, ln))
+    }
+    if name == "read_line" {
+        if len(args) != 0 { runtime_error(rt, "read_line expects no arguments"); return ir_value_unit() }
+        let line = read_line()
+        return ir_value_string(line)
+    }
+    if name == "read_bytes" {
+        if len(args) != 1 { runtime_error(rt, "read_bytes expects 1 argument"); return ir_value_unit() }
+        if args[0].kind != ir_kind_int() { runtime_error(rt, "read_bytes expects int count"); return ir_value_unit() }
+        let n = args[0].int
+        let data = read_bytes(n)
+        return ir_value_string(data)
     }
     runtime_error(rt, "unknown builtin")
     return ir_value_unit()

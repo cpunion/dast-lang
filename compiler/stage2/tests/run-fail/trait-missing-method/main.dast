@@ -1,0 +1,22 @@
+// Test that missing trait methods are reported as errors
+
+trait Shape {
+    fn area(&self) -> int;
+    fn perimeter(&self) -> int;
+}
+
+struct Circle {
+    radius: int,
+}
+
+// Missing perimeter method - should fail
+impl Shape for Circle {
+    fn area(&self) -> int {
+        return self.radius * self.radius * 3
+    }
+    // perimeter is missing!
+}
+
+fn main() {
+    println("should not reach here")
+}

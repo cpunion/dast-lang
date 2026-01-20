@@ -1670,6 +1670,32 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
             mi2 = mi2 + 1
         }
 
+        // Validate that all required trait methods are implemented
+        if trait_idx >= 0 {
+            let trait_sig = ctx.traits[trait_idx]
+            let mut tm = 0
+            while tm < len(trait_sig.methods) {
+                let required = trait_sig.methods[tm]
+                // Skip methods with default implementations
+                if !required.has_default {
+                    // Check if method is implemented
+                    let mut found = false
+                    let mut im = 0
+                    while im < len(method_names) {
+                        if method_names[im] == required.name {
+                            found = true
+                        }
+                        im = im + 1
+                    }
+                    if !found {
+                        ctx_set_pos(ctx, it.pos)
+                        add_type_error(ctx, "missing method '" + required.name + "' required by trait '" + it.trait_name + "'")
+                    }
+                }
+                tm = tm + 1
+            }
+        }
+
         let mut impl_traits_list = ctx.impl_traits
         push(&mut impl_traits_list, ImplTraitSig {
             module: it.module,
@@ -1807,6 +1833,8 @@ fn builtin_list() -> [String] {
     push(&mut b, "args")
     push(&mut b, "char_at")
     push(&mut b, "substr")
+    push(&mut b, "read_line")
+    push(&mut b, "read_bytes")
     return b
 }
 
