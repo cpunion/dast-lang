@@ -1,4 +1,5 @@
-# node_modules
+# VSCode extension build artifacts
 compiler/stage3/vscode-ext/node_modules/
 compiler/stage3/vscode-ext/out/
 compiler/stage3/vscode-ext/*.vsix
+
