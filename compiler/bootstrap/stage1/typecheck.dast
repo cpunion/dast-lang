@@ -1129,6 +1129,23 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             let elem = ctx_type_make(ctx, 3, "string", false, false, -1)
                             return ctx_type_make(ctx, 7, "", false, false, elem)
                         }
+                        if id.name == "read_line" {
+                            if len(c.args) != 0 {
+                                add_type_error(ctx, "read_line expects no arguments")
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
+                        if id.name == "read_bytes" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "read_bytes expects 1 argument")
+                            } else {
+                                let ct = check_expr(ctx, c.args[0])
+                                if !ctx_is_int(ctx, ct) && ct != 0 {
+                                    add_type_error(ctx, "read_bytes expects int count")
+                                }
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
                         if id.name == "push" {
                             if len(c.args) != 2 {
                                 add_type_error(ctx, "push expects 2 arguments")

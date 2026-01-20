@@ -276,6 +276,31 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				elem := Type{Kind: TypeString, Name: "string"}
 				return Type{Kind: TypeArray, Elem: &elem}
+			case "read_line":
+				if len(e.Args) != 0 {
+					c.diag.Add(e.Span(), "read_line expects no arguments")
+				}
+				return Type{Kind: TypeString, Name: "string"}
+			case "read_bytes":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "read_bytes expects 1 argument")
+					return Type{Kind: TypeString, Name: "string"}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isInt(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "read_bytes expects int count")
+				}
+				return Type{Kind: TypeString, Name: "string"}
+			case "mkdir":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "mkdir expects 1 argument")
+					return Type{Kind: TypeUnit}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "mkdir expects string path")
+				}
+				return Type{Kind: TypeUnit}
 			default:
 				for _, arg := range e.Args {
 					c.checkExpr(arg)
