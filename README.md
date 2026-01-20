@@ -8,6 +8,8 @@ A modern systems programming language with ~99% compile-time safety.
 
 ## Documentation
 
+🌐 **Website**: https://cpunion.github.io/dast-lang-website/
+
 See [docs/00-overview.md](docs/00-overview.md) for the complete design overview.
 
 ### Core Design Documents (01-18)
