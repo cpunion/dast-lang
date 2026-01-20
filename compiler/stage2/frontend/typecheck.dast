@@ -10,6 +10,7 @@ struct FuncSig {
     module: String,
     vis: Visibility,
     name: String,
+    type_params: [String],
     params: [i32],
     ret: i32,
     ret_explicit: bool,
@@ -107,6 +108,7 @@ struct TypeContext {
     current_file: String,
     current_pos: i32,
     loop_depth: i32,
+    type_params: [String],
 }
 
 fn type_table_new() -> TypeTable {
@@ -1073,6 +1075,81 @@ fn parse_error_list_new() -> [ParseError] {
     return items
 }
 
+fn is_type_param(ctx: &TypeContext, name: String) -> bool {
+    let mut i = 0
+    while i < len(ctx.type_params) {
+        if ctx.type_params[i] == name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn ctx_set_type_params(ctx: &mut TypeContext, params: [GenericParam]) {
+    let mut names: [String] = []
+    let mut i = 0
+    while i < len(params) {
+        push(&mut names, params[i].name)
+        i = i + 1
+    }
+    ctx.type_params = names
+}
+
+fn ctx_clear_type_params(ctx: &mut TypeContext) {
+    ctx.type_params = string_list_new()
+}
+
+// Check if a type name is in the type_params list
+fn find_type_param_idx(type_params: [String], name: String) -> i32 {
+    let mut i = 0
+    while i < len(type_params) {
+        if type_params[i] == name {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// Infer generic return type from arguments
+// sig.params and arg_types have same length
+// sig.type_params contains type param names like ["T", "U"]
+// If sig.ret is a type param, find which param position uses it and return that arg's type
+fn infer_generic_return(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]) -> i32 {
+    let ret_name = ctx_type_name(ctx, sig.ret)
+    let ret_idx = find_type_param_idx(sig.type_params, ret_name)
+    if ret_idx < 0 {
+        // Return type is not a type param, use as-is
+        return sig.ret
+    }
+    // Find first param that uses this type param
+    let mut i = 0
+    while i < len(sig.params) {
+        let param_name = ctx_type_name(ctx, sig.params[i])
+        if param_name == ret_name {
+            // This param uses the same type param as return
+            if i < len(arg_types) {
+                return arg_types[i]
+            }
+        }
+        i = i + 1
+    }
+    // Could not infer, return original (will cause type error elsewhere)
+    return sig.ret
+}
+
+// Check if arg type matches param type (handling type params)
+fn type_matches_generic(ctx: &TypeContext, arg_type: i32, param_type: i32, type_params: [String]) -> bool {
+    if ctx_type_assignable(ctx, arg_type, param_type) {
+        return true
+    }
+    // If param is a type param, it matches any type
+    let param_name = ctx_type_name(ctx, param_type)
+    let idx = find_type_param_idx(type_params, param_name)
+    return idx >= 0
+}
+
 fn is_int(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 1 && !type_is_ref(types, t) }
 fn is_bool(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 2 && !type_is_ref(types, t) }
 fn is_string(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 3 && !type_is_ref(types, t) }
@@ -1310,6 +1387,8 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
         } else if find_enum_in_module(&enums, f.module, f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by enum")
         } else {
+            // Set type params for generic function signature
+            ctx_set_type_params(ctx, f.type_params)
             let mut params: [i32] = []
             let mut j = 0
             while j < len(f.params) {
@@ -1330,6 +1409,7 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
                 module: f.module,
                 vis: f.vis,
                 name: f.name,
+                type_params: ctx.type_params,
                 params: params,
                 ret: ret,
                 ret_explicit: explicit,
@@ -1629,6 +1709,10 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
        name == "isize" || name == "usize" || name == "int" || name == "char" ||
        name == "bool" || name == "String" || name == "str" || name == "string" ||
        name == "unit" || name == "()" {
+        return name
+    }
+    // Check if name is a type parameter in current scope
+    if is_type_param(ctx, name) {
         return name
     }
     let structs = ctx.structs
@@ -1977,13 +2061,23 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             if len(c.args) != len(sig.params) {
                                 add_type_error(ctx, "argument count mismatch")
                             }
+                            // Collect argument types for generic inference
+                            let mut arg_types: [i32] = []
                             let mut i = 0
-                            while i < len(c.args) && i < len(sig.params) {
+                            while i < len(c.args) {
                                 let at = check_expr(ctx, c.args[i])
-                                if !ctx_type_assignable(ctx, at, sig.params[i]) && at != 0 && sig.params[i] != 0 {
-                                    add_type_error(ctx, "argument type mismatch")
+                                push(&mut arg_types, at)
+                                // Check type compatibility (handles generic params)
+                                if i < len(sig.params) {
+                                    if !type_matches_generic(ctx, at, sig.params[i], sig.type_params) && at != 0 && sig.params[i] != 0 {
+                                        add_type_error(ctx, "argument type mismatch")
+                                    }
                                 }
                                 i = i + 1
+                            }
+                            // Infer return type for generic functions
+                            if len(sig.type_params) > 0 {
+                                return infer_generic_return(ctx, sig, arg_types)
                             }
                             return sig.ret
                         }
@@ -2860,6 +2954,9 @@ fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
     ctx.has_return = false
     ctx.has_bare_return = false
 
+    // Set type params for generic function
+    ctx_set_type_params(ctx, f.type_params)
+
     ctx.env = env_new()
     ctx_env_push(ctx)
     let mut i = 0
@@ -2981,6 +3078,7 @@ fn check_program(prog: Program) -> TypeContext {
         current_file: "",
         current_pos: 0,
         loop_depth: 0,
+        type_params: string_list_new(),
     }
     let mut ei = 0
     while ei < len(prog.enums) {

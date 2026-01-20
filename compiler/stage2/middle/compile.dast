@@ -246,6 +246,8 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     let mut tctx = c.tctx
     ctx_set_file(&mut tctx, f.file)
     ctx_set_current_module(&mut tctx, f.module)
+    // Set type params for generic function compilation
+    ctx_set_type_params(&mut tctx, f.type_params)
     tctx.env = env_new()
     c.tctx = tctx
     compiler_env_push(c)

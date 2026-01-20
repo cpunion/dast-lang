@@ -1,17 +1,21 @@
-// Test basic generic struct parsing
+// Test generic struct parsing
 struct Box[T] {
-    value: i32,  // TODO: change to T when typecheck supports generics
+    value: i32,
 }
 
 // Test generic enum parsing
 enum Option[T] {
-    Some(i32),  // TODO: change to T when typecheck supports generics
+    Some(i32),
     None,
 }
 
-// Test generic function parsing
-fn identity[T](x: i32) -> i32 {  // TODO: change params/return to T
+// Test generic function with T parameter and return type
+fn identity[T](x: T) -> T {
     return x
+}
+
+fn first[T, U](a: T, b: U) -> T {
+    return a
 }
 
 fn main() {
@@ -24,6 +28,15 @@ fn main() {
         Option.None => { println("none") }
     }
 
-    // Test generic function call (not instantiated yet)
-    println("identity", identity(7))
+    // Generic function with T inferred from argument
+    let x = identity(7)
+    println("identity", x)
+
+    // Multiple type params
+    let y = first(100, "hello")
+    println("first", y)
+
+    // String type inference
+    let s = identity("world")
+    println("string", s)
 }
