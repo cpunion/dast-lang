@@ -54,6 +54,7 @@ struct TraitSig {
     vis: Visibility,
     name: String,
     type_params: [String],
+    associated_types: [String],
     methods: [TraitMethodSig],
 }
 
@@ -61,6 +62,7 @@ struct ImplTraitSig {
     module: String,
     trait_name: String,
     for_type: String,
+    associated_types: [String],
     methods: [String],
 }
 
@@ -1635,12 +1637,21 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
                 pi = pi + 1
             }
 
+            // Collect associated types
+            let mut associated_types = name_list_new()
+            let mut ai = 0
+            while ai < len(t.associated_types) {
+                push(&mut associated_types, t.associated_types[ai].name)
+                ai = ai + 1
+            }
+
             let mut traits_list = ctx.traits
             push(&mut traits_list, TraitSig {
                 module: t.module,
                 vis: t.vis,
                 name: t.name,
                 type_params: type_params,
+                associated_types: associated_types,
                 methods: methods,
             })
             ctx.traits = traits_list
