@@ -157,8 +157,13 @@ fn module_list_push_unique(list: &mut [String], module: String) {
 }
 
 fn module_strip_root(path: String) -> String {
-    if len(path) >= 2 && char_at(path, 0) == 58 && char_at(path, 1) == 58 {
-        return substr(path, 2, len(path) - 2)
+    // Use nested if to avoid Stage0's lack of short-circuit evaluation
+    if len(path) >= 2 {
+        if char_at(path, 0) == 58 {
+            if char_at(path, 1) == 58 {
+                return substr(path, 2, len(path) - 2)
+            }
+        }
     }
     return path
 }

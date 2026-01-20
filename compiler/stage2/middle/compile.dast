@@ -244,6 +244,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     c.blocks = block_list_new()
     c.cur_block = -1
     let mut tctx = c.tctx
+    ctx_set_file(&mut tctx, f.file)
     ctx_set_current_module(&mut tctx, f.module)
     tctx.env = env_new()
     c.tctx = tctx
@@ -1328,7 +1329,8 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
                 let alias_mod = compiler_module_alias(c, id.name)
                 if alias_mod != "" {
                     let tctx = c.tctx
-                    let fidx = find_func_in_module(&tctx, alias_mod, method)
+                    let mod_name = module_strip_root(alias_mod)
+                    let fidx = find_func_in_module(&tctx, mod_name, method)
                     if fidx >= 0 {
                         let sig = tctx.funcs[fidx]
                         return MethodResolution { callee: qualify_name(sig.module, sig.name), with_self: false, is_enum: false, enum_name: "", method_name: method }
