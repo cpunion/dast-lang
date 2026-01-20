@@ -1511,6 +1511,70 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
+fn trait_method_sig_list_new() -> [TraitMethodSig] {
+    let mut items: [TraitMethodSig] = []
+    return items
+}
+
+fn collect_traits(ctx: &mut TypeContext, prog: Program) {
+    let mut i = 0
+    while i < len(prog.traits) {
+        let t = prog.traits[i]
+        ctx_set_file(ctx, t.file)
+        ctx_set_pos(ctx, t.pos)
+        ctx_set_current_module(ctx, t.module)
+
+        // Check for duplicate trait name
+        let mut duplicate = false
+        let mut ti = 0
+        while ti < len(ctx.traits) {
+            if ctx.traits[ti].module == t.module && ctx.traits[ti].name == t.name {
+                add_type_error(ctx, "duplicate trait '" + t.name + "'")
+                duplicate = true
+            }
+            ti = ti + 1
+        }
+
+        if !duplicate {
+            // Collect method signatures
+            let mut methods = trait_method_sig_list_new()
+            let mut mi = 0
+            while mi < len(t.methods) {
+                let m = t.methods[mi]
+                // Check if method has self parameter
+                let has_self = len(m.params) > 0 && m.params[0].name == "self"
+                push(&mut methods, TraitMethodSig {
+                    name: m.name,
+                    params: int_list_new(),  // TODO: resolve param types
+                    ret: 0,  // TODO: resolve return type
+                    has_self: has_self,
+                    has_default: m.has_default,
+                })
+                mi = mi + 1
+            }
+
+            // Collect type parameters
+            let mut type_params = name_list_new()
+            let mut pi = 0
+            while pi < len(t.type_params) {
+                push(&mut type_params, t.type_params[pi].name)
+                pi = pi + 1
+            }
+
+            let mut traits_list = ctx.traits
+            push(&mut traits_list, TraitSig {
+                module: t.module,
+                vis: t.vis,
+                name: t.name,
+                type_params: type_params,
+                methods: methods,
+            })
+            ctx.traits = traits_list
+        }
+        i = i + 1
+    }
+}
+
 fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
     let mut i = 0
     while i < len(prog.impls) {
@@ -3225,6 +3289,7 @@ fn check_program(prog: Program) -> TypeContext {
         ei = ei + 1
     }
     collect_consts(&mut ctx, prog)
+    collect_traits(&mut ctx, prog)
     collect_reexports(&mut ctx, prog)
     collect_func_sigs(&mut ctx, prog)
     collect_method_sigs(&mut ctx, prog)
