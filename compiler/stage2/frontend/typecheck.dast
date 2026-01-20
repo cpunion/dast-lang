@@ -2284,11 +2284,19 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     if len(c.args) != 1 {
                                         add_type_error(ctx, "variant expects payload")
                                     } else {
+                                        // Set enum's type params for payload type parsing
+                                        ctx_set_type_params(ctx, en.type_params)
                                         let payload_t = ctx_parse_type_in_module(ctx, en.variants[vidx].payload, "", en.module)
                                         let at = check_expr(ctx, c.args[0])
-                                        if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
-                                            add_type_error(ctx, "variant payload type mismatch")
+                                        // Check if payload type is a type param - if so, infer from value
+                                        let pt_name = ctx_type_name(ctx, payload_t)
+                                        let is_param = find_type_param_idx(ctx.type_params, pt_name) >= 0
+                                        if !is_param {
+                                            if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
+                                                add_type_error(ctx, "variant payload type mismatch")
+                                            }
                                         }
+                                        ctx_clear_type_params(ctx)
                                     }
                                 } else if len(c.args) != 0 {
                                     add_type_error(ctx, "variant has no payload")
@@ -2365,11 +2373,19 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                         if len(m.args) != 1 {
                                             add_type_error(ctx, "variant expects payload")
                                         } else {
+                                            // Set enum's type params for payload type parsing
+                                            ctx_set_type_params(ctx, en.type_params)
                                             let payload_t = ctx_parse_type_in_module(ctx, en.variants[vidx].payload, "", en.module)
                                             let at = check_expr(ctx, m.args[0])
-                                            if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
-                                                add_type_error(ctx, "variant payload type mismatch")
+                                            // Check if payload type is a type param - if so, infer from value
+                                            let pt_name = ctx_type_name(ctx, payload_t)
+                                            let is_param = find_type_param_idx(ctx.type_params, pt_name) >= 0
+                                            if !is_param {
+                                                if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
+                                                    add_type_error(ctx, "variant payload type mismatch")
+                                                }
                                             }
+                                            ctx_clear_type_params(ctx)
                                         }
                                     } else if len(m.args) != 0 {
                                         add_type_error(ctx, "variant has no payload")
@@ -2834,7 +2850,10 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                 if !decl.variants[vidx].has_payload {
                     add_type_error(ctx, "variant has no payload to bind")
                 } else {
+                    // Set enum's type params for payload type parsing
+                    ctx_set_type_params(ctx, decl.type_params)
                     let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
+                    ctx_clear_type_params(ctx)
                     ctx_env_declare(ctx, vp.binding, pt, false)
                 }
             }

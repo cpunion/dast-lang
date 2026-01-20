@@ -1575,7 +1575,15 @@ fn variant_payload_type(c: &mut Compiler, enum_name: String, variant: String, se
         let v = e.variants[i]
         if v.name == variant {
             if v.has_payload {
-                return compiler_parse_type_in_module(c, v.payload, self_name, e.module)
+                // Set enum's type params for payload type parsing
+                let mut tctx = c.tctx
+                ctx_set_type_params(&mut tctx, e.type_params)
+                c.tctx = tctx
+                let pt = compiler_parse_type_in_module(c, v.payload, self_name, e.module)
+                tctx = c.tctx
+                ctx_clear_type_params(&mut tctx)
+                c.tctx = tctx
+                return pt
             }
             return compiler_type_make(c, 4, "unit", false, false, -1)
         }

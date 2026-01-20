@@ -3,9 +3,9 @@ struct Box[T] {
     value: T,
 }
 
-// Test generic enum parsing
+// Test generic enum with T as payload type
 enum Option[T] {
-    Some(i32),
+    Some(T),
     None,
 }
 
@@ -45,9 +45,17 @@ fn main() {
     let b2 = Box { value: "hello" }
     println("box_str", b2.value)
 
+    // Test Option with i32 payload (T = i32)
     let opt = Option.Some(10)
     match opt {
-        Option.Some(x) => { println("some", x) }
+        Option.Some(x) => { println("some_int", x) }
+        Option.None => { println("none") }
+    }
+
+    // Test Option with String payload (T = String)
+    let opt2 = Option.Some("world")
+    match opt2 {
+        Option.Some(s) => { println("some_str", s) }
         Option.None => { println("none") }
     }
 
