@@ -1,0 +1,404 @@
+// Dast IR v0 to C Code Generator
+// Transpiles IR v0 to C source code
+
+// Types from ir.dast are expected to be available
+// IrProgram, IrFunction, IrBlock, IrInstr, IrTerm, IrValue
+
+// =============================================================================
+// Code Generation State
+// =============================================================================
+
+struct CodeGen {
+    output: String,
+    indent: int,
+    current_func: String,
+    temp_types: [String],  // Type hints for temps (optional)
+}
+
+fn codegen_new() -> CodeGen {
+    let types: [String] = []
+    return CodeGen {
+        output: "",
+        indent: 0,
+        current_func: "",
+        temp_types: types,
+    }
+}
+
+fn emit(cg: &mut CodeGen, s: String) {
+    let mut i = 0
+    while i < cg.indent {
+        cg.output = cg.output + "    "
+        i = i + 1
+    }
+    cg.output = cg.output + s + "\n"
+}
+
+fn emit_raw(cg: &mut CodeGen, s: String) {
+    cg.output = cg.output + s
+}
+
+fn indent(cg: &mut CodeGen) {
+    cg.indent = cg.indent + 1
+}
+
+fn dedent(cg: &mut CodeGen) {
+    if cg.indent > 0 {
+        cg.indent = cg.indent - 1
+    }
+}
+
+// =============================================================================
+// Type Mapping
+// =============================================================================
+
+fn map_type(typ: String) -> String {
+    if typ == "int" || typ == "i64" { return "dast_int" }
+    if typ == "i32" { return "dast_i32" }
+    if typ == "i8" { return "int8_t" }
+    if typ == "i16" { return "int16_t" }
+    if typ == "u8" { return "dast_u8" }
+    if typ == "u16" { return "uint16_t" }
+    if typ == "u32" { return "dast_u32" }
+    if typ == "u64" { return "dast_u64" }
+    if typ == "bool" { return "bool" }
+    if typ == "String" || typ == "string" { return "dast_string_t" }
+    if typ == "unit" || typ == "()" { return "void" }
+    // Reference types
+    if len(typ) > 1 && char_at(typ, 0) == 38 {  // &
+        let inner = substr(typ, 1, len(typ) - 1)
+        return map_type(inner) + "*"
+    }
+    // Array types
+    if len(typ) > 2 && char_at(typ, 0) == 91 {  // [
+        return "dast_array_t"
+    }
+    // Struct/enum types - use as-is
+    return typ
+}
+
+fn default_value(typ: String) -> String {
+    if typ == "dast_int" || typ == "dast_i32" || typ == "int64_t" { return "0" }
+    if typ == "bool" { return "false" }
+    if typ == "dast_string_t" { return "dast_string_from_literal(\"\")" }
+    if typ == "dast_array_t" { return "dast_array_new(sizeof(dast_int))" }
+    return "{0}"
+}
+
+// =============================================================================
+// Value Generation
+// =============================================================================
+
+fn gen_value(v: IrValue) -> String {
+    match v {
+        .Int(x) => { return int_to_string(x.value) }
+        .Bool(x) => {
+            if x.value { return "true" }
+            return "false"
+        }
+        .String(x) => {
+            return "dast_string_from_literal(\"" + escape_string(x.value) + "\")"
+        }
+        .Unit(_) => { return "(void)0" }
+        _ => { return "/* unknown value */" }
+    }
+}
+
+fn escape_string(s: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(s) {
+        let c = char_at(s, i)
+        if c == 10 {  // \n
+            out = out + "\\n"
+        } else if c == 13 {  // \r
+            out = out + "\\r"
+        } else if c == 9 {  // \t
+            out = out + "\\t"
+        } else if c == 34 {  // "
+            out = out + "\\\""
+        } else if c == 92 {  // \
+            out = out + "\\\\"
+        } else {
+            out = out + substr(s, i, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// =============================================================================
+// Instruction Generation
+// =============================================================================
+
+fn gen_instr(cg: &mut CodeGen, inst: IrInstr) {
+    match inst {
+        .Const(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = " + gen_value(i.value) + ";")
+        }
+        .LoadVar(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = " + mangle_var(i.name) + ";")
+        }
+        .StoreVar(i) => {
+            emit(cg, mangle_var(i.name) + " = t" + int_to_string(i.src) + ";")
+        }
+        .AddrOf(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = &" + mangle_var(i.name) + ";")
+        }
+        .LoadRef(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = *t" + int_to_string(i.src) + ";")
+        }
+        .StoreRef(i) => {
+            emit(cg, "*t" + int_to_string(i.ref) + " = t" + int_to_string(i.src) + ";")
+        }
+        .UnaryOp(i) => {
+            let op = i.op
+            emit(cg, "t" + int_to_string(i.dst) + " = " + op + "t" + int_to_string(i.src) + ";")
+        }
+        .BinOp(i) => {
+            let op = i.op
+            emit(cg, "t" + int_to_string(i.dst) + " = t" + int_to_string(i.lhs) + " " + op + " t" + int_to_string(i.rhs) + ";")
+        }
+        .Call(i) => {
+            let mut args = ""
+            let mut j = 0
+            while j < len(i.args) {
+                if j > 0 { args = args + ", " }
+                args = args + "t" + int_to_string(i.args[j])
+                j = j + 1
+            }
+            let call = mangle_func(i.callee) + "(" + args + ")"
+            if i.dst >= 0 {
+                emit(cg, "t" + int_to_string(i.dst) + " = " + call + ";")
+            } else {
+                emit(cg, call + ";")
+            }
+        }
+        .MakeArray(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = dast_array_new(sizeof(dast_int));")
+            let mut j = 0
+            while j < len(i.elems) {
+                emit(cg, "{ dast_int _elem = t" + int_to_string(i.elems[j]) + "; dast_array_push(&t" + int_to_string(i.dst) + ", &_elem); }")
+                j = j + 1
+            }
+        }
+        .Index(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = *(dast_int*)dast_array_get(&t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ");")
+        }
+        .SetIndex(i) => {
+            emit(cg, "{ dast_int _val = t" + int_to_string(i.src) + "; dast_array_set(&t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ", &_val); }")
+        }
+        .MakeStruct(i) => {
+            let mut fields = ""
+            let mut j = 0
+            while j < len(i.fields) {
+                if j > 0 { fields = fields + ", " }
+                fields = fields + "." + i.fields[j].name + " = t" + int_to_string(i.fields[j].src)
+                j = j + 1
+            }
+            emit(cg, "t" + int_to_string(i.dst) + " = (" + i.name + "){ " + fields + " };")
+        }
+        .GetField(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = t" + int_to_string(i.src) + "." + i.field + ";")
+        }
+        .SetField(i) => {
+            emit(cg, "t" + int_to_string(i.src) + "." + i.field + " = t" + int_to_string(i.value) + ";")
+        }
+        .MakeEnum(i) => {
+            if i.payload >= 0 {
+                emit(cg, "t" + int_to_string(i.dst) + " = (" + i.name + "){ .tag = " + int_to_string(i.tag) + ", .payload." + i.variant + " = t" + int_to_string(i.payload) + " };")
+            } else {
+                emit(cg, "t" + int_to_string(i.dst) + " = (" + i.name + "){ .tag = " + int_to_string(i.tag) + " };")
+            }
+        }
+        .EnumTag(i) => {
+            emit(cg, "t" + int_to_string(i.dst) + " = t" + int_to_string(i.src) + ".tag;")
+        }
+        .EnumPayload(i) => {
+            emit(cg, "/* enum payload extracted by match */")
+        }
+        _ => {
+            emit(cg, "/* unsupported instruction */")
+        }
+    }
+}
+
+// =============================================================================
+// Terminator Generation
+// =============================================================================
+
+fn gen_term(cg: &mut CodeGen, term: IrTerm) {
+    match term {
+        .Jump(t) => {
+            emit(cg, "goto " + mangle_label(t.target) + ";")
+        }
+        .Branch(t) => {
+            emit(cg, "if (t" + int_to_string(t.cond) + ") goto " + mangle_label(t.then_label) + "; else goto " + mangle_label(t.else_label) + ";")
+        }
+        .Return(t) => {
+            if t.has_value {
+                emit(cg, "return t" + int_to_string(t.value) + ";")
+            } else {
+                emit(cg, "return;")
+            }
+        }
+        _ => {
+            emit(cg, "return;")
+        }
+    }
+}
+
+// =============================================================================
+// Function Generation
+// =============================================================================
+
+fn gen_function(cg: &mut CodeGen, func: IrFunction) {
+    cg.current_func = func.name
+
+    // Function signature
+    let mut ret_type = "void"
+    if func.return_type != "" && func.return_type != "unit" {
+        ret_type = map_type(func.return_type)
+    }
+
+    let mut params = ""
+    let mut i = 0
+    while i < len(func.params) {
+        if i > 0 { params = params + ", " }
+        let ptype = "dast_int"  // Default type
+        if i < len(func.param_types) && func.param_types[i] != "" {
+            ptype = map_type(func.param_types[i])
+        }
+        params = params + ptype + " " + mangle_var(func.params[i])
+        i = i + 1
+    }
+
+    if params == "" { params = "void" }
+
+    emit(cg, ret_type + " " + mangle_func(func.name) + "(" + params + ") {")
+    indent(cg)
+
+    // Declare temps
+    if func.temp_count > 0 {
+        i = 0
+        while i < func.temp_count {
+            emit(cg, "dast_int t" + int_to_string(i) + " = 0;")
+            i = i + 1
+        }
+        emit(cg, "")
+    }
+
+    // Generate blocks
+    i = 0
+    while i < len(func.blocks) {
+        let blk = func.blocks[i]
+        emit(cg, mangle_label(blk.label) + ":;")
+
+        let mut j = 0
+        while j < len(blk.instrs) {
+            gen_instr(cg, blk.instrs[j])
+            j = j + 1
+        }
+
+        gen_term(cg, blk.term)
+        emit(cg, "")
+        i = i + 1
+    }
+
+    dedent(cg)
+    emit(cg, "}")
+    emit(cg, "")
+}
+
+// =============================================================================
+// Name Mangling
+// =============================================================================
+
+fn mangle_func(name: String) -> String {
+    // Map builtin functions to runtime
+    if name == "print" { return "dast_print" }
+    if name == "println" { return "dast_println" }
+    if name == "len" { return "dast_array_len" }
+    if name == "push" { return "dast_array_push" }
+    if name == "read_file" { return "dast_read_file" }
+    if name == "write_file" { return "dast_write_file" }
+    if name == "read_line" { return "dast_read_line" }
+    if name == "int_to_string" { return "dast_int_to_string" }
+    if name == "panic" { return "dast_panic" }
+    if name == "char_at" { return "dast_string_char_at" }
+    if name == "substr" { return "dast_string_substr" }
+
+    // Replace :: with _
+    let mut out = "dast_"
+    let mut i = 0
+    while i < len(name) {
+        let c = char_at(name, i)
+        if c == 58 {  // :
+            out = out + "_"
+            if i + 1 < len(name) && char_at(name, i + 1) == 58 {
+                i = i + 1  // Skip second :
+            }
+        } else if c == 46 {  // .
+            out = out + "_"
+        } else {
+            out = out + substr(name, i, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn mangle_var(name: String) -> String {
+    return "v_" + name
+}
+
+fn mangle_label(name: String) -> String {
+    return "L_" + name
+}
+
+// =============================================================================
+// Program Generation
+// =============================================================================
+
+fn codegen_program(prog: IrProgram) -> String {
+    let mut cg = codegen_new()
+
+    // Header
+    emit(&mut cg, "// Generated by Dast compiler")
+    emit(&mut cg, "#include \"c_runtime.h\"")
+    emit(&mut cg, "")
+
+    // Forward declarations
+    let mut i = 0
+    while i < len(prog.functions) {
+        let func = prog.functions[i]
+        let mut ret_type = "void"
+        if func.return_type != "" && func.return_type != "unit" {
+            ret_type = map_type(func.return_type)
+        }
+        emit(&mut cg, ret_type + " " + mangle_func(func.name) + "();")
+        i = i + 1
+    }
+    emit(&mut cg, "")
+
+    // Generate functions
+    i = 0
+    while i < len(prog.functions) {
+        gen_function(&mut cg, prog.functions[i])
+        i = i + 1
+    }
+
+    // Main wrapper
+    emit(&mut cg, "int main(int argc, char** argv) {")
+    indent(&mut cg)
+    emit(&mut cg, "dast_runtime_init(argc, argv);")
+    if prog.entry != "" {
+        emit(&mut cg, mangle_func(prog.entry) + "();")
+    }
+    emit(&mut cg, "dast_runtime_cleanup();")
+    emit(&mut cg, "return 0;")
+    dedent(&mut cg)
+    emit(&mut cg, "}")
+
+    return cg.output
+}
