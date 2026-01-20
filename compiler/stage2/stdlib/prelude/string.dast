@@ -1,0 +1,4 @@
+// String functions - intrinsic implementations provided by runtime
+
+pub fn char_at(s: String, idx: int) -> int { return 0 }
+pub fn substr(s: String, start: int, len: int) -> String { return "" }

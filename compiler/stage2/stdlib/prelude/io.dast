@@ -1,0 +1,10 @@
+// I/O functions - intrinsic implementations provided by runtime
+
+pub fn print(msg: String) {}
+pub fn println(msg: String) {}
+pub fn read_line() -> String { return "" }
+pub fn read_file(path: String) -> String { return "" }
+pub fn read_dir(path: String) -> [String] { let empty: [String] = []; return empty }
+pub fn write_file(path: String, content: String) {}
+pub fn mkdir(path: String) {}
+pub fn read_bytes(path: String) -> [u8] { let empty: [u8] = []; return empty }
