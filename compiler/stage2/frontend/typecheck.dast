@@ -1749,6 +1749,72 @@ fn builtin_list() -> [String] {
     return b
 }
 
+fn register_builtin_traits(ctx: &mut TypeContext) {
+    // Fn trait - for closures that can be called without mutation
+    let fn_call = TraitMethodSig {
+        name: "call",
+        params: int_list_new(),
+        ret: 0,
+        has_self: true,
+        has_default: false,
+    }
+    let mut fn_methods = trait_method_sig_list_new()
+    push(&mut fn_methods, fn_call)
+
+    let fn_trait = TraitSig {
+        module: "",
+        vis: Visibility { kind: 2 },  // pub
+        name: "Fn",
+        type_params: name_list_new(),
+        methods: fn_methods,
+    }
+
+    // FnMut trait - for closures that may mutate captured variables
+    let fn_mut_call = TraitMethodSig {
+        name: "call_mut",
+        params: int_list_new(),
+        ret: 0,
+        has_self: true,
+        has_default: false,
+    }
+    let mut fn_mut_methods = trait_method_sig_list_new()
+    push(&mut fn_mut_methods, fn_mut_call)
+
+    let fn_mut_trait = TraitSig {
+        module: "",
+        vis: Visibility { kind: 2 },  // pub
+        name: "FnMut",
+        type_params: name_list_new(),
+        methods: fn_mut_methods,
+    }
+
+    // FnOnce trait - for closures that consume captured variables
+    let fn_once_call = TraitMethodSig {
+        name: "call_once",
+        params: int_list_new(),
+        ret: 0,
+        has_self: true,
+        has_default: false,
+    }
+    let mut fn_once_methods = trait_method_sig_list_new()
+    push(&mut fn_once_methods, fn_once_call)
+
+    let fn_once_trait = TraitSig {
+        module: "",
+        vis: Visibility { kind: 2 },  // pub
+        name: "FnOnce",
+        type_params: name_list_new(),
+        methods: fn_once_methods,
+    }
+
+    // Add to context
+    let mut traits_list = ctx.traits
+    push(&mut traits_list, fn_trait)
+    push(&mut traits_list, fn_mut_trait)
+    push(&mut traits_list, fn_once_trait)
+    ctx.traits = traits_list
+}
+
 fn is_builtin(ctx: &TypeContext, name: String) -> bool {
     let mut i = 0
     while i < len(ctx.builtins) {
@@ -3335,6 +3401,7 @@ fn check_program(prog: Program) -> TypeContext {
         }
         ei = ei + 1
     }
+    register_builtin_traits(&mut ctx)
     collect_consts(&mut ctx, prog)
     collect_traits(&mut ctx, prog)
     collect_impl_traits(&mut ctx, prog)
