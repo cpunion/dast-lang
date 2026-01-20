@@ -120,6 +120,7 @@ struct TypeContext {
     consts: [ConstSig],
     traits: [TraitSig],
     impl_traits: [ImplTraitSig],
+    type_aliases: [TypeAlias],
     structs: [StructDecl],
     enums: [EnumDecl],
     imports: [ImportDecl],
@@ -1319,6 +1320,21 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
     } else {
         let resolved = ctx_resolve_type_name(ctx, name, self_name)
         name = resolved
+
+        // Check if this is a type alias
+        let mut ai = 0
+        let mut found_alias = false
+        while ai < len(ctx.type_aliases) {
+            let alias = ctx.type_aliases[ai]
+            let alias_qname = qualify_name(alias.module, alias.name)
+            if alias_qname == name {
+                // Found alias - recursively parse the target type
+                found_alias = true
+                return parse_type_from_text(types, ctx, alias.target, self_name)
+            }
+            ai = ai + 1
+        }
+
         let structs = ctx.structs
         let enums = ctx.enums
         if find_struct_qname(&structs, name) >= 0 {
@@ -3682,6 +3698,7 @@ fn check_program(prog: Program) -> TypeContext {
         consts: const_sig_list_new(),
         traits: trait_sig_list_new(),
         impl_traits: impl_trait_sig_list_new(),
+        type_aliases: prog.type_aliases,
         structs: prog.structs,
         enums: prog.enums,
         imports: prog.imports,

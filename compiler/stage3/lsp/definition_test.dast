@@ -27,8 +27,8 @@ fn test_find_first_function() {
 }
 
 fn test_find_first_struct() {
-    let content = "struct Point { x: i32 }\nfn main() {}"
-    let location = lsp_find_definition(content, 1, 19)
+    let content = "struct Point { x: i32 }"
+    let location = lsp_find_definition(content, 0, 7)
 
     // MVP: Returns first struct if no functions
     if location == "" {

@@ -60,6 +60,7 @@ fn lsp_find_definition(content: String, target_line: i32, target_col: i32) -> St
 
     // Search for function definitions
     let mut i = 0
+    let found_func = false
     while i < len(prog.functions) {
         let func = prog.functions[i]
         // In full implementation, would check if func.name matches extracted identifier
@@ -70,11 +71,11 @@ fn lsp_find_definition(content: String, target_line: i32, target_col: i32) -> St
         i = i + 1
     }
 
-    // Search for struct definitions
+    // Search for struct definitions (only if no functions found)
     let mut j = 0
     while j < len(prog.structs) {
         let st = prog.structs[j]
-        if j == 0 && len(prog.functions) == 0 {
+        if j == 0 {
             return "0:0:" + st.name
         }
         j = j + 1
