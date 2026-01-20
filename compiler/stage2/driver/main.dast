@@ -303,6 +303,13 @@ fn append_program(dst: &mut Program, src: Program) {
         i = i + 1
     }
     dst.impl_traits = impl_traits_list
+    let mut type_aliases_list = dst.type_aliases
+    i = 0
+    while i < len(src.type_aliases) {
+        push(&mut type_aliases_list, src.type_aliases[i])
+        i = i + 1
+    }
+    dst.type_aliases = type_aliases_list
     let mut funcs = dst.functions
     i = 0
     while i < len(src.functions) {
