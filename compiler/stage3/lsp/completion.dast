@@ -35,14 +35,15 @@ fn handle_completion(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResp
         i = i + 1
     }
 
-    // Wrap in JsonValue array using correct field names
+    // Create array JsonValue using the same pattern as json_array()
     let result = JsonValue {
-        kind: 3,  // Array
+        kind: JsonKind.Array,
         str_val: "",
         num_val: 0,
+        bool_val: false,
         arr_val: items,
-        obj_keys: [],
-        obj_vals: []
+        obj_keys: json_keys_new(),
+        obj_vals: json_array_new()
     }
 
     return jsonrpc_success(req.id, result)
