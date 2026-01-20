@@ -1,0 +1,18 @@
+// Test that method signature mismatch is detected
+
+trait Calculator {
+    fn calculate(&self, x: int, y: int) -> int;
+}
+
+struct BadCalc {}
+
+// Wrong number of parameters - should fail
+impl Calculator for BadCalc {
+    fn calculate(&self, x: int) -> int {
+        return x
+    }
+}
+
+fn main() {
+    println("should not reach here")
+}

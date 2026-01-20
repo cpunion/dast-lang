@@ -1543,10 +1543,32 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
                 let m = t.methods[mi]
                 // Check if method has self parameter
                 let has_self = len(m.params) > 0 && m.params[0].name == "self"
+
+                // Parse parameter types (skip self parameter as Self type not available in trait context)
+                let mut params: [i32] = []
+                let mut pi = 0
+                while pi < len(m.params) {
+                    let p = m.params[pi]
+                    if p.name == "self" {
+                        // Use -1 as marker for self parameter
+                        push(&mut params, -1)
+                    } else {
+                        let pt = ctx_parse_type(ctx, p.typ, "")
+                        push(&mut params, pt)
+                    }
+                    pi = pi + 1
+                }
+
+                // Parse return type
+                let mut ret = 0
+                if m.has_return {
+                    ret = ctx_parse_type(ctx, m.ret, "")
+                }
+
                 push(&mut methods, TraitMethodSig {
                     name: m.name,
-                    params: int_list_new(),  // TODO: resolve param types
-                    ret: 0,  // TODO: resolve return type
+                    params: params,
+                    ret: ret,
                     has_self: has_self,
                     has_default: m.has_default,
                 })
@@ -1670,7 +1692,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
             mi2 = mi2 + 1
         }
 
-        // Validate that all required trait methods are implemented
+        // Validate that all required trait methods are implemented with correct signature
         if trait_idx >= 0 {
             let trait_sig = ctx.traits[trait_idx]
             let mut tm = 0
@@ -1680,16 +1702,55 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                 if !required.has_default {
                     // Check if method is implemented
                     let mut found = false
+                    let mut found_idx = -1
                     let mut im = 0
-                    while im < len(method_names) {
-                        if method_names[im] == required.name {
+                    while im < len(it.methods) {
+                        if it.methods[im].name == required.name {
                             found = true
+                            found_idx = im
                         }
                         im = im + 1
                     }
                     if !found {
                         ctx_set_pos(ctx, it.pos)
                         add_type_error(ctx, "missing method '" + required.name + "' required by trait '" + it.trait_name + "'")
+                    } else {
+                        // Verify signature matches
+                        let impl_method = it.methods[found_idx]
+
+                        // Check parameter count
+                        if len(impl_method.params) != len(required.params) {
+                            ctx_set_pos(ctx, impl_method.pos)
+                            add_type_error(ctx, "method '" + required.name + "' has wrong number of parameters (expected " + int_to_string(len(required.params)) + ", got " + int_to_string(len(impl_method.params)) + ")")
+                        } else {
+                            // Check parameter types (skip self parameter marked as -1)
+                            let mut pi = 0
+                            while pi < len(required.params) {
+                                let trait_param_type = required.params[pi]
+                                // Skip self parameter check (marked as -1)
+                                if trait_param_type != -1 {
+                                    let impl_param_type = ctx_parse_type(ctx, impl_method.params[pi].typ, type_qname)
+                                    if !ctx_type_assignable(ctx, impl_param_type, trait_param_type) && impl_param_type != 0 && trait_param_type != 0 {
+                                        ctx_set_pos(ctx, impl_method.params[pi].pos)
+                                        add_type_error(ctx, "parameter " + int_to_string(pi + 1) + " of '" + required.name + "' has wrong type")
+                                    }
+                                }
+                                pi = pi + 1
+                            }
+                        }
+
+                        // Check return type
+                        if required.ret != 0 {
+                            let impl_ret = 0
+                            let mut impl_ret_check = impl_ret
+                            if impl_method.has_return {
+                                impl_ret_check = ctx_parse_type(ctx, impl_method.ret, type_qname)
+                            }
+                            if !ctx_type_assignable(ctx, impl_ret_check, required.ret) && impl_ret_check != 0 && required.ret != 0 {
+                                ctx_set_pos(ctx, impl_method.pos)
+                                add_type_error(ctx, "method '" + required.name + "' has wrong return type")
+                            }
+                        }
                     }
                 }
                 tm = tm + 1
