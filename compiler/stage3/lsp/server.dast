@@ -138,8 +138,10 @@ fn handle_did_change(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResp
 
         let idx = server_get_document(server, uri)
         if idx >= 0 {
-            server.documents[idx].content = new_text
-            server.documents[idx].version = version
+            let mut doc = server.documents[idx]
+            doc.content = new_text
+            doc.version = version
+            server.documents[idx] = doc
         }
     }
 
