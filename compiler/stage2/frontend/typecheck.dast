@@ -35,6 +35,29 @@ struct ConstSig {
     typ: i32,
 }
 
+struct TraitMethodSig {
+    name: String,
+    params: [i32],
+    ret: i32,
+    has_self: bool,
+    has_default: bool,
+}
+
+struct TraitSig {
+    module: String,
+    vis: Visibility,
+    name: String,
+    type_params: [String],
+    methods: [TraitMethodSig],
+}
+
+struct ImplTraitSig {
+    module: String,
+    trait_name: String,
+    for_type: String,
+    methods: [String],
+}
+
 fn reexport_kind_struct() -> i32 { return 1 }
 fn reexport_kind_enum() -> i32 { return 2 }
 fn reexport_kind_const() -> i32 { return 3 }
@@ -87,6 +110,8 @@ struct TypeContext {
     funcs: [FuncSig],
     methods: [MethodSig],
     consts: [ConstSig],
+    traits: [TraitSig],
+    impl_traits: [ImplTraitSig],
     structs: [StructDecl],
     enums: [EnumDecl],
     imports: [ImportDecl],
@@ -1063,6 +1088,16 @@ fn method_sig_list_new() -> [MethodSig] {
 
 fn const_sig_list_new() -> [ConstSig] {
     let mut items: [ConstSig] = []
+    return items
+}
+
+fn trait_sig_list_new() -> [TraitSig] {
+    let mut items: [TraitSig] = []
+    return items
+}
+
+fn impl_trait_sig_list_new() -> [ImplTraitSig] {
+    let mut items: [ImplTraitSig] = []
     return items
 }
 
@@ -3154,6 +3189,8 @@ fn check_program(prog: Program) -> TypeContext {
         funcs: func_sig_list_new(),
         methods: method_sig_list_new(),
         consts: const_sig_list_new(),
+        traits: trait_sig_list_new(),
+        impl_traits: impl_trait_sig_list_new(),
         structs: prog.structs,
         enums: prog.enums,
         imports: prog.imports,
