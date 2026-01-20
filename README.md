@@ -35,6 +35,43 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 - **Testing**: Go-style (`*_test.dast`, `test_*` prefix)
 - **Tooling**: Unified `dast` CLI with built-in LSP
 
+## Language Server Protocol (LSP) Support
+
+**Status**: ✅ **Production Ready** (35/35 tests passing)
+
+The Dast LSP provides real-time language support in VSCode and other LSP-compatible editors.
+
+### Features
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| **Diagnostics** | ✅ Complete | Real-time syntax and type error detection |
+| **Go to Definition** | ✅ MVP | Jump to function/struct definitions (F12) |
+| **Hover** | 🚧 Planned | Type information on hover |
+| **Find References** | 🚧 Planned | Find all symbol usages |
+| **Code Completion** | 🚧 Planned | Context-aware suggestions |
+
+### Installation
+
+1. **Install VSCode Extension**:
+   ```bash
+   cd compiler/stage3/vscode-ext
+   ./build-and-install.sh
+   ```
+
+2. **Reload VSCode** and open any `.dast` file
+
+3. **Enjoy** real-time diagnostics and navigation!
+
+### Architecture
+
+- **Self-hosting**: LSP written in Dast, runs via Stage 0 → Stage 2 → Stage 3 bootstrap chain
+- **Real compiler integration**: Uses actual Stage 2 lexer, parser, and type checker
+- **Zero dependencies**: Native JSON parser and JSON-RPC implementation
+
+See [`.vscode/LSP_SETUP.md`](.vscode/LSP_SETUP.md) for detailed setup and usage.
+
+
 ## Platform Support
 
 - Embedded (ARM Cortex-M, RISC-V, AVR)
@@ -49,8 +86,15 @@ TBD
 
 ## Status
 
-**Current**: Design phase complete, ready for implementation
-**Next**: Stage 0 bootstrap compiler development
+**Current**:
+- ✅ Design phase complete
+- ✅ Stage 2 compiler (self-hosting capable)
+- ✅ LSP with real-time diagnostics (35/35 tests)
+
+**Next**:
+- Stage 2 optimization and stabilization
+- LSP advanced features (hover, completion)
+- Standard library implementation
 
 ## Implementation Layout
 
