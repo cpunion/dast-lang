@@ -12,30 +12,31 @@ let client: LanguageClient;
 export function activate(context: vscode.ExtensionContext) {
     console.log('Dast Language extension is activating...');
 
-    // Get server path from configuration or use default
     const config = vscode.workspace.getConfiguration('dast');
-    let serverPath = config.get<string>('server.path') || '';
 
-    if (!serverPath) {
-        // Try to find dast-lsp in common locations
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (workspaceFolder) {
-            // Look relative to workspace
-            const localPath = path.join(workspaceFolder.uri.fsPath, 'compiler/stage3/lsp/dast-lsp');
-            serverPath = localPath;
-        }
+    // Get workspace root
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const workspaceRoot = workspaceFolder?.uri.fsPath || '';
 
-        // Fallback to PATH
-        if (!serverPath) {
-            serverPath = 'dast-lsp';
-        }
+    // Get LSP wrapper script path
+    let lspPath = config.get<string>('server.path') || '';
+
+    if (!lspPath && workspaceRoot) {
+        // Try to find dast-lsp.sh in workspace
+        const localPath = path.join(workspaceRoot, 'compiler/stage3/lsp/dast-lsp.sh');
+        lspPath = localPath;
     }
 
-    console.log(`Using LSP server: ${serverPath}`);
+    if (!lspPath) {
+        lspPath = 'dast-lsp';  // Fallback to PATH
+    }
 
-    // Server options
+    console.log(`Using Dast LSP: ${lspPath}`);
+
+    // Server options - launches the wrapper script
     const serverOptions: ServerOptions = {
-        command: serverPath,
+        command: lspPath,
+        args: [workspaceRoot],
         transport: TransportKind.stdio,
     };
 
@@ -48,6 +49,9 @@ export function activate(context: vscode.ExtensionContext) {
             fileEvents: vscode.workspace.createFileSystemWatcher('**/*.dast')
         },
         outputChannelName: 'Dast Language Server',
+        initializationOptions: {
+            workspaceRoot: workspaceRoot,
+        },
     };
 
     // Create and start the client
@@ -63,8 +67,21 @@ export function activate(context: vscode.ExtensionContext) {
         console.log('Dast Language Server started');
     }).catch((error) => {
         console.error('Failed to start Dast Language Server:', error);
-        vscode.window.showErrorMessage(`Failed to start Dast Language Server: ${error.message}`);
+        vscode.window.showErrorMessage(
+            `Failed to start Dast Language Server: ${error.message}\n` +
+            `Make sure the wrapper script exists and is executable: ${lspPath}`
+        );
     });
+
+    // Register restart command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dast.restartServer', async () => {
+            if (client) {
+                await client.stop();
+                await client.start();
+            }
+        })
+    );
 
     context.subscriptions.push({
         dispose: () => {

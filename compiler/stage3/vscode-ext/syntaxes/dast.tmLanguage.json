@@ -1,0 +1,139 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Dast",
+    "scopeName": "source.dast",
+    "patterns": [
+        { "include": "#comments" },
+        { "include": "#strings" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#types" },
+        { "include": "#functions" },
+        { "include": "#operators" }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.dast",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.block.dast",
+                    "begin": "/\\*",
+                    "end": "\\*/"
+                }
+            ]
+        },
+        "strings": {
+            "patterns": [
+                {
+                    "name": "string.quoted.double.dast",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.dast",
+                            "match": "\\\\."
+                        }
+                    ]
+                },
+                {
+                    "name": "string.quoted.single.dast",
+                    "begin": "'",
+                    "end": "'",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.dast",
+                            "match": "\\\\."
+                        }
+                    ]
+                }
+            ]
+        },
+        "numbers": {
+            "patterns": [
+                {
+                    "name": "constant.numeric.hex.dast",
+                    "match": "\\b0x[0-9a-fA-F]+\\b"
+                },
+                {
+                    "name": "constant.numeric.binary.dast",
+                    "match": "\\b0b[01]+\\b"
+                },
+                {
+                    "name": "constant.numeric.decimal.dast",
+                    "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+                }
+            ]
+        },
+        "keywords": {
+            "patterns": [
+                {
+                    "name": "keyword.control.dast",
+                    "match": "\\b(if|else|while|for|in|match|return|break|continue)\\b"
+                },
+                {
+                    "name": "keyword.declaration.dast",
+                    "match": "\\b(fn|let|mut|struct|enum|trait|impl|type|const|import|pub)\\b"
+                },
+                {
+                    "name": "constant.language.dast",
+                    "match": "\\b(true|false|self|Self)\\b"
+                },
+                {
+                    "name": "storage.modifier.dast",
+                    "match": "@\\w+"
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "name": "storage.type.primitive.dast",
+                    "match": "\\b(i8|i16|i32|i64|u8|u16|u32|u64|f32|f64|bool|char|String)\\b"
+                },
+                {
+                    "name": "entity.name.type.dast",
+                    "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+                }
+            ]
+        },
+        "functions": {
+            "patterns": [
+                {
+                    "name": "entity.name.function.dast",
+                    "match": "\\b([a-z_][a-zA-Z0-9_]*)\\s*(?=\\()"
+                }
+            ]
+        },
+        "operators": {
+            "patterns": [
+                {
+                    "name": "keyword.operator.arithmetic.dast",
+                    "match": "(\\+|-|\\*|/|%)"
+                },
+                {
+                    "name": "keyword.operator.comparison.dast",
+                    "match": "(==|!=|<=|>=|<|>)"
+                },
+                {
+                    "name": "keyword.operator.logical.dast",
+                    "match": "(&&|\\|\\||!)"
+                },
+                {
+                    "name": "keyword.operator.assignment.dast",
+                    "match": "="
+                },
+                {
+                    "name": "keyword.operator.arrow.dast",
+                    "match": "(->|=>)"
+                },
+                {
+                    "name": "keyword.operator.reference.dast",
+                    "match": "&"
+                }
+            ]
+        }
+    }
+}

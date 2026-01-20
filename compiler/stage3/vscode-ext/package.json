@@ -4,6 +4,10 @@
     "description": "Language support for the Dast programming language",
     "version": "0.1.0",
     "publisher": "cpunion",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/cpunion/dast"
+    },
     "engines": {
         "vscode": "^1.75.0"
     },
@@ -30,6 +34,12 @@
                 "path": "./syntaxes/dast.tmLanguage.json"
             }
         ],
+        "commands": [
+            {
+                "command": "dast.restartServer",
+                "title": "Dast: Restart Language Server"
+            }
+        ],
         "configuration": {
             "type": "object",
             "title": "Dast",
@@ -37,7 +47,7 @@
                 "dast.server.path": {
                     "type": "string",
                     "default": "",
-                    "description": "Path to the dast-lsp executable. If empty, uses PATH."
+                    "description": "Path to the dast-lsp executable or wrapper script. If empty, looks in workspace or PATH."
                 },
                 "dast.trace.server": {
                     "type": "string",
@@ -52,7 +62,8 @@
         "vscode:prepublish": "npm run compile",
         "compile": "tsc -p ./",
         "watch": "tsc -watch -p ./",
-        "lint": "eslint src --ext ts"
+        "lint": "eslint src --ext ts",
+        "package": "vsce package"
     },
     "dependencies": {
         "vscode-languageclient": "^9.0.1"
@@ -62,6 +73,7 @@
         "@types/vscode": "^1.75.0",
         "@typescript-eslint/eslint-plugin": "^6.0.0",
         "@typescript-eslint/parser": "^6.0.0",
+        "@vscode/vsce": "^2.22.0",
         "eslint": "^8.0.0",
         "typescript": "^5.0.0"
     }
