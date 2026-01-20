@@ -79,4 +79,23 @@ fn main() {
 
     let w2 = swap_take_first("first", 0, "third")
     println("swap_str", w2)
+
+    // ===== Same function, same type, multiple calls =====
+    let r1 = identity(10)
+    let r2 = identity(20)
+    let r3 = identity(30)
+    println("repeat_int", r1 + r2 + r3)
+
+    let s1 = first(1, "a")
+    let s2 = first(2, "b")
+    let s3 = first(3, "c")
+    println("repeat_first", s1 + s2 + s3)
+
+    // Different types in sequence
+    let t1 = identity(100)
+    let t2 = identity("str")
+    let t3 = identity(200)
+    println("mixed1", t1)
+    println("mixed2", t2)
+    println("mixed3", t3)
 }
