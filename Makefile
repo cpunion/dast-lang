@@ -29,7 +29,7 @@ STAGE2_BUILD_FAIL := $(wildcard compiler/stage2/tests/build-fail/*)
 STAGE2_WORKSPACE := $(wildcard compiler/stage2/tests/workspace/*)
 STAGE2_EXAMPLES := $(wildcard compiler/stage2/tests/examples/*)
 
-.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean
+.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -353,3 +353,27 @@ test:
 
 clean:
 	@rm -f $(STAGE0_BIN)
+
+# VSCode Extension targets
+vscode-ext:
+	@echo "Building VSCode extension..."
+	cd compiler/stage3/vscode-ext && npm install
+	cd compiler/stage3/vscode-ext && npm run compile
+	cd compiler/stage3/vscode-ext && yes | npx -y @vscode/vsce package --allow-missing-repository --no-dependencies
+
+vscode-ext-install: vscode-ext
+	@echo "Installing VSCode extension..."
+	@VSIX=$$(ls -t compiler/stage3/vscode-ext/*.vsix 2>/dev/null | head -1); \
+	if [ -n "$$VSIX" ]; then \
+		code --install-extension "$$VSIX"; \
+		echo "Extension installed: $$VSIX"; \
+	else \
+		echo "Error: No .vsix file found"; \
+		exit 1; \
+	fi
+
+vscode-ext-clean:
+	@echo "Cleaning VSCode extension build artifacts..."
+	rm -rf compiler/stage3/vscode-ext/out
+	rm -rf compiler/stage3/vscode-ext/node_modules
+	rm -f compiler/stage3/vscode-ext/*.vsix
