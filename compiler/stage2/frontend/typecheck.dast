@@ -6,11 +6,17 @@ struct TypeTable {
     elems: [i32],
 }
 
+struct TypeParamSig {
+    name: String,
+    bounds: [String],
+}
+
 struct FuncSig {
     module: String,
     vis: Visibility,
     name: String,
     type_params: [String],
+    type_param_bounds: [TypeParamSig],
     params: [i32],
     ret: i32,
     ret_explicit: bool,
@@ -1444,6 +1450,22 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
         } else {
             // Set type params for generic function signature
             ctx_set_type_params(ctx, f.type_params)
+
+            // Collect type parameter bounds
+            let mut type_param_bounds: [TypeParamSig] = []
+            let mut tpi = 0
+            while tpi < len(f.type_params) {
+                let tp = f.type_params[tpi]
+                let mut bound_names: [String] = []
+                let mut bi = 0
+                while bi < len(tp.bounds) {
+                    push(&mut bound_names, tp.bounds[bi].trait_name)
+                    bi = bi + 1
+                }
+                push(&mut type_param_bounds, TypeParamSig { name: tp.name, bounds: bound_names })
+                tpi = tpi + 1
+            }
+
             let mut params: [i32] = []
             let mut j = 0
             while j < len(f.params) {
@@ -1465,6 +1487,7 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
                 vis: f.vis,
                 name: f.name,
                 type_params: ctx.type_params,
+                type_param_bounds: type_param_bounds,
                 params: params,
                 ret: ret,
                 ret_explicit: explicit,
@@ -1606,6 +1629,19 @@ fn find_trait_in_module(ctx: &TypeContext, module: String, name: String) -> i32 
         i = i + 1
     }
     return -1
+}
+
+// Check if a type implements a trait by searching impl_traits
+fn type_implements_trait(ctx: &TypeContext, type_name: String, trait_name: String) -> bool {
+    let mut i = 0
+    while i < len(ctx.impl_traits) {
+        let it = ctx.impl_traits[i]
+        if it.for_type == type_name && it.trait_name == trait_name {
+            return true
+        }
+        i = i + 1
+    }
+    return false
 }
 
 fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
@@ -2474,6 +2510,22 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             if len(sig.type_params) > 0 {
                                 // Check for turbofish explicit type args
                                 if len(c.type_args) > 0 {
+                                    // Verify trait bounds for each type argument
+                                    let mut ti = 0
+                                    while ti < len(c.type_args) && ti < len(sig.type_param_bounds) {
+                                        let type_arg = c.type_args[ti]
+                                        let param_sig = sig.type_param_bounds[ti]
+                                        // Check each bound
+                                        let mut bi = 0
+                                        while bi < len(param_sig.bounds) {
+                                            let bound_trait = param_sig.bounds[bi]
+                                            if !type_implements_trait(ctx, type_arg, bound_trait) {
+                                                add_type_error(ctx, "type '" + type_arg + "' does not implement trait '" + bound_trait + "'")
+                                            }
+                                            bi = bi + 1
+                                        }
+                                        ti = ti + 1
+                                    }
                                     return resolve_explicit_return(ctx, sig, c.type_args)
                                 }
                                 return infer_generic_return(ctx, sig, arg_types)
