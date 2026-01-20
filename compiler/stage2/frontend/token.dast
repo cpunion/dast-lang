@@ -42,6 +42,8 @@ enum TokenKind {
     Break = 69,
     Continue = 70,
     For = 73,
+    Type = 74,
+    Eq = 75,
     LParen = 30,
     RParen = 31,
     LBrace = 32,

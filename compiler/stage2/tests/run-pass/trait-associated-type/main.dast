@@ -1,0 +1,23 @@
+// Test associated types in traits
+
+trait Container {
+    type Item;
+    fn get(&self) -> int;
+}
+
+struct IntVec {
+    data: int,
+}
+
+impl Container for IntVec {
+    type Item = int;
+    fn get(&self) -> int {
+        return self.data
+    }
+}
+
+fn main() {
+    let v = IntVec { data: 42 }
+    let result = (&v).get()
+    println("result", result)
+}

@@ -413,6 +413,16 @@ struct TraitMethod {
     default_body: Block,
 }
 
+struct AssociatedType {
+    pos: i32,
+    name: String,
+}
+
+struct AssociatedTypeImpl {
+    name: String,
+    typ: String,
+}
+
 struct TraitDecl {
     vis: Visibility,
     module: String,
@@ -420,6 +430,7 @@ struct TraitDecl {
     pos: i32,
     name: String,
     type_params: [GenericParam],
+    associated_types: [AssociatedType],
     methods: [TraitMethod],
 }
 
@@ -431,6 +442,7 @@ struct ImplTrait {
     trait_name: String,
     for_type: String,
     type_args: [String],
+    associated_types: [AssociatedTypeImpl],
     methods: [FunctionDecl],
 }
 
@@ -450,3 +462,7 @@ struct Program {
     impl_traits: [ImplTrait],
 }
 
+fn assoc_type_impl_list_new() -> [AssociatedTypeImpl] {
+    let empty: [AssociatedTypeImpl] = []
+    return empty
+}

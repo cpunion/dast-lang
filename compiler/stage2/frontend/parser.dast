@@ -915,11 +915,12 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
     let name = parse_ident(src, lex, errors)
     let type_params = parse_type_params(src, lex, errors)
     let mut methods: [TraitMethod] = []
+    let mut associated_types: [AssociatedType] = []
 
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{' after trait name");
         sync_to_top_level(lex)
-        return TraitDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, methods: methods }
+        return TraitDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, associated_types: associated_types, methods: methods }
     }
     lexer_next(lex)
 
@@ -928,6 +929,13 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
         let k = peek_kind(lex)
         if k == TokenKind.RBrace || k == TokenKind.Eof {
             done = true
+        } else if k == TokenKind.Type {
+            // Parse associated type: type Name;
+            let type_pos = lexer_pos(lex)
+            lexer_next(lex)  // consume 'type'
+            let type_name = parse_ident(src, lex, errors)
+            maybe_consume_semi(lex)
+            push(&mut associated_types, AssociatedType { pos: type_pos, name: type_name })
         } else if k == TokenKind.Fn {
             let method_pos = lexer_pos(lex)
             lexer_next(lex)  // consume 'fn'
@@ -975,7 +983,7 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
                 default_body: default_body,
             })
         } else {
-            add_error(errors, lexer_pos(lex), "expected method in trait");
+            add_error(errors, lexer_pos(lex), "expected 'type' or 'fn' in trait");
             lexer_next(lex)
         }
     }
@@ -984,7 +992,7 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
         lexer_next(lex)
     }
 
-    return TraitDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, methods: methods }
+    return TraitDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, associated_types: associated_types, methods: methods }
 }
 
 struct ImplParseResult {
@@ -1002,12 +1010,13 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
         lexer_next(lex)  // consume 'for'
         let for_type = parse_type(src, lex, errors)
         let mut methods: [FunctionDecl] = []
+        let mut associated_types: [AssociatedTypeImpl] = []
 
         if peek_kind(lex) != TokenKind.LBrace {
             add_error(errors, lexer_pos(lex), "expected '{' after impl Trait for Type");
             sync_to_top_level(lex)
             let empty_impl = ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: "", methods: methods }
-            let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), methods: methods }
+            let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), associated_types: associated_types, methods: methods }
             return ImplParseResult { is_trait_impl: true, impl_decl: empty_impl, impl_trait: impl_trait }
         }
         lexer_next(lex)
@@ -1017,6 +1026,18 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
             let k = peek_kind(lex)
             if k == TokenKind.RBrace || k == TokenKind.Eof {
                 done = true
+            } else if k == TokenKind.Type {
+                // Parse associated type implementation: type Name = Type;
+                lexer_next(lex)  // consume 'type'
+                let type_name = parse_ident(src, lex, errors)
+                if peek_kind(lex) == TokenKind.Assign {
+                    lexer_next(lex)  // consume '='
+                    let type_value = parse_type(src, lex, errors)
+                    maybe_consume_semi(lex)
+                    push(&mut associated_types, AssociatedTypeImpl { name: type_name, typ: type_value })
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected '=' after associated type name");
+                }
             } else if k == TokenKind.Pub || k == TokenKind.Fn {
                 let mvis = parse_visibility(src, lex, errors)
                 let mut fn_pos = lexer_pos(lex)
@@ -1057,7 +1078,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                     lexer_next(lex)
                 }
             } else {
-                add_error(errors, lexer_pos(lex), "expected method");
+                add_error(errors, lexer_pos(lex), "expected 'type' or method");
                 lexer_next(lex)
             }
         }
@@ -1066,7 +1087,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
         }
 
         let empty_impl = ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: "", methods: func_list_new() }
-        let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), methods: methods }
+        let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), associated_types: associated_types, methods: methods }
         return ImplParseResult { is_trait_impl: true, impl_decl: empty_impl, impl_trait: impl_trait }
     }
 
@@ -1075,7 +1096,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{' after impl");
         sync_to_top_level(lex)
-        let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), methods: methods }
+        let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: methods }
         return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: methods }, impl_trait: empty_trait }
     }
     lexer_next(lex)
@@ -1145,7 +1166,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
     if peek_kind(lex) == TokenKind.RBrace {
         lexer_next(lex)
     }
-    let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), methods: func_list_new() }
+    let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: func_list_new() }
     return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: methods }, impl_trait: empty_trait }
 }
 
