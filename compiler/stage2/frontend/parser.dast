@@ -341,6 +341,23 @@ fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
         }
         return Expr.ArrayLit(ArrayLit { pos: start_pos, elems: elems })
     }
+    // Closure: |x, y| body or || body
+    if k == TokenKind.Pipe {
+        return parse_closure(src, lex, errors, start_pos)
+    }
+    // Also handle empty param closure: || body
+    if k == TokenKind.OrOr {
+        lexer_next(lex)
+        let body = parse_expr(src, lex, errors, 0)
+        let empty_params: [ClosureParam] = []
+        return Expr.Closure(ClosureExpr {
+            pos: start_pos,
+            params: empty_params,
+            has_ret_type: false,
+            ret_type: "",
+            body: body,
+        })
+    }
     add_error(errors, lexer_pos(lex), "unexpected token in expression");
     lexer_next(lex)
     return dummy_expr()
@@ -354,6 +371,67 @@ fn parse_ident(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Strin
     }
     let name = next_lexeme(src, lex)
     return name
+}
+
+// Parse closure: |x, y| body or |x: i32, y: i32| -> i32 body
+fn parse_closure(src: String, lex: &mut Lexer, errors: &mut [ParseError], start_pos: i32) -> Expr {
+    // Consume opening |
+    lexer_next(lex)
+
+    // Parse params
+    let mut params: [ClosureParam] = []
+    if peek_kind(lex) != TokenKind.Pipe {
+        let mut more = true
+        while more {
+            let param_pos = lexer_pos(lex)
+            let param_name = parse_ident(src, lex, errors)
+            let mut has_type = false
+            let mut param_type = ""
+            if peek_kind(lex) == TokenKind.Colon {
+                lexer_next(lex)
+                has_type = true
+                param_type = parse_type(src, lex, errors)
+            }
+            push(&mut params, ClosureParam {
+                pos: param_pos,
+                name: param_name,
+                has_type: has_type,
+                typ: param_type,
+            })
+            if peek_kind(lex) == TokenKind.Comma {
+                lexer_next(lex)
+            } else {
+                more = false
+            }
+        }
+    }
+
+    // Consume closing |
+    if peek_kind(lex) == TokenKind.Pipe {
+        lexer_next(lex)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '|' to close closure params")
+    }
+
+    // Optional return type: -> Type
+    let mut has_ret_type = false
+    let mut ret_type = ""
+    if peek_kind(lex) == TokenKind.Arrow {
+        lexer_next(lex)
+        has_ret_type = true
+        ret_type = parse_type(src, lex, errors)
+    }
+
+    // Parse body expression
+    let body = parse_expr(src, lex, errors, 0)
+
+    return Expr.Closure(ClosureExpr {
+        pos: start_pos,
+        params: params,
+        has_ret_type: has_ret_type,
+        ret_type: ret_type,
+        body: body,
+    })
 }
 
 fn visibility_private() -> Visibility {

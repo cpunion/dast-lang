@@ -1,0 +1,9 @@
+// Test basic closure syntax (Phase 1: empty closure)
+
+fn main() {
+    // Simple closure with constant body - works!
+    let f = || 42
+    println("closure_defined", 1)
+
+    // TODO: closures with params need more work for variable scope
+}

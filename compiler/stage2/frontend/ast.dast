@@ -184,6 +184,22 @@ struct IfLetExpr {
     else_block: Block,
 }
 
+// Closure expression: |x, y| x + y
+struct ClosureParam {
+    pos: i32,
+    name: String,
+    has_type: bool,
+    typ: String,
+}
+
+struct ClosureExpr {
+    pos: i32,
+    params: [ClosureParam],
+    has_ret_type: bool,
+    ret_type: String,
+    body: Expr,
+}
+
 enum Expr {
     Ident(IdentExpr),
     IntLit(IntLit),
@@ -200,6 +216,7 @@ enum Expr {
     Ref(RefExpr),
     Deref(DerefExpr),
     IfLet(IfLetExpr),
+    Closure(ClosureExpr),
 }
 
 struct LetStmt {

@@ -1312,6 +1312,32 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         Expr.IfLet(x) => {
             return compile_if_let_expr(c, x, self_name)
         }
+        Expr.Closure(cl) => {
+            // Generate closure - compile body and create closure value
+            // For now, just compile the body and return it as a closure
+
+            // Push a new scope for closure params
+            push_scope(c)
+            let mut i = 0
+            while i < len(cl.params) {
+                let p = cl.params[i]
+                let mut pt = compiler_type_make(c, 1, "i32", false, false, -1)
+                if p.has_type {
+                    let mut tctx = c.tctx
+                    pt = ctx_parse_type(&mut tctx, p.typ, self_name)
+                    c.tctx = tctx
+                }
+                declare_var(c, p.name, pt, false)
+                i = i + 1
+            }
+
+            // Compile closure body
+            let body_val = compile_expr(c, cl.body, self_name)
+            pop_scope(c)
+
+            // Return body value (simplified closure - just returns the body result)
+            return body_val
+        }
     }
     return const_zero(c)
 }

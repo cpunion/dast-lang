@@ -852,6 +852,7 @@ fn expr_pos(e: Expr) -> i32 {
         Expr.Ref(x) => { return x.pos }
         Expr.Deref(x) => { return x.pos }
         Expr.IfLet(x) => { return x.pos }
+        Expr.Closure(x) => { return x.pos }
     }
     return 0
 }
@@ -2498,6 +2499,27 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             }
             if then_t != 0 { return then_t }
             return else_t
+        }
+        Expr.Closure(c) => {
+            // Type check closure params and body
+            ctx_env_push(ctx)
+            let mut param_types: [String] = []
+            let mut i = 0
+            while i < len(c.params) {
+                let p = c.params[i]
+                let mut pt = ctx_type_make(ctx, 1, "i32", false, false, -1)
+                if p.has_type {
+                    pt = ctx_parse_type(ctx, p.typ, "")
+                }
+                ctx_env_declare(ctx, p.name, pt, false)
+                push(&mut param_types, ctx_type_name(ctx, pt))
+                i = i + 1
+            }
+            let body_t = check_expr(ctx, c.body)
+            ctx_env_pop(ctx)
+
+            // Return closure type (simplified - just use "closure" for now)
+            return ctx_type_make(ctx, 8, "closure", false, false, -1)
         }
     }
 }
