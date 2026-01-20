@@ -1038,6 +1038,15 @@ fn program_set_module(prog: &mut Program, module: String) {
     }
     prog.functions = funcs
 
+    let mut type_aliases: [TypeAlias] = []
+    i = 0
+    while i < len(prog.type_aliases) {
+        let ta = prog.type_aliases[i]
+        push(&mut type_aliases, TypeAlias { vis: ta.vis, module: module, file: ta.file, pos: ta.pos, name: ta.name, type_params: ta.type_params, target: ta.target })
+        i = i + 1
+    }
+    prog.type_aliases = type_aliases
+
     let mut impls: [ImplDecl] = []
     i = 0
     while i < len(prog.impls) {
@@ -1135,6 +1144,15 @@ fn program_set_file(prog: &mut Program, file: String) {
         i = i + 1
     }
     prog.functions = funcs
+
+    let mut type_aliases: [TypeAlias] = []
+    i = 0
+    while i < len(prog.type_aliases) {
+        let ta = prog.type_aliases[i]
+        push(&mut type_aliases, TypeAlias { vis: ta.vis, module: ta.module, file: file, pos: ta.pos, name: ta.name, type_params: ta.type_params, target: ta.target })
+        i = i + 1
+    }
+    prog.type_aliases = type_aliases
 
     let mut impls: [ImplDecl] = []
     i = 0

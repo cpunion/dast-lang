@@ -1318,18 +1318,32 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
     } else if name == "unit" || name == "()" {
         kind = 4
     } else {
+        // Check if this is a type alias BEFORE resolving the name
+        let mut ai = 0
+        while ai < len(ctx.type_aliases) {
+            let alias = ctx.type_aliases[ai]
+            // Check both simple name and qualified name
+            if alias.name == name {
+                let alias_qname = qualify_name(alias.module, ctx.current_module)
+                let current_qname = qualify_name(ctx.current_module, name)
+                if alias.module == ctx.current_module || alias.module == "" {
+                    // Found alias in current module - recursively parse the target type
+                    return parse_type_from_text(types, ctx, alias.target, self_name)
+                }
+            }
+            ai = ai + 1
+        }
+
         let resolved = ctx_resolve_type_name(ctx, name, self_name)
         name = resolved
 
-        // Check if this is a type alias
-        let mut ai = 0
-        let mut found_alias = false
+        // Check again with resolved name
+        ai = 0
         while ai < len(ctx.type_aliases) {
             let alias = ctx.type_aliases[ai]
             let alias_qname = qualify_name(alias.module, alias.name)
             if alias_qname == name {
                 // Found alias - recursively parse the target type
-                found_alias = true
                 return parse_type_from_text(types, ctx, alias.target, self_name)
             }
             ai = ai + 1
