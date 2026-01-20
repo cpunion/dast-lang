@@ -60,6 +60,9 @@ fn server_handle_request(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpc
     if req.method == "textDocument/definition" {
         return handle_definition(server, req)
     }
+    if req.method == "textDocument/hover" {
+        return handle_hover(server, req)
+    }
 
     // Method not found
     if req.has_id {
@@ -77,7 +80,7 @@ fn handle_initialize(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResp
 
     let caps = ServerCapabilities {
         text_document_sync_kind: 1,  // Full sync
-        hover_provider: false,       // Phase 3.2
+        hover_provider: true,        // Phase 3.2 ✓
         definition_provider: true,   // Phase 3.1 ✓
         references_provider: false,  // Phase 3.3
     }

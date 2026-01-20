@@ -1,0 +1,34 @@
+// LSP Hover Handler
+// Handles textDocument/hover requests
+
+// Handle textDocument/hover request
+fn handle_hover(server: &mut LspServer, req: JsonRpcRequest) -> JsonRpcResponse {
+    let params = req.params
+    let text_doc = json_get(params, "textDocument")
+    let uri = json_get_string(text_doc, "uri", "")
+    let position = json_get(params, "position")
+    let line = json_get_int(position, "line", 0)
+    let character = json_get_int(position, "character", 0)
+
+    // Get document content
+    let idx = server_get_document(server, uri)
+    if idx < 0 {
+        return jsonrpc_success(req.id, json_null())
+    }
+
+    let content = server.documents[idx].content
+
+    // Get hover information using Stage 2 bridge
+    let hover_text = lsp_get_hover(content, line, character)
+
+    if hover_text == "" {
+        // No hover information available
+        return jsonrpc_success(req.id, json_null())
+    }
+
+    // Create hover response
+    let mut result = json_object()
+    result = json_set(result, "contents", json_string(hover_text))
+
+    return jsonrpc_success(req.id, result)
+}

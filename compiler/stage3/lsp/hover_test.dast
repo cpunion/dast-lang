@@ -1,0 +1,45 @@
+// LSP Hover Tests
+
+fn lsp_hover_test_main() {
+    test_hover_function()
+    test_hover_struct()
+    println("All hover tests complete")
+}
+
+fn test_hover_function() {
+    let content = "fn add(x: i32, y: i32) -> i32 { x + y }"
+    let hover = lsp_get_hover(content, 0, 3)
+
+    // Should return function signature
+    if hover == "" {
+        println("FAIL: test_hover_function - no hover text returned")
+        return
+    }
+
+    // Check that it contains function signature
+    if !str_contains(hover, "fn add") {
+        println("FAIL: test_hover_function - expected 'fn add', got: " + hover)
+        return
+    }
+
+    println("PASS: test_hover_function (hover: " + hover + ")")
+}
+
+fn test_hover_struct() {
+    let content = "struct Point[T] { x: T, y: T }"
+    let hover = lsp_get_hover(content, 0, 7)
+
+    // Should return struct signature
+    if hover == "" {
+        println("FAIL: test_hover_struct - no hover text returned")
+        return
+    }
+
+    // Check that it contains struct signature
+    if !str_contains(hover, "struct Point") {
+        println("FAIL: test_hover_struct - expected 'struct Point', got: " + hover)
+        return
+    }
+
+    println("PASS: test_hover_struct (hover: " + hover + ")")
+}

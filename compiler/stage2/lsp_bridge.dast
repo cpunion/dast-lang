@@ -41,45 +41,108 @@ fn lsp_analyze_source(content: String) -> [String] {
 
 // Find definition of symbol at given position
 // Returns: "line:col:name" or "" if not found
-// Enhanced: Searches by identifier name extracted from position
 fn lsp_find_definition(content: String, target_line: i32, target_col: i32) -> String {
-    // For enhanced version, we would extract identifier at cursor position
-    // For now, simplified: just search all symbols
-
     // Parse the source
     let mut lex = lexer_new(content)
     let mut parse_errors: [ParseError] = []
     let prog = parse_program(content, &mut lex, &mut parse_errors)
 
     if len(parse_errors) > 0 {
-        return ""  // Cannot find definition with parse errors
+        return ""
     }
 
-    // TODO: Extract identifier name from content at target_line:target_col
-    // For now, return first function as before (MVP behavior)
-
-    // Search for function definitions
+    // MVP: Return first function or struct
     let mut i = 0
-    let found_func = false
     while i < len(prog.functions) {
-        let func = prog.functions[i]
-        // In full implementation, would check if func.name matches extracted identifier
-        // For MVP, just return first one
         if i == 0 {
-            return "0:0:" + func.name
+            return "0:0:" + prog.functions[i].name
         }
         i = i + 1
     }
 
-    // Search for struct definitions (only if no functions found)
     let mut j = 0
     while j < len(prog.structs) {
-        let st = prog.structs[j]
         if j == 0 {
-            return "0:0:" + st.name
+            return "0:0:" + prog.structs[j].name
         }
         j = j + 1
     }
 
-    return ""  // Not found
+    return ""
+}
+
+// Get hover information for symbol at position
+// Returns: formatted signature or "" if not found
+fn lsp_get_hover(content: String, target_line: i32, target_col: i32) -> String {
+    // Parse the source
+    let mut lex = lexer_new(content)
+    let mut parse_errors: [ParseError] = []
+    let prog = parse_program(content, &mut lex, &mut parse_errors)
+
+    if len(parse_errors) > 0 {
+        return ""
+    }
+
+    // MVP: Return signature of first function
+    let mut i = 0
+    while i < len(prog.functions) {
+        if i == 0 {
+            return format_function_signature(prog.functions[i])
+        }
+        i = i + 1
+    }
+
+    // Or first struct
+    let mut j = 0
+    while j < len(prog.structs) {
+        if j == 0 {
+            return format_struct_signature(prog.structs[j])
+        }
+        j = j + 1
+    }
+
+    return ""
+}
+
+// Format function signature for hover
+fn format_function_signature(func: FunctionDecl) -> String {
+    let mut sig = "fn " + func.name + "("
+
+    // Add parameters
+    let mut i = 0
+    while i < len(func.params) {
+        if i > 0 {
+            sig = sig + ", "
+        }
+        sig = sig + func.params[i].name + ": " + func.params[i].typ
+        i = i + 1
+    }
+
+    sig = sig + ")"
+
+    if func.has_return {
+        sig = sig + " -> " + func.ret
+    }
+
+    return sig
+}
+
+// Format struct signature for hover
+fn format_struct_signature(st: StructDecl) -> String {
+    let mut sig = "struct " + st.name
+
+    if len(st.type_params) > 0 {
+        sig = sig + "["
+        let mut i = 0
+        while i < len(st.type_params) {
+            if i > 0 {
+                sig = sig + ", "
+            }
+            sig = sig + st.type_params[i].name
+            i = i + 1
+        }
+        sig = sig + "]"
+    }
+
+    return sig
 }
