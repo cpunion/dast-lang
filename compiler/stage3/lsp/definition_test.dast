@@ -1,19 +1,75 @@
 // LSP Definition Tests
+// Note: Current MVP implementation returns first symbol, not cursor-based lookup
 
 fn lsp_definition_test_main() {
-    test_find_function_definition()
+    test_find_first_function()
+    test_find_first_struct()
     println("All definition tests complete")
 }
 
-fn test_find_function_definition() {
+fn test_find_first_function() {
     let content = "fn foo() {}\nfn main() { foo() }"
     let location = lsp_find_definition(content, 1, 12)
 
-    // Should return some location (MVP just returns first function)
+    // MVP: Returns first function definition
     if location == "" {
-        println("FAIL: test_find_function_definition - no location returned")
+        println("FAIL: test_find_first_function - no location returned")
         return
     }
 
-    println("PASS: test_find_function_definition (location: " + location + ")")
+    // Should find "foo" (first function)
+    if !str_contains(location, "foo") {
+        println("FAIL: test_find_first_function - expected foo, got: " + location)
+        return
+    }
+
+    println("PASS: test_find_first_function (location: " + location + ")")
+}
+
+fn test_find_first_struct() {
+    let content = "struct Point { x: i32 }\nfn main() {}"
+    let location = lsp_find_definition(content, 1, 19)
+
+    // MVP: Returns first struct if no functions
+    if location == "" {
+        println("FAIL: test_find_first_struct - no location returned")
+        return
+    }
+
+    // Should find "Point" (first struct)
+    if !str_contains(location, "Point") {
+        println("FAIL: test_find_first_struct - expected Point, got: " + location)
+        return
+    }
+
+    println("PASS: test_find_first_struct (location: " + location + ")")
+}
+
+// Helper: check if string contains substring
+fn str_contains(s: String, sub: String) -> bool {
+    if len(sub) == 0 {
+        return true
+    }
+    if len(s) < len(sub) {
+        return false
+    }
+
+    let mut i = 0
+    let max_i = len(s) - len(sub) + 1
+    while i < max_i {
+        let mut matches = true
+        let mut j = 0
+        while j < len(sub) {
+            if char_at(s, i + j) != char_at(sub, j) {
+                matches = false
+                j = len(sub)  // Exit inner loop
+            }
+            j = j + 1
+        }
+        if matches {
+            return true
+        }
+        i = i + 1
+    }
+    return false
 }
