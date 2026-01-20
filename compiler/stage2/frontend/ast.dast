@@ -478,6 +478,11 @@ fn assoc_type_impl_list_new() -> [AssociatedTypeImpl] {
     return empty
 }
 
+fn type_alias_list_new() -> [TypeAlias] {
+    let empty: [TypeAlias] = []
+    return empty
+}
+
 fn func_list_new() -> [FunctionDecl] {
     let empty: [FunctionDecl] = []
     return empty

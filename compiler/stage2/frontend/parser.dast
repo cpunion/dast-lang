@@ -910,6 +910,24 @@ fn parse_const_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis
     return ConstDecl { vis: vis, module: "", file: "", pos: pos, name: name, has_type: has_type, typ: typ, value: value }
 }
 
+fn parse_type_alias(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> TypeAlias {
+    lexer_next(lex)  // consume 'type'
+    let name = parse_ident(src, lex, errors)
+    let type_params = parse_type_params(src, lex, errors)
+
+    if peek_kind(lex) != TokenKind.Assign {
+        add_error(errors, lexer_pos(lex), "expected '=' after type alias name");
+        sync_to_top_level(lex)
+        return TypeAlias { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, target: "" }
+    }
+    lexer_next(lex)  // consume '='
+
+    let target = parse_type(src, lex, errors)
+    maybe_consume_semi(lex)
+
+    return TypeAlias { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, target: target }
+}
+
 fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> TraitDecl {
     lexer_next(lex)  // consume 'trait'
     let name = parse_ident(src, lex, errors)
@@ -1782,6 +1800,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
     let mut enums: [EnumDecl] = []
     let mut consts: [ConstDecl] = []
     let mut traits: [TraitDecl] = []
+    let mut type_aliases: [TypeAlias] = []
     let mut functions: [FunctionDecl] = []
     let mut impls: [ImplDecl] = []
     let mut impl_traits: [ImplTrait] = []
@@ -1872,6 +1891,18 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 let trait_pos = lexer_pos(lex)
                 let decl = parse_trait(src, lex, errors, vis, trait_pos)
                 push(&mut traits, decl)
+            } else if kk == TokenKind.Type {
+                if pending_test {
+                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
+                    pending_test = false
+                }
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                let type_pos = lexer_pos(lex)
+                let decl = parse_type_alias(src, lex, errors, vis, type_pos)
+                push(&mut type_aliases, decl)
             } else if kk == TokenKind.Impl {
                 if pending_test {
                     add_error(errors, lexer_pos(lex), "test attribute only valid on function");
@@ -1956,6 +1987,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
         enums: enums,
         consts: consts,
         traits: traits,
+        type_aliases: type_aliases,
         functions: functions,
         impls: impls,
         impl_traits: impl_traits,

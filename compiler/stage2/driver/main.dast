@@ -93,6 +93,7 @@ fn program_empty() -> Program {
         enums: enum_list_new(),
         consts: const_list_new(),
         traits: trait_list_new(),
+        type_aliases: type_alias_list_new(),
         functions: func_list_new(),
         impls: impl_list_new(),
         impl_traits: impl_trait_list_new(),

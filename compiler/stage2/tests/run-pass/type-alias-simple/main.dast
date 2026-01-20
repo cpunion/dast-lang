@@ -1,0 +1,8 @@
+// Test simple type alias
+
+type IntList = [int]
+
+fn main() {
+    let nums: IntList = [1, 2, 3]
+    println("len", len(nums))
+}
