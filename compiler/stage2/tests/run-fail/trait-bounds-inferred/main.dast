@@ -1,0 +1,31 @@
+// Test bounds verification during type inference (no turbofish)
+
+trait Transform {
+    fn apply(&self) -> int;
+}
+
+struct Transformer {
+    v: int,
+}
+
+impl Transform for Transformer {
+    fn apply(&self) -> int {
+        return self.v
+    }
+}
+
+struct NoTransform {
+    x: int,
+}
+
+// Generic function with trait bound
+fn process[T: Transform](x: T) -> int {
+    return 0
+}
+
+fn main() {
+    let nt = NoTransform { x: 123 }
+    // Type T is inferred from argument - should fail bounds check
+    let result = process(nt)
+    println("should not reach here", result)
+}

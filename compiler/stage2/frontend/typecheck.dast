@@ -1607,10 +1607,14 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
                     pi = pi + 1
                 }
 
-                // Parse return type
+                // Parse return type (use -2 as marker for Self type)
                 let mut ret = 0
                 if m.has_return {
-                    ret = ctx_parse_type(ctx, m.ret, "")
+                    if m.ret == "Self" {
+                        ret = -2  // Marker for Self type
+                    } else {
+                        ret = ctx_parse_type(ctx, m.ret, "")
+                    }
                 }
 
                 push(&mut methods, TraitMethodSig {
@@ -1800,8 +1804,8 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                             }
                         }
 
-                        // Check return type
-                        if required.ret != 0 {
+                        // Check return type (skip Self type marked as -2)
+                        if required.ret != 0 && required.ret != -2 {
                             let impl_ret = 0
                             let mut impl_ret_check = impl_ret
                             if impl_method.has_return {
