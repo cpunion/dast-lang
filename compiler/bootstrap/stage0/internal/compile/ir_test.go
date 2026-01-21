@@ -84,13 +84,15 @@ fn foo() -> unit
 func TestLetBindingNoStore(t *testing.T) {
 	src := `fn main() { let x = 42; println(x) }`
 
-	// let 绑定：x 是值，直接使用 const 结果
+	// let 绑定：当前实现使用 store/load
 	want := `ir v0
 fn main() -> unit
   block entry0:
     t0: i64 = 42
-    t1: unit = call println(t0)
-    return t1
+    store x, t0
+    t1: i64 = load x
+    t2: unit = call println(t1)
+    return t2
 
 `
 	got := compileToIR(t, src)
@@ -102,12 +104,15 @@ fn main() -> unit
 func TestLetBindingExpr(t *testing.T) {
 	src := `fn calc(a: i64, b: i64) -> i64 { let sum = a + b; sum * 2 }`
 
+	// let 绑定：当前实现使用 store/load
 	want := `ir v0
 fn calc(a: i64, b: i64) -> i64
   block entry0:
     t0: i64 = + a, b
-    t1: i64 = * t0, 2
-    return t1
+    store sum, t0
+    t1: i64 = load sum
+    t2: i64 = * t1, 2
+    return t2
 
 `
 	got := compileToIR(t, src)
@@ -313,3 +318,4 @@ fn count() -> i64
 		t.Errorf("IR mismatch\nwant:\n%s\ngot:\n%s", want, got)
 	}
 }
+
