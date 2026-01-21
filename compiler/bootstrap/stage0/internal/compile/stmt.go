@@ -36,14 +36,15 @@ func (c *Compiler) compileLet(s *ast.LetStmt) {
 		return
 	}
 	val := c.compileExpr(s.Init)
-	if s.Mutable {
-		// Mutable var: store to named location
-		name := c.declareMutVar(s.Name)
-		c.emit(&ir.StoreVar{Name: name, Src: val})
-	} else {
-		// Immutable let: just bind the temp
-		c.declareValueVar(s.Name, val)
+	// All let variables use named storage (so they can be referenced with &)
+	// The only difference between let and let mut is whether reassignment is allowed
+	name := c.declareMutVar(s.Name)
+	// Track mutability separately for &mut checks
+	if !s.Mutable {
+		// Mark as immutable in scope (declareMutVar sets Mutable=true, we need to fix it)
+		c.markImmutable(s.Name)
 	}
+	c.emit(&ir.StoreVar{Name: name, Src: val})
 }
 
 func (c *Compiler) compileAssign(s *ast.AssignStmt) {

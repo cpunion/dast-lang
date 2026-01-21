@@ -60,15 +60,15 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
 			return c.constZero()
 		}
-		if varInfo.Mutable {
-			// Mutable var: generate load
-			t := c.newTemp()
-			c.setTempType(t, "i64") // Default type
-			c.emit(&ir.LoadVar{Dst: t, Name: varInfo.Name})
-			return t
+		if varInfo.Temp >= 0 {
+			// Value parameter: return the temp directly
+			return varInfo.Temp
 		}
-		// Value var (param or let): return the temp directly
-		return varInfo.Temp
+		// Memory variable (let or let mut): generate load
+		t := c.newTemp()
+		c.setTempType(t, "i64") // Default type
+		c.emit(&ir.LoadVar{Dst: t, Name: varInfo.Name})
+		return t
 	case *ast.RefExpr:
 		ident, ok := e.Expr.(*ast.IdentExpr)
 		if !ok {
@@ -84,8 +84,14 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			}
 			return c.constZero()
 		}
-		if !varInfo.Mutable {
-			c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to immutable variable '%s'", ident.Name))
+		// Value parameters (Temp >= 0) cannot be referenced - they have no memory address
+		if varInfo.Temp >= 0 {
+			c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to value parameter '%s'", ident.Name))
+			return c.constZero()
+		}
+		// Only &mut requires mutable variable
+		if e.Mutable && !varInfo.Mutable {
+			c.diag.Add(e.Span(), fmt.Sprintf("cannot take &mut reference to immutable variable '%s'", ident.Name))
 			return c.constZero()
 		}
 		t := c.newTemp()

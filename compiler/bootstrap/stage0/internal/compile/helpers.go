@@ -218,3 +218,14 @@ func (c *Compiler) lookupVar(name string) (VarInfo, bool) {
 	}
 	return VarInfo{}, false
 }
+
+// markImmutable marks a variable as immutable (for let without mut)
+func (c *Compiler) markImmutable(name string) {
+	for i := len(c.scopeStack) - 1; i >= 0; i-- {
+		if v, ok := c.scopeStack[i][name]; ok {
+			v.Mutable = false
+			c.scopeStack[i][name] = v
+			return
+		}
+	}
+}
