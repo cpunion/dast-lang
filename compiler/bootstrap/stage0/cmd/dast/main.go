@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -240,9 +242,38 @@ func splitArgs(args []string) ([]string, []string) {
 			progArgs = args[i+1:]
 			break
 		}
-		files = append(files, arg)
+		expanded := expandPath(arg)
+		files = append(files, expanded...)
 	}
 	return files, progArgs
+}
+
+// expandPath expands a path to a list of .dast files.
+// If the path is a file, it returns a single-element slice.
+// If the path is a directory, it recursively finds all .dast files.
+func expandPath(path string) []string {
+	info, err := os.Stat(path)
+	if err != nil {
+		// Return as-is, let the caller handle the error
+		return []string{path}
+	}
+	if !info.IsDir() {
+		return []string{path}
+	}
+	// Directory: recursively find all .dast files
+	var files []string
+	filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.HasSuffix(p, ".dast") {
+			files = append(files, p)
+		}
+		return nil
+	})
+	// Sort for consistent ordering
+	sort.Strings(files)
+	return files
 }
 
 func exitOnDiag(diags *diag.Bag) bool {

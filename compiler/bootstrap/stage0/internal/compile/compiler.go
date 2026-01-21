@@ -13,13 +13,21 @@ type Compiler struct {
 	curBlock    *ir.Block
 	blockID     int
 	tempID      int
-	scopeStack  []map[string]string
+	tempTypes   map[int]string       // temp ID -> type string
+	scopeStack  []map[string]VarInfo // name -> VarInfo
 	nameCount   map[string]int
 	structs     map[string]*ast.StructDecl
 	enums       map[string]*ast.EnumDecl
 	enumTags    map[string]map[string]int64
 	enumTagType map[string]string
 	consts      map[string]ConstInfo
+}
+
+// VarInfo tracks variable info for value semantics
+type VarInfo struct {
+	Temp    int    // temp ID for value vars, -1 for mutable vars
+	Name    string // IR name (for mutable vars used in load/store)
+	Mutable bool   // true if let mut
 }
 
 type ConstInfo struct {
@@ -75,15 +83,18 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	c.tempID = 0
 	c.scopeStack = nil
 	c.nameCount = map[string]int{}
+	c.tempTypes = map[int]string{}
 
 	irFn := &ir.Function{Name: name}
 	c.current = irFn
 	c.curBlock = nil
 	c.pushScope()
+	// Params use temp IDs internally, but we store names for formatting
 	for _, param := range fn.Params {
-		irName := c.declareVar(param.Name)
-		irFn.Params = append(irFn.Params, irName)
-		irFn.ParamTypes = append(irFn.ParamTypes, formatType(param.Type))
+		paramTemp := c.newTemp()
+		c.declareValueVar(param.Name, paramTemp)
+		// Store with original name for IR output
+		irFn.Params = append(irFn.Params, ir.Var{Name: param.Name, Type: formatType(param.Type)})
 	}
 	if fn.ReturnType != nil {
 		irFn.ReturnType = formatType(*fn.ReturnType)
@@ -95,6 +106,14 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 		c.emitTerm(&ir.Return{Value: nil})
 	}
 	c.popScope()
+
+	// Copy temp types to IR function
+	irFn.TempTypes = make([]string, c.tempID)
+	for i := 0; i < c.tempID; i++ {
+		if typ, ok := c.tempTypes[i]; ok {
+			irFn.TempTypes[i] = typ
+		}
+	}
 
 	c.prog.Functions[irFn.Name] = irFn
 	if c.prog.Entry == "" && irFn.Name == "main" {

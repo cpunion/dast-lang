@@ -68,11 +68,11 @@ func Parse(text string) (*Program, error) {
 			if err := flushFn(); err != nil {
 				return nil, err
 			}
-			name, params, paramTypes, retType, err := parseFnHeader(line)
+			name, params, retType, err := parseFnHeader(line)
 			if err != nil {
 				return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
 			}
-			curFn = &Function{Name: name, Params: params, ParamTypes: paramTypes, ReturnType: retType}
+			curFn = &Function{Name: name, Params: params, ReturnType: retType}
 			maxTemp = -1
 			i++
 			continue
@@ -261,6 +261,20 @@ func parseIRLine(line string) (lineParse, error) {
 		}
 		left := strings.TrimSpace(line[:eq])
 		right := strings.TrimSpace(line[eq+1:])
+		// Check for t0.field = t1 (SetField)
+		if dot := strings.Index(left, "."); dot > 0 {
+			recv, err := parseTemp(left[:dot])
+			if err != nil {
+				return lineParse{}, err
+			}
+			field := strings.TrimSpace(left[dot+1:])
+			val, err := parseTemp(right)
+			if err != nil {
+				return lineParse{}, err
+			}
+			max := maxTempIdx(recv, val)
+			return lineParse{instr: &SetField{Src: recv, Field: field, Value: val}, maxTemp: max}, nil
+		}
 		dst, err := parseTemp(left)
 		if err != nil {
 			return lineParse{}, err
@@ -342,6 +356,13 @@ func parseIRLine(line string) (lineParse, error) {
 				return lineParse{}, err
 			}
 			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
+		case strings.HasPrefix(right, "t") && strings.Contains(right, "."):
+			// New syntax: t0 = t1.field
+			src, field, err := parseFieldExpr(right)
+			if err != nil {
+				return lineParse{}, err
+			}
+			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
 		case strings.HasPrefix(right, "enum "):
 			name, variant, tag, tagType, payload, err := parseEnumInit(strings.TrimSpace(strings.TrimPrefix(right, "enum ")))
 			if err != nil {
@@ -391,7 +412,7 @@ func parseIRLine(line string) (lineParse, error) {
 	return lineParse{}, fmt.Errorf("unknown instruction")
 }
 
-func parseFnHeader(line string) (string, []string, []string, string, error) {
+func parseFnHeader(line string) (string, []Var, string, error) {
 	retType := ""
 	header := strings.TrimSpace(line)
 	if arrow := strings.Index(header, "->"); arrow >= 0 {
@@ -401,12 +422,11 @@ func parseFnHeader(line string) (string, []string, []string, string, error) {
 	open := strings.Index(header, "(")
 	close := strings.LastIndex(header, ")")
 	if open < 0 || close < 0 || close < open {
-		return "", nil, nil, "", fmt.Errorf("invalid fn syntax")
+		return "", nil, "", fmt.Errorf("invalid fn syntax")
 	}
 	name := strings.TrimSpace(header[3:open])
 	paramsText := strings.TrimSpace(header[open+1 : close])
-	params := []string{}
-	paramTypes := []string{}
+	params := []Var{}
 	if paramsText != "" {
 		for _, part := range splitComma(paramsText, -1) {
 			if strings.Contains(part, ":") {
@@ -416,15 +436,13 @@ func parseFnHeader(line string) (string, []string, []string, string, error) {
 				if len(chunks) > 1 {
 					ptype = strings.TrimSpace(chunks[1])
 				}
-				params = append(params, pname)
-				paramTypes = append(paramTypes, ptype)
+				params = append(params, Var{Name: pname, Type: ptype})
 			} else {
-				params = append(params, part)
-				paramTypes = append(paramTypes, "")
+				params = append(params, Var{Name: part, Type: ""})
 			}
 		}
 	}
-	return name, params, paramTypes, retType, nil
+	return name, params, retType, nil
 }
 
 func parseBlockLabel(line string) (string, error) {

@@ -60,10 +60,8 @@ func formatType(t ast.Type) string {
 		base = t.Name
 	}
 	if t.IsRef {
-		if t.IsMut {
-			return "&mut " + base
-		}
-		return "&" + base
+		// IR uses *T for all references (both & and &mut)
+		return "*" + base
 	}
 	return base
 }
@@ -156,8 +154,18 @@ func (c *Compiler) newTemp() int {
 	return id
 }
 
+func (c *Compiler) newTempWithType(typ string) int {
+	id := c.newTemp()
+	c.tempTypes[id] = typ
+	return id
+}
+
+func (c *Compiler) setTempType(temp int, typ string) {
+	c.tempTypes[temp] = typ
+}
+
 func (c *Compiler) newBlock(prefix string) *ir.Block {
-	label := fmt.Sprintf("%s_%d", prefix, c.blockID)
+	label := fmt.Sprintf("%s%d", prefix, c.blockID)
 	c.blockID++
 	blk := &ir.Block{Label: label}
 	c.current.Blocks = append(c.current.Blocks, blk)
@@ -173,7 +181,7 @@ func (c *Compiler) setCurrentBlock(blk *ir.Block) {
 }
 
 func (c *Compiler) pushScope() {
-	c.scopeStack = append(c.scopeStack, map[string]string{})
+	c.scopeStack = append(c.scopeStack, map[string]VarInfo{})
 }
 
 func (c *Compiler) popScope() {
@@ -183,19 +191,30 @@ func (c *Compiler) popScope() {
 	c.scopeStack = c.scopeStack[:len(c.scopeStack)-1]
 }
 
-func (c *Compiler) declareVar(name string) string {
+// declareValueVar declares an immutable value variable (param or let)
+// The temp ID is stored and returned directly when accessed
+func (c *Compiler) declareValueVar(name string, temp int) {
+	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: temp, Mutable: false}
+}
+
+// declareMutVar declares a mutable variable (let mut)
+// Returns the IR name to use in load/store instructions
+func (c *Compiler) declareMutVar(name string) string {
 	count := c.nameCount[name]
 	c.nameCount[name] = count + 1
-	irName := fmt.Sprintf("%s#%d", name, count)
-	c.scopeStack[len(c.scopeStack)-1][name] = irName
+	irName := name
+	if count > 0 {
+		irName = fmt.Sprintf("%s#%d", name, count)
+	}
+	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: -1, Name: irName, Mutable: true}
 	return irName
 }
 
-func (c *Compiler) lookupVar(name string) (string, bool) {
+func (c *Compiler) lookupVar(name string) (VarInfo, bool) {
 	for i := len(c.scopeStack) - 1; i >= 0; i-- {
 		if v, ok := c.scopeStack[i][name]; ok {
 			return v, true
 		}
 	}
-	return "", false
+	return VarInfo{}, false
 }

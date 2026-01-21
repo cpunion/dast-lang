@@ -94,10 +94,11 @@ func (rt *Runtime) callFunction(name string, args []ir.Value) (ir.Value, error) 
 		return ir.Value{Kind: ir.KindUnit}, nil
 	}
 	fr.cur = fn.Blocks[0]
-	for i, param := range fn.Params {
-		val := args[i]
-		fr.vars[param] = &val
-		fr.varAddrs[param] = rt.allocAddr(&val)
+	// Params are now temp IDs (t0, t1...), store them in temps array
+	for i, val := range args {
+		if err := rt.setTemp(fr, i, val); err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
 	}
 	return rt.execFrame(fr)
 }

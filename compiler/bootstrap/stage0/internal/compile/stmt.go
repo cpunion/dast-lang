@@ -35,15 +35,21 @@ func (c *Compiler) compileLet(s *ast.LetStmt) {
 		c.diag.Add(s.Span(), "let requires initializer in stage 0")
 		return
 	}
-	name := c.declareVar(s.Name)
 	val := c.compileExpr(s.Init)
-	c.emit(&ir.StoreVar{Name: name, Src: val})
+	if s.Mutable {
+		// Mutable var: store to named location
+		name := c.declareMutVar(s.Name)
+		c.emit(&ir.StoreVar{Name: name, Src: val})
+	} else {
+		// Immutable let: just bind the temp
+		c.declareValueVar(s.Name, val)
+	}
 }
 
 func (c *Compiler) compileAssign(s *ast.AssignStmt) {
 	switch target := s.Target.(type) {
 	case *ast.IdentExpr:
-		name, ok := c.lookupVar(target.Name)
+		varInfo, ok := c.lookupVar(target.Name)
 		if !ok {
 			if _, ok := c.consts[target.Name]; ok {
 				c.diag.Add(s.Span(), fmt.Sprintf("cannot assign to const '%s'", target.Name))
@@ -52,8 +58,12 @@ func (c *Compiler) compileAssign(s *ast.AssignStmt) {
 			}
 			return
 		}
+		if !varInfo.Mutable {
+			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign to immutable variable '%s'", target.Name))
+			return
+		}
 		val := c.compileExpr(s.Value)
-		c.emit(&ir.StoreVar{Name: name, Src: val})
+		c.emit(&ir.StoreVar{Name: varInfo.Name, Src: val})
 	case *ast.DerefExpr:
 		refTemp := c.compileExpr(target.Expr)
 		val := c.compileExpr(s.Value)
@@ -279,7 +289,7 @@ func (c *Compiler) compileMatchArm(arm *ast.MatchArm, scrut int) {
 		if vp.Binding != "" {
 			payload := c.newTemp()
 			c.emit(&ir.EnumPayload{Dst: payload, Src: scrut})
-			name := c.declareVar(vp.Binding)
+			name := c.declareMutVar(vp.Binding)
 			c.emit(&ir.StoreVar{Name: name, Src: payload})
 		}
 	}
@@ -298,7 +308,7 @@ func (c *Compiler) compileMatchArmTail(arm *ast.MatchArm, scrut int, allowImplic
 		if vp.Binding != "" {
 			payload := c.newTemp()
 			c.emit(&ir.EnumPayload{Dst: payload, Src: scrut})
-			name := c.declareVar(vp.Binding)
+			name := c.declareMutVar(vp.Binding)
 			c.emit(&ir.StoreVar{Name: name, Src: payload})
 		}
 	}

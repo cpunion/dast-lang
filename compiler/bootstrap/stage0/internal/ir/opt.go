@@ -396,7 +396,7 @@ func inlineCall(call *Call, cand inlineCandidate, nextTemp *int, inlineID int) [
 	out := []Instr{}
 	for i, param := range cand.fn.Params {
 		if i < len(call.Args) {
-			out = append(out, &StoreVar{Name: mapVar(param), Src: call.Args[i]})
+			out = append(out, &StoreVar{Name: mapVar(param.Name), Src: call.Args[i]})
 		}
 	}
 	for _, inst := range blk.Instr {

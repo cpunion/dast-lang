@@ -2,6 +2,7 @@ package ir
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -106,11 +107,18 @@ type Program struct {
 	Entry     string
 }
 
+// Var represents a typed variable (parameter, local, or temp)
+type Var struct {
+	Name string
+	Type string
+}
+
 type Function struct {
 	Name       string
-	Params     []string
-	ParamTypes []string
+	Params     []Var // Parameters with types
 	ReturnType string
+	Locals     []Var    // Local variables with types
+	TempTypes  []string // Types for each temp (indexed by temp number)
 	Blocks     []*Block
 	TempCount  int
 }
@@ -133,7 +141,7 @@ type Const struct {
 
 func (i *Const) instrNode() {}
 func (i *Const) String() string {
-	return fmt.Sprintf("t%d = const %s", i.Dst, i.Value.String())
+	return fmt.Sprintf("t%d = %s", i.Dst, i.Value.String())
 }
 
 type LoadVar struct {
@@ -313,7 +321,7 @@ type GetField struct {
 
 func (i *GetField) instrNode() {}
 func (i *GetField) String() string {
-	return fmt.Sprintf("t%d = get_field t%d.%s", i.Dst, i.Src, i.Field)
+	return fmt.Sprintf("t%d = t%d.%s", i.Dst, i.Src, i.Field)
 }
 
 type SetField struct {
@@ -324,7 +332,7 @@ type SetField struct {
 
 func (i *SetField) instrNode() {}
 func (i *SetField) String() string {
-	return fmt.Sprintf("set_field t%d.%s = t%d", i.Src, i.Field, i.Value)
+	return fmt.Sprintf("t%d.%s = t%d", i.Src, i.Field, i.Value)
 }
 
 type MakeEnum struct {
@@ -419,22 +427,91 @@ func (p *Program) Format() string {
 	sort.Strings(ordered)
 	for _, name := range ordered {
 		fn := p.Functions[name]
-		sb.WriteString(fmt.Sprintf("fn %s(%s)", fn.Name, formatParams(fn.Params, fn.ParamTypes)))
-		if fn.ReturnType != "" && fn.ReturnType != "unit" {
-			sb.WriteString(" -> ")
-			sb.WriteString(fn.ReturnType)
+		retType := fn.ReturnType
+		if retType == "" {
+			retType = "unit"
 		}
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("fn %s(%s) -> %s\n", fn.Name, formatParams(fn.Params), retType))
+
+		// Smart temp renumbering using intermediate names to avoid cascading
+		paramCount := len(fn.Params)
+
+		// Collect param names that look like temps (tN)
+		reservedTempNames := make(map[string]bool)
+		paramRemap := make(map[string]string)
+		for i, param := range fn.Params {
+			paramRemap[fmt.Sprintf("t%d", i)] = param.Name
+			if regexp.MustCompile(`^t\d+$`).MatchString(param.Name) {
+				reservedTempNames[param.Name] = true
+			}
+		}
+
+		// Build renumbering map using intermediate names
+		bodyToIntermediate := make(map[string]string)
+		intermediateToFinal := make(map[string]string)
+		nextAvailableTemp := 0
+		for i := paramCount; i < paramCount+100; i++ {
+			for reservedTempNames[fmt.Sprintf("t%d", nextAvailableTemp)] {
+				nextAvailableTemp++
+			}
+			intermediate := fmt.Sprintf("__T%d__", i-paramCount)
+			bodyToIntermediate[fmt.Sprintf("t%d", i)] = intermediate
+			intermediateToFinal[intermediate] = fmt.Sprintf("t%d", nextAvailableTemp)
+			nextAvailableTemp++
+		}
+
+		// 3-pass replacement to avoid cascading
+		replaceTempsFn := func(s string) string {
+			// Pass 1: body temps -> intermediate
+			for old, inter := range bodyToIntermediate {
+				re := regexp.MustCompile(`\b` + regexp.QuoteMeta(old) + `\b`)
+				s = re.ReplaceAllString(s, inter)
+			}
+			// Pass 2: param IDs -> param names
+			for old, name := range paramRemap {
+				re := regexp.MustCompile(`\b` + regexp.QuoteMeta(old) + `\b`)
+				s = re.ReplaceAllString(s, name)
+			}
+			// Pass 3: intermediate -> final temps
+			for inter, final := range intermediateToFinal {
+				s = strings.ReplaceAll(s, inter, final)
+			}
+			return s
+		}
+
+		// Helper to add type annotations to instructions
+		addTypeAnnotations := func(s string) string {
+			// Match pattern: tN = ...
+			re := regexp.MustCompile(`^(t\d+) = `)
+			matches := re.FindStringSubmatch(s)
+			if len(matches) > 1 {
+				tempName := matches[1]
+				// Extract temp number
+				var tempNum int
+				fmt.Sscanf(tempName, "t%d", &tempNum)
+				// Adjust for param offset
+				actualTempNum := tempNum + paramCount
+				if actualTempNum < len(fn.TempTypes) && fn.TempTypes[actualTempNum] != "" {
+					typ := fn.TempTypes[actualTempNum]
+					return re.ReplaceAllString(s, fmt.Sprintf("${1}: %s = ", typ))
+				}
+			}
+			return s
+		}
+
 		for _, b := range fn.Blocks {
 			sb.WriteString(fmt.Sprintf("  block %s:\n", b.Label))
 			for _, inst := range b.Instr {
 				sb.WriteString("    ")
-				sb.WriteString(inst.String())
+				instStr := replaceTempsFn(inst.String())
+				instStr = addTypeAnnotations(instStr)
+				sb.WriteString(instStr)
 				sb.WriteString("\n")
 			}
 			if b.Term != nil {
 				sb.WriteString("    ")
-				sb.WriteString(b.Term.String())
+				termStr := replaceTempsFn(b.Term.String())
+				sb.WriteString(termStr)
 				sb.WriteString("\n")
 			}
 		}
@@ -724,13 +801,13 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 func collectDeclaredVars(fn *Function) (map[string]struct{}, error) {
 	declared := map[string]struct{}{}
 	for _, p := range fn.Params {
-		if p == "" {
+		if p.Name == "" {
 			return nil, fmt.Errorf("param name is empty")
 		}
-		if _, ok := declared[p]; ok {
-			return nil, fmt.Errorf("duplicate param '%s'", p)
+		if _, ok := declared[p.Name]; ok {
+			return nil, fmt.Errorf("duplicate param '%s'", p.Name)
 		}
-		declared[p] = struct{}{}
+		declared[p.Name] = struct{}{}
 	}
 	for _, blk := range fn.Blocks {
 		for _, inst := range blk.Instr {
@@ -752,7 +829,7 @@ func validateDefiniteAssignment(fn *Function) error {
 	}
 	params := map[string]struct{}{}
 	for _, p := range fn.Params {
-		params[p] = struct{}{}
+		params[p.Name] = struct{}{}
 	}
 	blocks := map[string]*Block{}
 	for _, blk := range fn.Blocks {
@@ -956,34 +1033,17 @@ func isValidUnaryOp(op string) bool {
 	return op == "-" || op == "!"
 }
 
-func formatParams(params []string, types []string) string {
+func formatParams(params []Var) string {
 	if len(params) == 0 {
 		return ""
 	}
-	hasTypes := false
-	if len(types) == len(params) {
-		for _, t := range types {
-			if strings.TrimSpace(t) != "" {
-				hasTypes = true
-				break
-			}
-		}
-	}
 	parts := make([]string, 0, len(params))
-	for i, p := range params {
-		if hasTypes {
-			t := ""
-			if i < len(types) {
-				t = strings.TrimSpace(types[i])
-			}
-			if t != "" {
-				parts = append(parts, fmt.Sprintf("%s: %s", p, t))
-			} else {
-				parts = append(parts, p)
-			}
-			continue
+	for _, p := range params {
+		if p.Type != "" {
+			parts = append(parts, fmt.Sprintf("%s: %s", p.Name, p.Type))
+		} else {
+			parts = append(parts, p.Name)
 		}
-		parts = append(parts, p)
 	}
 	return strings.Join(parts, ", ")
 }
