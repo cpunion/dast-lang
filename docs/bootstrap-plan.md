@@ -39,6 +39,21 @@ Dast 采用三阶段自举策略,每个阶段都有明确的职责和边界:
 - ✅ 结构体、枚举、引用支持
 - ✅ 基础类型检查
 
+### 已知限制
+
+**类型检查器限制**: Stage0 的类型检查器不支持对不可变变量取引用:
+```dast
+let x = 42
+foo(&x)  // ❌ Stage0 报错: cannot take reference to immutable variable
+
+let mut y = 42
+foo(&mut y)  // ✅ 允许
+```
+
+**影响**: Stage1/Stage2 源代码需要将所有 `&immutable` 改为 `&mut` 才能被 Stage0 编译。
+
+**不影响**: Stage1/Stage2 作为编译器时,仍然完整支持 `&immutable` 引用(Rust 风格语义)。
+
 ### 目录结构
 ```
 compiler/bootstrap/stage0/
@@ -58,7 +73,12 @@ compiler/bootstrap/stage0/
 
 ## Stage1: Dast 实现的编译器
 
-**状态**: ✅ **已完成** (Commit bdc4d1b)
+**状态**: ✅ **已完成**
+
+**关键提交**:
+- `bdc4d1b` - 修复 Stage0 兼容性 (将 `&` 改为 `&mut`)
+- `3308422` - 移除重复函数定义
+- `004f9e8` - IR v0 模块自包含化
 
 ### 职责
 - 用 Dast 重新实现 Stage0 的功能
@@ -164,10 +184,26 @@ version = "0.1.0"
 - [x] 自编译测试 (Stage1 能编译自己)
 - [x] Hello World 测试通过
 - [x] 验证 IR v0 兼容性
+- [x] Stage2 编译测试 (所有 Stage2 模块可编译)
+- [x] Stage2 测试套件通过 (run-pass, compile-fail, test-cmd, build, workspace, examples)
+
+**Stage0 兼容性修复**:
+- 修改 `typecheck.dast` 和 `compile.dast` 中所有 `&TypeContext` → `&mut TypeContext`
+- 修改局部变量 `let types = ctx.types` → `let mut types = ctx.types`
+- 修改引用传递 `&types` → `&mut types`
+- 共修改约 50+ 处
 
 ## Stage2: 自举编译器
 
-**状态**: 🔄 **开发中**
+**状态**: ✅ **可在 Stage0 下编译和测试**
+
+**关键提交**:
+- `bbb59d6` - 修复 Stage0 兼容性 (与 Stage1 相同的 `&mut` 修复)
+
+**测试状态**: 所有测试通过 ✅
+- run-pass: closures, generics, array-builtins 等
+- compile-fail: 正确报错
+- test-cmd, build, workspace, examples: 全部通过
 
 ### 职责
 - 完整的 Dast 编译器实现
@@ -380,10 +416,17 @@ gcc output.c -o output
 
 - ✅ **Stage0**: 完成 (Commit 27b0e7b)
 - ✅ **Stage1**: 完成 (Commit bdc4d1b) - 自编译测试通过
-- 🔄 **Stage2**: 架构设计中
+- ✅ **Stage2**: 可在 Stage0 下编译和测试 (Commit bbb59d6)
+
+**重要里程碑**:
+- ✅ Stage1 自举编译器完成
+- ✅ Stage1 可编译 Stage2 所有模块
+- ✅ Stage2 所有测试在 Stage0 下通过
+- 🔄 Stage2 后端开发中 (IR v2, C codegen)
 
 ## 下一步行动
 
-1. **立即**: 测试 Stage1 编译 Stage2 模块
-2. **本周**: Stage2 前端迁移
-3. **本月**: 完成 Stage2 基础架构
+1. **立即**: Stage2 IR v2 设计与实现
+2. **本周**: Stage2 Lowering (IR v2 → IR v0)
+3. **本月**: Stage2 C 后端实现
+4. **下月**: Stage2 自编译测试
