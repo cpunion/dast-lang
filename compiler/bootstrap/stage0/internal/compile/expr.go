@@ -7,6 +7,21 @@ import (
 	"dastlang/internal/ir"
 )
 
+// compileOperand compiles an expression and returns an Operand (inline constant or temp)
+func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
+	// For literals, return inline constants
+	switch e := expr.(type) {
+	case *ast.IntLit:
+		return ir.IntOperand(e.Value)
+	case *ast.BoolLit:
+		return ir.BoolOperand(e.Value)
+	case *ast.StringLit:
+		return ir.StringOperand(e.Value)
+	}
+	// For everything else, compile to temp and wrap
+	return ir.TempOperand(c.compileExpr(expr))
+}
+
 func (c *Compiler) compileExpr(expr ast.Expr) int {
 	switch e := expr.(type) {
 	case *ast.IntLit:
@@ -84,15 +99,15 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		c.emit(&ir.LoadRef{Dst: t, Src: src})
 		return t
 	case *ast.UnaryExpr:
-		src := c.compileExpr(e.Expr)
+		src := c.compileOperand(e.Expr)
 		t := c.newTemp()
 		typ := c.inferExprType(e)
 		c.setTempType(t, typ)
 		c.emit(&ir.UnaryOp{Dst: t, Op: e.Op, Src: src})
 		return t
 	case *ast.BinaryExpr:
-		lhs := c.compileExpr(e.Left)
-		rhs := c.compileExpr(e.Right)
+		lhs := c.compileOperand(e.Left)
+		rhs := c.compileOperand(e.Right)
 		t := c.newTemp()
 		typ := c.inferExprType(e)
 		c.setTempType(t, typ)

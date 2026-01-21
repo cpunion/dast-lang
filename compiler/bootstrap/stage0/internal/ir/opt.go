@@ -33,6 +33,16 @@ func optimizeBlock(blk *Block) {
 	consts := map[int]Value{}
 	varConsts := map[string]Value{}
 	arrayLens, arraySafe := scanArraySafety(blk)
+
+	// Helper to get constant value from operand
+	getOperandConst := func(op Operand) (Value, bool) {
+		if op.IsConst {
+			return op.Const, true
+		}
+		val, ok := consts[op.Temp]
+		return val, ok
+	}
+
 	for i, inst := range blk.Instr {
 		switch v := inst.(type) {
 		case *Const:
@@ -50,7 +60,7 @@ func optimizeBlock(blk *Block) {
 		case *LoadRef:
 			delete(consts, v.Dst)
 		case *UnaryOp:
-			if c, ok := consts[v.Src]; ok {
+			if c, ok := getOperandConst(v.Src); ok {
 				if folded, ok := foldUnary(v.Op, c); ok {
 					blk.Instr[i] = &Const{Dst: v.Dst, Value: folded}
 					consts[v.Dst] = folded
@@ -59,8 +69,8 @@ func optimizeBlock(blk *Block) {
 			}
 			delete(consts, v.Dst)
 		case *BinOp:
-			if l, ok := consts[v.Lhs]; ok {
-				if r, ok := consts[v.Rhs]; ok {
+			if l, ok := getOperandConst(v.Lhs); ok {
+				if r, ok := getOperandConst(v.Rhs); ok {
 					if folded, ok := foldBinary(v.Op, l, r); ok {
 						blk.Instr[i] = &Const{Dst: v.Dst, Value: folded}
 						consts[v.Dst] = folded
@@ -254,6 +264,14 @@ func scanArraySafety(blk *Block) (map[int]int, map[int]bool) {
 }
 
 func instrTemps(inst Instr) []int {
+	// Helper to extract temp from operand
+	getTemp := func(op Operand) []int {
+		if op.IsConst {
+			return nil
+		}
+		return []int{op.Temp}
+	}
+
 	switch v := inst.(type) {
 	case *Const:
 		return []int{v.Dst}
@@ -268,9 +286,14 @@ func instrTemps(inst Instr) []int {
 	case *StoreRef:
 		return []int{v.Ref, v.Src}
 	case *BinOp:
-		return []int{v.Dst, v.Lhs, v.Rhs}
+		out := []int{v.Dst}
+		out = append(out, getTemp(v.Lhs)...)
+		out = append(out, getTemp(v.Rhs)...)
+		return out
 	case *UnaryOp:
-		return []int{v.Dst, v.Src}
+		out := []int{v.Dst}
+		out = append(out, getTemp(v.Src)...)
+		return out
 	case *Call:
 		out := []int{}
 		if v.Dst >= 0 {
@@ -415,6 +438,12 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 		}
 		return t
 	}
+	remapOperand := func(op Operand) Operand {
+		if op.IsConst {
+			return op
+		}
+		return TempOperand(remap(op.Temp))
+	}
 	switch v := inst.(type) {
 	case *Const:
 		return &Const{Dst: remap(v.Dst), Value: v.Value}
@@ -429,9 +458,9 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 	case *StoreRef:
 		return &StoreRef{Ref: remap(v.Ref), Src: remap(v.Src)}
 	case *BinOp:
-		return &BinOp{Dst: remap(v.Dst), Op: v.Op, Lhs: remap(v.Lhs), Rhs: remap(v.Rhs)}
+		return &BinOp{Dst: remap(v.Dst), Op: v.Op, Lhs: remapOperand(v.Lhs), Rhs: remapOperand(v.Rhs)}
 	case *UnaryOp:
-		return &UnaryOp{Dst: remap(v.Dst), Op: v.Op, Src: remap(v.Src)}
+		return &UnaryOp{Dst: remap(v.Dst), Op: v.Op, Src: remapOperand(v.Src)}
 	case *Call:
 		args := make([]int, 0, len(v.Args))
 		for _, a := range v.Args {

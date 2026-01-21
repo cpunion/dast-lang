@@ -20,6 +20,45 @@ const (
 	KindArray
 )
 
+// Operand represents either a temp variable or an inline constant
+type Operand struct {
+	IsConst bool
+	Temp    int
+	Const   Value
+}
+
+// TempOperand creates an operand from a temp ID
+func TempOperand(temp int) Operand {
+	return Operand{IsConst: false, Temp: temp}
+}
+
+// ConstOperand creates an operand from a constant value
+func ConstOperand(val Value) Operand {
+	return Operand{IsConst: true, Const: val}
+}
+
+// IntOperand creates an integer constant operand
+func IntOperand(n int64) Operand {
+	return ConstOperand(Value{Kind: KindInt, Int: n})
+}
+
+// BoolOperand creates a boolean constant operand
+func BoolOperand(b bool) Operand {
+	return ConstOperand(Value{Kind: KindBool, Bool: b})
+}
+
+// StringOperand creates a string constant operand
+func StringOperand(s string) Operand {
+	return ConstOperand(Value{Kind: KindString, Str: s})
+}
+
+func (o Operand) String() string {
+	if o.IsConst {
+		return o.Const.String()
+	}
+	return fmt.Sprintf("t%d", o.Temp)
+}
+
 type Value struct {
 	Kind    Kind
 	Int     int64
@@ -100,9 +139,15 @@ func escapeString(s string) string {
 	return sb.String()
 }
 
+type TypeDecl struct {
+	Name   string
+	Fields []Var // For struct types
+}
+
 type Program struct {
 	Version   string
 	Features  []string
+	TypeDecls map[string]*TypeDecl // Type declarations (structs, enums)
 	Functions map[string]*Function
 	Entry     string
 }
@@ -197,24 +242,24 @@ func (i *StoreRef) String() string {
 type BinOp struct {
 	Dst int
 	Op  string
-	Lhs int
-	Rhs int
+	Lhs Operand
+	Rhs Operand
 }
 
 func (i *BinOp) instrNode() {}
 func (i *BinOp) String() string {
-	return fmt.Sprintf("t%d = %s t%d, t%d", i.Dst, i.Op, i.Lhs, i.Rhs)
+	return fmt.Sprintf("t%d = %s %s, %s", i.Dst, i.Op, i.Lhs.String(), i.Rhs.String())
 }
 
 type UnaryOp struct {
 	Dst int
 	Op  string
-	Src int
+	Src Operand
 }
 
 func (i *UnaryOp) instrNode() {}
 func (i *UnaryOp) String() string {
-	return fmt.Sprintf("t%d = %s t%d", i.Dst, i.Op, i.Src)
+	return fmt.Sprintf("t%d = %s %s", i.Dst, i.Op, i.Src.String())
 }
 
 type Call struct {
@@ -420,6 +465,27 @@ func (p *Program) Format() string {
 		version = "v0"
 	}
 	sb.WriteString(fmt.Sprintf("ir %s\n", version))
+
+	// Output type declarations
+	if len(p.TypeDecls) > 0 {
+		typeNames := make([]string, 0, len(p.TypeDecls))
+		for name := range p.TypeDecls {
+			typeNames = append(typeNames, name)
+		}
+		sort.Strings(typeNames)
+		for _, name := range typeNames {
+			td := p.TypeDecls[name]
+			if len(td.Fields) > 0 {
+				fields := make([]string, 0, len(td.Fields))
+				for _, f := range td.Fields {
+					fields = append(fields, fmt.Sprintf("%s: %s", f.Name, f.Type))
+				}
+				sb.WriteString(fmt.Sprintf("type %s = { %s }\n", td.Name, strings.Join(fields, ", ")))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
 	ordered := make([]string, 0, len(p.Functions))
 	for name := range p.Functions {
 		ordered = append(ordered, name)
@@ -449,6 +515,7 @@ func (p *Program) Format() string {
 		// Build renumbering map using intermediate names
 		bodyToIntermediate := make(map[string]string)
 		intermediateToFinal := make(map[string]string)
+		finalToOriginal := make(map[string]int) // Map final temp name -> original temp ID
 		nextAvailableTemp := 0
 		for i := paramCount; i < paramCount+100; i++ {
 			for reservedTempNames[fmt.Sprintf("t%d", nextAvailableTemp)] {
@@ -456,7 +523,9 @@ func (p *Program) Format() string {
 			}
 			intermediate := fmt.Sprintf("__T%d__", i-paramCount)
 			bodyToIntermediate[fmt.Sprintf("t%d", i)] = intermediate
-			intermediateToFinal[intermediate] = fmt.Sprintf("t%d", nextAvailableTemp)
+			finalName := fmt.Sprintf("t%d", nextAvailableTemp)
+			intermediateToFinal[intermediate] = finalName
+			finalToOriginal[finalName] = i // Store mapping
 			nextAvailableTemp++
 		}
 
@@ -486,14 +555,12 @@ func (p *Program) Format() string {
 			matches := re.FindStringSubmatch(s)
 			if len(matches) > 1 {
 				tempName := matches[1]
-				// Extract temp number
-				var tempNum int
-				fmt.Sscanf(tempName, "t%d", &tempNum)
-				// Adjust for param offset
-				actualTempNum := tempNum + paramCount
-				if actualTempNum < len(fn.TempTypes) && fn.TempTypes[actualTempNum] != "" {
-					typ := fn.TempTypes[actualTempNum]
-					return re.ReplaceAllString(s, fmt.Sprintf("${1}: %s = ", typ))
+				// Look up original temp ID from final name
+				if originalID, ok := finalToOriginal[tempName]; ok {
+					if originalID < len(fn.TempTypes) && fn.TempTypes[originalID] != "" {
+						typ := fn.TempTypes[originalID]
+						return re.ReplaceAllString(s, fmt.Sprintf("${1}: %s = ", typ))
+					}
 				}
 			}
 			return s
@@ -671,10 +738,10 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 		if err := validateTemp(i.Dst, tempCount, false); err != nil {
 			return err
 		}
-		if err := validateTemp(i.Lhs, tempCount, false); err != nil {
+		if err := validateOperand(i.Lhs, tempCount); err != nil {
 			return err
 		}
-		return validateTemp(i.Rhs, tempCount, false)
+		return validateOperand(i.Rhs, tempCount)
 	case *UnaryOp:
 		if !isValidUnaryOp(i.Op) {
 			return fmt.Errorf("invalid unary op '%s'", i.Op)
@@ -682,7 +749,7 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 		if err := validateTemp(i.Dst, tempCount, false); err != nil {
 			return err
 		}
-		return validateTemp(i.Src, tempCount, false)
+		return validateOperand(i.Src, tempCount)
 	case *Call:
 		if i.Callee == "" {
 			return fmt.Errorf("call callee is empty")
@@ -1007,17 +1074,21 @@ func setEqual(a map[string]struct{}, b map[string]struct{}) bool {
 	return true
 }
 
-func validateTemp(idx int, tempCount int, allowNeg1 bool) error {
-	if allowNeg1 && idx == -1 {
+func validateTemp(t int, tempCount int, allowNegative bool) error {
+	if allowNegative && t < 0 {
 		return nil
 	}
-	if idx < 0 {
-		return fmt.Errorf("invalid temp t%d", idx)
-	}
-	if idx >= tempCount {
-		return fmt.Errorf("temp t%d out of range (temp_count=%d)", idx, tempCount)
+	if t < 0 || t >= tempCount {
+		return fmt.Errorf("temp t%d out of range [0, %d)", t, tempCount)
 	}
 	return nil
+}
+
+func validateOperand(op Operand, tempCount int) error {
+	if op.IsConst {
+		return nil // Constants are always valid
+	}
+	return validateTemp(op.Temp, tempCount, false)
 }
 
 func isValidBinOp(op string) bool {

@@ -393,7 +393,7 @@ func parseIRLine(line string) (lineParse, error) {
 				if err != nil {
 					return lineParse{}, err
 				}
-				return lineParse{instr: &UnaryOp{Dst: dst, Op: op, Src: src}, maxTemp: maxTempIdx(dst, src)}, nil
+				return lineParse{instr: &UnaryOp{Dst: dst, Op: op, Src: TempOperand(src)}, maxTemp: maxTempIdx(dst, src)}, nil
 			}
 			if len(parts) == 2 {
 				lhs, err := parseTemp(parts[0])
@@ -404,7 +404,7 @@ func parseIRLine(line string) (lineParse, error) {
 				if err != nil {
 					return lineParse{}, err
 				}
-				return lineParse{instr: &BinOp{Dst: dst, Op: op, Lhs: lhs, Rhs: rhs}, maxTemp: maxTempIdx(dst, lhs, rhs)}, nil
+				return lineParse{instr: &BinOp{Dst: dst, Op: op, Lhs: TempOperand(lhs), Rhs: TempOperand(rhs)}, maxTemp: maxTempIdx(dst, lhs, rhs)}, nil
 			}
 			return lineParse{}, fmt.Errorf("invalid op syntax")
 		}

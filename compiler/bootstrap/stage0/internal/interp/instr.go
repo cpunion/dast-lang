@@ -63,7 +63,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		return rt.storeRef(ref, val)
 	case *ir.UnaryOp:
-		val, err := rt.getTemp(fr, i.Src)
+		val, err := rt.evalOperand(fr, i.Src)
 		if err != nil {
 			return err
 		}
@@ -73,11 +73,11 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		return rt.setTemp(fr, i.Dst, res)
 	case *ir.BinOp:
-		lhs, err := rt.getTemp(fr, i.Lhs)
+		lhs, err := rt.evalOperand(fr, i.Lhs)
 		if err != nil {
 			return err
 		}
-		rhs, err := rt.getTemp(fr, i.Rhs)
+		rhs, err := rt.evalOperand(fr, i.Rhs)
 		if err != nil {
 			return err
 		}
@@ -235,6 +235,13 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 	default:
 		return errors.New("unknown instruction")
 	}
+}
+
+func (rt *Runtime) evalOperand(fr *frame, op ir.Operand) (ir.Value, error) {
+	if op.IsConst {
+		return op.Const, nil
+	}
+	return rt.getTemp(fr, op.Temp)
 }
 
 func (rt *Runtime) getTemp(fr *frame, idx int) (ir.Value, error) {

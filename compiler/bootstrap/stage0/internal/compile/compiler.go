@@ -37,7 +37,7 @@ type ConstInfo struct {
 
 func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 	c := &Compiler{
-		prog:        &ir.Program{Version: "v0", Functions: map[string]*ir.Function{}},
+		prog:        &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Functions: map[string]*ir.Function{}},
 		diag:        &diag.Bag{},
 		structs:     map[string]*ast.StructDecl{},
 		enums:       map[string]*ast.EnumDecl{},
@@ -50,6 +50,12 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 		switch t := item.(type) {
 		case *ast.StructDecl:
 			c.structs[t.Name] = t
+			// Add to IR type declarations
+			fields := make([]ir.Var, 0, len(t.Fields))
+			for _, f := range t.Fields {
+				fields = append(fields, ir.Var{Name: f.Name, Type: formatType(f.Type)})
+			}
+			c.prog.TypeDecls[t.Name] = &ir.TypeDecl{Name: t.Name, Fields: fields}
 		case *ast.EnumDecl:
 			c.enums[t.Name] = t
 		case *ast.ConstDecl:
