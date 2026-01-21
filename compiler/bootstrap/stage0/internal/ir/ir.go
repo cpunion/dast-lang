@@ -295,6 +295,7 @@ func (i *MakeArray) String() string {
 }
 
 type Index struct {
+	Unchecked bool
 	Dst   int
 	Array int
 	Index int
@@ -302,10 +303,11 @@ type Index struct {
 
 func (i *Index) instrNode() {}
 func (i *Index) String() string {
-	return fmt.Sprintf("t%d = index t%d[t%d]", i.Dst, i.Array, i.Index)
+	if i.Unchecked { return fmt.Sprintf("t%d = index t%d[t%d] @unchecked", i.Dst, i.Array, i.Index) }; return fmt.Sprintf("t%d = index t%d[t%d]", i.Dst, i.Array, i.Index)
 }
 
 type SetIndex struct {
+	Unchecked bool
 	Array int
 	Index int
 	Src   int
@@ -313,29 +315,7 @@ type SetIndex struct {
 
 func (i *SetIndex) instrNode() {}
 func (i *SetIndex) String() string {
-	return fmt.Sprintf("set_index t%d[t%d] = t%d", i.Array, i.Index, i.Src)
-}
-
-type IndexUnchecked struct {
-	Dst   int
-	Array int
-	Index int
-}
-
-func (i *IndexUnchecked) instrNode() {}
-func (i *IndexUnchecked) String() string {
-	return fmt.Sprintf("t%d = index_unchecked t%d[t%d]", i.Dst, i.Array, i.Index)
-}
-
-type SetIndexUnchecked struct {
-	Array int
-	Index int
-	Src   int
-}
-
-func (i *SetIndexUnchecked) instrNode() {}
-func (i *SetIndexUnchecked) String() string {
-	return fmt.Sprintf("set_index_unchecked t%d[t%d] = t%d", i.Array, i.Index, i.Src)
+	if i.Unchecked { return fmt.Sprintf("set_index t%d[t%d] = t%d @unchecked", i.Array, i.Index, i.Src) }; return fmt.Sprintf("set_index t%d[t%d] = t%d", i.Array, i.Index, i.Src)
 }
 
 type StructFieldInit struct {
@@ -789,22 +769,6 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		return validateTemp(i.Src, tempCount, false)
-	case *IndexUnchecked:
-		if err := validateTemp(i.Dst, tempCount, false); err != nil {
-			return err
-		}
-		if err := validateTemp(i.Array, tempCount, false); err != nil {
-			return err
-		}
-		return validateTemp(i.Index, tempCount, false)
-	case *SetIndexUnchecked:
-		if err := validateTemp(i.Array, tempCount, false); err != nil {
-			return err
-		}
-		if err := validateTemp(i.Index, tempCount, false); err != nil {
-			return err
-		}
-		return validateTemp(i.Src, tempCount, false)
 	case *MakeStruct:
 		if i.Name == "" {
 			return fmt.Errorf("struct name is empty")
@@ -1118,3 +1082,4 @@ func formatParams(params []Var) string {
 	}
 	return strings.Join(parts, ", ")
 }
+

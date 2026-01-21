@@ -134,21 +134,12 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		if err != nil {
 			return err
 		}
-		res, err := rt.index(arrayVal, indexVal)
-		if err != nil {
-			return err
+		var res ir.Value
+		if i.Unchecked {
+			res, err = rt.indexUnchecked(arrayVal, indexVal)
+		} else {
+			res, err = rt.index(arrayVal, indexVal)
 		}
-		return rt.setTemp(fr, i.Dst, res)
-	case *ir.IndexUnchecked:
-		arrayVal, err := rt.getTemp(fr, i.Array)
-		if err != nil {
-			return err
-		}
-		indexVal, err := rt.getTemp(fr, i.Index)
-		if err != nil {
-			return err
-		}
-		res, err := rt.indexUnchecked(arrayVal, indexVal)
 		if err != nil {
 			return err
 		}
@@ -166,21 +157,10 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		if err != nil {
 			return err
 		}
+		if i.Unchecked {
+			return rt.setIndexUnchecked(arrayVal, indexVal, val)
+		}
 		return rt.setIndex(arrayVal, indexVal, val)
-	case *ir.SetIndexUnchecked:
-		arrayVal, err := rt.getTemp(fr, i.Array)
-		if err != nil {
-			return err
-		}
-		indexVal, err := rt.getTemp(fr, i.Index)
-		if err != nil {
-			return err
-		}
-		val, err := rt.getTemp(fr, i.Src)
-		if err != nil {
-			return err
-		}
-		return rt.setIndexUnchecked(arrayVal, indexVal, val)
 	case *ir.GetField:
 		src, err := rt.getTemp(fr, i.Src)
 		if err != nil {
@@ -423,3 +403,4 @@ func (rt *Runtime) setIndexUnchecked(arrayVal ir.Value, indexVal ir.Value, val i
 	arr.Elems[idx] = val
 	return nil
 }
+

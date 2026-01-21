@@ -92,7 +92,7 @@ func optimizeBlock(blk *Block) {
 			if idx, ok := consts[v.Index]; ok && idx.Kind == KindInt {
 				if length, ok := arrayLens[v.Array]; ok && arraySafe[v.Array] {
 					if idx.Int >= 0 && idx.Int < int64(length) {
-						blk.Instr[i] = &IndexUnchecked{Dst: v.Dst, Array: v.Array, Index: v.Index}
+						blk.Instr[i] = &Index{Unchecked: true, Dst: v.Dst, Array: v.Array, Index: v.Index}
 					}
 				}
 			}
@@ -111,12 +111,10 @@ func optimizeBlock(blk *Block) {
 			if idx, ok := consts[v.Index]; ok && idx.Kind == KindInt {
 				if length, ok := arrayLens[v.Array]; ok && arraySafe[v.Array] {
 					if idx.Int >= 0 && idx.Int < int64(length) {
-						blk.Instr[i] = &SetIndexUnchecked{Array: v.Array, Index: v.Index, Src: v.Src}
+						blk.Instr[i] = &SetIndex{Unchecked: true, Array: v.Array, Index: v.Index, Src: v.Src}
 					}
 				}
 			}
-		case *SetIndexUnchecked:
-		case *IndexUnchecked:
 		}
 		if sv, ok := inst.(*StoreVar); ok {
 			if val, ok := consts[sv.Src]; ok {
@@ -251,7 +249,7 @@ func scanArraySafety(blk *Block) (map[int]int, map[int]bool) {
 	for _, inst := range blk.Instr {
 		switch inst.(type) {
 		case *MakeArray:
-		case *Index, *IndexUnchecked, *SetIndex, *SetIndexUnchecked:
+		case *Index, *SetIndex:
 		default:
 			for _, temp := range instrTemps(inst) {
 				if _, ok := safe[temp]; ok {
@@ -307,10 +305,6 @@ func instrTemps(inst Instr) []int {
 	case *Index:
 		return []int{v.Dst, v.Array, v.Index}
 	case *SetIndex:
-		return []int{v.Array, v.Index, v.Src}
-	case *IndexUnchecked:
-		return []int{v.Dst, v.Array, v.Index}
-	case *SetIndexUnchecked:
 		return []int{v.Array, v.Index, v.Src}
 	case *MakeStruct:
 		out := []int{v.Dst}
@@ -477,10 +471,7 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 		return &Index{Dst: remap(v.Dst), Array: remap(v.Array), Index: remap(v.Index)}
 	case *SetIndex:
 		return &SetIndex{Array: remap(v.Array), Index: remap(v.Index), Src: remap(v.Src)}
-	case *IndexUnchecked:
-		return &IndexUnchecked{Dst: remap(v.Dst), Array: remap(v.Array), Index: remap(v.Index)}
-	case *SetIndexUnchecked:
-		return &SetIndexUnchecked{Array: remap(v.Array), Index: remap(v.Index), Src: remap(v.Src)}
+
 	case *MakeStruct:
 		fields := make([]StructFieldInit, 0, len(v.Fields))
 		for _, f := range v.Fields {
@@ -539,3 +530,4 @@ func pruneUnreachable(fn *Function) {
 	}
 	fn.Blocks = out
 }
+

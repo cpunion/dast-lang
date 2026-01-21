@@ -207,7 +207,7 @@ func parseIRLine(line string) (lineParse, error) {
 			return lineParse{}, err
 		}
 		max := maxTempIdx(array, index, src)
-		return lineParse{instr: &SetIndexUnchecked{Array: array, Index: index, Src: src}, maxTemp: max}, nil
+		return lineParse{instr: &SetIndex{Unchecked: true, Array: array, Index: index, Src: src}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "set_index ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_index "))
@@ -334,7 +334,7 @@ func parseIRLine(line string) (lineParse, error) {
 				return lineParse{}, err
 			}
 			max := maxTempIdx(dst, array, index)
-			return lineParse{instr: &IndexUnchecked{Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
+			return lineParse{instr: &Index{Unchecked: true, Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "index "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index "))
 			array, index, err := parseIndexExpr(rest)
