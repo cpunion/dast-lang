@@ -1,58 +1,37 @@
-# Dast IR 设计（最小化核心）
+# Dast IR 设计（纯底层）
 
-> 目标：**底层、通用、跨平台**的最小 IR，类似 Rust MIR 但更简洁。
+> **核心理念**：IR 只关心内存和计算，所有高级概念在前端完全展开。
 
-## 设计原则
+## 前端已处理（IR 不可见）
 
-1. **正交性**：每个概念只有一种表达方式
-2. **可组合**：通过组合而非特化指令达到表达力
-3. **显式语义**：所有行为都是显式的
+| 概念 | 前端展开方式 |
+|------|-------------|
+| `mut`/`const` | 只是类型检查，IR 中所有内存可读写 |
+| `enum` | 展开为 struct { tag, payload } |
+| `closure` | 展开为 struct + 函数 |
+| `&T`/`&mut T` | 展开为指针 `*T` |
+| `trait` | 单态化或 vtable 指针 |
+| `泛型` | 完全单态化 |
+| `match` | 展开为 switch + 字段访问 |
+| `方法调用` | 展开为 `Type.method(self, ...)` |
 
-## 类型系统
-
-```
-Type ::=
-    // 标量
-    | i8 | i16 | i32 | i64 | i128
-    | u8 | u16 | u32 | u64 | u128
-    | f32 | f64
-    | bool | char | unit | never
-    
-    // 复合
-    | *T                    // 裸指针
-    | &T | &mut T           // 引用
-    | [T; N]                // 数组
-    | struct { fields... }  // 结构体
-    | enum { variants... }  // 枚举
-    | fn(args) -> ret       // 函数
-```
-
-## 内存模型
-
-### Place（内存位置）
+## IR 只有什么
 
 ```
-Place ::=
-    | local(x)              // 局部变量
-    | deref(p)              // *p
-    | field(p, f)           // p.f  
-    | index(p, i)           // p[i]
-    | downcast(p, v)        // p as Variant
+类型：
+  标量: i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool
+  指针: *T
+  数组: [T; N]
+  结构体: { field: T, ... }  (匿名，带布局)
+
+内存：
+  place: local(x) | deref(p) | field(p, offset) | index(p, i)
+  
+值：
+  operand: use(place) | const(value)
 ```
 
-### Operand（值）
-
-```
-Operand ::=
-    | use(place)            // 使用（编译器决定 copy/move）
-    | const(value)          // 常量
-    | ref(place)            // &place
-    | ref_mut(place)        // &mut place
-```
-
-> **关键简化**：`copy` 和 `move` 合并为 `use`，编译器根据类型自动判断。
-
-## 指令集（核心 12 类）
+## 指令集（8 类）
 
 ### 1. 赋值
 ```
@@ -62,197 +41,195 @@ place = operand
 ### 2. 二元运算
 ```
 place = binop(op, a, b)
-
-op ∈ { +, -, *, /, %, 
-       ==, !=, <, <=, >, >=,
-       &, |, ^, <<, >> }
 ```
 
 ### 3. 一元运算
 ```
 place = unop(op, a)
-
-op ∈ { -, !, ~ }
 ```
 
-### 4. 类型转换
+### 4. 指针运算
 ```
-place = cast(operand, T)
-```
-
-### 5. 聚合构造
-```
-place = aggregate(T, fields...)
+place = addr_of(place)    // 取地址
+place = offset(ptr, n)    // 指针偏移
 ```
 
-结构体、枚举、数组统一用 `aggregate`：
-```
-local(p) = aggregate(Point, x: t0, y: t1)
-local(a) = aggregate([i32; 3], t0, t1, t2)
-local(o) = aggregate(Option::Some, t0)
-local(n) = aggregate(Option::None)
-```
-
-### 6. 判别式
-```
-place = discriminant(operand)
-```
-
-### 7. 调用
+### 5. 调用
 ```
 place = call(func, args...)
 ```
 
-所有调用统一形式：
-- 直接调用：`call(add, t0, t1)`
-- 间接调用：`call(deref(fn_ptr), t0, t1)`
-- 方法调用：`call(Point.distance, t_self, t0)`
-
-### 8. Drop
+### 6. 内存
 ```
-drop(place)
+place = alloca(size, align)    // 栈分配
+memcpy(dst, src, size)
+memset(dst, val, size)
 ```
 
-### 9. 内存分配
+### 7. 原子
 ```
-place = alloc(T)         // 栈分配
-place = alloc_heap(T)    // 堆分配
-free(place)              // 释放
+place = atomic(op, ptr, val, ordering)
 ```
 
-### 10. 原子操作
-```
-place = atomic(op, place, operand, ordering)
-
-op ∈ { load, store, swap, add, sub, and, or, xor, cmpxchg }
-ordering ∈ { relaxed, acquire, release, acqrel, seqcst }
-```
-
-### 11. Intrinsic
+### 8. Intrinsic
 ```
 place = intrinsic(name, args...)
 ```
 
-用于无法用普通指令表达的操作：
-```
-t0 = intrinsic(size_of, T)
-t0 = intrinsic(transmute, t1)
-t0 = intrinsic(sqrt_f64, t1)
-t0 = intrinsic(memcpy, dst, src, len)
-```
-
-### 12. 无操作
-```
-nop
-```
-
-## 终结符（4 种）
+## 终结符（3 种）
 
 ```
-Terminator ::=
-    | return [operand]                    // 返回
-    | goto(block)                         // 无条件跳转  
-    | switch(operand, [(val, block)...], default)  // 分支
-    | unreachable                         // 不可达
+return [operand]
+goto(block)
+switch(operand, [(val, block)...], default)
 ```
 
-> **简化**：`branch` 是 `switch` 的特例（`switch(c, [(true, then)], else)`）
+## 展开示例
 
-## 溢出/边界检查通过属性控制
+### enum -> struct
 
-不是特化指令，而是指令属性：
+```dast
+enum Option[T] { Some(T), None }
+let x = Option.Some(42)
+match x {
+    .Some(v) => v,
+    .None => 0,
+}
+```
+
+展开为：
 
 ```
-place = binop(+, a, b) @overflow(wrap)     // 环绕
-place = binop(+, a, b) @overflow(saturate) // 饱和
-place = binop(+, a, b) @overflow(trap)     // panic (默认)
-place = binop(+, a, b) @overflow(undef)    // 未定义
+// Option 展开为 { tag: u8, payload: T }
+local(x) = const { tag: 0, payload: 42 }  // Some = tag 0
 
-place = use(index(arr, i)) @bounds(check)   // 检查 (默认)
-place = use(index(arr, i)) @bounds(unsafe)  // 不检查
+t0 = use(field(local(x), 0))  // 读 tag
+switch t0, [(0, some_arm), (1, none_arm)], unreachable
+
+block some_arm:
+    t1 = use(field(local(x), 8))  // 读 payload (offset 8)
+    return t1
+
+block none_arm:
+    return const 0
+```
+
+### closure -> struct + fn
+
+```dast
+let y = 10
+let f = |x| x + y
+f(5)
+```
+
+展开为：
+
+```
+// 闭包结构体
+local(env) = const { y: 10 }
+
+// 闭包函数 (env 作为第一个参数)
+fn closure_0(env: *{ y: i32 }, x: i32) -> i32 {
+    t0 = use(field(deref(env), 0))  // env.y
+    t1 = binop(+, use(local(x)), t0)
+    return t1
+}
+
+// 调用
+t2 = call(closure_0, addr_of(local(env)), const 5)
+```
+
+### &mut T -> *T
+
+```dast
+fn inc(x: &mut i32) {
+    *x = *x + 1
+}
+```
+
+展开为：
+
+```
+fn inc(x: *i32) {
+    t0 = use(deref(local(x)))
+    t1 = binop(+, t0, const 1)
+    deref(local(x)) = t1
+    return
+}
+```
+
+### 方法 -> 普通函数
+
+```dast
+impl Point {
+    fn distance(&self) -> f64 { ... }
+}
+p.distance()
+```
+
+展开为：
+
+```
+t0 = call(Point.distance, addr_of(local(p)))
 ```
 
 ## 完整示例
 
-### Dast 源码
+### Dast
 
 ```dast
-fn sum(arr: &[i32]) -> i32 {
-    let mut total = 0
-    let mut i = 0
-    while i < len(arr) {
-        total = total + arr[i]
-        i = i + 1
-    }
-    total
+struct Point { x: i32, y: i32 }
+
+fn manhattan(p: &Point) -> i32 {
+    let ax = if p.x < 0 { -p.x } else { p.x }
+    let ay = if p.y < 0 { -p.y } else { p.y }
+    ax + ay
 }
 ```
 
 ### IR
 
 ```
-fn sum(arr: &[i32]) -> i32 {
+fn manhattan(p: *{ i32, i32 }) -> i32 {
     block entry:
-        local(total) = const 0
-        local(i) = const 0
-        goto loop_cond
+        t0 = use(field(deref(local(p)), 0))    // p.x
+        t1 = binop(<, t0, const 0)
+        switch t1, [(1, neg_x)], pos_x
     
-    block loop_cond:
-        t0 = intrinsic(len, use(local(arr)))
-        t1 = binop(<, use(local(i)), t0)
-        switch t1, [(true, loop_body)], loop_exit
+    block neg_x:
+        t2 = unop(-, t0)
+        goto have_ax(t2)
     
-    block loop_body:
-        t2 = use(index(deref(local(arr)), use(local(i))))
-        t3 = binop(+, use(local(total)), t2)
-        local(total) = t3
-        t4 = binop(+, use(local(i)), const 1)
-        local(i) = t4
-        goto loop_cond
+    block pos_x:
+        goto have_ax(t0)
     
-    block loop_exit:
-        return use(local(total))
+    block have_ax(ax: i32):
+        t3 = use(field(deref(local(p)), 4))    // p.y (offset 4)
+        t4 = binop(<, t3, const 0)
+        switch t4, [(1, neg_y)], pos_y
+    
+    block neg_y:
+        t5 = unop(-, t3)
+        goto have_ay(t5)
+    
+    block pos_y:
+        goto have_ay(t3)
+    
+    block have_ay(ay: i32):
+        t6 = binop(+, use(local(ax)), use(local(ay)))
+        return t6
 }
 ```
 
-## 指令统计对比
+## 总结
 
-| 类别 | 原设计 | 新设计 | 简化方式 |
-|------|--------|--------|----------|
-| 算术 | add/add_unchecked/add_wrapping/... | binop + @overflow | 属性代替特化 |
-| 索引 | index/index_unchecked | use(index(...)) + @bounds | 属性代替特化 |
-| 引用 | ref/ref_mut/addr_of/addr_of_mut | ref/ref_mut operand | 统一为 operand |
-| 调用 | call/call_indirect | call | 统一形式 |
-| 使用 | copy/move | use | 编译器推断 |
-| 聚合 | make_struct/make_enum/make_array | aggregate | 统一构造 |
-| 分支 | branch/switch | switch | switch 包含 branch |
+| 层 | 关心什么 | 不关心什么 |
+|----|---------|----------|
+| **前端** | 类型安全、借用检查、泛型、trait | 内存布局 |
+| **IR** | 内存、指针、计算 | mut/const/enum/closure/trait |
+| **后端** | 寄存器、指令选择 | 高级抽象 |
 
-**结果**：
-- 指令类型：30+ → **12**
-- 终结符：6 → **4**
-
-## 与 IR v0 的关系
-
-```
-┌───────────────────────────────────────────┐
-│  AST                                      │
-│    ↓                                       │
-│  IR (本文档) ─── 12 指令 + 4 终结符        │
-│    ↓                                       │
-│  IR v0 ──────── 展开为简化指令 (解释器)  │
-│    ↓                                       │
-│  Backend ────── C / LLVM / Cranelift     │
-└───────────────────────────────────────────┘
-```
-
-**Lowering 示例**：
-```
-IR:     place = binop(+, a, b) @overflow(wrap)
-IR v0:  t0 = + a, b  // 解释器自然环绕
-
-IR:     place = aggregate(Point, x: t0, y: t1)
-IR v0:  t2 = struct Point { x: t0, y: t1 }
-
-IR:     drop(local(x))
-IR v0:  call Type.drop(x)  // 展开为调用
-```
+**IR 只有**：
+- 8 类指令
+- 3 种终结符
+- 标量 + 指针 + 数组 + 匿名结构体
