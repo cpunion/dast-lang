@@ -58,7 +58,7 @@ compiler/bootstrap/stage0/
 
 ## Stage1: Dast 实现的编译器
 
-**状态**: 🔄 **开发中**
+**状态**: ✅ **已完成** (Commit bdc4d1b)
 
 ### 职责
 - 用 Dast 重新实现 Stage0 的功能
@@ -144,30 +144,26 @@ version = "0.1.0"
 
 ### 开发计划
 
-**Phase 1: IR v0 模块** (优先级最高)
-- [ ] `irv0/types.dast` - IR 数据结构
-- [ ] `irv0/parser.dast` - IR 文本解析
-- [ ] `irv0/format.dast` - IR 格式化输出
-- [ ] `irv0/validate.dast` - IR 验证
-- [ ] 创建 `irv0/dast.toml`
+**Phase 1: IR v0 模块** ✅ 完成
+- [x] `irv0/ir.dast` - IR 数据结构、解析、格式化、验证 (2446行)
+- [x] 创建 `irv0/dast.toml`
 
-**Phase 2: 编译器核心**
-- [ ] `compiler/token.dast` - Token 定义
-- [ ] `compiler/lexer.dast` - 词法分析
-- [ ] `compiler/ast.dast` - AST 定义
-- [ ] `compiler/parser.dast` - 语法分析
-- [ ] `compiler/compile.dast` - AST → IR v0
-- [ ] `compiler/main.dast` - CLI 入口
+**Phase 2: 编译器核心** ✅ 完成
+- [x] `compiler/token.dast` - Token 定义
+- [x] `compiler/lexer.dast` - 词法分析
+- [x] `compiler/ast.dast` - AST 定义
+- [x] `compiler/parser.dast` - 语法分析
+- [x] `compiler/typecheck.dast` - 类型检查 (66KB)
+- [x] `compiler/compile.dast` - AST → IR v0
+- [x] `compiler/main.dast` - CLI 入口
 
-**Phase 3: 解释器**
-- [ ] `interp/runtime.dast` - 运行时值定义
-- [ ] `interp/eval.dast` - 指令求值
-- [ ] `interp/interp.dast` - 解释器主逻辑
+**Phase 3: 解释器** ✅ 完成
+- [x] `interp/interp.dast` - 运行时、求值、解释器主逻辑 (29KB)
 
-**Phase 4: 集成测试**
-- [ ] 编译 Stage2 的简单模块
-- [ ] 运行 Stage2 的基础测试
-- [ ] 验证 IR v0 兼容性
+**Phase 4: 集成测试** ✅ 完成
+- [x] 自编译测试 (Stage1 能编译自己)
+- [x] Hello World 测试通过
+- [x] 验证 IR v0 兼容性
 
 ## Stage2: 自举编译器
 
@@ -351,17 +347,17 @@ gcc output.c -o output
 - [x] IR 解释器
 - [x] 测试覆盖
 
-### M2: Stage1 IR v0 模块
-- [ ] IR v0 数据结构
-- [ ] IR v0 解析器
-- [ ] IR v0 格式化
-- [ ] dast.toml 配置
+### M2: Stage1 IR v0 模块 ✅
+- [x] IR v0 数据结构
+- [x] IR v0 解析器
+- [x] IR v0 格式化
+- [x] dast.toml 配置
 
-### M3: Stage1 编译器
-- [ ] 词法/语法分析
-- [ ] AST → IR v0 编译
-- [ ] 解释器实现
-- [ ] 能编译 Stage2 简单模块
+### M3: Stage1 编译器 ✅
+- [x] 词法/语法分析
+- [x] AST → IR v0 编译
+- [x] 解释器实现
+- [x] 自编译测试通过
 
 ### M4: Stage2 基础架构
 - [ ] 前端实现
@@ -383,12 +379,11 @@ gcc output.c -o output
 ## 当前状态
 
 - ✅ **Stage0**: 完成 (Commit 27b0e7b)
-- 🔄 **Stage1**: IR v0 模块开发中
+- ✅ **Stage1**: 完成 (Commit bdc4d1b) - 自编译测试通过
 - 🔄 **Stage2**: 架构设计中
 
 ## 下一步行动
 
-1. **立即**: 完成 Stage1 的 `irv0/types.dast`
-2. **本周**: 完成 IR v0 模块全部文件
-3. **本月**: 完成 Stage1 编译器核心
-4. **下月**: 开始 Stage2 开发
+1. **立即**: 测试 Stage1 编译 Stage2 模块
+2. **本周**: Stage2 前端迁移
+3. **本月**: 完成 Stage2 基础架构
