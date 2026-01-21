@@ -38,21 +38,7 @@ Dast 采用三阶段自举策略,每个阶段都有明确的职责和边界:
 - ✅ IR 解释器
 - ✅ 结构体、枚举、引用支持
 - ✅ 基础类型检查
-
-### 已知限制
-
-**类型检查器限制**: Stage0 的类型检查器不支持对不可变变量取引用:
-```dast
-let x = 42
-foo(&x)  // ❌ Stage0 报错: cannot take reference to immutable variable
-
-let mut y = 42
-foo(&mut y)  // ✅ 允许
-```
-
-**影响**: Stage1/Stage2 源代码需要将所有 `&immutable` 改为 `&mut` 才能被 Stage0 编译。
-
-**不影响**: Stage1/Stage2 作为编译器时,仍然完整支持 `&immutable` 引用(Rust 风格语义)。
+- ✅ 不可变引用支持 (`&let`)
 
 ### 目录结构
 ```
@@ -414,7 +400,7 @@ gcc output.c -o output
 
 ## 当前状态
 
-- ✅ **Stage0**: 完成 (Commit 27b0e7b)
+- ✅ **Stage0**: 完成 (Commit 41b9e3b) - 支持 `&let` 不可变引用
 - ✅ **Stage1**: 完成 (Commit bdc4d1b) - 自编译测试通过
 - ✅ **Stage2**: 可在 Stage0 下编译和测试 (Commit bbb59d6)
 
