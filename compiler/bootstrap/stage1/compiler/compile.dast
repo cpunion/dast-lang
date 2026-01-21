@@ -323,7 +323,7 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
             let recv = compile_expr(c, ix.recv, self_name)
             let idx = compile_expr(c, ix.index, self_name)
             let val = compile_expr(c, s.value, self_name)
-            emit_instr(c, IrInstr.SetIndex(IrSetIndex { array: recv, index: idx, src: val }))
+            emit_instr(c, IrInstr.SetIndex(IrSetIndex { unchecked: false, array: recv, index: idx, src: val }))
         }
         .Field(f) => {
             let recv = compile_expr(c, f.recv, self_name)
@@ -729,7 +729,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let recv = compile_expr(c, ix.recv, self_name)
             let idx = compile_expr(c, ix.index, self_name)
             let dst = new_temp(c)
-            emit_instr(c, IrInstr.Index(IrIndex { dst: dst, array: recv, index: idx }))
+            emit_instr(c, IrInstr.Index(IrIndex { unchecked: false, dst: dst, array: recv, index: idx }))
             return dst
         }
     }

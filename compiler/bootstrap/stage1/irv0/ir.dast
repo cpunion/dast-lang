@@ -184,12 +184,14 @@ struct IrMakeArray {
 }
 
 struct IrIndex {
+    unchecked: bool,
     dst: i32,
     array: i32,
     index: i32,
 }
 
 struct IrSetIndex {
+    unchecked: bool,
     array: i32,
     index: i32,
     src: i32,
@@ -370,8 +372,18 @@ fn ir_instr_string(inst: IrInstr) -> String {
             }
             return "t" + int_to_string(i.dst) + " = array [" + elems + "]"
         }
-        IrInstr.Index(i) => { return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
-        .SetIndex(i) => { return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) }
+        IrInstr.Index(i) => {
+            if i.unchecked {
+                return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] @unchecked"
+            }
+            return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]"
+        }
+        .SetIndex(i) => {
+            if i.unchecked {
+                return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + " @unchecked"
+            }
+            return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src)
+        }
         .IndexUnchecked(i) => { return "t" + int_to_string(i.dst) + " = index_unchecked t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
         .SetIndexUnchecked(i) => { return "set_index_unchecked t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) }
         .MakeStruct(i) => {
@@ -778,7 +790,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if index > max2 { max2 = index }
         let mut max3 = max2
         if src > max3 { max3 = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndexUnchecked(IrSetIndexUnchecked { array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: true, array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
     }
     if has_prefix(l, "set_index ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
@@ -799,7 +811,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if index > max2 { max2 = index }
         let mut max3 = max2
         if src > max3 { max3 = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: false, array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
     }
     if has_prefix(l, "set_field ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
@@ -888,7 +900,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
             let mut max = dst
             if array > max { max = array }
             if index > max { max = index }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.IndexUnchecked(IrIndexUnchecked { dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: true, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "index ") {
             let rest = trim_space(substr(right, 6, len(right) - 6))
@@ -902,7 +914,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
             let mut max = dst
             if array > max { max = array }
             if index > max { max = index }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: false, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "struct ") {
             let rest = trim_space(substr(right, 7, len(right) - 7))
@@ -2377,10 +2389,10 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
             return IrInstr.MakeArray(IrMakeArray { dst: ir_inline_remap_temp(temp_map, i.dst), elems: elems })
         }
         IrInstr.Index(i) => {
-            return IrInstr.Index(IrIndex { dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
+            return IrInstr.Index(IrIndex { unchecked: false, dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
         }
         .SetIndex(i) => {
-            return IrInstr.SetIndex(IrSetIndex { array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
+            return IrInstr.SetIndex(IrSetIndex { unchecked: false, array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
         }
         .IndexUnchecked(i) => {
             return IrInstr.IndexUnchecked(IrIndexUnchecked { dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
@@ -2444,3 +2456,4 @@ fn ir_opt_program(p: IrProgram) -> IrProgram {
     }
     return IrProgram { version: inlined.version, features: inlined.features, functions: funcs, entry: inlined.entry }
 }
+
