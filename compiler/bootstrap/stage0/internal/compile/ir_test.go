@@ -236,40 +236,6 @@ fn none() -> Option
 // 6. 数组
 // =============================================================================
 
-func TestArrayLiteral(t *testing.T) {
-	t.Skip("Array syntax [T; N] not yet supported in parser")
-	src := `fn nums() -> [i64; 3] { [1, 2, 3] }`
-
-	want := `ir v0
-fn nums() -> [i64; 3]
-  block entry0:
-    t0: [i64; 3] = [1, 2, 3]
-    return t0
-
-`
-	got := compileToIR(t, src)
-	if got != want {
-		t.Errorf("IR mismatch\nwant:\n%s\ngot:\n%s", want, got)
-	}
-}
-
-func TestArrayIndex(t *testing.T) {
-	t.Skip("Array syntax [T; N] not yet supported in parser")
-	src := `fn first(arr: [i64; 3]) -> i64 { arr[0] }`
-
-	want := `ir v0
-fn first(arr: [i64; 3]) -> i64
-  block entry0:
-    t0: i64 = arr[0]
-    return t0
-
-`
-	got := compileToIR(t, src)
-	if got != want {
-		t.Errorf("IR mismatch\nwant:\n%s\ngot:\n%s", want, got)
-	}
-}
-
 // =============================================================================
 // 7. 引用
 // =============================================================================
