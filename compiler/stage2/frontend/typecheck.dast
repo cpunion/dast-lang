@@ -368,13 +368,13 @@ fn import_items_from_imports(imports: [ImportDecl], module: String) -> [ImportIt
     return items
 }
 
-fn local_decl_exists(ctx: &TypeContext, module: String, name: String) -> bool {
-    let structs = ctx.structs
-    let enums = ctx.enums
-    let consts = ctx.consts
-    if find_struct_in_module(&structs, module, name) >= 0 { return true }
-    if find_enum_in_module(&enums, module, name) >= 0 { return true }
-    if find_const_in_module(&consts, module, name) >= 0 { return true }
+fn local_decl_exists(ctx: &mut TypeContext, module: String, name: String) -> bool {
+    let mut structs = ctx.structs
+    let mut enums = ctx.enums
+    let mut consts = ctx.consts
+    if find_struct_in_module(&mut structs, module, name) >= 0 { return true }
+    if find_enum_in_module(&mut enums, module, name) >= 0 { return true }
+    if find_const_in_module(&mut consts, module, name) >= 0 { return true }
     if find_func_in_module(ctx, module, name) >= 0 { return true }
     return false
 }
@@ -433,7 +433,7 @@ fn check_import_conflicts(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
-fn module_alias_module(ctx: &TypeContext, name: String) -> String {
+fn module_alias_module(ctx: &mut TypeContext, name: String) -> String {
     let mut i = 0
     while i < len(ctx.module_aliases) {
         if ctx.module_aliases[i].alias == name {
@@ -454,7 +454,7 @@ fn ctx_set_current_module(ctx: &mut TypeContext, module: String) {
     ctx.import_items = import_items_from_imports(ctx.imports, module)
 }
 
-fn find_reexport(ctx: &TypeContext, module: String, name: String, kind: i32) -> i32 {
+fn find_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32) -> i32 {
     let mut i = 0
     while i < len(ctx.reexports) {
         let r = ctx.reexports[i]
@@ -520,10 +520,10 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
             ctx_set_pos(ctx, imp.pos)
             let module = imp.module
             let target_mod = module_join(module, imp.path)
-            let structs = ctx.structs
-            let enums = ctx.enums
-            let consts = ctx.consts
-            let funcs = prog.functions
+            let mut structs = ctx.structs
+            let mut enums = ctx.enums
+            let mut consts = ctx.consts
+            let mut funcs = prog.functions
             if imp.has_items {
                 let mut j = 0
                 while j < len(imp.items) {
@@ -544,7 +544,7 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                     }
                     if do_item {
                         let mut found = false
-                        let sidx = find_struct_in_module(&structs, target_mod, target_name)
+                        let sidx = find_struct_in_module(&mut structs, target_mod, target_name)
                         if sidx >= 0 {
                             let decl = structs[sidx]
                             if !visibility_allows(decl.vis, decl.module, module) {
@@ -554,7 +554,7 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                             }
                             found = true
                         }
-                        let eidx = find_enum_in_module(&enums, target_mod, target_name)
+                        let eidx = find_enum_in_module(&mut enums, target_mod, target_name)
                         if !found && eidx >= 0 {
                             let decl = enums[eidx]
                             if !visibility_allows(decl.vis, decl.module, module) {
@@ -564,7 +564,7 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                             }
                             found = true
                         }
-                        let cidx = find_const_in_module(&consts, target_mod, target_name)
+                        let cidx = find_const_in_module(&mut consts, target_mod, target_name)
                         if !found && cidx >= 0 {
                             let decl = consts[cidx]
                             if !visibility_allows(decl.vis, decl.module, module) {
@@ -575,7 +575,7 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                             found = true
                         }
                         if !found {
-                            let fidx = find_func_decl_in_module(&funcs, target_mod, target_name)
+                            let fidx = find_func_decl_in_module(&mut funcs, target_mod, target_name)
                             if fidx >= 0 {
                                 let decl = funcs[fidx]
                                 if !visibility_allows(decl.vis, decl.module, module) {
@@ -950,39 +950,39 @@ fn ctx_parse_type_in_module(ctx: &mut TypeContext, text: String, self_name: Stri
     return t
 }
 
-fn ctx_type_is_ref(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return type_is_ref(&types, t)
+fn ctx_type_is_ref(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return type_is_ref(&mut types, t)
 }
 
-fn ctx_type_kind(ctx: &TypeContext, t: i32) -> i32 {
-    let types = ctx.types
-    return type_kind(&types, t)
+fn ctx_type_kind(ctx: &mut TypeContext, t: i32) -> i32 {
+    let mut types = ctx.types
+    return type_kind(&mut types, t)
 }
 
-fn ctx_type_name(ctx: &TypeContext, t: i32) -> String {
-    let types = ctx.types
-    return type_name(&types, t)
+fn ctx_type_name(ctx: &mut TypeContext, t: i32) -> String {
+    let mut types = ctx.types
+    return type_name(&mut types, t)
 }
 
-fn ctx_type_elem(ctx: &TypeContext, t: i32) -> i32 {
-    let types = ctx.types
-    return type_elem(&types, t)
+fn ctx_type_elem(ctx: &mut TypeContext, t: i32) -> i32 {
+    let mut types = ctx.types
+    return type_elem(&mut types, t)
 }
 
-fn ctx_type_equal(ctx: &TypeContext, a: i32, b: i32) -> bool {
-    let types = ctx.types
-    return type_equal(&types, a, b)
+fn ctx_type_equal(ctx: &mut TypeContext, a: i32, b: i32) -> bool {
+    let mut types = ctx.types
+    return type_equal(&mut types, a, b)
 }
 
-fn ctx_type_assignable(ctx: &TypeContext, actual: i32, expected: i32) -> bool {
-    let types = ctx.types
-    return type_assignable(&types, actual, expected)
+fn ctx_type_assignable(ctx: &mut TypeContext, actual: i32, expected: i32) -> bool {
+    let mut types = ctx.types
+    return type_assignable(&mut types, actual, expected)
 }
 
-fn ctx_type_string(ctx: &TypeContext, t: i32) -> String {
-    let types = ctx.types
-    return type_string(&types, t)
+fn ctx_type_string(ctx: &mut TypeContext, t: i32) -> String {
+    let mut types = ctx.types
+    return type_string(&mut types, t)
 }
 
 fn ctx_deref_type(ctx: &mut TypeContext, t: i32) -> i32 {
@@ -992,39 +992,39 @@ fn ctx_deref_type(ctx: &mut TypeContext, t: i32) -> i32 {
     return base
 }
 
-fn ctx_is_int(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return is_int(&types, t)
+fn ctx_is_int(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_int(&mut types, t)
 }
 
-fn ctx_is_bool(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return is_bool(&types, t)
+fn ctx_is_bool(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_bool(&mut types, t)
 }
 
-fn ctx_is_string(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return is_string(&types, t)
+fn ctx_is_string(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_string(&mut types, t)
 }
 
-fn ctx_find_struct(ctx: &TypeContext, qname: String) -> i32 {
-    let structs = ctx.structs
-    return find_struct_qname(&structs, qname)
+fn ctx_find_struct(ctx: &mut TypeContext, qname: String) -> i32 {
+    let mut structs = ctx.structs
+    return find_struct_qname(&mut structs, qname)
 }
 
-fn ctx_find_enum(ctx: &TypeContext, qname: String) -> i32 {
-    let enums = ctx.enums
-    return find_enum_qname(&enums, qname)
+fn ctx_find_enum(ctx: &mut TypeContext, qname: String) -> i32 {
+    let mut enums = ctx.enums
+    return find_enum_qname(&mut enums, qname)
 }
 
-fn ctx_find_const(ctx: &TypeContext, qname: String) -> i32 {
-    let consts = ctx.consts
-    return find_const_qname(&consts, qname)
+fn ctx_find_const(ctx: &mut TypeContext, qname: String) -> i32 {
+    let mut consts = ctx.consts
+    return find_const_qname(&mut consts, qname)
 }
 
-fn ctx_env_lookup(ctx: &TypeContext, name: String) -> VarEntry {
-    let env = ctx.env
-    return env_lookup(&env, name)
+fn ctx_env_lookup(ctx: &mut TypeContext, name: String) -> VarEntry {
+    let mut env = ctx.env
+    return env_lookup(&mut env, name)
 }
 
 fn ctx_env_push(ctx: &mut TypeContext) {
@@ -1120,7 +1120,7 @@ fn parse_error_list_new() -> [ParseError] {
     return items
 }
 
-fn is_type_param(ctx: &TypeContext, name: String) -> bool {
+fn is_type_param(ctx: &mut TypeContext, name: String) -> bool {
     let mut i = 0
     while i < len(ctx.type_params) {
         if ctx.type_params[i] == name {
@@ -1159,7 +1159,7 @@ fn find_type_param_idx(type_params: [String], name: String) -> i32 {
 
 // Infer type params from argument types
 // Returns array of inferred types, one per type param in sig.type_params
-fn infer_type_params_from_args(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]) -> [String] {
+fn infer_type_params_from_args(ctx: &mut TypeContext, sig: FuncSig, arg_types: [i32]) -> [String] {
     let mut inferred: [String] = []
     let mut ti = 0
     while ti < len(sig.type_params) {
@@ -1186,7 +1186,7 @@ fn infer_type_params_from_args(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]
 // sig.params and arg_types have same length
 // sig.type_params contains type param names like ["T", "U"]
 // If sig.ret is a type param, find which param position uses it and return that arg's type
-fn infer_generic_return(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]) -> i32 {
+fn infer_generic_return(ctx: &mut TypeContext, sig: FuncSig, arg_types: [i32]) -> i32 {
     let ret_name = ctx_type_name(ctx, sig.ret)
     let ret_idx = find_type_param_idx(sig.type_params, ret_name)
     if ret_idx < 0 {
@@ -1212,7 +1212,7 @@ fn infer_generic_return(ctx: &TypeContext, sig: FuncSig, arg_types: [i32]) -> i3
 // Resolve return type from explicit turbofish type args
 // type_args contains explicit type names like ["i32", "String"]
 // If sig.ret is a type param, find its position and return the corresponding type
-fn resolve_explicit_return(ctx: &TypeContext, sig: FuncSig, type_args: [String]) -> i32 {
+fn resolve_explicit_return(ctx: &mut TypeContext, sig: FuncSig, type_args: [String]) -> i32 {
     let ret_name = ctx_type_name(ctx, sig.ret)
     let ret_idx = find_type_param_idx(sig.type_params, ret_name)
     if ret_idx < 0 {
@@ -1229,7 +1229,7 @@ fn resolve_explicit_return(ctx: &TypeContext, sig: FuncSig, type_args: [String])
     return sig.ret
 }
 // Check if arg type matches param type (handling type params)
-fn type_matches_generic(ctx: &TypeContext, arg_type: i32, param_type: i32, type_params: [String]) -> bool {
+fn type_matches_generic(ctx: &mut TypeContext, arg_type: i32, param_type: i32, type_params: [String]) -> bool {
     if ctx_type_assignable(ctx, arg_type, param_type) {
         return true
     }
@@ -1349,11 +1349,11 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
             ai = ai + 1
         }
 
-        let structs = ctx.structs
-        let enums = ctx.enums
-        if find_struct_qname(&structs, name) >= 0 {
+        let mut structs = ctx.structs
+        let mut enums = ctx.enums
+        if find_struct_qname(&mut structs, name) >= 0 {
             kind = 5
-        } else if find_enum_qname(&enums, name) >= 0 {
+        } else if find_enum_qname(&mut enums, name) >= 0 {
             kind = 6
         }
     }
@@ -1493,16 +1493,16 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
         ctx_set_file(ctx, f.file)
         ctx_set_pos(ctx, f.pos)
         ctx_set_current_module(ctx, f.module)
-        let consts = ctx.consts
-        let structs = ctx.structs
-        let enums = ctx.enums
+        let mut consts = ctx.consts
+        let mut structs = ctx.structs
+        let mut enums = ctx.enums
         if find_func_in_module(ctx, f.module, f.name) >= 0 {
             add_type_error(ctx, "duplicate function '" + f.name + "'")
-        } else if find_const_in_module(&consts, f.module, f.name) >= 0 {
+        } else if find_const_in_module(&mut consts, f.module, f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by const")
-        } else if find_struct_in_module(&structs, f.module, f.name) >= 0 {
+        } else if find_struct_in_module(&mut structs, f.module, f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by struct")
-        } else if find_enum_in_module(&enums, f.module, f.name) >= 0 {
+        } else if find_enum_in_module(&mut enums, f.module, f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by enum")
         } else {
             // Set type params for generic function signature
@@ -1561,16 +1561,16 @@ fn collect_consts(ctx: &mut TypeContext, prog: Program) {
         ctx_set_file(ctx, c.file)
         ctx_set_pos(ctx, c.pos)
         ctx_set_current_module(ctx, c.module)
-        let consts = ctx.consts
-        let structs = ctx.structs
-        let enums = ctx.enums
-        if find_const_in_module(&consts, c.module, c.name) >= 0 {
+        let mut consts = ctx.consts
+        let mut structs = ctx.structs
+        let mut enums = ctx.enums
+        if find_const_in_module(&mut consts, c.module, c.name) >= 0 {
             add_type_error(ctx, "duplicate const '" + c.name + "'")
         } else {
-            if find_struct_in_module(&structs, c.module, c.name) >= 0 {
+            if find_struct_in_module(&mut structs, c.module, c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by struct")
             }
-            if find_enum_in_module(&enums, c.module, c.name) >= 0 {
+            if find_enum_in_module(&mut enums, c.module, c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by enum")
             }
             if find_func_in_module(ctx, c.module, c.name) >= 0 {
@@ -1690,7 +1690,7 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
-fn find_trait_in_module(ctx: &TypeContext, module: String, name: String) -> i32 {
+fn find_trait_in_module(ctx: &mut TypeContext, module: String, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.traits) {
         if ctx.traits[i].module == module && ctx.traits[i].name == name {
@@ -1702,7 +1702,7 @@ fn find_trait_in_module(ctx: &TypeContext, module: String, name: String) -> i32 
 }
 
 // Check if a type implements a trait by searching impl_traits
-fn type_implements_trait(ctx: &TypeContext, type_name: String, trait_name: String) -> bool {
+fn type_implements_trait(ctx: &mut TypeContext, type_name: String, trait_name: String) -> bool {
     let mut i = 0
     while i < len(ctx.impl_traits) {
         let it = ctx.impl_traits[i]
@@ -1972,7 +1972,7 @@ fn func_qname(f: FuncSig) -> String {
     return qualify_name(f.module, f.name)
 }
 
-fn find_func_qname(ctx: &TypeContext, qname: String) -> i32 {
+fn find_func_qname(ctx: &mut TypeContext, qname: String) -> i32 {
     let mut i = 0
     while i < len(ctx.funcs) {
         if func_qname(ctx.funcs[i]) == qname {
@@ -1983,7 +1983,7 @@ fn find_func_qname(ctx: &TypeContext, qname: String) -> i32 {
     return -1
 }
 
-fn find_func_in_module(ctx: &TypeContext, module: String, name: String) -> i32 {
+fn find_func_in_module(ctx: &mut TypeContext, module: String, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.funcs) {
         if ctx.funcs[i].module == module && ctx.funcs[i].name == name {
@@ -2005,7 +2005,7 @@ fn find_func_decl_in_module(funcs: & [FunctionDecl], module: String, name: Strin
     return -1
 }
 
-fn find_method(ctx: &TypeContext, type_name: String, name: String) -> i32 {
+fn find_method(ctx: &mut TypeContext, type_name: String, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.methods) {
         let m = ctx.methods[i]
@@ -2106,7 +2106,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
     ctx.traits = traits_list
 }
 
-fn is_builtin(ctx: &TypeContext, name: String) -> bool {
+fn is_builtin(ctx: &mut TypeContext, name: String) -> bool {
     let mut i = 0
     while i < len(ctx.builtins) {
         if ctx.builtins[i] == name {
@@ -2117,7 +2117,7 @@ fn is_builtin(ctx: &TypeContext, name: String) -> bool {
     return false
 }
 
-fn find_import_item(ctx: &TypeContext, name: String) -> i32 {
+fn find_import_item(ctx: &mut TypeContext, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.import_items) {
         if ctx.import_items[i].local == name {
@@ -2129,14 +2129,14 @@ fn find_import_item(ctx: &TypeContext, name: String) -> i32 {
 }
 
 fn resolve_struct_name(ctx: &mut TypeContext, name: String) -> String {
-    let structs = ctx.structs
-    if find_struct_in_module(&structs, ctx.current_module, name) >= 0 {
+    let mut structs = ctx.structs
+    if find_struct_in_module(&mut structs, ctx.current_module, name) >= 0 {
         return qualify_name(ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let sidx = find_struct_in_module(&structs, item.module, item.name)
+        let sidx = find_struct_in_module(&mut structs, item.module, item.name)
         if sidx >= 0 {
             let decl = structs[sidx]
             if visibility_allows(decl.vis, decl.module, ctx.current_module) {
@@ -2153,14 +2153,14 @@ fn resolve_struct_name(ctx: &mut TypeContext, name: String) -> String {
 }
 
 fn resolve_enum_name(ctx: &mut TypeContext, name: String) -> String {
-    let enums = ctx.enums
-    if find_enum_in_module(&enums, ctx.current_module, name) >= 0 {
+    let mut enums = ctx.enums
+    if find_enum_in_module(&mut enums, ctx.current_module, name) >= 0 {
         return qualify_name(ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let eidx = find_enum_in_module(&enums, item.module, item.name)
+        let eidx = find_enum_in_module(&mut enums, item.module, item.name)
         if eidx >= 0 {
             let decl = enums[eidx]
             if visibility_allows(decl.vis, decl.module, ctx.current_module) {
@@ -2177,14 +2177,14 @@ fn resolve_enum_name(ctx: &mut TypeContext, name: String) -> String {
 }
 
 fn resolve_const_name(ctx: &mut TypeContext, name: String) -> String {
-    let consts = ctx.consts
-    if find_const_in_module(&consts, ctx.current_module, name) >= 0 {
+    let mut consts = ctx.consts
+    if find_const_in_module(&mut consts, ctx.current_module, name) >= 0 {
         return qualify_name(ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let cidx = find_const_in_module(&consts, item.module, item.name)
+        let cidx = find_const_in_module(&mut consts, item.module, item.name)
         if cidx >= 0 {
             let c = consts[cidx]
             if visibility_allows(c.vis, c.module, ctx.current_module) {
@@ -2238,18 +2238,18 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
     if is_type_param(ctx, name) {
         return name
     }
-    let structs = ctx.structs
-    if find_struct_in_module(&structs, ctx.current_module, name) >= 0 {
+    let mut structs = ctx.structs
+    if find_struct_in_module(&mut structs, ctx.current_module, name) >= 0 {
         return qualify_name(ctx.current_module, name)
     }
-    let enums = ctx.enums
-    if find_enum_in_module(&enums, ctx.current_module, name) >= 0 {
+    let mut enums = ctx.enums
+    if find_enum_in_module(&mut enums, ctx.current_module, name) >= 0 {
         return qualify_name(ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let sidx = find_struct_in_module(&structs, item.module, item.name)
+        let sidx = find_struct_in_module(&mut structs, item.module, item.name)
         if sidx >= 0 {
             let decl = structs[sidx]
             if visibility_allows(decl.vis, decl.module, ctx.current_module) {
@@ -2258,7 +2258,7 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
             add_type_error(ctx, "struct '" + name + "' is private")
             return name
         }
-        let eidx = find_enum_in_module(&enums, item.module, item.name)
+        let eidx = find_enum_in_module(&mut enums, item.module, item.name)
         if eidx >= 0 {
             let decl = enums[eidx]
             if visibility_allows(decl.vis, decl.module, ctx.current_module) {

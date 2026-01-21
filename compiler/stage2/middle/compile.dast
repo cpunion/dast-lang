@@ -149,24 +149,24 @@ fn compiler_env_declare(c: &mut Compiler, name: String, typ: i32, mutable: bool)
     c.tctx = tctx
 }
 
-fn compiler_type_is_ref(c: &Compiler, t: i32) -> bool {
-    let tctx = c.tctx
-    return ctx_type_is_ref(&tctx, t)
+fn compiler_type_is_ref(c: &mut Compiler, t: i32) -> bool {
+    let mut tctx = c.tctx
+    return ctx_type_is_ref(&mut tctx, t)
 }
 
-fn compiler_type_kind(c: &Compiler, t: i32) -> i32 {
-    let tctx = c.tctx
-    return ctx_type_kind(&tctx, t)
+fn compiler_type_kind(c: &mut Compiler, t: i32) -> i32 {
+    let mut tctx = c.tctx
+    return ctx_type_kind(&mut tctx, t)
 }
 
-fn compiler_type_name(c: &Compiler, t: i32) -> String {
-    let tctx = c.tctx
-    return ctx_type_name(&tctx, t)
+fn compiler_type_name(c: &mut Compiler, t: i32) -> String {
+    let mut tctx = c.tctx
+    return ctx_type_name(&mut tctx, t)
 }
 
-fn compiler_type_string(c: &Compiler, t: i32) -> String {
-    let tctx = c.tctx
-    return ctx_type_string(&tctx, t)
+fn compiler_type_string(c: &mut Compiler, t: i32) -> String {
+    let mut tctx = c.tctx
+    return ctx_type_string(&mut tctx, t)
 }
 
 fn compiler_deref_type(c: &mut Compiler, t: i32) -> i32 {
@@ -176,9 +176,9 @@ fn compiler_deref_type(c: &mut Compiler, t: i32) -> i32 {
     return base
 }
 
-fn compiler_find_method(c: &Compiler, type_name: String, name: String) -> i32 {
-    let tctx = c.tctx
-    return find_method(&tctx, type_name, name)
+fn compiler_find_method(c: &mut Compiler, type_name: String, name: String) -> i32 {
+    let mut tctx = c.tctx
+    return find_method(&mut tctx, type_name, name)
 }
 
 fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
@@ -265,9 +265,9 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
     return CompileResult { prog: ir_prog, errors: c.tctx.errors }
 }
 
-fn compiler_module_alias(c: &Compiler, name: String) -> String {
-    let tctx = c.tctx
-    return module_alias_module(&tctx, name)
+fn compiler_module_alias(c: &mut Compiler, name: String) -> String {
+    let mut tctx = c.tctx
+    return module_alias_module(&mut tctx, name)
 }
 
 fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: String) -> IrFunction {
@@ -1599,9 +1599,9 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
             if lookup_var(c, id.name) == "" {
                 let alias_mod = compiler_module_alias(c, id.name)
                 if alias_mod != "" {
-                    let tctx = c.tctx
+                    let mut tctx = c.tctx
                     let mod_name = module_strip_root(alias_mod)
-                    let fidx = find_func_in_module(&tctx, mod_name, method)
+                    let fidx = find_func_in_module(&mut tctx, mod_name, method)
                     if fidx >= 0 {
                         let sig = tctx.funcs[fidx]
                         return MethodResolution { callee: qualify_name(sig.module, sig.name), with_self: false, is_enum: false, enum_name: "", method_name: method }
@@ -1782,7 +1782,7 @@ struct EnumTagInfo {
     tag_type: String,
 }
 
-fn enum_tag_info(c: &Compiler, enum_name: String, variant: String) -> EnumTagInfo {
+fn enum_tag_info(c: &mut Compiler, enum_name: String, variant: String) -> EnumTagInfo {
     let idx = find_enum_decl(c.enums, enum_name)
     if idx < 0 { return EnumTagInfo { ok: false, tag: 0, tag_type: "" } }
     let e = c.enums[idx]
@@ -1812,14 +1812,14 @@ fn enum_name_for_scrut(c: &mut Compiler, expr: Expr, self_name: String) -> Strin
     return ""
 }
 
-fn struct_name_for_type(c: &Compiler, t: i32) -> String {
+fn struct_name_for_type(c: &mut Compiler, t: i32) -> String {
     if compiler_type_kind(c, t) == 5 {
         return compiler_type_name(c, t)
     }
     return ""
 }
 
-fn enum_name_for_type(c: &Compiler, t: i32) -> String {
+fn enum_name_for_type(c: &mut Compiler, t: i32) -> String {
     if compiler_type_kind(c, t) == 6 {
         return compiler_type_name(c, t)
     }
@@ -1904,13 +1904,13 @@ fn pop_loop(c: &mut Compiler) {
     c.loop_continues = conts
 }
 
-fn current_loop_break(c: &Compiler) -> String {
+fn current_loop_break(c: &mut Compiler) -> String {
     let breaks = c.loop_breaks
     if len(breaks) == 0 { return "" }
     return breaks[len(breaks) - 1]
 }
 
-fn current_loop_continue(c: &Compiler) -> String {
+fn current_loop_continue(c: &mut Compiler) -> String {
     let conts = c.loop_continues
     if len(conts) == 0 { return "" }
     return conts[len(conts) - 1]
@@ -1928,7 +1928,7 @@ fn declare_var(c: &mut Compiler, name: String, typ: i32, mutable: bool) -> Strin
     return ir_name
 }
 
-fn lookup_var(c: &Compiler, name: String) -> String {
+fn lookup_var(c: &mut Compiler, name: String) -> String {
     let mut i = len(c.scope_names) - 1
     while i >= 0 {
         if c.scope_names[i] == name {
@@ -1970,7 +1970,7 @@ fn new_block(c: &mut Compiler, prefix: String) -> i32 {
     return idx
 }
 
-fn block_label(c: &Compiler, idx: i32) -> String {
+fn block_label(c: &mut Compiler, idx: i32) -> String {
     if idx < 0 || idx >= len(c.blocks) { return "" }
     return c.blocks[idx].label
 }
@@ -1979,7 +1979,7 @@ fn set_current_block(c: &mut Compiler, idx: i32) {
     c.cur_block = idx
 }
 
-fn current_block_has_term(c: &Compiler) -> bool {
+fn current_block_has_term(c: &mut Compiler) -> bool {
     if c.cur_block < 0 { return false }
     let term = c.blocks[c.cur_block].term
     match term {
@@ -2161,7 +2161,7 @@ fn collect_mutated_vars(stmts: [Stmt], local_vars: [String], mutated: &mut [Stri
 }
 
 // Check if a variable is in the mutated_captures list
-fn is_mutated_capture(c: &Compiler, name: String) -> bool {
+fn is_mutated_capture(c: &mut Compiler, name: String) -> bool {
     let mut i = 0
     while i < len(c.mutated_captures) {
         if c.mutated_captures[i] == name {
