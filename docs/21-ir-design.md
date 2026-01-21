@@ -15,23 +15,43 @@
 | `match` | 展开为 switch + 字段访问 |
 | `方法调用` | 展开为 `Type.method(self, ...)` |
 
-## IR 只有什么
+## IR 数据模型
+
+### 类型
 
 ```
-类型：
-  标量: i8 i16 i32 i64 u8 u16 u32 u64 f32 f64 bool
-  指针: *T
-  数组: [T; N]
-  结构体: { field: T, ... }  (匿名，带布局)
-
-内存：
-  place: local(x) | deref(p) | field(p, offset) | index(p, i)
-  
-值：
-  operand: use(place) | const(value)
+Type ::=
+    | i8 | i16 | i32 | i64       // 有符号整数
+    | u8 | u16 | u32 | u64       // 无符号整数
+    | f32 | f64                   // 浮点
+    | bool                        // 布尔
+    | *T                          // 指针
+    | [T; N]                      // 数组
+    | { T1, T2, ... }             // 匿名结构体 (按偏移访问)
 ```
 
-## 指令集（8 类）
+### Place（内存位置）
+
+```
+Place ::=
+    | local(x)                    // 局部变量/参数
+    | deref(p)                    // *p
+    | field(p, offset)            // p + offset
+    | index(p, i)                 // p + i * elem_size
+```
+
+### Operand（值）
+
+```
+Operand ::=
+    | use(place)                  // 读取内存
+    | const(value)                // 常量
+    | place                       // 作为指针传递
+```
+
+> **简化**：`place` 直接作为 operand 表示取地址，无需 `addr_of`。
+
+## 指令集（7 类）
 
 ### 1. 赋值
 ```
@@ -41,37 +61,37 @@ place = operand
 ### 2. 二元运算
 ```
 place = binop(op, a, b)
+
+op ∈ { +, -, *, /, %,
+       ==, !=, <, <=, >, >=,
+       &, |, ^, <<, >> }
 ```
 
 ### 3. 一元运算
 ```
 place = unop(op, a)
+
+op ∈ { -, ! }
 ```
 
-### 4. 指针运算
-```
-place = addr_of(place)    // 取地址
-place = offset(ptr, n)    // 指针偏移
-```
-
-### 5. 调用
+### 4. 调用
 ```
 place = call(func, args...)
 ```
 
-### 6. 内存
+### 5. 内存
 ```
-place = alloca(size, align)    // 栈分配
+place = alloca(size, align)     // 栈分配
 memcpy(dst, src, size)
 memset(dst, val, size)
 ```
 
-### 7. 原子
+### 6. 原子
 ```
 place = atomic(op, ptr, val, ordering)
 ```
 
-### 8. Intrinsic
+### 7. Intrinsic
 ```
 place = intrinsic(name, args...)
 ```
@@ -84,37 +104,59 @@ goto(block)
 switch(operand, [(val, block)...], default)
 ```
 
-## 展开示例
+## 示例
 
-### enum -> struct
+### 引用参数
 
 ```dast
-enum Option[T] { Some(T), None }
-let x = Option.Some(42)
-match x {
-    .Some(v) => v,
-    .None => 0,
+fn inc(x: &mut i32) {
+    *x = *x + 1
 }
+
+let mut n = 10
+inc(&mut n)
 ```
 
 展开为：
 
 ```
-// Option 展开为 { tag: u8, payload: T }
-local(x) = const { tag: 0, payload: 42 }  // Some = tag 0
+fn inc(x: *i32) {
+    block entry:
+        t0 = use(deref(local(x)))      // *x
+        t1 = binop(+, t0, const 1)
+        deref(local(x)) = t1           // *x = t1
+        return
+}
 
-t0 = use(field(local(x), 0))  // 读 tag
-switch t0, [(0, some_arm), (1, none_arm)], unreachable
-
-block some_arm:
-    t1 = use(field(local(x), 8))  // 读 payload (offset 8)
-    return t1
-
-block none_arm:
-    return const 0
+fn main() {
+    block entry:
+        local(n) = const 10
+        call(inc, local(n))            // 直接传 place，即地址
+        return
+}
 ```
 
-### closure -> struct + fn
+### enum
+
+```dast
+enum Option { Some(i32), None }
+let x = Option.Some(42)
+```
+
+展开为：
+
+```
+// Option = { tag: u8, payload: i32 } @size(8) @align(4)
+fn main() {
+    block entry:
+        // Some = tag 0
+        field(local(x), 0) = const u8 0     // tag
+        field(local(x), 4) = const i32 42   // payload
+        return
+}
+```
+
+### closure
 
 ```dast
 let y = 10
@@ -125,111 +167,54 @@ f(5)
 展开为：
 
 ```
-// 闭包结构体
-local(env) = const { y: 10 }
-
-// 闭包函数 (env 作为第一个参数)
-fn closure_0(env: *{ y: i32 }, x: i32) -> i32 {
-    t0 = use(field(deref(env), 0))  // env.y
-    t1 = binop(+, use(local(x)), t0)
-    return t1
+// 生成的闭包函数
+fn closure_0(env: *{ i32 }, x: i32) -> i32 {
+    block entry:
+        t0 = use(field(deref(local(env)), 0))  // env.y
+        t1 = binop(+, use(local(x)), t0)
+        return t1
 }
 
-// 调用
-t2 = call(closure_0, addr_of(local(env)), const 5)
-```
-
-### &mut T -> *T
-
-```dast
-fn inc(x: &mut i32) {
-    *x = *x + 1
+fn main() {
+    block entry:
+        field(local(env), 0) = const 10       // 捕获 y
+        t0 = call(closure_0, local(env), const 5)
+        return
 }
 ```
 
-展开为：
-
-```
-fn inc(x: *i32) {
-    t0 = use(deref(local(x)))
-    t1 = binop(+, t0, const 1)
-    deref(local(x)) = t1
-    return
-}
-```
-
-### 方法 -> 普通函数
+### 结构体方法
 
 ```dast
 impl Point {
-    fn distance(&self) -> f64 { ... }
+    fn length(&self) -> f64 { ... }
 }
-p.distance()
+p.length()
 ```
 
 展开为：
 
 ```
-t0 = call(Point.distance, addr_of(local(p)))
-```
-
-## 完整示例
-
-### Dast
-
-```dast
-struct Point { x: i32, y: i32 }
-
-fn manhattan(p: &Point) -> i32 {
-    let ax = if p.x < 0 { -p.x } else { p.x }
-    let ay = if p.y < 0 { -p.y } else { p.y }
-    ax + ay
-}
-```
-
-### IR
-
-```
-fn manhattan(p: *{ i32, i32 }) -> i32 {
-    block entry:
-        t0 = use(field(deref(local(p)), 0))    // p.x
-        t1 = binop(<, t0, const 0)
-        switch t1, [(1, neg_x)], pos_x
-    
-    block neg_x:
-        t2 = unop(-, t0)
-        goto have_ax(t2)
-    
-    block pos_x:
-        goto have_ax(t0)
-    
-    block have_ax(ax: i32):
-        t3 = use(field(deref(local(p)), 4))    // p.y (offset 4)
-        t4 = binop(<, t3, const 0)
-        switch t4, [(1, neg_y)], pos_y
-    
-    block neg_y:
-        t5 = unop(-, t3)
-        goto have_ay(t5)
-    
-    block pos_y:
-        goto have_ay(t3)
-    
-    block have_ay(ay: i32):
-        t6 = binop(+, use(local(ax)), use(local(ay)))
-        return t6
-}
+t0 = call(Point.length, local(p))   // 直接传 place
 ```
 
 ## 总结
 
-| 层 | 关心什么 | 不关心什么 |
-|----|---------|----------|
-| **前端** | 类型安全、借用检查、泛型、trait | 内存布局 |
-| **IR** | 内存、指针、计算 | mut/const/enum/closure/trait |
-| **后端** | 寄存器、指令选择 | 高级抽象 |
+```
+┌────────────────────────────────────────────┐
+│  IR 核心                                   │
+├────────────────────────────────────────────┤
+│  类型: 标量 + 指针 + 数组 + 结构体         │
+│  指令: 7 类                                 │
+│  终结符: 3 种                               │
+├────────────────────────────────────────────┤
+│  不存在: mut/const/enum/closure/ref/trait   │
+│  不存在: addr_of (直接用 place)              │
+└────────────────────────────────────────────┘
+```
 
-**IR 只有**：
-- 8 类指令
-- 3 种终结符
-- 标量 + 指针 + 数组 + 匿名结构体
+| 层 | 职责 |
+|----|------|
+| **前端** | 类型检查、借用检查、泛型/trait/enum/closure 展开 |
+| **IR** | 内存、指针、计算、控制流 |
+| **后端** | 寄存器分配、指令选择、目标代码生成 |
