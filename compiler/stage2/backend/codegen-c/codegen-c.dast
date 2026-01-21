@@ -1,0 +1,297 @@
+// Dast C Code Generator (Stage0 compatible)
+// Generates C source code from IR v0 programs
+
+// =============================================================================
+// Type Mapping
+// =============================================================================
+
+fn cg_map_type(typ: String) -> String {
+    if typ == "int" || typ == "i64" { return "int64_t" }
+    if typ == "i32" { return "int32_t" }
+    if typ == "i8" { return "int8_t" }
+    if typ == "i16" { return "int16_t" }
+    if typ == "u8" { return "uint8_t" }
+    if typ == "u16" { return "uint16_t" }
+    if typ == "u32" { return "uint32_t" }
+    if typ == "u64" { return "uint64_t" }
+    if typ == "bool" { return "bool" }
+    if typ == "String" || typ == "string" { return "dast_string_t" }
+    if typ == "unit" || typ == "" { return "void" }
+    return "int64_t"
+}
+
+// =============================================================================
+// Name Mangling
+// =============================================================================
+
+fn cg_mangle_func(name: String) -> String {
+    if name == "print" { return "dast_print" }
+    if name == "println" { return "dast_println" }
+    if name == "len" { return "dast_array_len" }
+    if name == "push" { return "dast_array_push" }
+    if name == "read_file" { return "dast_read_file" }
+    if name == "write_file" { return "dast_write_file" }
+    if name == "read_line" { return "dast_read_line" }
+    if name == "int_to_string" { return "dast_int_to_string" }
+    if name == "panic" { return "dast_panic" }
+    if name == "char_at" { return "dast_string_char_at" }
+    if name == "substr" { return "dast_string_substr" }
+
+    let mut out = "dast_"
+    let mut i = 0
+    while i < len(name) {
+        let c = char_at(name, i)
+        if c == 58 || c == 46 {  // : or .
+            out = out + "_"
+            if c == 58 && i + 1 < len(name) && char_at(name, i + 1) == 58 {
+                i = i + 1
+            }
+        } else {
+            out = out + substr(name, i, 1)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn cg_mangle_var(name: String) -> String {
+    return "v_" + name
+}
+
+fn cg_mangle_label(name: String) -> String {
+    return "L_" + name
+}
+
+// =============================================================================
+// Value Generation
+// =============================================================================
+
+fn cg_value_init(v: IrValue, dst: String) -> String {
+    if v.kind == ir_kind_int() {
+        return dst + ".i = " + int_to_string(v.int)
+    }
+    if v.kind == ir_kind_bool() {
+        if v.bool { return dst + ".b = true" }
+        return dst + ".b = false"
+    }
+    if v.kind == ir_kind_string() {
+        return dst + ".s = dast_string_from_literal(\"" + ir_escape_string(v.str) + "\")"
+    }
+    return dst + ".i = 0"
+}
+
+// =============================================================================
+// Instruction Generation
+// =============================================================================
+
+fn cg_instr(inst: IrInstr) -> String {
+    match inst {
+        IrInstr.Const(i) => {
+            return cg_value_init(i.value, "t" + int_to_string(i.dst)) + ";"
+        }
+        .LoadVar(i) => {
+            return "t" + int_to_string(i.dst) + ".i = " + cg_mangle_var(i.name) + ".i;"
+        }
+        .StoreVar(i) => {
+            return cg_mangle_var(i.name) + " = t" + int_to_string(i.src) + ";"
+        }
+        .AddrOf(i) => {
+            return "t" + int_to_string(i.dst) + " = (int64_t)&" + cg_mangle_var(i.name) + ";"
+        }
+        .LoadRef(i) => {
+            return "t" + int_to_string(i.dst) + " = *(int64_t*)t" + int_to_string(i.src) + ";"
+        }
+        .StoreRef(i) => {
+            return "*(int64_t*)t" + int_to_string(i.ref) + " = t" + int_to_string(i.src) + ";"
+        }
+        .UnaryOp(i) => {
+            return "t" + int_to_string(i.dst) + ".i = " + i.op + "t" + int_to_string(i.src) + ".i;"
+        }
+        .BinOp(i) => {
+            return "t" + int_to_string(i.dst) + ".i = t" + int_to_string(i.lhs) + ".i " + i.op + " t" + int_to_string(i.rhs) + ".i;"
+        }
+        IrInstr.Call(i) => {
+            let mut args = ""
+            let mut j = 0
+            while j < len(i.args) {
+                if j > 0 { args = args + ", " }
+                args = args + "t" + int_to_string(i.args[j]) + ".s"
+                j = j + 1
+            }
+            let call = cg_mangle_func(i.callee) + "(" + args + ")"
+            // Skip assignment for void functions
+            if i.callee == "print" || i.callee == "println" || i.callee == "panic" {
+                return call + ";"
+            }
+            if i.dst >= 0 {
+                return "t" + int_to_string(i.dst) + ".i = " + call + ";"
+            }
+            return call + ";"
+        }
+        .CallClosure(i) => {
+            return "/* closure call not supported in C */"
+        }
+        .MakeArray(i) => {
+            let mut out = "t" + int_to_string(i.dst) + " = dast_array_new(sizeof(int64_t));"
+            let mut j = 0
+            while j < len(i.elems) {
+                out = out + " { int64_t _e = t" + int_to_string(i.elems[j]) + "; dast_array_push(&t" + int_to_string(i.dst) + ", &_e); }"
+                j = j + 1
+            }
+            return out
+        }
+        IrInstr.Index(i) => {
+            return "t" + int_to_string(i.dst) + " = *(int64_t*)dast_array_get(t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ");"
+        }
+        .SetIndex(i) => {
+            return "{ int64_t _v = t" + int_to_string(i.src) + "; dast_array_set(t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ", &_v); }"
+        }
+        .IndexUnchecked(i) => {
+            return "t" + int_to_string(i.dst) + " = ((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "];"
+        }
+        .SetIndexUnchecked(i) => {
+            return "((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + ";"
+        }
+        .MakeStruct(i) => {
+            return "t" + int_to_string(i.dst) + " = 0; /* struct creation */"
+        }
+        .GetField(i) => {
+            return "t" + int_to_string(i.dst) + " = 0; /* field access */"
+        }
+        .SetField(i) => {
+            return "/* field set */"
+        }
+        .MakeEnum(i) => {
+            return "t" + int_to_string(i.dst) + " = " + int_to_string(i.tag) + "; /* enum creation */"
+        }
+        .EnumTag(i) => {
+            return "t" + int_to_string(i.dst) + " = t" + int_to_string(i.src) + "; /* enum tag */"
+        }
+        .EnumPayload(i) => {
+            return "/* enum payload */"
+        }
+    }
+    return "/* unknown */"
+}
+
+// =============================================================================
+// Terminator Generation
+// =============================================================================
+
+fn cg_term(term: IrTerm) -> String {
+    match term {
+        .None(_) => { return "" }
+        .Jump(t) => {
+            return "goto " + cg_mangle_label(t.target) + ";"
+        }
+        .Branch(t) => {
+            return "if (t" + int_to_string(t.cond) + ") goto " + cg_mangle_label(t.then_label) + "; else goto " + cg_mangle_label(t.else_label) + ";"
+        }
+        IrTerm.Return(t) => {
+            if t.has_value {
+                return "return;"
+            }
+            return "return;"
+        }
+    }
+}
+
+// =============================================================================
+// Function Generation
+// =============================================================================
+
+fn cg_function(f: IrFunction) -> String {
+    let mut ret_type = "void"
+    if f.return_type != "" && f.return_type != "unit" {
+        ret_type = cg_map_type(f.return_type)
+    }
+
+    let mut params = ""
+    let mut i = 0
+    while i < len(f.params) {
+        if i > 0 { params = params + ", " }
+        let mut ptype = "int64_t"
+        if i < len(f.param_types) && f.param_types[i] != "" {
+            ptype = cg_map_type(f.param_types[i])
+        }
+        params = params + ptype + " " + cg_mangle_var(f.params[i])
+        i = i + 1
+    }
+    if params == "" { params = "void" }
+
+    let mut out = ret_type + " " + cg_mangle_func(f.name) + "(" + params + ") {\n"
+
+    // Declare temps as dast_value_t union
+    if f.temp_count > 0 {
+        i = 0
+        while i < f.temp_count {
+            out = out + "    dast_value_t t" + int_to_string(i) + " = {0};\n"
+            i = i + 1
+        }
+        out = out + "\n"
+    }
+
+    // Generate blocks
+    i = 0
+    while i < len(f.blocks) {
+        let blk = f.blocks[i]
+        out = out + cg_mangle_label(blk.label) + ":;\n"
+
+        let mut j = 0
+        while j < len(blk.instrs) {
+            out = out + "    " + cg_instr(blk.instrs[j]) + "\n"
+            j = j + 1
+        }
+
+        let term = cg_term(blk.term)
+        if term != "" {
+            out = out + "    " + term + "\n"
+        }
+        out = out + "\n"
+        i = i + 1
+    }
+
+    out = out + "}\n"
+    return out
+}
+
+// =============================================================================
+// Program Generation
+// =============================================================================
+
+fn ir_program_to_c(p: IrProgram) -> String {
+    let mut out = "// Generated by Dast compiler\n"
+    out = out + "#include \"c_runtime.h\"\n\n"
+
+    // Forward declarations
+    let mut i = 0
+    while i < len(p.functions) {
+        let f = p.functions[i]
+        let mut ret_type = "void"
+        if f.return_type != "" && f.return_type != "unit" {
+            ret_type = cg_map_type(f.return_type)
+        }
+        out = out + ret_type + " " + cg_mangle_func(f.name) + "();\n"
+        i = i + 1
+    }
+    out = out + "\n"
+
+    // Generate functions
+    i = 0
+    while i < len(p.functions) {
+        out = out + cg_function(p.functions[i]) + "\n"
+        i = i + 1
+    }
+
+    // Main wrapper
+    out = out + "int main(int argc, char** argv) {\n"
+    out = out + "    dast_runtime_init(argc, argv);\n"
+    if p.entry != "" {
+        out = out + "    " + cg_mangle_func(p.entry) + "();\n"
+    }
+    out = out + "    dast_runtime_cleanup();\n"
+    out = out + "    return 0;\n"
+    out = out + "}\n"
+
+    return out
+}
