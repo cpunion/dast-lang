@@ -271,47 +271,47 @@ fn ctx_type_for_const_value(ctx: &mut TypeContext, v: ConstValue) -> i32 {
 }
 
 fn ctx_parse_type(ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
-    let structs = ctx.structs
-    let enums = ctx.enums
+    let mut structs = ctx.structs
+    let mut enums = ctx.enums
     let mut types = ctx.types
-    let t = parse_type_from_text(&mut types, &structs, &enums, text, self_name)
+    let t = parse_type_from_text(&mut types, &mut structs, &mut enums, text, self_name)
     ctx.types = types
     return t
 }
 
-fn ctx_type_is_ref(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return type_is_ref(&types, t)
+fn ctx_type_is_ref(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return type_is_ref(&mut types, t)
 }
 
-fn ctx_type_kind(ctx: &TypeContext, t: i32) -> i32 {
-    let types = ctx.types
-    return type_kind(&types, t)
+fn ctx_type_kind(ctx: &mut TypeContext, t: i32) -> i32 {
+    let mut types = ctx.types
+    return type_kind(&mut types, t)
 }
 
-fn ctx_type_name(ctx: &TypeContext, t: i32) -> String {
-    let types = ctx.types
-    return type_name(&types, t)
+fn ctx_type_name(ctx: &mut TypeContext, t: i32) -> String {
+    let mut types = ctx.types
+    return type_name(&mut types, t)
 }
 
-fn ctx_type_elem(ctx: &TypeContext, t: i32) -> i32 {
-    let types = ctx.types
-    return type_elem(&types, t)
+fn ctx_type_elem(ctx: &mut TypeContext, t: i32) -> i32 {
+    let mut types = ctx.types
+    return type_elem(&mut types, t)
 }
 
-fn ctx_type_equal(ctx: &TypeContext, a: i32, b: i32) -> bool {
-    let types = ctx.types
-    return type_equal(&types, a, b)
+fn ctx_type_equal(ctx: &mut TypeContext, a: i32, b: i32) -> bool {
+    let mut types = ctx.types
+    return type_equal(&mut types, a, b)
 }
 
-fn ctx_type_assignable(ctx: &TypeContext, actual: i32, expected: i32) -> bool {
-    let types = ctx.types
-    return type_assignable(&types, actual, expected)
+fn ctx_type_assignable(ctx: &mut TypeContext, actual: i32, expected: i32) -> bool {
+    let mut types = ctx.types
+    return type_assignable(&mut types, actual, expected)
 }
 
-fn ctx_type_string(ctx: &TypeContext, t: i32) -> String {
-    let types = ctx.types
-    return type_string(&types, t)
+fn ctx_type_string(ctx: &mut TypeContext, t: i32) -> String {
+    let mut types = ctx.types
+    return type_string(&mut types, t)
 }
 
 fn ctx_deref_type(ctx: &mut TypeContext, t: i32) -> i32 {
@@ -321,39 +321,39 @@ fn ctx_deref_type(ctx: &mut TypeContext, t: i32) -> i32 {
     return base
 }
 
-fn ctx_is_int(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return is_int(&types, t)
+fn ctx_is_int(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_int(&mut types, t)
 }
 
-fn ctx_is_bool(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return is_bool(&types, t)
+fn ctx_is_bool(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_bool(&mut types, t)
 }
 
-fn ctx_is_string(ctx: &TypeContext, t: i32) -> bool {
-    let types = ctx.types
-    return is_string(&types, t)
+fn ctx_is_string(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_string(&mut types, t)
 }
 
-fn ctx_find_struct(ctx: &TypeContext, name: String) -> i32 {
-    let structs = ctx.structs
-    return find_struct(&structs, name)
+fn ctx_find_struct(ctx: &mut TypeContext, name: String) -> i32 {
+    let mut structs = ctx.structs
+    return find_struct(&mut structs, name)
 }
 
-fn ctx_find_enum(ctx: &TypeContext, name: String) -> i32 {
-    let enums = ctx.enums
-    return find_enum(&enums, name)
+fn ctx_find_enum(ctx: &mut TypeContext, name: String) -> i32 {
+    let mut enums = ctx.enums
+    return find_enum(&mut enums, name)
 }
 
-fn ctx_find_const(ctx: &TypeContext, name: String) -> i32 {
-    let consts = ctx.consts
-    return find_const(&consts, name)
+fn ctx_find_const(ctx: &mut TypeContext, name: String) -> i32 {
+    let mut consts = ctx.consts
+    return find_const(&mut consts, name)
 }
 
-fn ctx_env_lookup(ctx: &TypeContext, name: String) -> VarEntry {
-    let env = ctx.env
-    return env_lookup(&env, name)
+fn ctx_env_lookup(ctx: &mut TypeContext, name: String) -> VarEntry {
+    let mut env = ctx.env
+    return env_lookup(&mut env, name)
 }
 
 fn ctx_env_push(ctx: &mut TypeContext) {
@@ -702,7 +702,7 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
-fn find_func(ctx: &TypeContext, name: String) -> i32 {
+fn find_func(ctx: &mut TypeContext, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.funcs) {
         if ctx.funcs[i].name == name {
@@ -713,7 +713,7 @@ fn find_func(ctx: &TypeContext, name: String) -> i32 {
     return -1
 }
 
-fn find_method(ctx: &TypeContext, type_name: String, name: String) -> i32 {
+fn find_method(ctx: &mut TypeContext, type_name: String, name: String) -> i32 {
     let mut i = 0
     while i < len(ctx.methods) {
         let m = ctx.methods[i]
@@ -745,7 +745,7 @@ fn builtin_list() -> [String] {
     return b
 }
 
-fn is_builtin(ctx: &TypeContext, name: String) -> bool {
+fn is_builtin(ctx: &mut TypeContext, name: String) -> bool {
     let mut i = 0
     while i < len(ctx.builtins) {
         if ctx.builtins[i] == name {
