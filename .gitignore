@@ -6,3 +6,4 @@ compiler/stage3/vscode-ext/*.vsix
 
 # Nested website repository
 dast-lang.github.io/
+target/
