@@ -14,7 +14,7 @@ Dast 采用三阶段自举策略,每个阶段都有明确的职责和边界:
 │  │  Lexer   │────────▶│  Lexer   │─────────▶│  Lexer   │            │
 │  │  Parser  │  编译   │  Parser  │   编译   │  Parser  │            │
 │  │ Compiler │         │ Compiler │          │ Compiler │            │
-│  │ IR v0    │         │ IR v0    │          │ IR v2    │            │
+│  │ IR v0    │         │ IR v0    │          │ IR v0    │            │
 │  │ Interp   │         │ Interp   │          │ Backends │            │
 │  └──────────┘         └──────────┘          └──────────┘            │
 │      ↓                     ↓                      ↓                  │
@@ -213,7 +213,7 @@ version = "0.1.0"
 #### 2. 多后端架构
 
 ```
-Stage2 Frontend → IR v2 → Lowering → IR v0 → Backends
+Stage2 Frontend → IR v0 → Backends
                                               ├─ IR v0 输出
                                               ├─ Interp (解释执行)
                                               └─ C Codegen
@@ -382,14 +382,14 @@ gcc output.c -o output
 - [x] 自编译测试通过
 
 ### M4: Stage2 基础架构
-- [ ] 前端实现
-- [ ] IR v2 设计
-- [ ] IR v2 → IR v0 lowering
-- [ ] IR v0 输出后端
+- [x] 前端实现
+- [x] IR 设计 (直接使用 IR v0)
+- [x] AST → IR v0 编译
+- [x] IR v0 输出后端
 
 ### M5: Stage2 多后端
-- [ ] 解释器后端
-- [ ] C 代码生成后端
+- [x] 解释器后端
+- [x] C 代码生成后端
 - [ ] 后端测试
 
 ### M6: 自举完成
@@ -408,11 +408,11 @@ gcc output.c -o output
 - ✅ Stage1 自举编译器完成
 - ✅ Stage1 可编译 Stage2 所有模块
 - ✅ Stage2 所有测试在 Stage0 下通过
-- 🔄 Stage2 后端开发中 (IR v2, C codegen)
+- 🔄 Stage2 后端测试中
 
 ## 下一步行动
 
-1. **立即**: Stage2 IR v2 设计与实现
-2. **本周**: Stage2 Lowering (IR v2 → IR v0)
-3. **本月**: Stage2 C 后端实现
-4. **下月**: Stage2 自编译测试
+1. **立即**: Stage2 后端测试完善
+2. **本周**: Stage2 自编译测试
+3. **本月**: 性能优化
+4. **下月**: 文档完善
