@@ -6,12 +6,10 @@
 
 | 概念 | 前端展开方式 |
 |------|-------------|
-| `let x = 42` | 纯值，直接内联或分配寄存器 |
-| `let x = 42; &x` | **提升为栈变量**（需要地址时） |
-| `let mut x` | 栈变量 |
-| `enum` | 展开为 struct { tag, payload } |
-| `closure` | 展开为 struct + 函数 |
-| `&T`/`&mut T` | 展开为指针 `*T` |
+| `let x = 42` | 纯值 `%n` 或提升为 `var`（若需地址） |
+| `let mut x` | 栈变量 `var` |
+| `&x` | 直接传 `x`（var 就是地址） |
+| `enum/closure/trait` | 展开为 struct + 函数 |
 
 ## IR 数据模型
 
@@ -19,30 +17,29 @@
 
 ```
 fn foo(a: i32, b: *i32) -> i32 {
-    var x: i32         // 栈变量（有地址）
+    var x: i32         // 栈变量，本身就是地址
     ...
 }
 ```
 
-- 函数参数和 `var` 声明都是栈变量
-- 只有栈变量可以取地址
-- 临时值 `%n` 是 SSA 值，无地址
+- `var x` 是一个栈槽地址
+- `%n` 是 SSA 临时值（寄存器）
 
 ### Operand
 
 ```
 Operand ::=
-    | %n              // 临时值（寄存器）
+    | %n              // 临时值
+    | x               // 变量（作为地址）
     | const(value)    // 常量
 ```
 
-## 指令集（6 类）
+## 指令集（5 类）
 
 ### 1. 内存
 ```
-%0 = load(ptr)              // 从指针读
-store(ptr, val)             // 写入指针
-%0 = addr(var)              // 取栈变量地址（唯一能取地址的方式）
+%0 = load(ptr)              // 从地址读
+store(ptr, val)             // 写入地址
 %0 = offset(ptr, n)         // 指针偏移
 ```
 
@@ -64,13 +61,9 @@ memcpy(dst, src, size)
 memset(dst, val, size)
 ```
 
-### 5. 原子
+### 5. 原子/Intrinsic
 ```
 %0 = atomic(op, ptr, val, ordering)
-```
-
-### 6. Intrinsic
-```
 %0 = intrinsic(name, args...)
 ```
 
@@ -82,65 +75,59 @@ goto(block)
 switch(val, [(v1, b1), ...], default)
 ```
 
-## 前端提升示例
+## 示例
 
-### 值变量不需要地址
+### 取地址
 
 ```dast
-let x = 42
-let y = x + 1
+fn inc(x: &mut i32) { *x = *x + 1 }
+let mut n = 10
+inc(&mut n)
 ```
 
-展开为（无栈变量）：
+展开为：
 
 ```
-fn main() {
+fn inc(x: *i32) {
+    var x: *i32            // 参数也是变量
     block entry:
-        %0 = const 42
-        %1 = binop(+, %0, const 1)
+        %0 = load(x)       // 读 x 得到指针
+        %1 = load(%0)      // *x
+        %2 = binop(+, %1, const 1)
+        store(%0, %2)      // *x = ...
+        return
+}
+
+fn main() {
+    var n: i32
+    block entry:
+        store(n, const 10)  // n = 10
+        call(inc, n)        // 直接传 n（它就是地址）
         return
 }
 ```
 
-### 值变量需要地址时提升
+### 结构体字段
 
 ```dast
-let x = 42
-let r = &x      // 需要地址，x 提升为栈变量
+struct Point { x: i32, y: i32 }
+let p = Point { x: 1, y: 2 }
+let v = p.x
 ```
 
 展开为：
 
 ```
 fn main() {
-    var x: i32           // 前端发现需要地址，提升为 var
-    var r: *i32
-    
+    var p: { i32, i32 }
+    var v: i32
     block entry:
-        store(addr(x), const 42)
-        store(addr(r), addr(x))
-        return
-}
-```
-
-### mut 变量始终是栈变量
-
-```dast
-let mut x = 42
-x = x + 1
-```
-
-展开为：
-
-```
-fn main() {
-    var x: i32           // mut 总是栈变量
-    
-    block entry:
-        store(addr(x), const 42)
-        %0 = load(addr(x))
-        %1 = binop(+, %0, const 1)
-        store(addr(x), %1)
+        %0 = offset(p, 0)      // &p.x
+        store(%0, const 1)
+        %1 = offset(p, 4)      // &p.y
+        store(%1, const 2)
+        %2 = load(%0)
+        store(v, %2)
         return
 }
 ```
@@ -148,20 +135,14 @@ fn main() {
 ## 总结
 
 ```
-┌─────────────────────────────────────────────────┐
-│  取地址规则                                      │
-├─────────────────────────────────────────────────┤
-│  addr(var) ✓   只能对栈变量取地址               │
-│  addr(%n)  ✗   临时值没有地址                   │
-├─────────────────────────────────────────────────┤
-│  前端职责                                        │
-│  - let x = v; &x → 将 x 提升为 var              │
-│  - let mut x → 总是 var                         │
-│  - let x = v (无 &x) → 纯值 %n                  │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────┐
+│  IR 核心                             │
+├──────────────────────────────────────┤
+│  5 类指令 + 3 种终结符               │
+├──────────────────────────────────────┤
+│  var x → 栈槽地址，直接作为指针使用   │
+│  %n → SSA 临时值                     │
+├──────────────────────────────────────┤
+│  无 addr 指令：var 本身就是地址       │
+└──────────────────────────────────────┘
 ```
-
-**指令总计**：
-- 6 类指令
-- 3 种终结符
-- 无冗余：`addr` 只能用于 `var`，不能用于临时值
