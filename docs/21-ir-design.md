@@ -12,8 +12,6 @@
 | `&T`/`&mut T` | 展开为指针 `*T` |
 | `trait` | 单态化或 vtable 指针 |
 | `泛型` | 完全单态化 |
-| `match` | 展开为 switch + 字段访问 |
-| `方法调用` | 展开为 `Type.method(self, ...)` |
 
 ## IR 数据模型
 
@@ -27,86 +25,122 @@ Type ::=
     | bool                        // 布尔
     | *T                          // 指针
     | [T; N]                      // 数组
-    | { T1, T2, ... }             // 匿名结构体 (按偏移访问)
+    | { T1, T2, ... }             // 匿名结构体
 ```
 
-### Place（内存位置）
+### 变量定义
+
+每个函数开头声明所有局部变量：
 
 ```
-Place ::=
-    | local(x)                    // 局部变量/参数
-    | deref(p)                    // *p
-    | field(p, offset)            // p + offset
-    | index(p, i)                 // p + i * elem_size
+fn foo(a: i32, b: *i32) -> i32 {
+    var x: i32           // 栈槽，有地址
+    var tmp: i32         // 栈槽
+    ...
+}
 ```
+
+- `var` 声明栈上的内存槽位，有地址
+- 参数也是变量，有地址
+- 临时值用 `%0, %1, ...` 表示，无地址
 
 ### Operand（值）
 
 ```
 Operand ::=
-    | use(place)                  // 读取内存
-    | const(value)                // 常量
-    | place                       // 作为指针传递
+    | %n                 // 临时值（无地址，纯值）
+    | const(value)       // 常量
 ```
 
-> **简化**：`place` 直接作为 operand 表示取地址，无需 `addr_of`。
+### 内存访问
 
-## 指令集（7 类）
-
-### 1. 赋值
 ```
-place = operand
-```
+// 读内存 -> 临时值
+%0 = load(ptr)                    // 从指针读
 
-### 2. 二元运算
-```
-place = binop(op, a, b)
+// 写内存
+store(ptr, value)                 // 写入指针位置
 
-op ∈ { +, -, *, /, %,
-       ==, !=, <, <=, >, >=,
-       &, |, ^, <<, >> }
+// 取地址 -> 指针值
+%0 = addr(var)                    // 取变量地址
+%0 = offset(ptr, n)               // 指针偏移
 ```
 
-### 3. 一元运算
-```
-place = unop(op, a)
+## 指令集（6 类）
 
-op ∈ { -, ! }
+### 1. 内存
 ```
-
-### 4. 调用
-```
-place = call(func, args...)
+%0 = load(ptr)                    // 读
+store(ptr, val)                   // 写
+%0 = addr(var)                    // 取地址
+%0 = offset(ptr, n)               // 指针偏移
 ```
 
-### 5. 内存
+### 2. 算术/逻辑
 ```
-place = alloca(size, align)     // 栈分配
+%0 = binop(op, a, b)
+%0 = unop(op, a)
+```
+
+### 3. 调用
+```
+%0 = call(func, args...)
+```
+
+### 4. 分配
+```
+%0 = alloca(size, align)          // 动态栈分配
 memcpy(dst, src, size)
 memset(dst, val, size)
 ```
 
-### 6. 原子
+### 5. 原子
 ```
-place = atomic(op, ptr, val, ordering)
+%0 = atomic(op, ptr, val, ordering)
 ```
 
-### 7. Intrinsic
+### 6. Intrinsic
 ```
-place = intrinsic(name, args...)
+%0 = intrinsic(name, args...)
 ```
 
 ## 终结符（3 种）
 
 ```
-return [operand]
+return [val]
 goto(block)
-switch(operand, [(val, block)...], default)
+switch(val, [(v1, b1), ...], default)
 ```
 
 ## 示例
 
-### 引用参数
+### 值变量 vs 引用
+
+```dast
+let x = 42          // 值变量
+let r = &x          // 引用（指针）
+let v = *r          // 解引用
+```
+
+展开为：
+
+```
+fn main() {
+    var x: i32
+    var r: *i32
+    var v: i32
+    
+    block entry:
+        store(addr(x), const 42)     // x = 42
+        store(addr(r), addr(x))      // r = &x (指针值)
+        %0 = load(addr(r))           // 读 r 得到指针
+        %1 = load(%0)                // 解引用
+        store(addr(v), %1)           // v = *r
+        return
+}
+```
+
+### 可变引用参数
 
 ```dast
 fn inc(x: &mut i32) {
@@ -120,18 +154,50 @@ inc(&mut n)
 展开为：
 
 ```
-fn inc(x: *i32) {
+fn inc(x: *i32) {               // &mut i32 -> *i32
+    var x: *i32                  // 参数也是变量
+    
     block entry:
-        t0 = use(deref(local(x)))      // *x
-        t1 = binop(+, t0, const 1)
-        deref(local(x)) = t1           // *x = t1
+        %0 = load(addr(x))       // 读取指针参数
+        %1 = load(%0)            // *x
+        %2 = binop(+, %1, const 1)
+        store(%0, %2)            // *x = %2
         return
 }
 
 fn main() {
+    var n: i32
+    
     block entry:
-        local(n) = const 10
-        call(inc, local(n))            // 直接传 place，即地址
+        store(addr(n), const 10)
+        call(inc, addr(n))       // 传递 n 的地址
+        return
+}
+```
+
+### 结构体
+
+```dast
+struct Point { x: i32, y: i32 }
+let p = Point { x: 1, y: 2 }
+let v = p.x
+```
+
+展开为：
+
+```
+// Point = { i32, i32 } @size(8) @align(4)
+fn main() {
+    var p: { i32, i32 }
+    var v: i32
+    
+    block entry:
+        %0 = offset(addr(p), 0)      // &p.x
+        store(%0, const 1)           // p.x = 1
+        %1 = offset(addr(p), 4)      // &p.y
+        store(%1, const 2)           // p.y = 2
+        %2 = load(%0)                // 读 p.x
+        store(addr(v), %2)           // v = p.x
         return
 }
 ```
@@ -141,80 +207,53 @@ fn main() {
 ```dast
 enum Option { Some(i32), None }
 let x = Option.Some(42)
+match x { .Some(v) => v, .None => 0 }
 ```
 
 展开为：
 
 ```
-// Option = { tag: u8, payload: i32 } @size(8) @align(4)
+// Option = { u8, i32 } @size(8) tag@0 payload@4
 fn main() {
+    var x: { u8, i32 }
+    
     block entry:
-        // Some = tag 0
-        field(local(x), 0) = const u8 0     // tag
-        field(local(x), 4) = const i32 42   // payload
-        return
+        %0 = offset(addr(x), 0)      // &x.tag
+        store(%0, const u8 0)        // Some = 0
+        %1 = offset(addr(x), 4)      // &x.payload
+        store(%1, const 42)
+        %2 = load(%0)                // 读 tag
+        switch %2, [(0, some_arm), (1, none_arm)], unreachable
+    
+    block some_arm:
+        %3 = load(%1)                // 读 payload
+        return %3
+    
+    block none_arm:
+        return const 0
 }
-```
-
-### closure
-
-```dast
-let y = 10
-let f = |x| x + y
-f(5)
-```
-
-展开为：
-
-```
-// 生成的闭包函数
-fn closure_0(env: *{ i32 }, x: i32) -> i32 {
-    block entry:
-        t0 = use(field(deref(local(env)), 0))  // env.y
-        t1 = binop(+, use(local(x)), t0)
-        return t1
-}
-
-fn main() {
-    block entry:
-        field(local(env), 0) = const 10       // 捕获 y
-        t0 = call(closure_0, local(env), const 5)
-        return
-}
-```
-
-### 结构体方法
-
-```dast
-impl Point {
-    fn length(&self) -> f64 { ... }
-}
-p.length()
-```
-
-展开为：
-
-```
-t0 = call(Point.length, local(p))   // 直接传 place
 ```
 
 ## 总结
 
 ```
-┌────────────────────────────────────────────┐
-│  IR 核心                                   │
-├────────────────────────────────────────────┤
-│  类型: 标量 + 指针 + 数组 + 结构体         │
-│  指令: 7 类                                 │
-│  终结符: 3 种                               │
-├────────────────────────────────────────────┤
-│  不存在: mut/const/enum/closure/ref/trait   │
-│  不存在: addr_of (直接用 place)              │
-└────────────────────────────────────────────┘
+┌───────────────────────────────────────────┐
+│  IR 核心                                  │
+├───────────────────────────────────────────┤
+│  变量: var x: T (栈槽，有地址)             │
+│  临时值: %n (无地址，纯值)                  │
+├───────────────────────────────────────────┤
+│  内存: load / store / addr / offset       │
+│  计算: binop / unop / call                │
+│  分配: alloca / memcpy / memset            │
+│  原子: atomic                              │
+│  扩展: intrinsic                           │
+├───────────────────────────────────────────┤
+│  终结符: return / goto / switch            │
+└───────────────────────────────────────────┘
 ```
 
-| 层 | 职责 |
-|----|------|
-| **前端** | 类型检查、借用检查、泛型/trait/enum/closure 展开 |
-| **IR** | 内存、指针、计算、控制流 |
-| **后端** | 寄存器分配、指令选择、目标代码生成 |
+**关键区分**：
+- `var x` → 栈槽，有地址，用 `addr(x)` 取地址
+- `%n` → 临时值，无地址，不能取地址
+- `load/store` → 通过指针访问内存
