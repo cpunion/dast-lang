@@ -600,7 +600,35 @@ fn ir_instr_list_new() -> [IrInstr] {
 }
 
 fn ir_string_list_new() -> [String] {
-    return string_list_new()
+    let mut items: [String] = []
+    return items
+}
+
+fn string_list_new() -> [String] {
+    let mut items: [String] = []
+    return items
+}
+
+fn parse_int(text: String) -> i32 {
+    if len(text) == 0 { return 0 }
+    let mut i = 0
+    let mut neg = false
+    if char_at(text, 0) == 45 {
+        neg = true
+        i = 1
+    }
+    let mut val = 0
+    while i < len(text) {
+        let c = char_at(text, i)
+        if c < 48 || c > 57 {
+            i = len(text)
+        } else {
+            val = val * 10 + (c - 48)
+            i = i + 1
+        }
+    }
+    if neg { return -val }
+    return val
 }
 
 fn parse_temp_name(text: String) -> i32 {
