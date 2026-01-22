@@ -243,6 +243,11 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		}
 		left := strings.TrimSpace(rest[:eq])
 		right := strings.TrimSpace(rest[eq+1:])
+		unchecked := false
+		if strings.HasSuffix(right, "@unchecked") {
+			unchecked = true
+			right = strings.TrimSpace(right[:len(right)-10])
+		}
 		array, index, err := parseIndexExprWithCtx(left, ctx)
 		if err != nil {
 			return lineParse{}, err
@@ -252,7 +257,7 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			return lineParse{}, err
 		}
 		max := maxTempIdx(array, index, src)
-		return lineParse{instr: &SetIndex{Array: array, Index: index, Src: src}, maxTemp: max}, nil
+		return lineParse{instr: &SetIndex{Unchecked: unchecked, Array: array, Index: index, Src: src}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "set_field ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_field "))
@@ -363,12 +368,17 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			return lineParse{instr: &Index{Unchecked: true, Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "index "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index "))
+			unchecked := false
+			if strings.HasSuffix(rest, "@unchecked") {
+				unchecked = true
+				rest = strings.TrimSpace(rest[:len(rest)-10])
+			}
 			array, index, err := parseIndexExprWithCtx(rest, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
 			max := maxTempIdx(dst, array, index)
-			return lineParse{instr: &Index{Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
+			return lineParse{instr: &Index{Unchecked: unchecked, Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "struct "):
 			name, fields, max, err := parseStructInitWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "struct ")), dst, ctx)
 			if err != nil {
@@ -851,4 +861,3 @@ func maxTempIdx(vals ...int) int {
 	}
 	return max
 }
-

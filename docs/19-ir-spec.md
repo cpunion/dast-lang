@@ -215,10 +215,8 @@ v0 支持 8 种运行时值：
 ### 数组
 
 - `MakeArray dst, elems`
-- `Index dst, array, index`
-- `SetIndex array, index, src`
-- `IndexUnchecked dst, array, index`（去除边界检查）
-- `SetIndexUnchecked array, index, src`（去除边界检查）
+- `Index dst, array, index`（可选 `@unchecked` 表示忽略边界检查）
+- `SetIndex array, index, src`（可选 `@unchecked`）
 
 ### 结构体
 

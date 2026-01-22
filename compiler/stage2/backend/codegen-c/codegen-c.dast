@@ -141,16 +141,16 @@ fn cg_instr(inst: IrInstr) -> String {
             return out
         }
         IrInstr.Index(i) => {
+            if i.unchecked {
+                return "t" + int_to_string(i.dst) + " = ((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "];"
+            }
             return "t" + int_to_string(i.dst) + " = *(int64_t*)dast_array_get(t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ");"
         }
         .SetIndex(i) => {
+            if i.unchecked {
+                return "((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + ";"
+            }
             return "{ int64_t _v = t" + int_to_string(i.src) + "; dast_array_set(t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ", &_v); }"
-        }
-        .IndexUnchecked(i) => {
-            return "t" + int_to_string(i.dst) + " = ((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "];"
-        }
-        .SetIndexUnchecked(i) => {
-            return "((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + ";"
         }
         .MakeStruct(i) => {
             return "t" + int_to_string(i.dst) + " = 0; /* struct creation */"

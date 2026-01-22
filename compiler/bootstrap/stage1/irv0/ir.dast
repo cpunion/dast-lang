@@ -193,18 +193,6 @@ struct IrSetIndex {
     src: i32,
 }
 
-struct IrIndexUnchecked {
-    dst: i32,
-    array: i32,
-    index: i32,
-}
-
-struct IrSetIndexUnchecked {
-    array: i32,
-    index: i32,
-    src: i32,
-}
-
 struct IrStructFieldInit {
     name: String,
     src: i32,
@@ -240,8 +228,6 @@ enum IrInstr {
     MakeArray(IrMakeArray),
     Index(IrIndex),
     SetIndex(IrSetIndex),
-    IndexUnchecked(IrIndexUnchecked),
-    SetIndexUnchecked(IrSetIndexUnchecked),
     MakeStruct(IrMakeStruct),
     GetField(IrGetField),
     SetField(IrSetField),
@@ -349,19 +335,15 @@ fn ir_instr_string(inst: IrInstr) -> String {
             return "t" + int_to_string(i.dst) + " = array [" + elems + "]"
         }
         IrInstr.Index(i) => {
-            if i.unchecked {
-                return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] @unchecked"
-            }
-            return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]"
+            let mut suffix = ""
+            if i.unchecked { suffix = " @unchecked" }
+            return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" + suffix
         }
         .SetIndex(i) => {
-            if i.unchecked {
-                return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + " @unchecked"
-            }
-            return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src)
+            let mut suffix = ""
+            if i.unchecked { suffix = " @unchecked" }
+            return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + suffix
         }
-        .IndexUnchecked(i) => { return "t" + int_to_string(i.dst) + " = index_unchecked t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" }
-        .SetIndexUnchecked(i) => { return "set_index_unchecked t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) }
         .MakeStruct(i) => {
             let mut fields = ""
             let mut j = 0
@@ -761,7 +743,12 @@ fn ir_parse_line(line: String) -> IrLineParse {
         let eq = find_char(rest, 61, 0)
         if eq < 0 { return ir_line_parse_error("invalid set_index syntax") }
         let left = trim_space(substr(rest, 0, eq))
-        let right = trim_space(substr(rest, eq + 1, len(rest) - eq - 1))
+        let mut right = trim_space(substr(rest, eq + 1, len(rest) - eq - 1))
+        let mut unchecked = false
+        if has_suffix(right, "@unchecked") {
+            unchecked = true
+            right = trim_space(substr(right, 0, len(right) - 10))
+        }
         let open = find_char(left, 91, 0)
         let close = find_char(left, 93, 0)
         if open < 0 || close < 0 || close < open {
@@ -775,7 +762,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if index > max2 { max2 = index }
         let mut max3 = max2
         if src > max3 { max3 = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: false, array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: unchecked, array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
     }
     if has_prefix(l, "set_field ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
@@ -867,7 +854,12 @@ fn ir_parse_line(line: String) -> IrLineParse {
             return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: true, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "index ") {
-            let rest = trim_space(substr(right, 6, len(right) - 6))
+            let mut rest = trim_space(substr(right, 6, len(right) - 6))
+            let mut unchecked = false
+            if has_suffix(rest, "@unchecked") {
+                unchecked = true
+                rest = trim_space(substr(rest, 0, len(rest) - 10))
+            }
             let open = find_char(rest, 91, 0)
             let close = find_char(rest, 93, 0)
             if open < 0 || close < 0 || close < open {
@@ -878,7 +870,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
             let mut max = dst
             if array > max { max = array }
             if index > max { max = index }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: false, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: unchecked, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "struct ") {
             let rest = trim_space(substr(right, 7, len(right) - 7))
@@ -1194,20 +1186,6 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             return ir_validate_temp(i.index, temp_count, false)
         }
         .SetIndex(i) => {
-            let e1 = ir_validate_temp(i.array, temp_count, false)
-            if e1 != "" { return e1 }
-            let e2 = ir_validate_temp(i.index, temp_count, false)
-            if e2 != "" { return e2 }
-            return ir_validate_temp(i.src, temp_count, false)
-        }
-        .IndexUnchecked(i) => {
-            let err = ir_validate_temp(i.dst, temp_count, false)
-            if err != "" { return err }
-            let e2 = ir_validate_temp(i.array, temp_count, false)
-            if e2 != "" { return e2 }
-            return ir_validate_temp(i.index, temp_count, false)
-        }
-        .SetIndexUnchecked(i) => {
             let e1 = ir_validate_temp(i.array, temp_count, false)
             if e1 != "" { return e1 }
             let e2 = ir_validate_temp(i.index, temp_count, false)
@@ -1758,8 +1736,6 @@ fn ir_scan_array_safety(blk: IrBlock, temp_count: i32) -> IrArraySafety {
             .MakeArray(_) => {}
             IrInstr.Index(_) => {}
             .SetIndex(_) => {}
-            .IndexUnchecked(_) => {}
-            .SetIndexUnchecked(_) => {}
             _ => {
                 let temps = ir_instr_temps(inst)
                 let mut k = 0
@@ -1809,8 +1785,6 @@ fn ir_instr_temps(inst: IrInstr) -> [i32] {
         }
         IrInstr.Index(i) => { push(&mut out, i.dst); push(&mut out, i.array); push(&mut out, i.index) }
         .SetIndex(i) => { push(&mut out, i.array); push(&mut out, i.index); push(&mut out, i.src) }
-        .IndexUnchecked(i) => { push(&mut out, i.dst); push(&mut out, i.array); push(&mut out, i.index) }
-        .SetIndexUnchecked(i) => { push(&mut out, i.array); push(&mut out, i.index); push(&mut out, i.src) }
         .MakeStruct(i) => {
             push(&mut out, i.dst)
             let mut j = 0
@@ -2026,44 +2000,39 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                 ir_const_map_clear(&mut consts, c.dst)
             }
             IrInstr.Index(c) => {
-                let mut replaced = false
-                if ir_const_map_has(&consts, c.index) {
+                let mut make_unchecked = c.unchecked
+                if !make_unchecked && ir_const_map_has(&consts, c.index) {
                     let idx = ir_const_map_get(&consts, c.index)
                     if idx.kind == ir_kind_int() && c.array >= 0 && c.array < len(safety.safe) {
-                        if safety.safe[c.array] {
-                            if idx.int >= 0 && idx.int < safety.lens[c.array] {
-                                let ni = IrInstr.IndexUnchecked(IrIndexUnchecked { dst: c.dst, array: c.array, index: c.index })
-                                push(&mut instrs, ni)
-                                replaced = true
-                            }
+                        if safety.safe[c.array] && idx.int >= 0 && idx.int < safety.lens[c.array] {
+                            make_unchecked = true
                         }
                     }
                 }
-                if !replaced { push(&mut instrs, inst) }
+                if make_unchecked {
+                    let ni = IrInstr.Index(IrIndex { unchecked: true, dst: c.dst, array: c.array, index: c.index })
+                    push(&mut instrs, ni)
+                } else {
+                    push(&mut instrs, inst)
+                }
                 ir_const_map_clear(&mut consts, c.dst)
             }
             .SetIndex(c) => {
-                let mut replaced = false
-                if ir_const_map_has(&consts, c.index) {
+                let mut make_unchecked = c.unchecked
+                if !make_unchecked && ir_const_map_has(&consts, c.index) {
                     let idx = ir_const_map_get(&consts, c.index)
                     if idx.kind == ir_kind_int() && c.array >= 0 && c.array < len(safety.safe) {
-                        if safety.safe[c.array] {
-                            if idx.int >= 0 && idx.int < safety.lens[c.array] {
-                                let ni = IrInstr.SetIndexUnchecked(IrSetIndexUnchecked { array: c.array, index: c.index, src: c.src })
-                                push(&mut instrs, ni)
-                                replaced = true
-                            }
+                        if safety.safe[c.array] && idx.int >= 0 && idx.int < safety.lens[c.array] {
+                            make_unchecked = true
                         }
                     }
                 }
-                if !replaced { push(&mut instrs, inst) }
-            }
-            .IndexUnchecked(c) => {
-                push(&mut instrs, inst)
-                ir_const_map_clear(&mut consts, c.dst)
-            }
-            .SetIndexUnchecked(_) => {
-                push(&mut instrs, inst)
+                if make_unchecked {
+                    let ni = IrInstr.SetIndex(IrSetIndex { unchecked: true, array: c.array, index: c.index, src: c.src })
+                    push(&mut instrs, ni)
+                } else {
+                    push(&mut instrs, inst)
+                }
             }
             .MakeStruct(c) => {
                 push(&mut instrs, inst)
@@ -2361,16 +2330,10 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
             return IrInstr.MakeArray(IrMakeArray { dst: ir_inline_remap_temp(temp_map, i.dst), elems: elems })
         }
         IrInstr.Index(i) => {
-            return IrInstr.Index(IrIndex { unchecked: false, dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
+            return IrInstr.Index(IrIndex { unchecked: i.unchecked, dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
         }
         .SetIndex(i) => {
-            return IrInstr.SetIndex(IrSetIndex { unchecked: false, array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
-        }
-        .IndexUnchecked(i) => {
-            return IrInstr.IndexUnchecked(IrIndexUnchecked { dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
-        }
-        .SetIndexUnchecked(i) => {
-            return IrInstr.SetIndexUnchecked(IrSetIndexUnchecked { array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
+            return IrInstr.SetIndex(IrSetIndex { unchecked: i.unchecked, array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
         }
         .MakeStruct(i) => {
             let mut fields: [IrStructFieldInit] = []

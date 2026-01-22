@@ -234,26 +234,21 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
         IrInstr.Index(i) => {
             let arr = get_temp(rt, fr, i.array)
             let idx = get_temp(rt, fr, i.index)
-            let v = array_index(rt, arr, idx)
+            let mut v = array_index(rt, arr, idx)
+            if i.unchecked {
+                v = array_index_unchecked(rt, arr, idx)
+            }
             set_temp(rt, fr, i.dst, v)
         }
         .SetIndex(i) => {
             let arr = get_temp(rt, fr, i.array)
             let idx = get_temp(rt, fr, i.index)
             let v = get_temp(rt, fr, i.src)
-            if i.unchecked { array_set_unchecked(rt, arr, idx, v) } else { array_set(rt, arr, idx, v) }
-        }
-        .IndexUnchecked(i) => {
-            let arr = get_temp(rt, fr, i.array)
-            let idx = get_temp(rt, fr, i.index)
-            let v = array_index_unchecked(rt, arr, idx)
-            set_temp(rt, fr, i.dst, v)
-        }
-        .SetIndexUnchecked(i) => {
-            let arr = get_temp(rt, fr, i.array)
-            let idx = get_temp(rt, fr, i.index)
-            let v = get_temp(rt, fr, i.src)
-            array_set_unchecked(rt, arr, idx, v)
+            if i.unchecked {
+                array_set_unchecked(rt, arr, idx, v)
+            } else {
+                array_set(rt, arr, idx, v)
+            }
         }
 
         .MakeStruct(i) => {
