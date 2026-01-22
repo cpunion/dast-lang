@@ -220,6 +220,72 @@ fn cg_merge_field_types(dst: &mut StringMap, src: StringMap) {
     }
 }
 
+// =============================================================================
+// String List Map
+// =============================================================================
+
+struct StringListMap {
+    keys: [String],
+    values: [[String]],
+}
+
+fn string_list_map_new() -> StringListMap {
+    let mut k: [String] = []
+    let mut v: [[String]] = []
+    return StringListMap { keys: k, values: v }
+}
+
+fn string_list_map_ensure(m: &mut StringListMap, key: String) -> bool {
+    let mut i = 0
+    while i < len(m.keys) {
+        if m.keys[i] == key { return false }
+        i = i + 1
+    }
+    let mut keys = m.keys
+    let mut values = m.values
+    let mut empty: [String] = []
+    push(&mut keys, key)
+    push(&mut values, empty)
+    m.keys = keys
+    m.values = values
+    return true
+}
+
+fn string_list_map_get(m: &StringListMap, key: String) -> [String] {
+    let mut i = 0
+    while i < len(m.keys) {
+        if m.keys[i] == key { return m.values[i] }
+        i = i + 1
+    }
+    let mut empty: [String] = []
+    return empty
+}
+
+fn string_list_map_add(m: &mut StringListMap, key: String, val: String) -> bool {
+    let mut i = 0
+    while i < len(m.keys) {
+        if m.keys[i] == key {
+            let mut vals = m.values[i]
+            if cg_string_list_contains(vals, val) { return false }
+            push(&mut vals, val)
+            let mut values = m.values
+            values[i] = vals
+            m.values = values
+            return true
+        }
+        i = i + 1
+    }
+    let mut keys = m.keys
+    let mut values = m.values
+    let mut vals: [String] = []
+    push(&mut vals, val)
+    push(&mut keys, key)
+    push(&mut values, vals)
+    m.keys = keys
+    m.values = values
+    return true
+}
+
 fn cg_collect_field_types(p: IrProgram) -> StringMap {
     let mut out = string_map_new()
     let mut i = 0
@@ -229,6 +295,81 @@ fn cg_collect_field_types(p: IrProgram) -> StringMap {
         i = i + 1
     }
     return out
+}
+
+fn cg_collect_struct_fields(p: IrProgram) -> StringListMap {
+    let mut out = string_list_map_new()
+    let mut i = 0
+    while i < len(p.functions) {
+        let f = p.functions[i]
+        let mut bi = 0
+        while bi < len(f.blocks) {
+            let blk = f.blocks[bi]
+            let mut j = 0
+            while j < len(blk.instrs) {
+                match blk.instrs[j] {
+                    IrInstr.MakeStruct(i2) => {
+                        let _ = string_list_map_ensure(&mut out, i2.name)
+                        let mut k = 0
+                        while k < len(i2.fields) {
+                            let _ = string_list_map_add(&mut out, i2.name, i2.fields[k].name)
+                            k = k + 1
+                        }
+                    }
+                    _ => {}
+                }
+                j = j + 1
+            }
+            bi = bi + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn cg_collect_enum_payload_types(p: IrProgram, seed_fields: StringMap) -> StringListMap {
+    let mut out = string_list_map_new()
+    let mut i = 0
+    while i < len(p.functions) {
+        let f = p.functions[i]
+        let infer = cg_infer_function_types(p, f, seed_fields)
+        let mut bi = 0
+        while bi < len(f.blocks) {
+            let blk = f.blocks[bi]
+            let mut j = 0
+            while j < len(blk.instrs) {
+                match blk.instrs[j] {
+                    IrInstr.MakeStruct(i2) => {
+                        let mut k = 0
+                        while k < len(i2.fields) {
+                            let field = i2.fields[k]
+                            if field.name == "_payload" {
+                                let mut pt = cg_operand_type(field.src, infer.temp_types)
+                                if pt == "" {
+                                    let key = cg_field_key(i2.name, field.name)
+                                    pt = cg_get_field_type(infer, key)
+                                }
+                                if pt == "" { pt = "unit" }
+                                pt = cg_normalize_type(pt)
+                                let _ = string_list_map_add(&mut out, i2.name, pt)
+                            }
+                            k = k + 1
+                        }
+                    }
+                    _ => {}
+                }
+                j = j + 1
+            }
+            bi = bi + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn cg_struct_is_enum(struct_fields: &StringListMap, name: String) -> bool {
+    let fields = string_list_map_get(struct_fields, cg_struct_key_name(name))
+    return cg_string_list_contains(fields, "_tag")
 }
 
 // =============================================================================
@@ -244,7 +385,12 @@ struct CgInfer {
 }
 
 fn cg_field_key(struct_name: String, field: String) -> String {
-    return struct_name + "." + field
+    return cg_struct_key_name(struct_name) + "." + field
+}
+
+fn cg_struct_key_name(name: String) -> String {
+    if name == "Env" { return "$Env" }
+    return name
 }
 
 fn cg_set_temp_type(infer: &mut CgInfer, idx: i32, typ: String) -> bool {
@@ -831,6 +977,25 @@ fn cg_mangle_label(name: String) -> String {
     return "L_" + cg_mangle_ident(name)
 }
 
+fn cg_c_struct_name(name: String) -> String {
+    let n = cg_struct_key_name(name)
+    return "Dast_" + cg_mangle_ident(n)
+}
+
+fn cg_union_field_name(t: String) -> String {
+    let s = cg_normalize_type(t)
+    if s == "" || s == "unit" { return "as_unit" }
+    if cg_is_ref_type(s) {
+        let base = cg_ref_base_type(s)
+        return "as_ref_" + cg_mangle_ident(base)
+    }
+    if cg_is_array_type(s) {
+        let base = cg_array_elem_type(s)
+        return "as_arr_" + cg_mangle_ident(base)
+    }
+    return "as_" + cg_mangle_ident(s)
+}
+
 // =============================================================================
 // C Type Mapping Helpers
 // =============================================================================
@@ -847,7 +1012,7 @@ fn cg_c_type(t: String) -> String {
     if cg_is_bool_type(s) { return "bool" }
     if cg_is_unit_type(s) { return "dast_unit_t" }
     if cg_is_int_type(s) { return cg_map_type(s) }
-    return "dast_struct_t*"
+    return cg_c_struct_name(s)
 }
 
 fn cg_c_zero(t: String) -> String {
@@ -859,7 +1024,7 @@ fn cg_c_zero(t: String) -> String {
     if cg_is_string_type(s) { return "(dast_string_t){0}" }
     if cg_is_array_type(s) { return "(dast_array_t){0}" }
     if cg_is_unit_type(s) { return "(dast_unit_t){0}" }
-    if cg_is_struct_type(s) { return "0" }
+    if cg_is_struct_type(s) { return "(" + cg_c_type(s) + "){0}" }
     return "0"
 }
 
@@ -931,7 +1096,7 @@ fn cg_emit_print_args(args: [IrOperand], temp_types: [String], newline: bool) ->
         } else if cg_is_array_type(t) {
             out = out + "dast_print_array(&" + expr + "); "
         } else if cg_is_struct_type(t) {
-            out = out + "dast_print_struct(" + expr + "); "
+            out = out + "dast_print_cstr(\"<struct>\"); "
         } else {
             out = out + "dast_print_cstr(\"<value>\"); "
         }
@@ -1105,9 +1270,14 @@ fn cg_emit_call_closure(inst: IrCallClosure, infer: CgInfer, p: IrProgram, closu
     let closure_expr = cg_operand_expr(inst.closure, ct, infer.temp_types)
     let mut func_name = cg_get_temp_closure(infer, inst.closure.temp)
     let mut out = ""
+    let mut env_expr = closure_expr + ".env"
+    let mut func_expr = closure_expr + ".func"
+    if cg_is_ref_type(ct) {
+        env_expr = closure_expr + "->env"
+        func_expr = closure_expr + "->func"
+    }
     if func_name != "" {
-        let env = "dast_struct_get_struct(" + closure_expr + ", \"env\")"
-        let mut args = env
+        let mut args = env_expr
         let mut j = 0
         while j < len(inst.args) {
             args = args + ", " + cg_operand_expr(inst.args[j], "", infer.temp_types)
@@ -1123,7 +1293,7 @@ fn cg_emit_call_closure(inst: IrCallClosure, infer: CgInfer, p: IrProgram, closu
     }
 
     // Fallback: dispatch by function name
-    out = "{ dast_string_t _fn = dast_struct_get_string(" + closure_expr + ", \"func\"); dast_struct_t* _env = dast_struct_get_struct(" + closure_expr + ", \"env\"); "
+    out = "{ dast_string_t _fn = " + func_expr + "; " + cg_c_type("Env") + " _env = " + env_expr + "; "
     let mut i = 0
     while i < len(closure_funcs) {
         let fname = closure_funcs[i]
@@ -1150,7 +1320,7 @@ fn cg_emit_call_closure(inst: IrCallClosure, infer: CgInfer, p: IrProgram, closu
     return out
 }
 
-fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]) -> String {
+fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String], struct_fields: &StringListMap) -> String {
     match inst {
         IrInstr.LoadVar(i) => {
             if i.ref {
@@ -1241,7 +1411,8 @@ fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]
             return "{ " + ctype + " _v = " + src + "; dast_array_set(&" + arr_expr + ", " + idx + ", &_v); }"
         }
         IrInstr.MakeStruct(i) => {
-            let mut out = "t" + int_to_string(i.dst) + " = dast_struct_new(\"" + i.name + "\", " + int_to_string(len(i.fields)) + ");"
+            let mut out = "t" + int_to_string(i.dst) + " = (" + cg_c_type(i.name) + "){0};"
+            let is_enum = cg_struct_is_enum(struct_fields, i.name)
             let mut j = 0
             while j < len(i.fields) {
                 let f = i.fields[j]
@@ -1251,9 +1422,19 @@ fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]
                 if mapped != "" {
                     if ft == "" || ft == "unit" { ft = mapped }
                 }
-                let setter = cg_struct_setter(ft)
                 let val = cg_operand_expr(f.src, ft, infer.temp_types)
-                out = out + " " + setter + "(t" + int_to_string(i.dst) + ", \"" + f.name + "\", " + val + ");"
+                if is_enum && f.name == "_tag" {
+                    out = out + " t" + int_to_string(i.dst) + "._tag = " + val + ";"
+                } else if is_enum && f.name == "_payload" {
+                    if ft == "" { ft = "unit" }
+                    if !cg_is_unit_type(ft) {
+                        let uf = cg_union_field_name(ft)
+                        out = out + " t" + int_to_string(i.dst) + "._payload." + uf + " = " + val + ";"
+                    }
+                } else {
+                    let field = cg_mangle_ident(f.name)
+                    out = out + " t" + int_to_string(i.dst) + "." + field + " = " + val + ";"
+                }
                 j = j + 1
             }
             return out
@@ -1262,28 +1443,65 @@ fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]
             let mut st = ""
             if i.src >= 0 && i.src < len(infer.temp_types) { st = infer.temp_types[i.src] }
             let mut recv = "t" + int_to_string(i.src)
+            let mut access = recv + "."
             if cg_is_ref_type(st) {
-                recv = "*" + recv
+                recv = "t" + int_to_string(i.src)
+                access = recv + "->"
                 st = cg_ref_base_type(st)
             }
             let key = cg_field_key(st, i.field)
             let ft = cg_get_field_type(infer, key)
-            let getter = cg_struct_getter(ft)
-            return "t" + int_to_string(i.dst) + " = " + getter + "(" + recv + ", \"" + i.field + "\");"
+            if cg_struct_is_enum(struct_fields, st) && i.field == "_tag" {
+                return "t" + int_to_string(i.dst) + " = " + access + "_tag;"
+            }
+            if cg_struct_is_enum(struct_fields, st) && i.field == "_payload" {
+                let mut pt = cg_get_temp_type_at(infer, i.dst)
+                if pt == "" { pt = ft }
+                if pt == "" { pt = "unit" }
+                if cg_is_unit_type(pt) {
+                    return "t" + int_to_string(i.dst) + " = (dast_unit_t){0};"
+                }
+                let uf = cg_union_field_name(pt)
+                return "t" + int_to_string(i.dst) + " = " + access + "_payload." + uf + ";"
+            }
+            let field = cg_mangle_ident(i.field)
+            return "t" + int_to_string(i.dst) + " = " + access + field + ";"
         }
         IrInstr.SetField(i) => {
             let mut st = ""
             if i.src >= 0 && i.src < len(infer.temp_types) { st = infer.temp_types[i.src] }
             let mut recv = "t" + int_to_string(i.src)
+            let mut access = recv + "."
             if cg_is_ref_type(st) {
-                recv = "*" + recv
+                recv = "t" + int_to_string(i.src)
+                access = recv + "->"
                 st = cg_ref_base_type(st)
+            }
+            if cg_struct_is_enum(struct_fields, st) && i.field == "_tag" {
+                let key = cg_field_key(st, i.field)
+                let ft = cg_get_field_type(infer, key)
+                let val = cg_operand_expr(i.value, ft, infer.temp_types)
+                return access + "_tag = " + val + ";"
+            }
+            if cg_struct_is_enum(struct_fields, st) && i.field == "_payload" {
+                let mut pt = cg_operand_type(i.value, infer.temp_types)
+                if pt == "" {
+                    let key = cg_field_key(st, i.field)
+                    pt = cg_get_field_type(infer, key)
+                }
+                if pt == "" { pt = "unit" }
+                if cg_is_unit_type(pt) {
+                    return access + "_payload.as_unit = (dast_unit_t){0};"
+                }
+                let uf = cg_union_field_name(pt)
+                let val = cg_operand_expr(i.value, pt, infer.temp_types)
+                return access + "_payload." + uf + " = " + val + ";"
             }
             let key = cg_field_key(st, i.field)
             let ft = cg_get_field_type(infer, key)
-            let setter = cg_struct_setter(ft)
             let val = cg_operand_expr(i.value, ft, infer.temp_types)
-            return setter + "(" + recv + ", \"" + i.field + "\", " + val + ");"
+            let field = cg_mangle_ident(i.field)
+            return access + field + " = " + val + ";"
         }
     }
     return "/* unknown */"
@@ -1357,7 +1575,8 @@ fn cg_collect_closure_funcs(p: IrProgram) -> [String] {
     while i < len(p.functions) {
         let f = p.functions[i]
         if len(f.param_types) > 0 {
-            if f.param_types[0] == "Env" {
+            let t0 = cg_struct_key_name(cg_normalize_type(f.param_types[0]))
+            if t0 == "$Env" {
                 push(&mut out, f.name)
             }
         }
@@ -1366,7 +1585,7 @@ fn cg_collect_closure_funcs(p: IrProgram) -> [String] {
     return out
 }
 
-fn cg_function(p: IrProgram, f: IrFunction, field_types: StringMap) -> String {
+fn cg_function(p: IrProgram, f: IrFunction, field_types: StringMap, struct_fields: &StringListMap) -> String {
     let infer = cg_infer_function_types(p, f, field_types)
     let closure_funcs = cg_collect_closure_funcs(p)
 
@@ -1426,7 +1645,7 @@ fn cg_function(p: IrProgram, f: IrFunction, field_types: StringMap) -> String {
 
         let mut j = 0
         while j < len(blk.instrs) {
-            out = out + "    " + cg_instr(blk.instrs[j], infer, p, closure_funcs) + "\n"
+            out = out + "    " + cg_instr(blk.instrs[j], infer, p, closure_funcs, struct_fields) + "\n"
             j = j + 1
         }
 
@@ -1443,12 +1662,91 @@ fn cg_function(p: IrProgram, f: IrFunction, field_types: StringMap) -> String {
 }
 
 // =============================================================================
+// Struct/Enum Definitions
+// =============================================================================
+
+fn cg_emit_struct_forward_decls(struct_fields: &StringListMap) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(struct_fields.keys) {
+        let name = struct_fields.keys[i]
+        let cname = cg_c_struct_name(name)
+        out = out + "typedef struct " + cname + " " + cname + ";\n"
+        i = i + 1
+    }
+    if out != "" { out = out + "\n" }
+    return out
+}
+
+fn cg_emit_struct_defs(struct_fields: &StringListMap, field_types: &StringMap, payload_types: &StringListMap) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(struct_fields.keys) {
+        let name = struct_fields.keys[i]
+        let cname = cg_c_struct_name(name)
+        let fields = string_list_map_get(struct_fields, name)
+        let is_enum = cg_struct_is_enum(struct_fields, name)
+        out = out + "struct " + cname + " {\n"
+        if is_enum {
+            let mut tag_t = string_map_get(field_types, cg_field_key(name, "_tag"))
+            if tag_t == "" { tag_t = "int" }
+            out = out + "    " + cg_c_type(tag_t) + " _tag;\n"
+            out = out + "    union {\n"
+            let mut types = string_list_map_get(payload_types, name)
+            if len(types) == 0 {
+                let mut t = string_map_get(field_types, cg_field_key(name, "_payload"))
+                if t == "" { t = "unit" }
+                let mut tmp: [String] = []
+                push(&mut tmp, cg_normalize_type(t))
+                types = tmp
+            }
+            if !cg_string_list_contains(types, "unit") {
+                push(&mut types, "unit")
+            }
+            let mut k = 0
+            while k < len(types) {
+                let t = types[k]
+                let ctype = cg_c_type(t)
+                let fname = cg_union_field_name(t)
+                out = out + "        " + ctype + " " + fname + ";\n"
+                k = k + 1
+            }
+            out = out + "    } _payload;\n"
+        } else {
+            if len(fields) == 0 {
+                out = out + "    uint8_t _;\n"
+            } else {
+                let mut k = 0
+                while k < len(fields) {
+                    let fname = fields[k]
+                    let key = cg_field_key(name, fname)
+                    let mut ft = string_map_get(field_types, key)
+                    if ft == "" { ft = "unit" }
+                    out = out + "    " + cg_c_type(ft) + " " + cg_mangle_ident(fname) + ";\n"
+                    k = k + 1
+                }
+            }
+        }
+        out = out + "};\n\n"
+        i = i + 1
+    }
+    return out
+}
+
+// =============================================================================
 // Program Generation
 // =============================================================================
 
 fn ir_program_to_c(p: IrProgram) -> String {
     let mut out = "// Generated by Dast compiler\n"
     out = out + "#include \"c_runtime.h\"\n\n"
+
+    let field_types = cg_collect_field_types(p)
+    let struct_fields = cg_collect_struct_fields(p)
+    let payload_types = cg_collect_enum_payload_types(p, field_types)
+
+    out = out + cg_emit_struct_forward_decls(&struct_fields)
+    out = out + cg_emit_struct_defs(&struct_fields, &field_types, &payload_types)
 
     // Forward declarations
     let mut i = 0
@@ -1478,10 +1776,9 @@ fn ir_program_to_c(p: IrProgram) -> String {
     out = out + "\n"
 
     // Generate functions
-    let field_types = cg_collect_field_types(p)
     i = 0
     while i < len(p.functions) {
-        out = out + cg_function(p, p.functions[i], field_types) + "\n"
+        out = out + cg_function(p, p.functions[i], field_types, &struct_fields) + "\n"
         i = i + 1
     }
 
