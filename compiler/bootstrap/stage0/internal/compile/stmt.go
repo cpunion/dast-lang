@@ -202,7 +202,7 @@ func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 			cmp := c.newTemp()
 			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
 			next := c.newBlock("match_next")
-			c.emitTerm(&ir.Branch{Cond: cmp, Then: armBlock.Label, Else: next.Label})
+				c.emitTerm(&ir.Branch{Cond: ir.TempOperand(cmp), Then: armBlock.Label, Else: next.Label})
 			c.setCurrentBlock(armBlock)
 			c.compileMatchArm(&arm, scrut)
 			if c.currentBlock().Term == nil {
@@ -259,7 +259,7 @@ func (c *Compiler) compileTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 			cmp := c.newTemp()
 			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
 			next := c.newBlock("match_next")
-			c.emitTerm(&ir.Branch{Cond: cmp, Then: armBlock.Label, Else: next.Label})
+				c.emitTerm(&ir.Branch{Cond: ir.TempOperand(cmp), Then: armBlock.Label, Else: next.Label})
 			c.setCurrentBlock(armBlock)
 			c.compileMatchArmTail(&arm, scrut, allowImplicit)
 			if c.currentBlock().Term == nil {

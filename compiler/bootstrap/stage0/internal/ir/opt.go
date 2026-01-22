@@ -49,7 +49,7 @@ func optimizeBlock(blk *Block) {
 		return op.Temp, true
 	}
 
-	for i, inst := range blk.Instr {
+	for _, inst := range blk.Instr {
 		switch v := inst.(type) {
 		case *LoadVar:
 			if v.Ref {

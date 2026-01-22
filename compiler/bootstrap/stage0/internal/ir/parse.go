@@ -421,9 +421,12 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			recv, err := parseTempWithCtx(left[:dot], ctx)
 			if err == nil {
 				field := strings.TrimSpace(left[dot+1:])
-				val, err := parseTempWithCtx(right, ctx)
+				val, _, err := parseOperandWithCtx(right, ctx)
 				if err == nil {
-					max := maxTempIdx(recv, val)
+					max := maxTempIdx(recv)
+					if !val.IsConst {
+						max = maxTempIdx(max, val.Temp)
+					}
 					return lineParse{instr: &SetField{Src: recv, Field: field, Value: val}, maxTemp: max}, nil
 				}
 			}

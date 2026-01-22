@@ -40,7 +40,7 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 	case *ast.IdentExpr:
 		varInfo, ok := c.lookupVar(e.Name)
 		if !ok {
-			if info, ok := c.consts[e.Name]; ok {
+			if _, ok := c.consts[e.Name]; ok {
 				c.diag.Add(e.Span(), fmt.Sprintf("const '%s' cannot be used where a temp is required", e.Name))
 				return c.constZero()
 			}

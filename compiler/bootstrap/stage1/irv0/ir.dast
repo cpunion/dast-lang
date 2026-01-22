@@ -566,6 +566,12 @@ fn parse_temp_name(text: String) -> i32 {
     let t = trim_space(text)
     if len(t) < 2 { return -1 }
     if char_at(t, 0) != 116 { return -1 }
+    let mut i = 1
+    while i < len(t) {
+        let c = char_at(t, i)
+        if c < 48 || c > 57 { return -1 }
+        i = i + 1
+    }
     return parse_int(substr(t, 1, len(t) - 1))
 }
 
@@ -1633,12 +1639,12 @@ struct IrFoldResult {
     value: IrValue,
 }
 
-fn ir_operand_const(op: IrOperand, consts: IrConstMap) -> IrFoldResult {
+fn ir_operand_const_fold(op: IrOperand, consts: &IrConstMap) -> IrFoldResult {
     if op.is_const {
         return IrFoldResult { ok: true, value: op.value }
     }
-    if ir_const_map_has(&consts, op.temp) {
-        return IrFoldResult { ok: true, value: ir_const_map_get(&consts, op.temp) }
+    if ir_const_map_has(consts, op.temp) {
+        return IrFoldResult { ok: true, value: ir_const_map_get(consts, op.temp) }
     }
     return IrFoldResult { ok: false, value: ir_value_unit() }
 }
@@ -2020,7 +2026,7 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                 if c.ref {
                     ir_varconst_clear_all(&mut var_consts)
                 } else {
-                    let srcv = ir_operand_const(c.src, consts)
+                    let srcv = ir_operand_const_fold(c.src, &consts)
                     if srcv.ok {
                         ir_varconst_set(&mut var_consts, c.name, srcv.value)
                     } else {
@@ -2029,8 +2035,8 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                 }
             }
             .BinOp(c) => {
-                let lhs = ir_operand_const(c.lhs, consts)
-                let rhs = ir_operand_const(c.rhs, consts)
+                let lhs = ir_operand_const_fold(c.lhs, &consts)
+                let rhs = ir_operand_const_fold(c.rhs, &consts)
                 if lhs.ok && rhs.ok {
                     let res = ir_fold_binary(c.op, lhs.value, rhs.value)
                     if res.ok {
@@ -2057,7 +2063,7 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             IrInstr.Index(c) => {
                 let mut make_unchecked = c.unchecked
                 if !make_unchecked {
-                    let idx = ir_operand_const(c.index, consts)
+                    let idx = ir_operand_const_fold(c.index, &consts)
                     if idx.ok && idx.value.kind == ir_kind_int() {
                         if !c.array.is_const && c.array.temp >= 0 && c.array.temp < len(safety.safe) {
                             if safety.safe[c.array.temp] && idx.value.int >= 0 && idx.value.int < safety.lens[c.array.temp] {
@@ -2077,7 +2083,7 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             .SetIndex(c) => {
                 let mut make_unchecked = c.unchecked
                 if !make_unchecked {
-                    let idx = ir_operand_const(c.index, consts)
+                    let idx = ir_operand_const_fold(c.index, &consts)
                     if idx.ok && idx.value.kind == ir_kind_int() {
                         if !c.array.is_const && c.array.temp >= 0 && c.array.temp < len(safety.safe) {
                             if safety.safe[c.array.temp] && idx.value.int >= 0 && idx.value.int < safety.lens[c.array.temp] {
@@ -2110,7 +2116,7 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
     let mut term = blk.term
     match blk.term {
         .Branch(t) => {
-            let v = ir_operand_const(t.cond, consts)
+            let v = ir_operand_const_fold(t.cond, &consts)
             if v.ok && v.value.kind == ir_kind_bool() {
                 let mut target = t.then_label
                 if !v.value.bool {
@@ -2246,19 +2252,23 @@ fn ir_inline_function(f: IrFunction, cands: [IrInlineCandidate]) -> IrFunction {
             match blk.instrs[i] {
                 IrInstr.Call(c) => {
                     let cand = ir_find_inline(cands, c.callee)
+                    let mut handled = false
                     if cand.valid && cand.name != f.name {
                         if c.dst >= 0 {
                             if !cand.has_ret || cand.ret_op.is_const {
                                 push(&mut instrs, blk.instrs[i])
-                                i = i + 1
-                                continue
+                                handled = true
                             }
                         }
-                        let res = ir_inline_call(c, cand, next_temp, inline_id)
-                        instrs = ir_instr_list_concat(instrs, res.instrs)
-                        next_temp = res.next_temp
-                        inline_id = inline_id + 1
-                    } else {
+                        if !handled {
+                            let res = ir_inline_call(c, cand, next_temp, inline_id)
+                            instrs = ir_instr_list_concat(instrs, res.instrs)
+                            next_temp = res.next_temp
+                            inline_id = inline_id + 1
+                            handled = true
+                        }
+                    }
+                    if !handled {
                         push(&mut instrs, blk.instrs[i])
                     }
                 }
