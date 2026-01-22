@@ -428,7 +428,7 @@ fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
     }
     let name = declare_var(c, s.name, decl_t, s.mutable)
     let val = compile_expr(c, s.init, self_name)
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: val }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: val, ref: false, ref_temp: 0 }))
 }
 
 fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
@@ -443,23 +443,23 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
 
             // Check if this is a mutable captured variable
             if is_temp_ref(ir_name) && is_mutated_capture(c, id.name) {
-                // Mutable capture: ir_name is tN, use StoreRef
+                // Mutable capture: ir_name is tN, store through ref temp
                 let temp_val = parse_temp_name(ir_name)
-                emit_instr(c, IrInstr.StoreRef(IrStoreRef { ref: temp_val, src: val }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: "", src: val, ref: true, ref_temp: temp_val }))
             } else {
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val, ref: false, ref_temp: 0 }))
             }
         }
         .Deref(d) => {
             let r = compile_expr(c, d.expr, self_name)
             let val = compile_expr(c, s.value, self_name)
-            emit_instr(c, IrInstr.StoreRef(IrStoreRef { ref: r, src: val }))
+            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: "", src: val, ref: true, ref_temp: r }))
         }
         Expr.Index(ix) => {
             let recv = compile_expr(c, ix.recv, self_name)
             let idx = compile_expr(c, ix.index, self_name)
             let val = compile_expr(c, s.value, self_name)
-            emit_instr(c, IrInstr.SetIndex(IrSetIndex { array: recv, index: idx, src: val }))
+            emit_instr(c, IrInstr.SetIndex(IrSetIndex { array: recv, index: idx, src: val, unchecked: false }))
         }
         .Field(f) => {
             let recv = compile_expr(c, f.recv, self_name)
@@ -659,12 +659,12 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
             emit_instr(c, IrInstr.GetField(IrGetField { dst: field_val, src: scrut, field: f.name }))
             if f.bind {
                 let name = declare_var(c, f.name, ft, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val, ref: false, ref_temp: 0 }))
             } else if f.has_pattern {
                 match f.pattern {
                     .Bind(bp) => {
                         let name = declare_var(c, bp.name, ft, false)
-                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val }))
+                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val, ref: false, ref_temp: 0 }))
                     }
                     .Variant(vp) => {
                         if vp.has_binding {
@@ -676,7 +676,7 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
                             let payload = new_temp(c)
                             emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: field_val }))
                             let name = declare_var(c, vp.binding, payload_type, false)
-                            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload }))
+                            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload, ref: false, ref_temp: 0 }))
                         }
                     }
                     Pattern.Struct(sp2) => {
@@ -695,7 +695,7 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
         .Bind(bp) => {
             if bp.name != "" {
                 let name = declare_var(c, bp.name, scrut_type, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: scrut }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: scrut, ref: false, ref_temp: 0 }))
             }
         }
         .Variant(vp) => {
@@ -708,7 +708,7 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
                 emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: scrut }))
                 let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                 let name = declare_var(c, vp.binding, payload_type, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload, ref: false, ref_temp: 0 }))
             }
         }
         Pattern.Struct(sp) => {
@@ -724,7 +724,7 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
     if compiler_type_is_ref(c, scrut_type) {
         let base = compiler_deref_type(c, scrut_type)
         let tmp = new_temp(c)
-        emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: tmp, src: scrut }))
+        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: tmp, name: "", addr: false, ref: true, ref_temp: scrut }))
         scrut = tmp
         scrut_type = base
     }
@@ -894,7 +894,7 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
     if compiler_type_is_ref(c, scrut_type) {
         let base = compiler_deref_type(c, scrut_type)
         let tmp = new_temp(c)
-        emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: tmp, src: scrut }))
+        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: tmp, name: "", addr: false, ref: true, ref_temp: scrut }))
         scrut = tmp
         scrut_type = base
     }
@@ -1080,7 +1080,7 @@ fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, targ
     let unit = new_temp(c)
     emit_instr(c, IrInstr.Const(IrConst { dst: unit, value: ir_value_unit() }))
     if len(block.stmts) == 0 {
-        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit }))
+        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit, ref: false, ref_temp: 0 }))
         pop_scope(c)
         return
     }
@@ -1090,12 +1090,12 @@ fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, targ
             match block.stmts[i] {
                 Stmt.Expr(e) => {
                     let v = compile_expr(c, e.expr, self_name)
-                    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: v }))
+                    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: v, ref: false, ref_temp: 0 }))
                 }
                 _ => {
                     compile_stmt(c, block.stmts[i], self_name)
                     if !current_block_has_term(c) {
-                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit }))
+                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit, ref: false, ref_temp: 0 }))
                     }
                 }
             }
@@ -1113,14 +1113,14 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
     if compiler_type_is_ref(c, scrut_type) {
         let base = compiler_deref_type(c, scrut_type)
         let tmp = new_temp(c)
-        emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: tmp, src: scrut }))
+        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: tmp, name: "", addr: false, ref: true, ref_temp: scrut }))
         scrut = tmp
         scrut_type = base
     }
     let res_name = declare_var(c, "$iflet", 0, false)
     let init = new_temp(c)
     emit_instr(c, IrInstr.Const(IrConst { dst: init, value: ir_value_unit() }))
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: res_name, src: init }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: res_name, src: init, ref: false, ref_temp: 0 }))
 
     let after = new_block(c, "iflet_after")
     let then_block = new_block(c, "iflet_then")
@@ -1157,7 +1157,7 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
 
     set_current_block(c, after)
     let out = new_temp(c)
-    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name, addr: false }))
+    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name, addr: false, ref: false, ref_temp: 0 }))
     return out
 }
 
@@ -1200,11 +1200,11 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                     // Mutable capture: ir_name is tN, need to dereference
                     let temp_val = parse_temp_name(ir_name)
                     let t = new_temp(c)
-                    emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: t, src: temp_val }))
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: "", addr: false, ref: true, ref_temp: temp_val }))
                     return t
                 }
                 let t = new_temp(c)
-                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false }))
+                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
                 return t
             }
             let cq = compiler_resolve_const_name(c, id.name)
@@ -1229,7 +1229,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         return const_zero(c)
                     }
                     let t = new_temp(c)
-                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true }))
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true, ref: false, ref_temp: 0 }))
                     return t
                 }
                 _ => {
@@ -1241,7 +1241,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .Deref(d) => {
             let src = compile_expr(c, d.expr, self_name)
             let t = new_temp(c)
-            emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: t, src: src }))
+            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: "", addr: false, ref: true, ref_temp: src }))
             return t
         }
         .Unary(u) => {
@@ -1282,7 +1282,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                     if ir_name != "" {
                         // Closure call - load closure value and call dynamically
                         let closure_temp = new_temp(c)
-                        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: closure_temp, name: ir_name, addr: false }))
+                        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: closure_temp, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
                         let dst = new_temp(c)
                         emit_instr(c, IrInstr.CallClosure(IrCallClosure { dst: dst, closure: closure_temp, args: args }))
                         return dst
@@ -1377,7 +1377,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let recv = compile_expr(c, ix.recv, self_name)
             let idx = compile_expr(c, ix.index, self_name)
             let dst = new_temp(c)
-            emit_instr(c, IrInstr.Index(IrIndex { dst: dst, array: recv, index: idx }))
+            emit_instr(c, IrInstr.Index(IrIndex { dst: dst, array: recv, index: idx, unchecked: false }))
             return dst
         }
         Expr.IfLet(x) => {
@@ -1453,7 +1453,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             if has_env {
                 let env_var = lookup_var(c, "$env")
                 let env_loaded = new_temp(c)
-                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: env_loaded, name: env_var, addr: false }))
+                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: env_loaded, name: env_var, addr: false, ref: false, ref_temp: 0 }))
 
                 let mut k = 0
                 while k < len(free_vars) {
@@ -1540,12 +1540,12 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         if is_mut {
                             // Mutable capture: take address
                             let addr_temp = new_temp(c)
-                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: addr_temp, name: ir_name, addr: true }))
+                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: addr_temp, name: ir_name, addr: true, ref: false, ref_temp: 0 }))
                             push(&mut env_fields, IrStructFieldInit { name: var_name, src: addr_temp })
                         } else {
                             // Immutable capture: load value
                             let loaded = new_temp(c)
-                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name, addr: false }))
+                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
                             push(&mut env_fields, IrStructFieldInit { name: var_name, src: loaded })
                         }
                     }
@@ -2178,7 +2178,7 @@ fn declare_captured_var(c: &mut Compiler, name: String, temp: i32) {
     // The temp holds either a value (immutable capture) or a reference (mutable capture)
     // We need to make this accessible via the variable name
     let var_name = declare_var(c, name, 0, false)
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: var_name, src: temp }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: var_name, src: temp, ref: false, ref_temp: 0 }))
 }
 
 // Check if a string is in temp format (tN)

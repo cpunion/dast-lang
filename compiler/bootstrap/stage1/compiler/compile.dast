@@ -300,7 +300,7 @@ fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
     }
     let name = declare_var(c, s.name, decl_t, s.mutable)
     let val = compile_expr(c, s.init, self_name)
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: val }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: val, ref: false, ref_temp: 0 }))
 }
 
 fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
@@ -312,12 +312,12 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
                 return
             }
             let val = compile_expr(c, s.value, self_name)
-            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val }))
+            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val, ref: false, ref_temp: 0 }))
         }
         .Deref(d) => {
             let r = compile_expr(c, d.expr, self_name)
             let val = compile_expr(c, s.value, self_name)
-            emit_instr(c, IrInstr.StoreRef(IrStoreRef { ref: r, src: val }))
+            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: "", src: val, ref: true, ref_temp: r }))
         }
         Expr.Index(ix) => {
             let recv = compile_expr(c, ix.recv, self_name)
@@ -537,7 +537,7 @@ fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, enum_name: Str
                 emit_instr(c, IrInstr.GetField(IrGetField { dst: payload, src: scrut, field: "_payload" }))
                 let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                 let name = declare_var(c, vp.binding, payload_type, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload, ref: false, ref_temp: 0 }))
             }
         }
         _ => {}
@@ -585,7 +585,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let ir_name = lookup_var(c, id.name)
             if ir_name != "" {
                     let t = new_temp(c)
-                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false }))
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
                 return t
             }
             let cidx = find_const_decl(c.consts, id.name)
@@ -609,7 +609,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         return const_zero(c)
                     }
                     let t = new_temp(c)
-                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true }))
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true, ref: false, ref_temp: 0 }))
                     return t
                 }
                 _ => {
@@ -621,7 +621,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .Deref(d) => {
             let src = compile_expr(c, d.expr, self_name)
             let t = new_temp(c)
-            emit_instr(c, IrInstr.LoadRef(IrLoadRef { dst: t, src: src }))
+            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: "", addr: false, ref: true, ref_temp: src }))
             return t
         }
         .Unary(u) => {

@@ -189,15 +189,11 @@ v0 支持 8 种运行时值：
 ### 常量/变量
 
 - `Const dst, value`
-- `LoadVar dst, name`（可选 `@addr` / 文本语法 `load_addr`，返回指向变量的引用）
+- `LoadVar dst, name`
+  - `@addr`（文本语法 `load_addr`）：返回指向变量的引用
+  - `@ref`（文本语法 `load_ref tX`）：从引用 temp 解引用读取
 - `StoreVar name, src`
-
-### 引用与解引用
-
-- `LoadRef dst, src`
-  `src` 必须为 `ref`。
-- `StoreRef ref, src`
-  `ref` 必须为 `ref`。
+  - `@ref`（文本语法 `store_ref tX, src`）：通过引用 temp 写入
 
 ### 一元/二元运算
 

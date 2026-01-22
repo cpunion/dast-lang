@@ -68,7 +68,7 @@ func (c *Compiler) compileAssign(s *ast.AssignStmt) {
 	case *ast.DerefExpr:
 		refTemp := c.compileExpr(target.Expr)
 		val := c.compileExpr(s.Value)
-		c.emit(&ir.StoreRef{Ref: refTemp, Src: val})
+		c.emit(&ir.StoreVar{Ref: true, RefTemp: refTemp, Src: val})
 	case *ast.IndexExpr:
 		arrayTemp := c.compileExpr(target.Receiver)
 		indexTemp := c.compileExpr(target.Index)

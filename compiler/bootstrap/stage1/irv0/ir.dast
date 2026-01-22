@@ -138,21 +138,15 @@ struct IrLoadVar {
     dst: i32,
     name: String,
     addr: bool,
+    ref: bool,
+    ref_temp: i32,
 }
 
 struct IrStoreVar {
     name: String,
     src: i32,
-}
-
-struct IrLoadRef {
-    dst: i32,
-    src: i32,
-}
-
-struct IrStoreRef {
-    ref: i32,
-    src: i32,
+    ref: bool,
+    ref_temp: i32,
 }
 
 struct IrBinOp {
@@ -220,8 +214,6 @@ enum IrInstr {
     Const(IrConst),
     LoadVar(IrLoadVar),
     StoreVar(IrStoreVar),
-    LoadRef(IrLoadRef),
-    StoreRef(IrStoreRef),
     BinOp(IrBinOp),
     UnaryOp(IrUnaryOp),
     Call(IrCall),
@@ -300,13 +292,17 @@ fn ir_instr_string(inst: IrInstr) -> String {
     match inst {
         IrInstr.Const(i) => { return "t" + int_to_string(i.dst) + " = const " + ir_value_stringify(i.value) }
         .LoadVar(i) => {
+            if i.ref {
+                return "t" + int_to_string(i.dst) + " = load_ref t" + int_to_string(i.ref_temp)
+            }
             let mut op = "load"
             if i.addr { op = "load_addr" }
             return "t" + int_to_string(i.dst) + " = " + op + " " + i.name
         }
-        .StoreVar(i) => { return "store " + i.name + ", t" + int_to_string(i.src) }
-        .LoadRef(i) => { return "t" + int_to_string(i.dst) + " = load_ref t" + int_to_string(i.src) }
-        .StoreRef(i) => { return "store_ref t" + int_to_string(i.ref) + ", t" + int_to_string(i.src) }
+        .StoreVar(i) => {
+            if i.ref { return "store_ref t" + int_to_string(i.ref_temp) + ", t" + int_to_string(i.src) }
+            return "store " + i.name + ", t" + int_to_string(i.src)
+        }
         .BinOp(i) => {
             return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.lhs) + ", t" + int_to_string(i.rhs)
         }
@@ -707,7 +703,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
         let src = parse_temp_name(substr(rest, comma + 1, len(rest) - comma - 1))
         let mut max = r
         if src > max { max = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreRef(IrStoreRef { ref: r, src: src }), term: ir_term_none(), max_temp: max, error: "" }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: "", src: src, ref: true, ref_temp: r }), term: ir_term_none(), max_temp: max, error: "" }
     }
     if has_prefix(l, "store ") {
         let rest = trim_space(substr(l, 6, len(l) - 6))
@@ -715,7 +711,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if comma < 0 { return ir_line_parse_error("invalid store syntax") }
         let name = trim_space(substr(rest, 0, comma))
         let src = parse_temp_name(substr(rest, comma + 1, len(rest) - comma - 1))
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: name, src: src }), term: ir_term_none(), max_temp: src, error: "" }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: name, src: src, ref: false, ref_temp: 0 }), term: ir_term_none(), max_temp: src, error: "" }
     }
     if has_prefix(l, "set_index_unchecked ") {
         let rest = trim_space(substr(l, 20, len(l) - 20))
@@ -795,17 +791,17 @@ fn ir_parse_line(line: String) -> IrLineParse {
         }
         if has_prefix(right, "load_addr ") {
             let name = trim_space(substr(right, 10, len(right) - 10))
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadVar(IrLoadVar { dst: dst, name: name, addr: true }), term: ir_term_none(), max_temp: dst, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadVar(IrLoadVar { dst: dst, name: name, addr: true, ref: false, ref_temp: 0 }), term: ir_term_none(), max_temp: dst, error: "" }
         }
         if has_prefix(right, "load ") {
             let name = trim_space(substr(right, 5, len(right) - 5))
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadVar(IrLoadVar { dst: dst, name: name, addr: false }), term: ir_term_none(), max_temp: dst, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadVar(IrLoadVar { dst: dst, name: name, addr: false, ref: false, ref_temp: 0 }), term: ir_term_none(), max_temp: dst, error: "" }
         }
         if has_prefix(right, "load_ref ") {
             let src = parse_temp_name(substr(right, 9, len(right) - 9))
             let mut max = dst
             if src > max { max = src }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadRef(IrLoadRef { dst: dst, src: src }), term: ir_term_none(), max_temp: max, error: "" }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadVar(IrLoadVar { dst: dst, name: "", addr: false, ref: true, ref_temp: src }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "call ") {
             let rest = trim_space(substr(right, 5, len(right) - 5))
@@ -1123,22 +1119,22 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
     match inst {
         IrInstr.Const(i) => { return ir_validate_temp(i.dst, temp_count, false) }
         .LoadVar(i) => {
+            if i.ref {
+                let err = ir_validate_temp(i.ref_temp, temp_count, false)
+                if err != "" { return err }
+                return ir_validate_temp(i.dst, temp_count, false)
+            }
             if i.name == "" { return "load var name is empty" }
             if !ir_string_list_contains(declared, i.name) { return "undefined variable '" + i.name + "'" }
             return ir_validate_temp(i.dst, temp_count, false)
         }
         .StoreVar(i) => {
+            if i.ref {
+                let err = ir_validate_temp(i.ref_temp, temp_count, false)
+                if err != "" { return err }
+                return ir_validate_temp(i.src, temp_count, false)
+            }
             if i.name == "" { return "store var name is empty" }
-            return ir_validate_temp(i.src, temp_count, false)
-        }
-        .LoadRef(i) => {
-            let err = ir_validate_temp(i.dst, temp_count, false)
-            if err != "" { return err }
-            return ir_validate_temp(i.src, temp_count, false)
-        }
-        .StoreRef(i) => {
-            let err = ir_validate_temp(i.ref, temp_count, false)
-            if err != "" { return err }
             return ir_validate_temp(i.src, temp_count, false)
         }
         .BinOp(i) => {
@@ -1594,11 +1590,15 @@ fn ir_validate_def_assign(f: IrFunction) -> String {
             while ii2 < len(blk.instrs) {
                 match blk.instrs[ii2] {
                     .LoadVar(l) => {
-                        if !ir_varset_has_name(cur, var_map, l.name) {
+                        if l.ref {
+                            // skip ref deref: not a named variable load
+                        } else if !ir_varset_has_name(cur, var_map, l.name) {
                             return "use of possibly uninitialized variable '" + l.name + "'"
                         }
                     }
-                    .StoreVar(s) => { ir_varset_add_name(&mut cur, var_map, s.name) }
+                    .StoreVar(s) => {
+                        if !s.ref { ir_varset_add_name(&mut cur, var_map, s.name) }
+                    }
                     _ => {}
                 }
                 ii2 = ii2 + 1
@@ -1761,10 +1761,14 @@ fn ir_instr_temps(inst: IrInstr) -> [i32] {
     let mut out: [i32] = []
     match inst {
         IrInstr.Const(i) => { push(&mut out, i.dst) }
-        .LoadVar(i) => { push(&mut out, i.dst) }
-        .StoreVar(i) => { push(&mut out, i.src) }
-        .LoadRef(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
-        .StoreRef(i) => { push(&mut out, i.ref); push(&mut out, i.src) }
+        .LoadVar(i) => {
+            push(&mut out, i.dst)
+            if i.ref { push(&mut out, i.ref_temp) }
+        }
+        .StoreVar(i) => {
+            if i.ref { push(&mut out, i.ref_temp) }
+            push(&mut out, i.src)
+        }
         .BinOp(i) => { push(&mut out, i.dst); push(&mut out, i.lhs); push(&mut out, i.rhs) }
         .UnaryOp(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
         IrInstr.Call(i) => {
@@ -1922,7 +1926,10 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                 ir_const_map_set(&mut consts, c.dst, c.value)
             }
             .LoadVar(c) => {
-                if c.addr {
+                if c.ref {
+                    push(&mut instrs, inst)
+                    ir_const_map_clear(&mut consts, c.dst)
+                } else if c.addr {
                     push(&mut instrs, inst)
                     ir_const_map_clear(&mut consts, c.dst)
                     ir_varconst_clear(&mut var_consts, c.name)
@@ -1938,20 +1945,14 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             }
             .StoreVar(c) => {
                 push(&mut instrs, inst)
-                if ir_const_map_has(&consts, c.src) {
+                if c.ref {
+                    ir_varconst_clear_all(&mut var_consts)
+                } else if ir_const_map_has(&consts, c.src) {
                     let v = ir_const_map_get(&consts, c.src)
                     ir_varconst_set(&mut var_consts, c.name, v)
                 } else {
                     ir_varconst_clear(&mut var_consts, c.name)
                 }
-            }
-            .LoadRef(c) => {
-                push(&mut instrs, inst)
-                ir_const_map_clear(&mut consts, c.dst)
-            }
-            .StoreRef(_) => {
-                push(&mut instrs, inst)
-                ir_varconst_clear_all(&mut var_consts)
             }
             .UnaryOp(c) => {
                 let mut folded = false
@@ -2249,7 +2250,7 @@ fn ir_inline_call(call: IrCall, cand: IrInlineCandidate, next_temp: i32, inline_
     while p < len(cand.func.params) {
         if p < len(call.args) {
             let new_name = ir_inline_map_var(cand.func.params[p], &mut var_names, &mut var_vals, prefix)
-            push(&mut out, IrInstr.StoreVar(IrStoreVar { name: new_name, src: call.args[p] }))
+            push(&mut out, IrInstr.StoreVar(IrStoreVar { name: new_name, src: call.args[p], ref: false, ref_temp: 0 }))
         }
         p = p + 1
     }
@@ -2292,18 +2293,18 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
             return IrInstr.Const(IrConst { dst: ir_inline_remap_temp(temp_map, i.dst), value: i.value })
         }
         .LoadVar(i) => {
-            let nm = ir_inline_map_var(i.name, names, vals, prefix)
-            return IrInstr.LoadVar(IrLoadVar { dst: ir_inline_remap_temp(temp_map, i.dst), name: nm, addr: i.addr })
+            let mut nm = i.name
+            if !i.ref { nm = ir_inline_map_var(i.name, names, vals, prefix) }
+            let mut ref_temp = i.ref_temp
+            if i.ref { ref_temp = ir_inline_remap_temp(temp_map, i.ref_temp) }
+            return IrInstr.LoadVar(IrLoadVar { dst: ir_inline_remap_temp(temp_map, i.dst), name: nm, addr: i.addr, ref: i.ref, ref_temp: ref_temp })
         }
         .StoreVar(i) => {
-            let nm = ir_inline_map_var(i.name, names, vals, prefix)
-            return IrInstr.StoreVar(IrStoreVar { name: nm, src: ir_inline_remap_temp(temp_map, i.src) })
-        }
-        .LoadRef(i) => {
-            return IrInstr.LoadRef(IrLoadRef { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_temp(temp_map, i.src) })
-        }
-        .StoreRef(i) => {
-            return IrInstr.StoreRef(IrStoreRef { ref: ir_inline_remap_temp(temp_map, i.ref), src: ir_inline_remap_temp(temp_map, i.src) })
+            let mut nm = i.name
+            if !i.ref { nm = ir_inline_map_var(i.name, names, vals, prefix) }
+            let mut ref_temp = i.ref_temp
+            if i.ref { ref_temp = ir_inline_remap_temp(temp_map, i.ref_temp) }
+            return IrInstr.StoreVar(IrStoreVar { name: nm, src: ir_inline_remap_temp(temp_map, i.src), ref: i.ref, ref_temp: ref_temp })
         }
         .BinOp(i) => {
             return IrInstr.BinOp(IrBinOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, lhs: ir_inline_remap_temp(temp_map, i.lhs), rhs: ir_inline_remap_temp(temp_map, i.rhs) })

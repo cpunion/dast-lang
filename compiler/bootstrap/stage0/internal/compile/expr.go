@@ -102,7 +102,7 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		src := c.compileExpr(e.Expr)
 		t := c.newTemp()
 		c.setTempType(t, "i64") // Dereferenced type
-		c.emit(&ir.LoadRef{Dst: t, Src: src})
+		c.emit(&ir.LoadVar{Dst: t, Ref: true, RefTemp: src})
 		return t
 	case *ast.UnaryExpr:
 		src := c.compileOperand(e.Expr)

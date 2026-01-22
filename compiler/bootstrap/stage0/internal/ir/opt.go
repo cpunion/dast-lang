@@ -48,6 +48,10 @@ func optimizeBlock(blk *Block) {
 		case *Const:
 			consts[v.Dst] = v.Value
 		case *LoadVar:
+			if v.Ref {
+				delete(consts, v.Dst)
+				continue
+			}
 			if v.Addr {
 				delete(consts, v.Dst)
 				delete(varConsts, v.Name)
@@ -58,8 +62,6 @@ func optimizeBlock(blk *Block) {
 				consts[v.Dst] = val
 				continue
 			}
-			delete(consts, v.Dst)
-		case *LoadRef:
 			delete(consts, v.Dst)
 		case *UnaryOp:
 			if c, ok := getOperandConst(v.Src); ok {
@@ -113,15 +115,14 @@ func optimizeBlock(blk *Block) {
 			}
 		}
 		if sv, ok := inst.(*StoreVar); ok {
-			if val, ok := consts[sv.Src]; ok {
+			if sv.Ref {
+				for name := range varConsts {
+					delete(varConsts, name)
+				}
+			} else if val, ok := consts[sv.Src]; ok {
 				varConsts[sv.Name] = val
 			} else {
 				delete(varConsts, sv.Name)
-			}
-		}
-		if _, ok := inst.(*StoreRef); ok {
-			for name := range varConsts {
-				delete(varConsts, name)
 			}
 		}
 	}
@@ -270,13 +271,15 @@ func instrTemps(inst Instr) []int {
 	case *Const:
 		return []int{v.Dst}
 	case *LoadVar:
+		if v.Ref {
+			return []int{v.Dst, v.RefTemp}
+		}
 		return []int{v.Dst}
 	case *StoreVar:
+		if v.Ref {
+			return []int{v.RefTemp, v.Src}
+		}
 		return []int{v.Src}
-	case *LoadRef:
-		return []int{v.Dst, v.Src}
-	case *StoreRef:
-		return []int{v.Ref, v.Src}
 	case *BinOp:
 		out := []int{v.Dst}
 		out = append(out, getTemp(v.Lhs)...)
@@ -426,13 +429,17 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 	case *Const:
 		return &Const{Dst: remap(v.Dst), Value: v.Value}
 	case *LoadVar:
-		return &LoadVar{Dst: remap(v.Dst), Name: mapVar(v.Name), Addr: v.Addr}
+		remapped := &LoadVar{Dst: remap(v.Dst), Name: mapVar(v.Name), Addr: v.Addr, Ref: v.Ref, RefTemp: v.RefTemp}
+		if v.Ref {
+			remapped.RefTemp = remap(v.RefTemp)
+		}
+		return remapped
 	case *StoreVar:
-		return &StoreVar{Name: mapVar(v.Name), Src: remap(v.Src)}
-	case *LoadRef:
-		return &LoadRef{Dst: remap(v.Dst), Src: remap(v.Src)}
-	case *StoreRef:
-		return &StoreRef{Ref: remap(v.Ref), Src: remap(v.Src)}
+		remapped := &StoreVar{Name: mapVar(v.Name), Src: remap(v.Src), Ref: v.Ref, RefTemp: v.RefTemp}
+		if v.Ref {
+			remapped.RefTemp = remap(v.RefTemp)
+		}
+		return remapped
 	case *BinOp:
 		return &BinOp{Dst: remap(v.Dst), Op: v.Op, Lhs: remapOperand(v.Lhs), Rhs: remapOperand(v.Rhs)}
 	case *UnaryOp:

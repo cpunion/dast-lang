@@ -202,7 +202,7 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			return lineParse{}, err
 		}
 		max := maxTempIdx(ref, src)
-		return lineParse{instr: &StoreRef{Ref: ref, Src: src}, maxTemp: max}, nil
+		return lineParse{instr: &StoreVar{Ref: true, RefTemp: ref, Src: src}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "store ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "store "))
@@ -328,7 +328,7 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: &LoadRef{Dst: dst, Src: src}, maxTemp: maxTempIdx(dst, src)}, nil
+			return lineParse{instr: &LoadVar{Dst: dst, Ref: true, RefTemp: src}, maxTemp: maxTempIdx(dst, src)}, nil
 		case strings.HasPrefix(right, "call "):
 			call, max, err := parseCallWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "call ")), dst, ctx)
 			if err != nil {

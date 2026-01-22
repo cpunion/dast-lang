@@ -62,17 +62,31 @@ call foo(t0)
 - 独立的 AddrOf 指令删除
 - 指令数: 17 → 16 (减少 1 个)
 
-## 当前 IR v0 指令集 (16 个)
+### 4. 合并 LoadRef/StoreRef
+
+**修改前**：
+```
+t0 = load_ref t1
+store_ref t1, t2
+```
+
+**修改后**：
+```
+t0 = load_ref t1        // LoadVar + @ref
+store_ref t1, t2        // StoreVar + @ref
+```
+
+- LoadVar/StoreVar 新增 `@ref`（文本语法 `load_ref` / `store_ref`）
+- 移除 LoadRef、StoreRef 两个指令
+- 指令数: 16 → 14 (减少 2 个)
+
+## 当前 IR v0 指令集 (14 个)
 
 ```
 // 常量/变量 (3)
 Const dst, value
-LoadVar dst, name [, @addr]
-StoreVar name, src
-
-// 引用 (2)
-LoadRef dst, src
-StoreRef ref, src
+LoadVar dst, name [, @addr] [, @ref]
+StoreVar name, src [, @ref]
 
 // 运算 (2)
 BinOp dst, op, lhs, rhs

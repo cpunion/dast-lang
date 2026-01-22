@@ -161,42 +161,43 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
     match inst {
         IrInstr.Const(i) => { set_temp(rt, fr, i.dst, i.value) }
         .LoadVar(i) => {
-            let addr = find_var_addr(fr, i.name)
-            if addr < 0 {
-                runtime_error(rt, "undefined variable '" + i.name + "'")
-                return
-            }
-            if i.addr {
-                set_temp(rt, fr, i.dst, ir_value_ref(addr))
-            } else {
-                let v = heap_get(rt, addr)
+            if i.ref {
+                let r = get_temp(rt, fr, i.ref_temp)
+                let v = deref_value(rt, r)
                 set_temp(rt, fr, i.dst, v)
+            } else {
+                let addr = find_var_addr(fr, i.name)
+                if addr < 0 {
+                    runtime_error(rt, "undefined variable '" + i.name + "'")
+                    return
+                }
+                if i.addr {
+                    set_temp(rt, fr, i.dst, ir_value_ref(addr))
+                } else {
+                    let v = heap_get(rt, addr)
+                    set_temp(rt, fr, i.dst, v)
+                }
             }
         }
         .StoreVar(i) => {
-            let addr = find_var_addr(fr, i.name)
             let v = get_temp(rt, fr, i.src)
-            if addr < 0 {
-                let new_addr = heap_alloc(rt, v)
-                let mut names = fr.var_names
-                let mut addrs = fr.var_addrs
-                push(&mut names, i.name)
-                push(&mut addrs, new_addr)
-                fr.var_names = names
-                fr.var_addrs = addrs
+            if i.ref {
+                let r = get_temp(rt, fr, i.ref_temp)
+                store_ref(rt, r, v)
             } else {
-                heap_set(rt, addr, v)
+                let addr = find_var_addr(fr, i.name)
+                if addr < 0 {
+                    let new_addr = heap_alloc(rt, v)
+                    let mut names = fr.var_names
+                    let mut addrs = fr.var_addrs
+                    push(&mut names, i.name)
+                    push(&mut addrs, new_addr)
+                    fr.var_names = names
+                    fr.var_addrs = addrs
+                } else {
+                    heap_set(rt, addr, v)
+                }
             }
-        }
-        .LoadRef(i) => {
-            let r = get_temp(rt, fr, i.src)
-            let v = deref_value(rt, r)
-            set_temp(rt, fr, i.dst, v)
-        }
-        .StoreRef(i) => {
-            let r = get_temp(rt, fr, i.ref)
-            let v = get_temp(rt, fr, i.src)
-            store_ref(rt, r, v)
         }
         .UnaryOp(i) => {
             let v = get_temp(rt, fr, i.src)

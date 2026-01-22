@@ -12,6 +12,17 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 	case *ir.Const:
 		return rt.setTemp(fr, i.Dst, i.Value)
 	case *ir.LoadVar:
+		if i.Ref {
+			ref, err := rt.getTemp(fr, i.RefTemp)
+			if err != nil {
+				return err
+			}
+			val, err := rt.deref(ref)
+			if err != nil {
+				return err
+			}
+			return rt.setTemp(fr, i.Dst, val)
+		}
 		ptr, ok := fr.vars[i.Name]
 		if !ok {
 			return fmt.Errorf("undefined variable '%s'", i.Name)
@@ -26,6 +37,17 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		return rt.setTemp(fr, i.Dst, *ptr)
 	case *ir.StoreVar:
+		if i.Ref {
+			ref, err := rt.getTemp(fr, i.RefTemp)
+			if err != nil {
+				return err
+			}
+			val, err := rt.getTemp(fr, i.Src)
+			if err != nil {
+				return err
+			}
+			return rt.storeRef(ref, val)
+		}
 		val, err := rt.getTemp(fr, i.Src)
 		if err != nil {
 			return err
@@ -39,26 +61,6 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		*ptr = val
 		return nil
-	case *ir.LoadRef:
-		ref, err := rt.getTemp(fr, i.Src)
-		if err != nil {
-			return err
-		}
-		val, err := rt.deref(ref)
-		if err != nil {
-			return err
-		}
-		return rt.setTemp(fr, i.Dst, val)
-	case *ir.StoreRef:
-		ref, err := rt.getTemp(fr, i.Ref)
-		if err != nil {
-			return err
-		}
-		val, err := rt.getTemp(fr, i.Src)
-		if err != nil {
-			return err
-		}
-		return rt.storeRef(ref, val)
 	case *ir.UnaryOp:
 		val, err := rt.evalOperand(fr, i.Src)
 		if err != nil {

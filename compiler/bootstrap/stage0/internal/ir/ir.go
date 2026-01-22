@@ -190,13 +190,18 @@ func (i *Const) String() string {
 }
 
 type LoadVar struct {
-	Dst   int
-	Name  string
-	Addr  bool
+	Dst     int
+	Name    string
+	Addr    bool
+	Ref     bool
+	RefTemp int
 }
 
 func (i *LoadVar) instrNode() {}
 func (i *LoadVar) String() string {
+	if i.Ref {
+		return fmt.Sprintf("t%d = load_ref t%d", i.Dst, i.RefTemp)
+	}
 	if i.Addr {
 		return fmt.Sprintf("t%d = load_addr %s", i.Dst, i.Name)
 	}
@@ -204,33 +209,18 @@ func (i *LoadVar) String() string {
 }
 
 type StoreVar struct {
-	Name string
-	Src  int
+	Name    string
+	Src     int
+	Ref     bool
+	RefTemp int
 }
 
 func (i *StoreVar) instrNode() {}
 func (i *StoreVar) String() string {
+	if i.Ref {
+		return fmt.Sprintf("store_ref t%d, t%d", i.RefTemp, i.Src)
+	}
 	return fmt.Sprintf("store %s, t%d", i.Name, i.Src)
-}
-
-type LoadRef struct {
-	Dst int
-	Src int
-}
-
-func (i *LoadRef) instrNode() {}
-func (i *LoadRef) String() string {
-	return fmt.Sprintf("t%d = load_ref t%d", i.Dst, i.Src)
-}
-
-type StoreRef struct {
-	Ref int
-	Src int
-}
-
-func (i *StoreRef) instrNode() {}
-func (i *StoreRef) String() string {
-	return fmt.Sprintf("store_ref t%d, t%d", i.Ref, i.Src)
 }
 
 type BinOp struct {
@@ -634,6 +624,12 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 	case *Const:
 		return validateTemp(i.Dst, tempCount, false)
 	case *LoadVar:
+		if i.Ref {
+			if err := validateTemp(i.RefTemp, tempCount, false); err != nil {
+				return err
+			}
+			return validateTemp(i.Dst, tempCount, false)
+		}
 		if i.Name == "" {
 			return fmt.Errorf("load var name is empty")
 		}
@@ -642,18 +638,14 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 		}
 		return validateTemp(i.Dst, tempCount, false)
 	case *StoreVar:
+		if i.Ref {
+			if err := validateTemp(i.RefTemp, tempCount, false); err != nil {
+				return err
+			}
+			return validateTemp(i.Src, tempCount, false)
+		}
 		if i.Name == "" {
 			return fmt.Errorf("store var name is empty")
-		}
-		return validateTemp(i.Src, tempCount, false)
-	case *LoadRef:
-		if err := validateTemp(i.Dst, tempCount, false); err != nil {
-			return err
-		}
-		return validateTemp(i.Src, tempCount, false)
-	case *StoreRef:
-		if err := validateTemp(i.Ref, tempCount, false); err != nil {
-			return err
 		}
 		return validateTemp(i.Src, tempCount, false)
 	case *BinOp:
@@ -863,10 +855,16 @@ func validateDefiniteAssignment(fn *Function) error {
 		for _, inst := range blk.Instr {
 			switch v := inst.(type) {
 			case *LoadVar:
+				if v.Ref {
+					continue
+				}
 				if _, ok := cur[v.Name]; !ok {
 					return fmt.Errorf("use of possibly uninitialized variable '%s'", v.Name)
 				}
 			case *StoreVar:
+				if v.Ref {
+					continue
+				}
 				if v.Name != "" {
 					cur[v.Name] = struct{}{}
 				}
