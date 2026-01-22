@@ -1,12 +1,21 @@
+# 1. 忽略所有文件 (Ignore everything)
+*
+
+# 2. 但是！不要忽略文件夹 (Keep directories)
+!*/
+
+# 3. 但是！不要忽略任何带后缀的文件 (Keep files with extensions)
+!*.*
+
+# 4. (重要) 手动“放行”那些必须提交、但没有后缀的特殊文件
+!gitignore
+!Makefile
+!Dockerfile
+!LICENSE
+!README
+
 # VSCode extension build artifacts
-compiler/stage3/vscode-ext/node_modules/
-compiler/stage3/vscode-ext/out/
-compiler/stage3/vscode-ext/*.vsix
-
-# Stage0 compiler build output
-compiler/bootstrap/stage0/dast
-compiler/bootstrap/stage0/dast-stage0
-
-# Nested website repository
-dast-lang.github.io/
+node_modules/
 target/
+out/
+*.vsix
