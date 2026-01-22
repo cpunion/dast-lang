@@ -48,14 +48,16 @@ func optimizeBlock(blk *Block) {
 		case *Const:
 			consts[v.Dst] = v.Value
 		case *LoadVar:
+			if v.Addr {
+				delete(consts, v.Dst)
+				delete(varConsts, v.Name)
+				continue
+			}
 			if val, ok := varConsts[v.Name]; ok {
 				blk.Instr[i] = &Const{Dst: v.Dst, Value: val}
 				consts[v.Dst] = val
 				continue
 			}
-			delete(consts, v.Dst)
-		case *AddrOf:
-			delete(varConsts, v.Name)
 			delete(consts, v.Dst)
 		case *LoadRef:
 			delete(consts, v.Dst)
@@ -271,8 +273,6 @@ func instrTemps(inst Instr) []int {
 		return []int{v.Dst}
 	case *StoreVar:
 		return []int{v.Src}
-	case *AddrOf:
-		return []int{v.Dst}
 	case *LoadRef:
 		return []int{v.Dst, v.Src}
 	case *StoreRef:
@@ -426,11 +426,9 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 	case *Const:
 		return &Const{Dst: remap(v.Dst), Value: v.Value}
 	case *LoadVar:
-		return &LoadVar{Dst: remap(v.Dst), Name: mapVar(v.Name)}
+		return &LoadVar{Dst: remap(v.Dst), Name: mapVar(v.Name), Addr: v.Addr}
 	case *StoreVar:
 		return &StoreVar{Name: mapVar(v.Name), Src: remap(v.Src)}
-	case *AddrOf:
-		return &AddrOf{Dst: remap(v.Dst), Name: mapVar(v.Name)}
 	case *LoadRef:
 		return &LoadRef{Dst: remap(v.Dst), Src: remap(v.Src)}
 	case *StoreRef:
@@ -508,4 +506,3 @@ func pruneUnreachable(fn *Function) {
 	}
 	fn.Blocks = out
 }
-

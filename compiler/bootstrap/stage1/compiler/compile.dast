@@ -584,8 +584,8 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         Expr.Ident(id) => {
             let ir_name = lookup_var(c, id.name)
             if ir_name != "" {
-                let t = new_temp(c)
-                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name }))
+                    let t = new_temp(c)
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false }))
                 return t
             }
             let cidx = find_const_decl(c.consts, id.name)
@@ -609,7 +609,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         return const_zero(c)
                     }
                     let t = new_temp(c)
-                    emit_instr(c, IrInstr.AddrOf(IrAddrOf { dst: t, name: ir_name }))
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true }))
                     return t
                 }
                 _ => {

@@ -44,14 +44,31 @@ t4 = t2._payload     // GetField
 - Enum 在 IR 层面表示为 Struct，字段为 `_tag` 和 `_payload`
 - 指令数: 20 → 17 (减少 3 个)
 
-## 当前 IR v0 指令集 (17 个)
+### 3. LoadVar 支持取址（移除 AddrOf）
+
+**修改前**：
+```
+t0 = addr_of x
+call foo(t0)
+```
+
+**修改后**：
+```
+t0 = load_addr x
+call foo(t0)
+```
+
+- LoadVar 指令新增 `@addr`（文本语法 `load_addr`）用于生成引用值
+- 独立的 AddrOf 指令删除
+- 指令数: 17 → 16 (减少 1 个)
+
+## 当前 IR v0 指令集 (16 个)
 
 ```
-// 常量/变量 (4)
+// 常量/变量 (3)
 Const dst, value
-LoadVar dst, name
+LoadVar dst, name [, @addr]
 StoreVar name, src
-AddrOf dst, name
 
 // 引用 (2)
 LoadRef dst, src
@@ -80,22 +97,7 @@ Branch cond, then, else
 Return [value]
 ```
 
-## 待简化（可选）
-
-### 3. 移除 AddrOf
-
-```
-// 现在
-t0 = addr_of x
-call foo(t0)
-
-// 可简化为
-call foo(x)   // x 直接作为地址
-```
-
-影响：减少 1 个指令，但需更改调用约定
-
 ## 下一步
 
 - M5 后端测试完善
-- 可选：移除 AddrOf 指令
+- （空）新的 IR 简化需求待定

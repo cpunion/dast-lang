@@ -189,13 +189,11 @@ v0 支持 8 种运行时值：
 ### 常量/变量
 
 - `Const dst, value`
-- `LoadVar dst, name`
+- `LoadVar dst, name`（可选 `@addr` / 文本语法 `load_addr`，返回指向变量的引用）
 - `StoreVar name, src`
 
 ### 引用与解引用
 
-- `AddrOf dst, name`
-  取局部变量地址（heap slot）。
 - `LoadRef dst, src`
   `src` 必须为 `ref`。
 - `StoreRef ref, src`

@@ -16,6 +16,14 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		if !ok {
 			return fmt.Errorf("undefined variable '%s'", i.Name)
 		}
+		if i.Addr {
+			addr, ok := fr.varAddrs[i.Name]
+			if !ok {
+				addr = rt.allocAddr(ptr)
+				fr.varAddrs[i.Name] = addr
+			}
+			return rt.setTemp(fr, i.Dst, ir.Value{Kind: ir.KindRef, Ref: addr})
+		}
 		return rt.setTemp(fr, i.Dst, *ptr)
 	case *ir.StoreVar:
 		val, err := rt.getTemp(fr, i.Src)
@@ -31,17 +39,6 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		*ptr = val
 		return nil
-	case *ir.AddrOf:
-		addr, ok := fr.varAddrs[i.Name]
-		if !ok {
-			ptr, ok := fr.vars[i.Name]
-			if !ok {
-				return fmt.Errorf("undefined variable '%s'", i.Name)
-			}
-			addr = rt.allocAddr(ptr)
-			fr.varAddrs[i.Name] = addr
-		}
-		return rt.setTemp(fr, i.Dst, ir.Value{Kind: ir.KindRef, Ref: addr})
 	case *ir.LoadRef:
 		ref, err := rt.getTemp(fr, i.Src)
 		if err != nil {
@@ -341,4 +338,3 @@ func (rt *Runtime) setIndexUnchecked(arrayVal ir.Value, indexVal ir.Value, val i
 	arr.Elems[idx] = val
 	return nil
 }
-

@@ -1157,7 +1157,7 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
 
     set_current_block(c, after)
     let out = new_temp(c)
-    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name }))
+    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name, addr: false }))
     return out
 }
 
@@ -1204,7 +1204,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                     return t
                 }
                 let t = new_temp(c)
-                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name }))
+                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false }))
                 return t
             }
             let cq = compiler_resolve_const_name(c, id.name)
@@ -1229,7 +1229,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         return const_zero(c)
                     }
                     let t = new_temp(c)
-                    emit_instr(c, IrInstr.AddrOf(IrAddrOf { dst: t, name: ir_name }))
+                    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true }))
                     return t
                 }
                 _ => {
@@ -1282,7 +1282,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                     if ir_name != "" {
                         // Closure call - load closure value and call dynamically
                         let closure_temp = new_temp(c)
-                        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: closure_temp, name: ir_name }))
+                        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: closure_temp, name: ir_name, addr: false }))
                         let dst = new_temp(c)
                         emit_instr(c, IrInstr.CallClosure(IrCallClosure { dst: dst, closure: closure_temp, args: args }))
                         return dst
@@ -1453,7 +1453,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             if has_env {
                 let env_var = lookup_var(c, "$env")
                 let env_loaded = new_temp(c)
-                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: env_loaded, name: env_var }))
+                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: env_loaded, name: env_var, addr: false }))
 
                 let mut k = 0
                 while k < len(free_vars) {
@@ -1538,14 +1538,14 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         }
 
                         if is_mut {
-                            // Mutable capture: use AddrOf
+                            // Mutable capture: take address
                             let addr_temp = new_temp(c)
-                            emit_instr(c, IrInstr.AddrOf(IrAddrOf { dst: addr_temp, name: ir_name }))
+                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: addr_temp, name: ir_name, addr: true }))
                             push(&mut env_fields, IrStructFieldInit { name: var_name, src: addr_temp })
                         } else {
                             // Immutable capture: load value
                             let loaded = new_temp(c)
-                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name }))
+                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name, addr: false }))
                             push(&mut env_fields, IrStructFieldInit { name: var_name, src: loaded })
                         }
                     }

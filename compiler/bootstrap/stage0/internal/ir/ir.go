@@ -190,12 +190,16 @@ func (i *Const) String() string {
 }
 
 type LoadVar struct {
-	Dst  int
-	Name string
+	Dst   int
+	Name  string
+	Addr  bool
 }
 
 func (i *LoadVar) instrNode() {}
 func (i *LoadVar) String() string {
+	if i.Addr {
+		return fmt.Sprintf("t%d = load_addr %s", i.Dst, i.Name)
+	}
 	return fmt.Sprintf("t%d = load %s", i.Dst, i.Name)
 }
 
@@ -207,16 +211,6 @@ type StoreVar struct {
 func (i *StoreVar) instrNode() {}
 func (i *StoreVar) String() string {
 	return fmt.Sprintf("store %s, t%d", i.Name, i.Src)
-}
-
-type AddrOf struct {
-	Dst  int
-	Name string
-}
-
-func (i *AddrOf) instrNode() {}
-func (i *AddrOf) String() string {
-	return fmt.Sprintf("t%d = addr_of %s", i.Dst, i.Name)
 }
 
 type LoadRef struct {
@@ -652,14 +646,6 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return fmt.Errorf("store var name is empty")
 		}
 		return validateTemp(i.Src, tempCount, false)
-	case *AddrOf:
-		if i.Name == "" {
-			return fmt.Errorf("addr_of name is empty")
-		}
-		if _, ok := declared[i.Name]; !ok {
-			return fmt.Errorf("undefined variable '%s'", i.Name)
-		}
-		return validateTemp(i.Dst, tempCount, false)
 	case *LoadRef:
 		if err := validateTemp(i.Dst, tempCount, false); err != nil {
 			return err
@@ -880,10 +866,6 @@ func validateDefiniteAssignment(fn *Function) error {
 				if _, ok := cur[v.Name]; !ok {
 					return fmt.Errorf("use of possibly uninitialized variable '%s'", v.Name)
 				}
-			case *AddrOf:
-				if _, ok := cur[v.Name]; !ok {
-					return fmt.Errorf("use of possibly uninitialized variable '%s'", v.Name)
-				}
 			case *StoreVar:
 				if v.Name != "" {
 					cur[v.Name] = struct{}{}
@@ -1023,4 +1005,3 @@ func formatParams(params []Var) string {
 	}
 	return strings.Join(parts, ", ")
 }
-

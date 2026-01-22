@@ -166,8 +166,12 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
                 runtime_error(rt, "undefined variable '" + i.name + "'")
                 return
             }
-            let v = heap_get(rt, addr)
-            set_temp(rt, fr, i.dst, v)
+            if i.addr {
+                set_temp(rt, fr, i.dst, ir_value_ref(addr))
+            } else {
+                let v = heap_get(rt, addr)
+                set_temp(rt, fr, i.dst, v)
+            }
         }
         .StoreVar(i) => {
             let addr = find_var_addr(fr, i.name)
@@ -183,14 +187,6 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             } else {
                 heap_set(rt, addr, v)
             }
-        }
-        .AddrOf(i) => {
-            let addr = find_var_addr(fr, i.name)
-            if addr < 0 {
-                runtime_error(rt, "undefined variable '" + i.name + "'")
-                return
-            }
-            set_temp(rt, fr, i.dst, ir_value_ref(addr))
         }
         .LoadRef(i) => {
             let r = get_temp(rt, fr, i.src)

@@ -90,13 +90,13 @@ fn cg_instr(inst: IrInstr) -> String {
             return cg_value_init(i.value, "t" + int_to_string(i.dst)) + ";"
         }
         .LoadVar(i) => {
+            if i.addr {
+                return "t" + int_to_string(i.dst) + " = (int64_t)&" + cg_mangle_var(i.name) + ";"
+            }
             return "t" + int_to_string(i.dst) + ".i = " + cg_mangle_var(i.name) + ".i;"
         }
         .StoreVar(i) => {
             return cg_mangle_var(i.name) + " = t" + int_to_string(i.src) + ";"
-        }
-        .AddrOf(i) => {
-            return "t" + int_to_string(i.dst) + " = (int64_t)&" + cg_mangle_var(i.name) + ";"
         }
         .LoadRef(i) => {
             return "t" + int_to_string(i.dst) + " = *(int64_t*)t" + int_to_string(i.src) + ";"

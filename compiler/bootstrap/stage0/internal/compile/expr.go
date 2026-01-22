@@ -96,7 +96,7 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		}
 		t := c.newTemp()
 		c.setTempType(t, "*i64") // Pointer type
-		c.emit(&ir.AddrOf{Dst: t, Name: varInfo.Name})
+		c.emit(&ir.LoadVar{Dst: t, Name: varInfo.Name, Addr: true})
 		return t
 	case *ast.DerefExpr:
 		src := c.compileExpr(e.Expr)
