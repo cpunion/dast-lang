@@ -80,6 +80,26 @@ store_ref t1, t2        // StoreVar + @ref
 - 移除 LoadRef、StoreRef 两个指令
 - 指令数: 16 → 14 (减少 2 个)
 
+### 5. 移除 UnaryOp
+
+**修改前**：
+```
+t0 = - t1
+t0 = ! t1
+```
+
+**修改后**：
+```
+t0 = const 0
+t1 = - t0, t2
+t3 = const false
+t4 = == t5, t3
+```
+
+- 一元运算在 IR 中降级为二元：`-x` → `0 - x`，`!x` → `x == false`
+- 移除 UnaryOp 指令
+- 指令数: 15 → 14 (减少 1 个)
+
 ## 当前 IR v0 指令集 (14 个)
 
 ```
@@ -88,9 +108,8 @@ Const dst, value
 LoadVar dst, name [, @addr] [, @ref]
 StoreVar name, src [, @ref]
 
-// 运算 (2)
+// 运算 (1)
 BinOp dst, op, lhs, rhs
-UnaryOp dst, op, src
 
 // 调用 (1)
 Call dst, callee, args

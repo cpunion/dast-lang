@@ -63,15 +63,6 @@ func optimizeBlock(blk *Block) {
 				continue
 			}
 			delete(consts, v.Dst)
-		case *UnaryOp:
-			if c, ok := getOperandConst(v.Src); ok {
-				if folded, ok := foldUnary(v.Op, c); ok {
-					blk.Instr[i] = &Const{Dst: v.Dst, Value: folded}
-					consts[v.Dst] = folded
-					continue
-				}
-			}
-			delete(consts, v.Dst)
 		case *BinOp:
 			if l, ok := getOperandConst(v.Lhs); ok {
 				if r, ok := getOperandConst(v.Rhs); ok {
@@ -135,20 +126,6 @@ func optimizeBlock(blk *Block) {
 			blk.Term = &Jump{Target: target}
 		}
 	}
-}
-
-func foldUnary(op string, v Value) (Value, bool) {
-	switch op {
-	case "-":
-		if v.Kind == KindInt {
-			return Value{Kind: KindInt, Int: -v.Int, IntType: v.IntType}, true
-		}
-	case "!":
-		if v.Kind == KindBool {
-			return Value{Kind: KindBool, Bool: !v.Bool}, true
-		}
-	}
-	return Value{}, false
 }
 
 func foldBinary(op string, a Value, b Value) (Value, bool) {
@@ -284,10 +261,6 @@ func instrTemps(inst Instr) []int {
 		out := []int{v.Dst}
 		out = append(out, getTemp(v.Lhs)...)
 		out = append(out, getTemp(v.Rhs)...)
-		return out
-	case *UnaryOp:
-		out := []int{v.Dst}
-		out = append(out, getTemp(v.Src)...)
 		return out
 	case *Call:
 		out := []int{}
@@ -442,8 +415,6 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 		return remapped
 	case *BinOp:
 		return &BinOp{Dst: remap(v.Dst), Op: v.Op, Lhs: remapOperand(v.Lhs), Rhs: remapOperand(v.Rhs)}
-	case *UnaryOp:
-		return &UnaryOp{Dst: remap(v.Dst), Op: v.Op, Src: remapOperand(v.Src)}
 	case *Call:
 		args := make([]int, 0, len(v.Args))
 		for _, a := range v.Args {

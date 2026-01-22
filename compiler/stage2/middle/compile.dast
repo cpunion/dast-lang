@@ -1247,8 +1247,19 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .Unary(u) => {
             let src = compile_expr(c, u.expr, self_name)
             let t = new_temp(c)
-            emit_instr(c, IrInstr.UnaryOp(IrUnaryOp { dst: t, op: op_string(u.op), src: src }))
-            return t
+            if u.op == TokenKind.Minus {
+                let zero = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: zero, value: ir_value_int(0) }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "-", lhs: zero, rhs: src }))
+                return t
+            }
+            if u.op == TokenKind.Bang {
+                let fals = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: fals, value: ir_value_bool(false) }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "==", lhs: src, rhs: fals }))
+                return t
+            }
+            return const_zero(c)
         }
         .Binary(b) => {
             let l = compile_expr(c, b.left, self_name)

@@ -199,11 +199,6 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
                 }
             }
         }
-        .UnaryOp(i) => {
-            let v = get_temp(rt, fr, i.src)
-            let res = eval_unary(rt, i.op, v)
-            set_temp(rt, fr, i.dst, res)
-        }
         .BinOp(i) => {
             let l = get_temp(rt, fr, i.lhs)
             let r = get_temp(rt, fr, i.rhs)

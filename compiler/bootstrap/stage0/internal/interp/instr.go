@@ -61,16 +61,6 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		*ptr = val
 		return nil
-	case *ir.UnaryOp:
-		val, err := rt.evalOperand(fr, i.Src)
-		if err != nil {
-			return err
-		}
-		res, err := evalUnary(i.Op, val)
-		if err != nil {
-			return err
-		}
-		return rt.setTemp(fr, i.Dst, res)
 	case *ir.BinOp:
 		lhs, err := rt.evalOperand(fr, i.Lhs)
 		if err != nil {

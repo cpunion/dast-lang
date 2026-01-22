@@ -156,12 +156,6 @@ struct IrBinOp {
     rhs: i32,
 }
 
-struct IrUnaryOp {
-    dst: i32,
-    op: String,
-    src: i32,
-}
-
 struct IrCall {
     dst: i32,
     callee: String,
@@ -241,7 +235,6 @@ enum IrInstr {
     LoadVar(IrLoadVar),
     StoreVar(IrStoreVar),
     BinOp(IrBinOp),
-    UnaryOp(IrUnaryOp),
     Call(IrCall),
     CallClosure(IrCallClosure),
     MakeArray(IrMakeArray),
@@ -336,7 +329,6 @@ fn ir_instr_string(inst: IrInstr) -> String {
         .BinOp(i) => {
             return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.lhs) + ", t" + int_to_string(i.rhs)
         }
-        .UnaryOp(i) => { return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.src) }
         IrInstr.Call(i) => {
             let mut args = ""
             let mut j = 0
@@ -1010,10 +1002,7 @@ fn ir_parse_line(line: String) -> IrLineParse {
             if rhs > max { max = rhs }
             return IrLineParse { ok: true, is_term: false, instr: IrInstr.BinOp(IrBinOp { dst: dst, op: op, lhs: lhs, rhs: rhs }), term: ir_term_none(), max_temp: max, error: "" }
         }
-        let src = parse_temp_name(rest)
-        let mut max = dst
-        if src > max { max = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.UnaryOp(IrUnaryOp { dst: dst, op: op, src: src }), term: ir_term_none(), max_temp: max, error: "" }
+        return ir_line_parse_error("invalid op syntax")
     }
     return ir_line_parse_error("unknown instruction")
 }
@@ -1190,10 +1179,6 @@ fn ir_is_bin_op(op: String) -> bool {
     return false
 }
 
-fn ir_is_unary_op(op: String) -> bool {
-    return op == "-" || op == "!"
-}
-
 fn ir_validate_temp(t: i32, temp_count: i32, allow_neg1: bool) -> String {
     if allow_neg1 && t == -1 {
         return ""
@@ -1236,12 +1221,6 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             let err2 = ir_validate_temp(i.lhs, temp_count, false)
             if err2 != "" { return err2 }
             return ir_validate_temp(i.rhs, temp_count, false)
-        }
-        .UnaryOp(i) => {
-            if !ir_is_unary_op(i.op) { return "invalid unary op '" + i.op + "'" }
-            let err = ir_validate_temp(i.dst, temp_count, false)
-            if err != "" { return err }
-            return ir_validate_temp(i.src, temp_count, false)
         }
         IrInstr.Call(i) => {
             if i.callee == "" { return "call callee is empty" }
@@ -1788,7 +1767,6 @@ fn ir_instr_temps(inst: IrInstr) -> [i32] {
             push(&mut out, i.src)
         }
         .BinOp(i) => { push(&mut out, i.dst); push(&mut out, i.lhs); push(&mut out, i.rhs) }
-        .UnaryOp(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
         IrInstr.Call(i) => {
             if i.dst >= 0 { push(&mut out, i.dst) }
             let mut j = 0
@@ -1863,16 +1841,6 @@ fn ir_const_map_clear(map: &mut IrConstMap, idx: i32) {
     let mut known = map.known
     known[idx] = false
     map.known = known
-}
-
-fn ir_fold_unary(op: String, v: IrValue) -> IrFoldResult {
-    if op == "-" && v.kind == ir_kind_int() {
-        return IrFoldResult { ok: true, value: ir_value_int_t(-v.int, v.int_type) }
-    }
-    if op == "!" && v.kind == ir_kind_bool() {
-        return IrFoldResult { ok: true, value: ir_value_bool(!v.bool) }
-    }
-    return IrFoldResult { ok: false, value: ir_value_unit() }
 }
 
 fn ir_fold_binary(op: String, a: IrValue, b: IrValue) -> IrFoldResult {
@@ -1985,23 +1953,6 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                     ir_varconst_set(&mut var_consts, c.name, v)
                 } else {
                     ir_varconst_clear(&mut var_consts, c.name)
-                }
-            }
-            .UnaryOp(c) => {
-                let mut folded = false
-                if ir_const_map_has(&consts, c.src) {
-                    let v = ir_const_map_get(&consts, c.src)
-                    let res = ir_fold_unary(c.op, v)
-                    if res.ok {
-                        let ni = IrInstr.Const(IrConst { dst: c.dst, value: res.value })
-                        push(&mut instrs, ni)
-                        ir_const_map_set(&mut consts, c.dst, res.value)
-                        folded = true
-                    }
-                }
-                if !folded {
-                    push(&mut instrs, inst)
-                    ir_const_map_clear(&mut consts, c.dst)
                 }
             }
             .BinOp(c) => {
@@ -2353,9 +2304,6 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
         }
         .BinOp(i) => {
             return IrInstr.BinOp(IrBinOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, lhs: ir_inline_remap_temp(temp_map, i.lhs), rhs: ir_inline_remap_temp(temp_map, i.rhs) })
-        }
-        .UnaryOp(i) => {
-            return IrInstr.UnaryOp(IrUnaryOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, src: ir_inline_remap_temp(temp_map, i.src) })
         }
         IrInstr.Call(i) => {
             let mut args: [i32] = []

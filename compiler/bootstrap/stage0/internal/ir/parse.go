@@ -417,13 +417,6 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, fmt.Errorf("invalid op syntax")
 			}
 			parts := splitComma(rest, -1)
-			if len(parts) == 1 {
-				srcOp, srcMax, err := parseOperandWithCtx(parts[0], ctx)
-				if err != nil {
-					return lineParse{}, err
-				}
-				return lineParse{instr: &UnaryOp{Dst: dst, Op: op, Src: srcOp}, maxTemp: maxTempIdx(dst, srcMax)}, nil
-			}
 			if len(parts) == 2 {
 				lhsOp, lhsMax, err := parseOperandWithCtx(parts[0], ctx)
 				if err != nil {

@@ -104,9 +104,6 @@ fn cg_instr(inst: IrInstr) -> String {
             }
             return cg_mangle_var(i.name) + " = t" + int_to_string(i.src) + ";"
         }
-        .UnaryOp(i) => {
-            return "t" + int_to_string(i.dst) + ".i = " + i.op + "t" + int_to_string(i.src) + ".i;"
-        }
         .BinOp(i) => {
             return "t" + int_to_string(i.dst) + ".i = t" + int_to_string(i.lhs) + ".i " + i.op + " t" + int_to_string(i.rhs) + ".i;"
         }

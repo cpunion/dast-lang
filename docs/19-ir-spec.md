@@ -195,12 +195,13 @@ v0 支持 8 种运行时值：
 - `StoreVar name, src`
   - `@ref`（文本语法 `store_ref tX, src`）：通过引用 temp 写入
 
-### 一元/二元运算
+### 二元运算
 
-- `UnaryOp dst, op, src`
 - `BinOp dst, op, lhs, rhs`
 
-`op` 取值：`+ - * / % == != < <= > >= && || !`
+`op` 取值：`+ - * / % == != < <= > >= && ||`
+
+> 一元运算在 IR 中降级为二元：`-x` → `0 - x`，`!x` → `x == false`。
 
 ### 调用
 

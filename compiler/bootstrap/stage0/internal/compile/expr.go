@@ -106,11 +106,21 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		return t
 	case *ast.UnaryExpr:
 		src := c.compileOperand(e.Expr)
-		t := c.newTemp()
-		typ := c.inferExprType(e)
-		c.setTempType(t, typ)
-		c.emit(&ir.UnaryOp{Dst: t, Op: e.Op, Src: src})
-		return t
+		switch e.Op {
+		case "-":
+			t := c.newTemp()
+			typ := c.inferExprType(e)
+			c.setTempType(t, typ)
+			c.emit(&ir.BinOp{Dst: t, Op: "-", Lhs: ir.IntOperand(0), Rhs: src})
+			return t
+		case "!":
+			t := c.newTemp()
+			c.setTempType(t, "bool")
+			c.emit(&ir.BinOp{Dst: t, Op: "==", Lhs: src, Rhs: ir.BoolOperand(false)})
+			return t
+		default:
+			return c.constZero()
+		}
 	case *ast.BinaryExpr:
 		lhs := c.compileOperand(e.Left)
 		rhs := c.compileOperand(e.Right)

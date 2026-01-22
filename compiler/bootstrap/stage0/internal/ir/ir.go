@@ -235,17 +235,6 @@ func (i *BinOp) String() string {
 	return fmt.Sprintf("t%d = %s %s, %s", i.Dst, i.Op, i.Lhs.String(), i.Rhs.String())
 }
 
-type UnaryOp struct {
-	Dst int
-	Op  string
-	Src Operand
-}
-
-func (i *UnaryOp) instrNode() {}
-func (i *UnaryOp) String() string {
-	return fmt.Sprintf("t%d = %s %s", i.Dst, i.Op, i.Src.String())
-}
-
 type Call struct {
 	Dst    int
 	Callee string
@@ -659,14 +648,6 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		return validateOperand(i.Rhs, tempCount)
-	case *UnaryOp:
-		if !isValidUnaryOp(i.Op) {
-			return fmt.Errorf("invalid unary op '%s'", i.Op)
-		}
-		if err := validateTemp(i.Dst, tempCount, false); err != nil {
-			return err
-		}
-		return validateOperand(i.Src, tempCount)
 	case *Call:
 		if i.Callee == "" {
 			return fmt.Errorf("call callee is empty")
@@ -983,10 +964,6 @@ func isValidBinOp(op string) bool {
 	default:
 		return false
 	}
-}
-
-func isValidUnaryOp(op string) bool {
-	return op == "-" || op == "!"
 }
 
 func formatParams(params []Var) string {
