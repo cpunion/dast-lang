@@ -443,7 +443,7 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
                 let tag = new_temp(c)
-                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: scrut }))
+                emit_instr(c, IrInstr.GetField(IrGetField { dst: tag, src: scrut, field: "_tag" }))
                 let const_tag = new_temp(c)
                 emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
                 let cmp = new_temp(c)
@@ -498,7 +498,7 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
                 let tag = new_temp(c)
-                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: scrut }))
+                emit_instr(c, IrInstr.GetField(IrGetField { dst: tag, src: scrut, field: "_tag" }))
                 let const_tag = new_temp(c)
                 emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
                 let cmp = new_temp(c)
@@ -534,7 +534,7 @@ fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, enum_name: Str
             }
             if vp.has_binding {
                 let payload = new_temp(c)
-                emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: scrut }))
+                emit_instr(c, IrInstr.GetField(IrGetField { dst: payload, src: scrut, field: "_payload" }))
                 let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                 let name = declare_var(c, vp.binding, payload_type, false)
                 emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload }))
@@ -660,16 +660,26 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .MethodCall(m) => {
             let res = resolve_method_call(c, m.recv, m.method, self_name)
             if res.is_enum {
-                let mut payload = -1
-                if len(m.args) > 0 {
-                    payload = compile_expr(c, m.args[0], self_name)
-                }
                 let tag_info = enum_tag_info(c, res.enum_name, res.method_name)
                 if !tag_info.ok {
                     compiler_add_type_error(c, "unknown enum variant '" + res.method_name + "'")
                 }
+                // Create tag constant
+                let tag_temp = new_temp(c)
+                emit_instr(c, IrInstr.Const(IrConst { dst: tag_temp, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
+                // Create payload (unit if no args)
+                let mut payload_temp = new_temp(c)
+                if len(m.args) > 0 {
+                    payload_temp = compile_expr(c, m.args[0], self_name)
+                } else {
+                    emit_instr(c, IrInstr.Const(IrConst { dst: payload_temp, value: ir_value_unit() }))
+                }
+                // Create struct with _tag and _payload fields
+                let mut fields: [IrStructFieldInit] = []
+                push(&mut fields, IrStructFieldInit { name: "_tag", src: tag_temp })
+                push(&mut fields, IrStructFieldInit { name: "_payload", src: payload_temp })
                 let dst = new_temp(c)
-                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: res.enum_name, variant: res.method_name, tag: tag_info.tag, tag_type: tag_info.tag_type, payload: payload }))
+                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: res.enum_name, fields: fields }))
                 return dst
             }
             let mut final_args: [i32] = []
@@ -711,8 +721,18 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                                 if !tag_info.ok {
                                     compiler_add_type_error(c, "unknown enum variant '" + f.name + "'")
                                 }
+                                // Create tag constant
+                                let tag_temp = new_temp(c)
+                                emit_instr(c, IrInstr.Const(IrConst { dst: tag_temp, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
+                                // Create unit payload (no args for field access)
+                                let payload_temp = new_temp(c)
+                                emit_instr(c, IrInstr.Const(IrConst { dst: payload_temp, value: ir_value_unit() }))
+                                // Create struct with _tag and _payload fields
+                                let mut fields: [IrStructFieldInit] = []
+                                push(&mut fields, IrStructFieldInit { name: "_tag", src: tag_temp })
+                                push(&mut fields, IrStructFieldInit { name: "_payload", src: payload_temp })
                                 let dst = new_temp(c)
-                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: id.name, variant: f.name, tag: tag_info.tag, tag_type: tag_info.tag_type, payload: -1 }))
+                                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: id.name, fields: fields }))
                                 return dst
                             }
                         }

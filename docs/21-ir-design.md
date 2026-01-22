@@ -21,38 +21,30 @@ SetIndex array, index, src [, @unchecked]
 - Index/SetIndex 结构体添加 `Unchecked bool` 字段
 - 指令数: 22 → 20 (减少 2 个)
 
-## 待简化（可选）
-
 ### 2. Enum 展开为 Struct
 
+**修改前** (3 个指令)：
 ```
-// 现在 (3 个指令)
-MakeEnum dst, name, variant, payload, tag, tag_type
-EnumTag dst, src
-EnumPayload dst, src
-
-// 可简化为 (使用现有 struct 指令)
-MakeStruct dst, Option, { _tag: 0, _payload: v }
-GetField dst, src, _tag
-GetField dst, src, _payload
+t0 = enum Option.None@1:i32
+t1 = enum Option.Some@0:i32(t0)
+t2 = enum_tag t1
+t3 = enum_payload t1
 ```
 
-影响：减少 3 个指令，但需修改前端展开 enum
-
-### 3. 移除 AddrOf
-
+**修改后** (使用现有 struct 指令)：
 ```
-// 现在
-t0 = addr_of x
-call foo(t0)
-
-// 可简化为
-call foo(x)   // x 直接作为地址
+t0 = i32 1           // tag 值
+t1 = unit            // payload 值
+t2 = struct Option { _tag: t0, _payload: t1 }
+t3 = t2._tag         // GetField
+t4 = t2._payload     // GetField
 ```
 
-影响：减少 1 个指令，但需更改调用约定
+- 移除 MakeEnum, EnumTag, EnumPayload 三个指令
+- Enum 在 IR 层面表示为 Struct，字段为 `_tag` 和 `_payload`
+- 指令数: 20 → 17 (减少 3 个)
 
-## 当前 IR v0 指令集 (20 个)
+## 当前 IR v0 指令集 (17 个)
 
 ```
 // 常量/变量 (4)
@@ -77,15 +69,10 @@ MakeArray dst, elems
 Index dst, array, index [, @unchecked]
 SetIndex array, index, src [, @unchecked]
 
-// 结构体 (3)
+// 结构体 (3) - 也用于 enum
 MakeStruct dst, name, fields
 GetField dst, src, field
 SetField src, field, val
-
-// 枚举 (3) - 可简化
-MakeEnum dst, name, variant, payload, tag, tag_type
-EnumTag dst, src
-EnumPayload dst, src
 
 // 控制流 (3)
 Jump target
@@ -93,7 +80,22 @@ Branch cond, then, else
 Return [value]
 ```
 
+## 待简化（可选）
+
+### 3. 移除 AddrOf
+
+```
+// 现在
+t0 = addr_of x
+call foo(t0)
+
+// 可简化为
+call foo(x)   // x 直接作为地址
+```
+
+影响：减少 1 个指令，但需更改调用约定
+
 ## 下一步
 
 - M5 后端测试完善
-- 可选：Enum 展开为 Struct
+- 可选：移除 AddrOf 指令

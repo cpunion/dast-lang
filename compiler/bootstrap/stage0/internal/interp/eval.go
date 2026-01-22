@@ -100,6 +100,23 @@ func valuesEqual(a, b ir.Value) bool {
 		return a.Str == b.Str
 	case ir.KindUnit:
 		return true
+	case ir.KindStruct:
+		if a.Struct == nil || b.Struct == nil {
+			return a.Struct == b.Struct
+		}
+		if a.Struct.Name != b.Struct.Name {
+			return false
+		}
+		if len(a.Struct.Fields) != len(b.Struct.Fields) {
+			return false
+		}
+		for name, aVal := range a.Struct.Fields {
+			bVal, ok := b.Struct.Fields[name]
+			if !ok || !valuesEqual(aVal, bVal) {
+				return false
+			}
+		}
+		return true
 	case ir.KindEnum:
 		if a.Enum == nil || b.Enum == nil {
 			return a.Enum == b.Enum

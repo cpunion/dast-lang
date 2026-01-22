@@ -181,37 +181,6 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			return err
 		}
 		return rt.setStructField(src, i.Field, val)
-	case *ir.MakeEnum:
-		var payload *ir.Value
-		if i.Payload >= 0 {
-			val, err := rt.getTemp(fr, i.Payload)
-			if err != nil {
-				return err
-			}
-			payload = &val
-		}
-		val := ir.Value{Kind: ir.KindEnum, Enum: &ir.EnumValue{Name: i.Name, Variant: i.Variant, Tag: i.Tag, TagType: i.TagType, Payload: payload}}
-		return rt.setTemp(fr, i.Dst, val)
-	case *ir.EnumTag:
-		src, err := rt.getTemp(fr, i.Src)
-		if err != nil {
-			return err
-		}
-		val, err := rt.enumTag(src)
-		if err != nil {
-			return err
-		}
-		return rt.setTemp(fr, i.Dst, val)
-	case *ir.EnumPayload:
-		src, err := rt.getTemp(fr, i.Src)
-		if err != nil {
-			return err
-		}
-		val, err := rt.enumPayload(src)
-		if err != nil {
-			return err
-		}
-		return rt.setTemp(fr, i.Dst, val)
 	default:
 		return errors.New("unknown instruction")
 	}
@@ -301,37 +270,6 @@ func (rt *Runtime) setStructField(v ir.Value, field string, value ir.Value) erro
 	}
 	v.Struct.Fields[field] = value
 	return nil
-}
-
-func (rt *Runtime) enumTag(v ir.Value) (ir.Value, error) {
-	if v.Kind == ir.KindRef {
-		val, err := rt.deref(v)
-		if err != nil {
-			return ir.Value{Kind: ir.KindUnit}, err
-		}
-		v = val
-	}
-	if v.Kind != ir.KindEnum || v.Enum == nil {
-		return ir.Value{Kind: ir.KindUnit}, errors.New("enum_tag requires enum")
-	}
-	return ir.Value{Kind: ir.KindInt, Int: v.Enum.Tag, IntType: v.Enum.TagType}, nil
-}
-
-func (rt *Runtime) enumPayload(v ir.Value) (ir.Value, error) {
-	if v.Kind == ir.KindRef {
-		val, err := rt.deref(v)
-		if err != nil {
-			return ir.Value{Kind: ir.KindUnit}, err
-		}
-		v = val
-	}
-	if v.Kind != ir.KindEnum || v.Enum == nil {
-		return ir.Value{Kind: ir.KindUnit}, errors.New("enum_payload requires enum")
-	}
-	if v.Enum.Payload == nil {
-		return ir.Value{Kind: ir.KindUnit}, nil
-	}
-	return *v.Enum.Payload, nil
 }
 
 func (rt *Runtime) arrayValue(v ir.Value) (*ir.ArrayValue, error) {

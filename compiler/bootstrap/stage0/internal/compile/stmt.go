@@ -199,7 +199,7 @@ func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 				return
 			}
 			tag := c.newTemp()
-			c.emit(&ir.EnumTag{Dst: tag, Src: scrut})
+			c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
 			constTag := c.newTemp()
 			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType}})
 			cmp := c.newTemp()
@@ -258,7 +258,7 @@ func (c *Compiler) compileTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 				return
 			}
 			tag := c.newTemp()
-			c.emit(&ir.EnumTag{Dst: tag, Src: scrut})
+			c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
 			constTag := c.newTemp()
 			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType}})
 			cmp := c.newTemp()
@@ -288,8 +288,9 @@ func (c *Compiler) compileMatchArm(arm *ast.MatchArm, scrut int) {
 	c.pushScope()
 	if vp, ok := arm.Pattern.(*ast.VariantPattern); ok {
 		if vp.Binding != "" {
+			// Get payload using GetField instead of EnumPayload
 			payload := c.newTemp()
-			c.emit(&ir.EnumPayload{Dst: payload, Src: scrut})
+			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
 			name := c.declareMutVar(vp.Binding)
 			c.emit(&ir.StoreVar{Name: name, Src: payload})
 		}
@@ -307,8 +308,9 @@ func (c *Compiler) compileMatchArmTail(arm *ast.MatchArm, scrut int, allowImplic
 	c.pushScope()
 	if vp, ok := arm.Pattern.(*ast.VariantPattern); ok {
 		if vp.Binding != "" {
+			// Get payload using GetField instead of EnumPayload
 			payload := c.newTemp()
-			c.emit(&ir.EnumPayload{Dst: payload, Src: scrut})
+			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
 			name := c.declareMutVar(vp.Binding)
 			c.emit(&ir.StoreVar{Name: name, Src: payload})
 		}

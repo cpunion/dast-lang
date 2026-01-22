@@ -223,12 +223,14 @@ func TestEnumTypeDecl(t *testing.T) {
 enum Option { Some(i64), None }
 fn none() -> Option { Option.None }
 `
-	// 枚举展开为 struct（tag + payload）
+	// 枚举展开为 struct（_tag + _payload）
 	want := `ir v0
 fn none() -> Option
   block entry0:
-    t0: Option = enum Option.None@1:i32
-    return t0
+    t0: i32 = i32 1
+    t1 = unit
+    t2: Option = struct Option { _tag: t0, _payload: t1 }
+    return t2
 
 `
 	got := compileToIR(t, src)

@@ -83,12 +83,68 @@ fn split_args(args: [String], start: i32) -> ArgSplit {
     return ArgSplit { files: files, rest: rest }
 }
 
+fn ends_with(s: String, suffix: String) -> bool {
+    let slen = len(s)
+    let suflen = len(suffix)
+    if suflen > slen {
+        return false
+    }
+    let start = slen - suflen
+    let sub = substr(s, start, suflen)
+    return sub == suffix
+}
+
+fn expand_path(path: String) -> [String] {
+    let mut result: [String] = []
+    let entries = read_dir(path)
+    if len(entries) == 0 {
+        push(&mut result, path)
+        return result
+    }
+    let mut i = 0
+    while i < len(entries) {
+        let entry = entries[i]
+        let full = path + "/" + entry
+        let sub_entries = read_dir(full)
+        if len(sub_entries) > 0 {
+            let sub_files = expand_path(full)
+            let mut j = 0
+            while j < len(sub_files) {
+                push(&mut result, sub_files[j])
+                j = j + 1
+            }
+        } else {
+            if ends_with(entry, ".dast") {
+                push(&mut result, full)
+            }
+        }
+        i = i + 1
+    }
+    return result
+}
+
+fn expand_paths(paths: [String]) -> [String] {
+    let mut result: [String] = []
+    let mut i = 0
+    while i < len(paths) {
+        let expanded = expand_path(paths[i])
+        let mut j = 0
+        while j < len(expanded) {
+            push(&mut result, expanded[j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return result
+}
+
 fn parse_files(files: [String]) -> ParseResult {
+    let expanded = expand_paths(files)
     let mut merged = program_empty()
     let mut errs: [ParseError] = []
     let mut i = 0
-    while i < len(files) {
-        let src = read_file(files[i])
+    while i < len(expanded) {
+        let src = read_file(expanded[i])
         let mut lex = lexer_new(src)
         let mut local_errs: [ParseError] = []
         let prog = parse_program(src, &mut lex, &mut local_errs)
@@ -109,7 +165,7 @@ fn parse_files(files: [String]) -> ParseResult {
                 line = lc.line
                 col = lc.col
             }
-            push(&mut errs, ParseError { pos: e.pos, file: files[i], line: line, col: col, msg: e.msg })
+            push(&mut errs, ParseError { pos: e.pos, file: expanded[i], line: line, col: col, msg: e.msg })
             j = j + 1
         }
         i = i + 1

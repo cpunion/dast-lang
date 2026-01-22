@@ -247,6 +247,18 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let v = get_temp(rt, fr, i.src)
             if i.unchecked { array_set_unchecked(rt, arr, idx, v) } else { array_set(rt, arr, idx, v) }
         }
+        .IndexUnchecked(i) => {
+            let arr = get_temp(rt, fr, i.array)
+            let idx = get_temp(rt, fr, i.index)
+            let v = array_index_unchecked(rt, arr, idx)
+            set_temp(rt, fr, i.dst, v)
+        }
+        .SetIndexUnchecked(i) => {
+            let arr = get_temp(rt, fr, i.array)
+            let idx = get_temp(rt, fr, i.index)
+            let v = get_temp(rt, fr, i.src)
+            array_set_unchecked(rt, arr, idx, v)
+        }
 
         .MakeStruct(i) => {
             let mut fields: [IrStructFieldValue] = []
@@ -269,26 +281,6 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let src = get_temp(rt, fr, i.src)
             let v = get_temp(rt, fr, i.value)
             struct_set_field(rt, src, i.field, v)
-        }
-        .MakeEnum(i) => {
-            let mut payload = ir_value_unit()
-            let mut has_payload = false
-            if i.payload >= 0 {
-                payload = get_temp(rt, fr, i.payload)
-                has_payload = true
-            }
-            let eidx = enum_alloc(rt, IrEnumValue { name: i.name, variant: i.variant, tag: i.tag, tag_type: i.tag_type, has_payload: has_payload, payload: payload })
-            set_temp(rt, fr, i.dst, ir_value_enum(eidx))
-        }
-        .EnumTag(i) => {
-            let src = get_temp(rt, fr, i.src)
-            let v = enum_tag(rt, src)
-            set_temp(rt, fr, i.dst, v)
-        }
-        .EnumPayload(i) => {
-            let src = get_temp(rt, fr, i.src)
-            let v = enum_payload(rt, src)
-            set_temp(rt, fr, i.dst, v)
         }
     }
 }
@@ -438,43 +430,6 @@ fn struct_set_field(rt: &mut Runtime, v: IrValue, name: String, value: IrValue) 
         i = i + 1
     }
     runtime_error(rt, "unknown field '" + name + "'")
-}
-
-fn enum_tag(rt: &mut Runtime, v: IrValue) -> IrValue {
-    let mut val = v
-    if val.kind == ir_kind_ref() {
-        val = deref_value(rt, val)
-    }
-    if val.kind != ir_kind_enum() {
-        runtime_error(rt, "enum_tag requires enum")
-        return ir_value_unit()
-    }
-    let idx = val.obj
-    if idx < 0 || idx >= len(rt.enums) {
-        runtime_error(rt, "invalid enum")
-        return ir_value_unit()
-    }
-    let e = rt.enums[idx]
-    return ir_value_int_t(e.tag, e.tag_type)
-}
-
-fn enum_payload(rt: &mut Runtime, v: IrValue) -> IrValue {
-    let mut val = v
-    if val.kind == ir_kind_ref() {
-        val = deref_value(rt, val)
-    }
-    if val.kind != ir_kind_enum() {
-        runtime_error(rt, "enum_payload requires enum")
-        return ir_value_unit()
-    }
-    let idx = val.obj
-    if idx < 0 || idx >= len(rt.enums) {
-        runtime_error(rt, "invalid enum")
-        return ir_value_unit()
-    }
-    let e = rt.enums[idx]
-    if !e.has_payload { return ir_value_unit() }
-    return e.payload
 }
 
 fn array_value(rt: &mut Runtime, v: IrValue) -> IrArrayValue {

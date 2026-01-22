@@ -3,6 +3,9 @@ compiler/stage3/vscode-ext/node_modules/
 compiler/stage3/vscode-ext/out/
 compiler/stage3/vscode-ext/*.vsix
 
+# Stage0 compiler build output
+compiler/bootstrap/stage0/dast
+compiler/bootstrap/stage0/dast-stage0
 
 # Nested website repository
 dast-lang.github.io/

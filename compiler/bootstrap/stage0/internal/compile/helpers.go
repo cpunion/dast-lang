@@ -5,6 +5,7 @@ import (
 
 	"dastlang/internal/ast"
 	"dastlang/internal/ir"
+	"dastlang/internal/source"
 )
 
 func enumHasVariant(decl *ast.EnumDecl, name string) bool {
@@ -228,4 +229,40 @@ func (c *Compiler) markImmutable(name string) {
 			return
 		}
 	}
+}
+
+// compileEnumVariant compiles an enum variant construction using MakeStruct.
+// Enums are represented as structs with _tag (integer) and _payload (value) fields.
+func (c *Compiler) compileEnumVariant(enumName, variant string, args []ast.Expr, span source.Span) int {
+	tag, tagType, ok := c.enumTagInfo(enumName, variant)
+	if !ok {
+		c.diag.Add(span, fmt.Sprintf("unknown enum variant '%s.%s'", enumName, variant))
+		return c.constZero()
+	}
+
+	// Create tag constant
+	tagTemp := c.newTemp()
+	c.setTempType(tagTemp, tagType)
+	c.emit(&ir.Const{Dst: tagTemp, Value: ir.Value{Kind: ir.KindInt, Int: tag, IntType: tagType}})
+
+	// Create payload (unit if no args)
+	payloadTemp := c.newTemp()
+	if len(args) > 0 {
+		payloadTemp = c.compileExpr(args[0])
+	} else {
+		c.emit(&ir.Const{Dst: payloadTemp, Value: ir.Value{Kind: ir.KindUnit}})
+	}
+
+	// Create struct with _tag and _payload fields
+	dst := c.newTemp()
+	c.setTempType(dst, enumName)
+	c.emit(&ir.MakeStruct{
+		Dst:  dst,
+		Name: enumName,
+		Fields: []ir.StructFieldInit{
+			{Name: "_tag", Src: tagTemp},
+			{Name: "_payload", Src: payloadTemp},
+		},
+	})
+	return dst
 }

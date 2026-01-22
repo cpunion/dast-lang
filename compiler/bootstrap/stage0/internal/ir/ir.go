@@ -186,7 +186,7 @@ type Const struct {
 
 func (i *Const) instrNode() {}
 func (i *Const) String() string {
-	return fmt.Sprintf("t%d = %s", i.Dst, i.Value.String())
+	return fmt.Sprintf("t%d = const %s", i.Dst, i.Value.String())
 }
 
 type LoadVar struct {
@@ -358,47 +358,6 @@ type SetField struct {
 func (i *SetField) instrNode() {}
 func (i *SetField) String() string {
 	return fmt.Sprintf("t%d.%s = t%d", i.Src, i.Field, i.Value)
-}
-
-type MakeEnum struct {
-	Dst     int
-	Name    string
-	Variant string
-	Tag     int64
-	TagType string
-	Payload int
-}
-
-func (i *MakeEnum) instrNode() {}
-func (i *MakeEnum) String() string {
-	tag := ""
-	if i.TagType != "" {
-		tag = fmt.Sprintf("@%d:%s", i.Tag, i.TagType)
-	}
-	if i.Payload >= 0 {
-		return fmt.Sprintf("t%d = enum %s.%s%s(t%d)", i.Dst, i.Name, i.Variant, tag, i.Payload)
-	}
-	return fmt.Sprintf("t%d = enum %s.%s%s", i.Dst, i.Name, i.Variant, tag)
-}
-
-type EnumTag struct {
-	Dst int
-	Src int
-}
-
-func (i *EnumTag) instrNode() {}
-func (i *EnumTag) String() string {
-	return fmt.Sprintf("t%d = enum_tag t%d", i.Dst, i.Src)
-}
-
-type EnumPayload struct {
-	Dst int
-	Src int
-}
-
-func (i *EnumPayload) instrNode() {}
-func (i *EnumPayload) String() string {
-	return fmt.Sprintf("t%d = enum_payload t%d", i.Dst, i.Src)
 }
 
 type Term interface {
@@ -806,24 +765,6 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		return validateTemp(i.Value, tempCount, false)
-	case *MakeEnum:
-		if i.Name == "" || i.Variant == "" {
-			return fmt.Errorf("enum name or variant is empty")
-		}
-		if err := validateTemp(i.Dst, tempCount, false); err != nil {
-			return err
-		}
-		return validateTemp(i.Payload, tempCount, true)
-	case *EnumTag:
-		if err := validateTemp(i.Dst, tempCount, false); err != nil {
-			return err
-		}
-		return validateTemp(i.Src, tempCount, false)
-	case *EnumPayload:
-		if err := validateTemp(i.Dst, tempCount, false); err != nil {
-			return err
-		}
-		return validateTemp(i.Src, tempCount, false)
 	default:
 		return fmt.Errorf("unknown instruction")
 	}

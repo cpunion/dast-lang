@@ -7,20 +7,21 @@ import (
 )
 
 type Compiler struct {
-	prog        *ir.Program
-	diag        *diag.Bag
-	current     *ir.Function
-	curBlock    *ir.Block
-	blockID     int
-	tempID      int
-	tempTypes   map[int]string       // temp ID -> type string
-	scopeStack  []map[string]VarInfo // name -> VarInfo
-	nameCount   map[string]int
-	structs     map[string]*ast.StructDecl
-	enums       map[string]*ast.EnumDecl
-	enumTags    map[string]map[string]int64
-	enumTagType map[string]string
-	consts      map[string]ConstInfo
+	prog         *ir.Program
+	diag         *diag.Bag
+	current      *ir.Function
+	curBlock     *ir.Block
+	blockID      int
+	tempID       int
+	tempTypes    map[int]string       // temp ID -> type string
+	scopeStack   []map[string]VarInfo // name -> VarInfo
+	nameCount    map[string]int
+	structs      map[string]*ast.StructDecl
+	enums        map[string]*ast.EnumDecl
+	enumTags     map[string]map[string]int64
+	enumTagType  map[string]string
+	consts       map[string]ConstInfo
+	funcRetTypes map[string]string // function name -> return type
 }
 
 // VarInfo tracks variable info for value semantics
@@ -37,15 +38,36 @@ type ConstInfo struct {
 
 func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 	c := &Compiler{
-		prog:        &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Functions: map[string]*ir.Function{}},
-		diag:        &diag.Bag{},
-		structs:     map[string]*ast.StructDecl{},
-		enums:       map[string]*ast.EnumDecl{},
-		nameCount:   map[string]int{},
-		enumTags:    map[string]map[string]int64{},
-		enumTagType: map[string]string{},
-		consts:      map[string]ConstInfo{},
+		prog:         &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Functions: map[string]*ir.Function{}},
+		diag:         &diag.Bag{},
+		structs:      map[string]*ast.StructDecl{},
+		enums:        map[string]*ast.EnumDecl{},
+		nameCount:    map[string]int{},
+		enumTags:     map[string]map[string]int64{},
+		enumTagType:  map[string]string{},
+		consts:       map[string]ConstInfo{},
+		funcRetTypes: map[string]string{},
 	}
+	// Initialize builtin function return types
+	c.funcRetTypes["len"] = "i64"
+	c.funcRetTypes["push"] = "unit"
+	c.funcRetTypes["pop"] = "i64" // element type, but default to i64
+	c.funcRetTypes["char_at"] = "i64"
+	c.funcRetTypes["substr"] = "String"
+	c.funcRetTypes["read_file"] = "String"
+	c.funcRetTypes["read_dir"] = "[String]"
+	c.funcRetTypes["write_file"] = "unit"
+	c.funcRetTypes["mkdir"] = "unit"
+	c.funcRetTypes["args"] = "[String]"
+	c.funcRetTypes["print"] = "unit"
+	c.funcRetTypes["println"] = "unit"
+	c.funcRetTypes["exit"] = "unit"
+	c.funcRetTypes["read_line"] = "String"
+	c.funcRetTypes["read_bytes"] = "String"
+	c.funcRetTypes["int_to_string"] = "String"
+	c.funcRetTypes["parse_int"] = "i32"
+	c.funcRetTypes["string_to_int"] = "i64"
+	c.funcRetTypes["has_prefix"] = "bool"
 	for _, item := range prog.Items {
 		switch t := item.(type) {
 		case *ast.StructDecl:
@@ -67,6 +89,26 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 		}
 	}
 	c.computeEnumTags()
+	// Collect function return types before compiling
+	for _, item := range prog.Items {
+		switch t := item.(type) {
+		case *ast.Function:
+			if t.ReturnType != nil {
+				c.funcRetTypes[t.Name] = formatType(*t.ReturnType)
+			} else {
+				c.funcRetTypes[t.Name] = "unit"
+			}
+		case *ast.ImplDecl:
+			for _, method := range t.Methods {
+				name := t.TypeName + "." + method.Name
+				if method.ReturnType != nil {
+					c.funcRetTypes[name] = formatType(*method.ReturnType)
+				} else {
+					c.funcRetTypes[name] = "unit"
+				}
+			}
+		}
+	}
 	for _, item := range prog.Items {
 		switch t := item.(type) {
 		case *ast.Function:

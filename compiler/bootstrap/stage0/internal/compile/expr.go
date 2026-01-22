@@ -125,24 +125,17 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			args = append(args, c.compileExpr(arg))
 		}
 		dst := c.newTemp()
-		c.setTempType(dst, "unit") // Default return type
+		// Look up function return type
+		if retType, ok := c.funcRetTypes[e.Callee]; ok {
+			c.setTempType(dst, retType)
+		} else {
+			c.setTempType(dst, "unit") // Default return type
+		}
 		c.emit(&ir.Call{Dst: dst, Callee: e.Callee, Args: args})
 		return dst
 	case *ast.MethodCallExpr:
 		if e.EnumName != "" {
-			payload := -1
-			if len(e.Args) > 0 {
-				payload = c.compileExpr(e.Args[0])
-			}
-			tag, tagType, ok := c.enumTagInfo(e.EnumName, e.Method)
-			if !ok {
-				c.diag.Add(e.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", e.EnumName, e.Method))
-				return c.constZero()
-			}
-			dst := c.newTemp()
-			c.setTempType(dst, e.EnumName)
-			c.emit(&ir.MakeEnum{Dst: dst, Name: e.EnumName, Variant: e.Method, Tag: tag, TagType: tagType, Payload: payload})
-			return dst
+			return c.compileEnumVariant(e.EnumName, e.Method, e.Args, e.Span())
 		}
 		if e.ResolvedName == "" {
 			c.diag.Add(e.Span(), "unresolved method call")
@@ -157,6 +150,12 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			args = append(args, c.compileExpr(arg))
 		}
 		dst := c.newTemp()
+		// Look up method return type
+		if retType, ok := c.funcRetTypes[e.ResolvedName]; ok {
+			c.setTempType(dst, retType)
+		} else {
+			c.setTempType(dst, "unit") // Default return type
+		}
 		c.emit(&ir.Call{Dst: dst, Callee: e.ResolvedName, Args: args})
 		return dst
 	case *ast.StructLit:
@@ -177,15 +176,7 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 						c.diag.Add(e.Span(), fmt.Sprintf("unknown variant '%s'", e.Field))
 						return c.constZero()
 					}
-					tag, tagType, ok := c.enumTagInfo(ident.Name, e.Field)
-					if !ok {
-						c.diag.Add(e.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", ident.Name, e.Field))
-						return c.constZero()
-					}
-					dst := c.newTemp()
-					c.setTempType(dst, ident.Name)
-					c.emit(&ir.MakeEnum{Dst: dst, Name: ident.Name, Variant: e.Field, Tag: tag, TagType: tagType, Payload: -1})
-					return dst
+					return c.compileEnumVariant(ident.Name, e.Field, nil, e.Span())
 				}
 			}
 		}
@@ -212,20 +203,14 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			c.diag.Add(e.Span(), fmt.Sprintf("unknown variant '%s'", e.Variant))
 			return c.constZero()
 		}
-		payload := -1
-		if e.Arg != nil {
-			payload = c.compileExpr(e.Arg)
-		} else if variant.Payload != nil {
+		if e.Arg == nil && variant.Payload != nil {
 			c.diag.Add(e.Span(), "missing payload for enum variant")
 		}
-		tag, tagType, ok := c.enumTagInfo(e.EnumName, e.Variant)
-		if !ok {
-			c.diag.Add(e.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", e.EnumName, e.Variant))
-			return c.constZero()
+		var args []ast.Expr
+		if e.Arg != nil {
+			args = []ast.Expr{e.Arg}
 		}
-		dst := c.newTemp()
-		c.emit(&ir.MakeEnum{Dst: dst, Name: e.EnumName, Variant: e.Variant, Tag: tag, TagType: tagType, Payload: payload})
-		return dst
+		return c.compileEnumVariant(e.EnumName, e.Variant, args, e.Span())
 	default:
 		c.diag.Add(expr.Span(), "unsupported expression in stage 0")
 		return c.constZero()

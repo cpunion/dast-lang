@@ -20,16 +20,18 @@ func (e ExitError) Error() string {
 }
 
 type Runtime struct {
-	Prog     *ir.Program
-	Builtins map[string]Builtin
-	Stdout   io.Writer
-	Args     []string
-	nextAddr int
-	heap     map[int]*ir.Value
+	Prog       *ir.Program
+	Builtins   map[string]Builtin
+	Stdout     io.Writer
+	Args       []string
+	nextAddr   int
+	heap       map[int]*ir.Value
+	instrCount int64
+	Debug      bool
 }
 
 func New(prog *ir.Program) *Runtime {
-	rt := &Runtime{Prog: prog, Stdout: os.Stdout, heap: map[int]*ir.Value{}}
+	rt := &Runtime{Prog: prog, Stdout: os.Stdout, heap: map[int]*ir.Value{}, Debug: os.Getenv("DAST_DEBUG") != ""}
 	rt.Builtins = map[string]Builtin{
 		"print":      rt.builtinPrint(false),
 		"println":    rt.builtinPrint(true),
@@ -110,6 +112,10 @@ func (rt *Runtime) execFrame(fr *frame) (ir.Value, error) {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("runtime error: nil block")
 		}
 		for _, inst := range blk.Instr {
+			rt.instrCount++
+			if rt.Debug && rt.instrCount%100000 == 0 {
+				fmt.Fprintf(os.Stderr, "[DEBUG] %d instructions, fn=%s, block=%s\n", rt.instrCount, fr.fn.Name, blk.Label)
+			}
 			if err := rt.execInstr(fr, inst); err != nil {
 				return ir.Value{Kind: ir.KindUnit}, err
 			}

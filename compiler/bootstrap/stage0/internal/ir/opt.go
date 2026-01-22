@@ -101,12 +101,6 @@ func optimizeBlock(blk *Block) {
 			delete(consts, v.Dst)
 		case *GetField:
 			delete(consts, v.Dst)
-		case *MakeEnum:
-			delete(consts, v.Dst)
-		case *EnumTag:
-			delete(consts, v.Dst)
-		case *EnumPayload:
-			delete(consts, v.Dst)
 		case *SetIndex:
 			if idx, ok := consts[v.Index]; ok && idx.Kind == KindInt {
 				if length, ok := arrayLens[v.Array]; ok && arraySafe[v.Array] {
@@ -316,16 +310,6 @@ func instrTemps(inst Instr) []int {
 		return []int{v.Dst, v.Src}
 	case *SetField:
 		return []int{v.Src, v.Value}
-	case *MakeEnum:
-		out := []int{v.Dst}
-		if v.Payload >= 0 {
-			out = append(out, v.Payload)
-		}
-		return out
-	case *EnumTag:
-		return []int{v.Dst, v.Src}
-	case *EnumPayload:
-		return []int{v.Dst, v.Src}
 	default:
 		return nil
 	}
@@ -482,12 +466,6 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 		return &GetField{Dst: remap(v.Dst), Src: remap(v.Src), Field: v.Field}
 	case *SetField:
 		return &SetField{Src: remap(v.Src), Field: v.Field, Value: remap(v.Value)}
-	case *MakeEnum:
-		return &MakeEnum{Dst: remap(v.Dst), Name: v.Name, Variant: v.Variant, Tag: v.Tag, TagType: v.TagType, Payload: remap(v.Payload)}
-	case *EnumTag:
-		return &EnumTag{Dst: remap(v.Dst), Src: remap(v.Src)}
-	case *EnumPayload:
-		return &EnumPayload{Dst: remap(v.Dst), Src: remap(v.Src)}
 	default:
 		return inst
 	}
