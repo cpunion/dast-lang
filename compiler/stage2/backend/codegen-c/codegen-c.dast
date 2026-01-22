@@ -223,15 +223,6 @@ fn cg_instr(inst: IrInstr) -> String {
         .SetField(i) => {
             return "/* field set */"
         }
-        .MakeEnum(i) => {
-            return "t" + int_to_string(i.dst) + " = " + cg_operand_int(i.tag) + "; /* enum creation */"
-        }
-        .EnumTag(i) => {
-            return "t" + int_to_string(i.dst) + " = " + cg_operand_value(i.src) + "; /* enum tag */"
-        }
-        .EnumPayload(i) => {
-            return "/* enum payload */"
-        }
     }
     return "/* unknown */"
 }

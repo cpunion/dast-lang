@@ -599,7 +599,7 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
                 compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
             }
             let tag = new_temp(c)
-            emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: ir_operand_temp(value) }))
+            emit_instr(c, IrInstr.GetField(IrGetField { dst: tag, src: value, field: "_tag" }))
             let cmp = new_temp(c)
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
             let cont = new_block(c, "match_check")
@@ -668,7 +668,7 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
                             }
                             let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                             let payload = new_temp(c)
-                            emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: ir_operand_temp(field_val) }))
+                            emit_instr(c, IrInstr.GetField(IrGetField { dst: payload, src: field_val, field: "_payload" }))
                             let name = declare_var(c, vp.binding, payload_type, false)
                             emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(payload), ref: false, ref_temp: 0 }))
                         }
@@ -699,7 +699,7 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
                     pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
                 }
                 let payload = new_temp(c)
-                emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: ir_operand_temp(scrut) }))
+                emit_instr(c, IrInstr.GetField(IrGetField { dst: payload, src: scrut, field: "_payload" }))
                 let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                 let name = declare_var(c, vp.binding, payload_type, false)
                 emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(payload), ref: false, ref_temp: 0 }))
@@ -784,7 +784,7 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
                 let tag = new_temp(c)
-                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: ir_operand_temp(scrut) }))
+                emit_instr(c, IrInstr.GetField(IrGetField { dst: tag, src: scrut, field: "_tag" }))
                 let cmp = new_temp(c)
                 emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
                 let next = new_block(c, "match_next")
@@ -948,7 +948,7 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
                 let tag = new_temp(c)
-                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: ir_operand_temp(scrut) }))
+                emit_instr(c, IrInstr.GetField(IrGetField { dst: tag, src: scrut, field: "_tag" }))
                 let cmp = new_temp(c)
                 emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
                 let next = new_block(c, "match_next")
@@ -1307,7 +1307,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .MethodCall(m) => {
             let res = resolve_method_call(c, m.recv, m.method, self_name)
             if res.is_enum {
-                let mut payload = ir_operand_temp(-1)
+                let mut payload = ir_operand_const(ir_value_unit())
                 if len(m.args) > 0 {
                     payload = compile_operand(c, m.args[0], self_name)
                 }
@@ -1316,7 +1316,10 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                     compiler_add_type_error(c, "unknown enum variant '" + res.method_name + "'")
                 }
                 let dst = new_temp(c)
-                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: res.enum_name, variant: res.method_name, tag: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)), tag_type: tag_info.tag_type, payload: payload }))
+                let mut fields: [IrStructFieldInit] = []
+                push(&mut fields, IrStructFieldInit { name: "_tag", src: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) })
+                push(&mut fields, IrStructFieldInit { name: "_payload", src: payload })
+                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: res.enum_name, fields: fields }))
                 return dst
             }
             let mut final_args: [IrOperand] = []
@@ -1365,7 +1368,10 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                                     compiler_add_type_error(c, "unknown enum variant '" + f.name + "'")
                                 }
                                 let dst = new_temp(c)
-                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: eq, variant: f.name, tag: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)), tag_type: tag_info.tag_type, payload: ir_operand_temp(-1) }))
+                                let mut fields: [IrStructFieldInit] = []
+                                push(&mut fields, IrStructFieldInit { name: "_tag", src: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) })
+                                push(&mut fields, IrStructFieldInit { name: "_payload", src: ir_operand_const(ir_value_unit()) })
+                                emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: eq, fields: fields }))
                                 return dst
                             }
                         }

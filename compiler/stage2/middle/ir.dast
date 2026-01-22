@@ -225,25 +225,6 @@ struct IrSetField {
     value: IrOperand,
 }
 
-struct IrMakeEnum {
-    dst: i32,
-    name: String,
-    variant: String,
-    tag: IrOperand,
-    tag_type: String,
-    payload: IrOperand,
-}
-
-struct IrEnumTag {
-    dst: i32,
-    src: IrOperand,
-}
-
-struct IrEnumPayload {
-    dst: i32,
-    src: IrOperand,
-}
-
 enum IrInstr {
     LoadVar(IrLoadVar),
     StoreVar(IrStoreVar),
@@ -256,9 +237,6 @@ enum IrInstr {
     MakeStruct(IrMakeStruct),
     GetField(IrGetField),
     SetField(IrSetField),
-    MakeEnum(IrMakeEnum),
-    EnumTag(IrEnumTag),
-    EnumPayload(IrEnumPayload),
 }
 
 struct IrJump {
@@ -396,18 +374,6 @@ fn ir_instr_string(inst: IrInstr) -> String {
         }
         .GetField(i) => { return "t" + int_to_string(i.dst) + " = get_field t" + int_to_string(i.src) + "." + i.field }
         .SetField(i) => { return "set_field t" + int_to_string(i.src) + "." + i.field + " = " + ir_operand_stringify(i.value) }
-        .MakeEnum(i) => {
-            let mut tag = ""
-            if i.tag_type != "" {
-                tag = "@" + ir_operand_stringify(i.tag) + ":" + i.tag_type
-            }
-            if i.payload.is_const || i.payload.temp >= 0 {
-                return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant + tag + "(" + ir_operand_stringify(i.payload) + ")"
-            }
-            return "t" + int_to_string(i.dst) + " = enum " + i.name + "." + i.variant + tag
-        }
-        .EnumTag(i) => { return "t" + int_to_string(i.dst) + " = enum_tag " + ir_operand_stringify(i.src) }
-        .EnumPayload(i) => { return "t" + int_to_string(i.dst) + " = enum_payload " + ir_operand_stringify(i.src) }
     }
     return ""
 }
@@ -984,57 +950,6 @@ fn ir_parse_line(line: String) -> IrLineParse {
             if src > max { max = src }
             return IrLineParse { ok: true, is_term: false, instr: IrInstr.GetField(IrGetField { dst: dst, src: src, field: field }), term: ir_term_none(), max_temp: max, error: "" }
         }
-        if has_prefix(right, "enum ") {
-            let rest = trim_space(substr(right, 5, len(right) - 5))
-            let open = find_char(rest, 40, 0)
-            let mut name_variant = rest
-            let mut payload = ir_operand_temp(-1)
-            let mut payload_max = -1
-            if open >= 0 {
-                let close = find_char(rest, 41, 0)
-                if close < 0 { return ir_line_parse_error("invalid enum syntax") }
-                name_variant = trim_space(substr(rest, 0, open))
-                let payload_text = trim_space(substr(rest, open + 1, close - open - 1))
-                let payload_res = parse_ir_operand(payload_text)
-                if !payload_res.ok { return ir_line_parse_error(payload_res.error) }
-                payload = payload_res.operand
-                payload_max = payload_res.max_temp
-            }
-            let dot = find_char(name_variant, 46, 0)
-            if dot < 0 { return ir_line_parse_error("invalid enum syntax") }
-            let name = trim_space(substr(name_variant, 0, dot))
-            let variant_part = trim_space(substr(name_variant, dot + 1, len(name_variant) - dot - 1))
-            let mut variant = variant_part
-            let mut tag = ir_operand_const(ir_value_int(0))
-            let mut tag_type = ""
-            let at = find_char(variant_part, 64, 0)
-            if at >= 0 {
-                variant = trim_space(substr(variant_part, 0, at))
-                let tag_spec = trim_space(substr(variant_part, at + 1, len(variant_part) - at - 1))
-                let colon = find_char(tag_spec, 58, 0)
-                if colon < 0 { return ir_line_parse_error("invalid enum tag") }
-                let tag_text = trim_space(substr(tag_spec, 0, colon))
-                tag_type = trim_space(substr(tag_spec, colon + 1, len(tag_spec) - colon - 1))
-                tag = ir_operand_const(ir_value_int_t(parse_int(tag_text), tag_type))
-            }
-            let mut max = dst
-            if payload_max > max { max = payload_max }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: name, variant: variant, tag: tag, tag_type: tag_type, payload: payload }), term: ir_term_none(), max_temp: max, error: "" }
-        }
-        if has_prefix(right, "enum_tag ") {
-            let src_res = parse_ir_operand(substr(right, 9, len(right) - 9))
-            if !src_res.ok { return ir_line_parse_error(src_res.error) }
-            let mut max = dst
-            if src_res.max_temp > max { max = src_res.max_temp }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.EnumTag(IrEnumTag { dst: dst, src: src_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
-        }
-        if has_prefix(right, "enum_payload ") {
-            let src_res = parse_ir_operand(substr(right, 13, len(right) - 13))
-            if !src_res.ok { return ir_line_parse_error(src_res.error) }
-            let mut max = dst
-            if src_res.max_temp > max { max = src_res.max_temp }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.EnumPayload(IrEnumPayload { dst: dst, src: src_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
-        }
         let space = find_char(right, 32, 0)
         if space < 0 { return ir_line_parse_error("invalid op syntax") }
         let op = trim_space(substr(right, 0, space))
@@ -1352,26 +1267,6 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             let err = ir_validate_temp(i.src, temp_count, false)
             if err != "" { return err }
             return ir_validate_operand(i.value, temp_count)
-        }
-        .MakeEnum(i) => {
-            if i.name == "" || i.variant == "" { return "enum name or variant is empty" }
-            let err = ir_validate_temp(i.dst, temp_count, false)
-            if err != "" { return err }
-            let err2 = ir_validate_operand(i.tag, temp_count)
-            if err2 != "" { return err2 }
-            if i.payload.is_const { return "" }
-            if i.payload.temp < 0 { return "" }
-            return ir_validate_temp(i.payload.temp, temp_count, false)
-        }
-        .EnumTag(i) => {
-            let err = ir_validate_temp(i.dst, temp_count, false)
-            if err != "" { return err }
-            return ir_validate_operand(i.src, temp_count)
-        }
-        .EnumPayload(i) => {
-            let err = ir_validate_temp(i.dst, temp_count, false)
-            if err != "" { return err }
-            return ir_validate_operand(i.src, temp_count)
         }
     }
     return "unknown instruction"
@@ -1936,29 +1831,6 @@ fn ir_instr_temps(inst: IrInstr) -> [i32] {
                 k = k + 1
             }
         }
-        .MakeEnum(i) => {
-            push(&mut out, i.dst)
-            let temps_tag = ir_operand_temps(i.tag)
-            let mut k = 0
-            while k < len(temps_tag) { push(&mut out, temps_tag[k]); k = k + 1 }
-            if i.payload.is_const {
-                // no temps to add
-            } else if i.payload.temp >= 0 {
-                push(&mut out, i.payload.temp)
-            }
-        }
-        .EnumTag(i) => {
-            push(&mut out, i.dst)
-            let temps = ir_operand_temps(i.src)
-            let mut k = 0
-            while k < len(temps) { push(&mut out, temps[k]); k = k + 1 }
-        }
-        .EnumPayload(i) => {
-            push(&mut out, i.dst)
-            let temps = ir_operand_temps(i.src)
-            let mut k = 0
-            while k < len(temps) { push(&mut out, temps[k]); k = k + 1 }
-        }
     }
     return out
 }
@@ -2181,18 +2053,6 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             }
             .SetField(c) => {
                 push(&mut instrs, inst)
-            }
-            .MakeEnum(c) => {
-                push(&mut instrs, inst)
-                ir_const_map_clear(&mut consts, c.dst)
-            }
-            .EnumTag(c) => {
-                push(&mut instrs, inst)
-                ir_const_map_clear(&mut consts, c.dst)
-            }
-            .EnumPayload(c) => {
-                push(&mut instrs, inst)
-                ir_const_map_clear(&mut consts, c.dst)
             }
         }
         i = i + 1
@@ -2515,15 +2375,6 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
         }
         .SetField(i) => {
             return IrInstr.SetField(IrSetField { src: ir_inline_remap_temp(temp_map, i.src), field: i.field, value: ir_inline_remap_operand(i.value, temp_map) })
-        }
-        .MakeEnum(i) => {
-            return IrInstr.MakeEnum(IrMakeEnum { dst: ir_inline_remap_temp(temp_map, i.dst), name: i.name, variant: i.variant, tag: ir_inline_remap_operand(i.tag, temp_map), tag_type: i.tag_type, payload: ir_inline_remap_operand(i.payload, temp_map) })
-        }
-        .EnumTag(i) => {
-            return IrInstr.EnumTag(IrEnumTag { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_operand(i.src, temp_map) })
-        }
-        .EnumPayload(i) => {
-            return IrInstr.EnumPayload(IrEnumPayload { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_operand(i.src, temp_map) })
         }
     }
     return inst

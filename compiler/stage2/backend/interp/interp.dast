@@ -307,27 +307,6 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let v = eval_operand(rt, fr, i.value)
             struct_set_field(rt, src, i.field, v)
         }
-        .MakeEnum(i) => {
-            let mut payload = ir_value_unit()
-            let mut has_payload = false
-            if i.payload.is_const || i.payload.temp >= 0 {
-                payload = eval_operand(rt, fr, i.payload)
-                has_payload = true
-            }
-            let tag_val = eval_operand(rt, fr, i.tag)
-            let eidx = enum_alloc(rt, IrEnumValue { name: i.name, variant: i.variant, tag: tag_val.int, tag_type: i.tag_type, has_payload: has_payload, payload: payload })
-            set_temp(rt, fr, i.dst, ir_value_enum(eidx))
-        }
-        .EnumTag(i) => {
-            let src = eval_operand(rt, fr, i.src)
-            let v = enum_tag(rt, src)
-            set_temp(rt, fr, i.dst, v)
-        }
-        .EnumPayload(i) => {
-            let src = eval_operand(rt, fr, i.src)
-            let v = enum_payload(rt, src)
-            set_temp(rt, fr, i.dst, v)
-        }
     }
 }
 
