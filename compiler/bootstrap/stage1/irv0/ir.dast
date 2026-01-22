@@ -1355,76 +1355,136 @@ fn ir_validate(p: IrProgram) -> String {
     return ""
 }
 
-struct IrStrSet {
-    items: [String],
+struct IrVarMap {
+    names: [String],
 }
 
-fn ir_strset_new() -> IrStrSet {
-    return IrStrSet { items: ir_string_list_new() }
+struct IrVarSet {
+    bits: [bool],
 }
 
-fn ir_strset_contains(set: IrStrSet, name: String) -> bool {
-    return ir_string_list_contains(set.items, name)
+fn ir_var_map_new() -> IrVarMap {
+    return IrVarMap { names: ir_string_list_new() }
 }
 
-fn ir_strset_add(set: &mut IrStrSet, name: String) {
-    if name == "" { return }
-    if !ir_string_list_contains(set.items, name) {
-        let mut items = set.items
-        push(&mut items, name)
-        set.items = items
-    }
-}
-
-fn ir_strset_copy(set: IrStrSet) -> IrStrSet {
-    let mut items: [String] = ir_string_list_new()
+fn ir_var_map_find(map: IrVarMap, name: String) -> i32 {
     let mut i = 0
-    while i < len(set.items) {
-        push(&mut items, set.items[i])
+    while i < len(map.names) {
+        if map.names[i] == name { return i }
         i = i + 1
     }
-    return IrStrSet { items: items }
+    return -1
 }
 
-fn ir_strset_union(a: IrStrSet, b: IrStrSet) -> IrStrSet {
-    let mut out = ir_strset_copy(a)
+fn ir_var_map_add(map: &mut IrVarMap, name: String) -> i32 {
+    if name == "" { return -1 }
+    let idx = ir_var_map_find(*map, name)
+    if idx >= 0 { return idx }
+    let mut names = map.names
+    push(&mut names, name)
+    let new_idx = len(names) - 1
+    map.names = names
+    return new_idx
+}
+
+fn ir_varset_empty(count: i32) -> IrVarSet {
+    let mut bits: [bool] = []
     let mut i = 0
-    while i < len(b.items) {
-        ir_strset_add(&mut out, b.items[i])
+    while i < count {
+        push(&mut bits, false)
         i = i + 1
     }
-    return out
+    return IrVarSet { bits: bits }
 }
 
-fn ir_strset_intersect(a: IrStrSet, b: IrStrSet) -> IrStrSet {
-    let mut out = ir_strset_new()
+fn ir_varset_full(count: i32) -> IrVarSet {
+    let mut bits: [bool] = []
     let mut i = 0
-    while i < len(a.items) {
-        let name = a.items[i]
-        if ir_string_list_contains(b.items, name) {
-            ir_strset_add(&mut out, name)
-        }
+    while i < count {
+        push(&mut bits, true)
         i = i + 1
     }
-    return out
+    return IrVarSet { bits: bits }
 }
 
-fn ir_strset_equal(a: IrStrSet, b: IrStrSet) -> bool {
-    if len(a.items) != len(b.items) { return false }
+fn ir_varset_copy(set: IrVarSet) -> IrVarSet {
+    let mut bits: [bool] = []
     let mut i = 0
-    while i < len(a.items) {
-        if !ir_string_list_contains(b.items, a.items[i]) { return false }
+    while i < len(set.bits) {
+        push(&mut bits, set.bits[i])
+        i = i + 1
+    }
+    return IrVarSet { bits: bits }
+}
+
+fn ir_varset_add_idx(set: &mut IrVarSet, idx: i32) {
+    if idx < 0 || idx >= len(set.bits) { return }
+    let mut bits = set.bits
+    bits[idx] = true
+    set.bits = bits
+}
+
+fn ir_varset_has_idx(set: IrVarSet, idx: i32) -> bool {
+    if idx < 0 || idx >= len(set.bits) { return false }
+    return set.bits[idx]
+}
+
+fn ir_varset_add_name(set: &mut IrVarSet, map: IrVarMap, name: String) {
+    let idx = ir_var_map_find(map, name)
+    ir_varset_add_idx(set, idx)
+}
+
+fn ir_varset_has_name(set: IrVarSet, map: IrVarMap, name: String) -> bool {
+    let idx = ir_var_map_find(map, name)
+    return ir_varset_has_idx(set, idx)
+}
+
+fn ir_varset_union(a: IrVarSet, b: IrVarSet) -> IrVarSet {
+    let mut bits = a.bits
+    let mut i = 0
+    while i < len(bits) {
+        if b.bits[i] { bits[i] = true }
+        i = i + 1
+    }
+    return IrVarSet { bits: bits }
+}
+
+fn ir_varset_intersect(a: IrVarSet, b: IrVarSet) -> IrVarSet {
+    let mut bits = a.bits
+    let mut i = 0
+    while i < len(bits) {
+        bits[i] = bits[i] && b.bits[i]
+        i = i + 1
+    }
+    return IrVarSet { bits: bits }
+}
+
+fn ir_varset_equal(a: IrVarSet, b: IrVarSet) -> bool {
+    if len(a.bits) != len(b.bits) { return false }
+    let mut i = 0
+    while i < len(a.bits) {
+        if a.bits[i] != b.bits[i] { return false }
         i = i + 1
     }
     return true
 }
 
-fn ir_block_store_set(blk: IrBlock) -> IrStrSet {
-    let mut out = ir_strset_new()
+fn ir_varset_from_params(map: IrVarMap, params: [String]) -> IrVarSet {
+    let mut set = ir_varset_empty(len(map.names))
+    let mut i = 0
+    while i < len(params) {
+        ir_varset_add_name(&mut set, map, params[i])
+        i = i + 1
+    }
+    return set
+}
+
+fn ir_block_store_set(map: IrVarMap, blk: IrBlock) -> IrVarSet {
+    let mut out = ir_varset_empty(len(map.names))
     let mut i = 0
     while i < len(blk.instrs) {
         match blk.instrs[i] {
-            .StoreVar(sv) => { ir_strset_add(&mut out, sv.name) }
+            .StoreVar(sv) => { ir_varset_add_name(&mut out, map, sv.name) }
             _ => {}
         }
         i = i + 1
@@ -1432,33 +1492,85 @@ fn ir_block_store_set(blk: IrBlock) -> IrStrSet {
     return out
 }
 
+fn ir_block_predecessors(blocks: [IrBlock]) -> [[i32]] {
+    let mut preds: [[i32]] = []
+    let mut i = 0
+    while i < len(blocks) {
+        let mut empty: [i32] = []
+        push(&mut preds, empty)
+        i = i + 1
+    }
+    i = 0
+    while i < len(blocks) {
+        let blk = blocks[i]
+        match blk.term {
+            .Jump(t) => {
+                let target = ir_find_block_index(blocks, t.target)
+                if target >= 0 {
+                    let mut arr = preds[target]
+                    push(&mut arr, i)
+                    preds[target] = arr
+                }
+            }
+            .Branch(t) => {
+                let then_idx = ir_find_block_index(blocks, t.then_label)
+                if then_idx >= 0 {
+                    let mut arr = preds[then_idx]
+                    push(&mut arr, i)
+                    preds[then_idx] = arr
+                }
+                let else_idx = ir_find_block_index(blocks, t.else_label)
+                if else_idx >= 0 {
+                    let mut arr2 = preds[else_idx]
+                    push(&mut arr2, i)
+                    preds[else_idx] = arr2
+                }
+            }
+            _ => {}
+        }
+        i = i + 1
+    }
+    return preds
+}
+
 fn ir_validate_def_assign(f: IrFunction) -> String {
     if len(f.blocks) == 0 { return "" }
     let reachable = ir_reachable_blocks(f.blocks)
-    let mut params = ir_strset_new()
+    let mut var_map = ir_var_map_new()
     let mut p = 0
     while p < len(f.params) {
-        ir_strset_add(&mut params, f.params[p])
+        ir_var_map_add(&mut var_map, f.params[p])
         p = p + 1
     }
-    let mut stores: [IrStrSet] = []
+    let mut bi_scan = 0
+    while bi_scan < len(f.blocks) {
+        let blk = f.blocks[bi_scan]
+        let mut ii = 0
+        while ii < len(blk.instrs) {
+            match blk.instrs[ii] {
+                .StoreVar(sv) => { ir_var_map_add(&mut var_map, sv.name) }
+                _ => {}
+            }
+            ii = ii + 1
+        }
+        bi_scan = bi_scan + 1
+    }
+    let var_count = len(var_map.names)
+    let params = ir_varset_from_params(var_map, f.params)
+    let mut stores: [IrVarSet] = []
     let mut i = 0
     while i < len(f.blocks) {
-        push(&mut stores, ir_block_store_set(f.blocks[i]))
+        push(&mut stores, ir_block_store_set(var_map, f.blocks[i]))
         i = i + 1
     }
-    let mut all_vars = ir_strset_copy(params)
-    let mut si = 0
-    while si < len(stores) {
-        all_vars = ir_strset_union(all_vars, stores[si])
-        si = si + 1
-    }
-    let mut in_sets: [IrStrSet] = []
-    let mut out_sets: [IrStrSet] = []
+    let preds = ir_block_predecessors(f.blocks)
+    let all_vars = ir_varset_full(var_count)
+    let mut in_sets: [IrVarSet] = []
+    let mut out_sets: [IrVarSet] = []
     let mut bi_init = 0
     while bi_init < len(f.blocks) {
-        push(&mut in_sets, ir_strset_copy(all_vars))
-        push(&mut out_sets, ir_strset_copy(all_vars))
+        push(&mut in_sets, ir_varset_copy(all_vars))
+        push(&mut out_sets, ir_varset_copy(all_vars))
         bi_init = bi_init + 1
     }
     let entry_label = f.blocks[0].label
@@ -1469,40 +1581,31 @@ fn ir_validate_def_assign(f: IrFunction) -> String {
         while bi < len(f.blocks) {
             if reachable[bi] {
                 let blk = f.blocks[bi]
-                let mut in_set = ir_strset_new()
+                let mut in_set = ir_varset_empty(var_count)
                 if blk.label == entry_label {
-                    in_set = ir_strset_copy(params)
+                    in_set = ir_varset_copy(params)
                 } else {
                     let mut first = true
+                    let pred_list = preds[bi]
                     let mut pj = 0
-                    while pj < len(f.blocks) {
-                        if reachable[pj] {
-                            let pred = f.blocks[pj]
-                            let mut is_pred = false
-                            match pred.term {
-                                .Jump(t) => { if t.target == blk.label { is_pred = true } }
-                                .Branch(t) => {
-                                    if t.then_label == blk.label || t.else_label == blk.label { is_pred = true }
-                                }
-                                _ => {}
-                            }
-                            if is_pred {
-                                if first {
-                                    in_set = ir_strset_copy(out_sets[pj])
-                                    first = false
-                                } else {
-                                    in_set = ir_strset_intersect(in_set, out_sets[pj])
-                                }
+                    while pj < len(pred_list) {
+                        let pred_idx = pred_list[pj]
+                        if pred_idx >= 0 && pred_idx < len(f.blocks) && reachable[pred_idx] {
+                            if first {
+                                in_set = ir_varset_copy(out_sets[pred_idx])
+                                first = false
+                            } else {
+                                in_set = ir_varset_intersect(in_set, out_sets[pred_idx])
                             }
                         }
                         pj = pj + 1
                     }
                     if first {
-                        in_set = ir_strset_new()
+                        in_set = ir_varset_empty(var_count)
                     }
                 }
-                let out_set = ir_strset_union(in_set, stores[bi])
-                if !ir_strset_equal(out_sets[bi], out_set) {
+                let out_set = ir_varset_union(in_set, stores[bi])
+                if !ir_varset_equal(out_sets[bi], out_set) {
                     out_sets[bi] = out_set
                     changed = true
                 }
@@ -1515,24 +1618,24 @@ fn ir_validate_def_assign(f: IrFunction) -> String {
     while bi2 < len(f.blocks) {
         if reachable[bi2] {
             let blk = f.blocks[bi2]
-            let mut cur = ir_strset_copy(in_sets[bi2])
-            let mut ii = 0
-            while ii < len(blk.instrs) {
-                match blk.instrs[ii] {
+            let mut cur = ir_varset_copy(in_sets[bi2])
+            let mut ii2 = 0
+            while ii2 < len(blk.instrs) {
+                match blk.instrs[ii2] {
                     .LoadVar(l) => {
-                        if !ir_strset_contains(cur, l.name) {
+                        if !ir_varset_has_name(cur, var_map, l.name) {
                             return "use of possibly uninitialized variable '" + l.name + "'"
                         }
                     }
                     .AddrOf(a) => {
-                        if !ir_strset_contains(cur, a.name) {
+                        if !ir_varset_has_name(cur, var_map, a.name) {
                             return "use of possibly uninitialized variable '" + a.name + "'"
                         }
                     }
-                    .StoreVar(s) => { ir_strset_add(&mut cur, s.name) }
+                    .StoreVar(s) => { ir_varset_add_name(&mut cur, var_map, s.name) }
                     _ => {}
                 }
-                ii = ii + 1
+                ii2 = ii2 + 1
             }
         }
         bi2 = bi2 + 1
@@ -2334,4 +2437,3 @@ fn ir_opt_program(p: IrProgram) -> IrProgram {
     }
     return IrProgram { version: inlined.version, features: inlined.features, functions: funcs, entry: inlined.entry }
 }
-
