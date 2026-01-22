@@ -132,7 +132,7 @@ func (rt *Runtime) execFrame(fr *frame) (ir.Value, error) {
 			fr.cur = next
 			continue
 		case *ir.Branch:
-			cond, err := rt.getTemp(fr, t.Cond)
+			cond, err := rt.evalOperand(fr, t.Cond)
 			if err != nil {
 				return ir.Value{Kind: ir.KindUnit}, err
 			}
@@ -153,7 +153,7 @@ func (rt *Runtime) execFrame(fr *frame) (ir.Value, error) {
 			if t.Value == nil {
 				return ir.Value{Kind: ir.KindUnit}, nil
 			}
-			val, err := rt.getTemp(fr, *t.Value)
+			val, err := rt.evalOperand(fr, *t.Value)
 			if err != nil {
 				return ir.Value{Kind: ir.KindUnit}, err
 			}

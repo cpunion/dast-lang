@@ -93,7 +93,7 @@ fn main()
 - 每个 block 必须有终结符（`jump/branch/return`）
 - `jump/branch` 目标必须存在
 - `tN` 必须满足 `0 <= N < temp_count`（`call` 的 `dst` 与 `enum` 的 `payload` 允许 `-1` 表示无值）
-- `binop/unary` 操作符必须属于 v0 定义集合
+- `binop` 操作符必须属于 v0 定义集合
 - `struct` 字段名不能为空且不可重复
 - `term` 必须是 block 的最后一行（终结符后不能再出现指令）
 - `load/addr_of` 变量名必须已声明（函数参数或出现过 `store`）
@@ -103,7 +103,7 @@ fn main()
 
 `ir-opt` 是一个**保守优化**工具，保证 v0 语义不变：
 
-- 常量折叠：`unary/binop` 在常量输入时折叠为 `const`
+- 常量折叠：`binop` 在常量输入时直接折叠为字面量 operand（不生成指令）
 - 分支折叠：`branch` 条件为常量 `bool` 时改写为 `jump`
 - 删除不可达块：从函数首块出发的可达性分析
 - 变量常量传播（局部）
@@ -113,47 +113,42 @@ fn main()
 ### 指令文本形态（与 v0 指令一一对应）
 
 ```
-tN = const <value>
-tN = const <int_type> <int>
+<operand> := tN | <literal>
 
 tN = load <name>
-store <name>, tN
+store <name>, <operand>
 
 tN = addr_of <name>
 tN = load_ref tM
-store_ref tM, tN
+store_ref tM, <operand>
 
-tN = <op> tA, tB
-tN = <op> tA              # 一元
+tN = <op> <operand>, <operand>
 
-tN = call <callee>(tA, tB)
-call <callee>(tA, tB)      # 无返回值
+tN = call <callee>(<operand>, <operand>)
+call <callee>(<operand>, <operand>)      # 无返回值
 
-tN = array [tA, tB]
-tN = index tA[tB]
-set_index tA[tB] = tC
+tN = array [<operand>, <operand>]
+tN = index <operand>[<operand>] [@unchecked]
+set_index <operand>[<operand>] = <operand> [@unchecked]
 
-tN = index_unchecked tA[tB]
-set_index_unchecked tA[tB] = tC
-
-tN = struct <Name> { field: tA, other: tB }
+tN = struct <Name> { field: <operand>, other: <operand> }
 tN = get_field tA.field
-set_field tA.field = tB
+set_field tA.field = <operand>
 
-tN = enum <Name>.<Variant>@<tag>:<tag_type>(tA)
+tN = enum <Name>.<Variant>@<tag>:<tag_type>(<operand>)
 tN = enum <Name>.<Variant>@<tag>:<tag_type>
 
-tN = enum_tag tA
-tN = enum_payload tA
+tN = enum_tag <operand>
+tN = enum_payload <operand>
 ```
 
 终结符：
 
 ```
 jump <label>
-branch tA, <then>, <else>
+branch <operand>, <then>, <else>
 return
-return tA
+return <operand>
 ```
 
 常量 `value`：
@@ -186,9 +181,9 @@ v0 支持 8 种运行时值：
 
 ## 指令集（v0）
 
-### 常量/变量
+### 变量
 
-- `Const dst, value`
+- 常量通过 operand 直接内联，不再作为指令出现
 - `LoadVar dst, name`
   - `@addr`（文本语法 `load_addr`）：返回指向变量的引用
   - `@ref`（文本语法 `load_ref tX`）：从引用 temp 解引用读取

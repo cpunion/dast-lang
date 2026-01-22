@@ -84,6 +84,25 @@ fn ir_value_array(idx: i32) -> IrValue {
     return IrValue { kind: ir_kind_array(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
 }
 
+struct IrOperand {
+    is_const: bool,
+    temp: i32,
+    value: IrValue,
+}
+
+fn ir_operand_temp(t: i32) -> IrOperand {
+    return IrOperand { is_const: false, temp: t, value: ir_value_unit() }
+}
+
+fn ir_operand_const(v: IrValue) -> IrOperand {
+    return IrOperand { is_const: true, temp: -1, value: v }
+}
+
+fn ir_operand_stringify(op: IrOperand) -> String {
+    if op.is_const { return ir_value_stringify(op.value) }
+    return "t" + int_to_string(op.temp)
+}
+
 struct IrStructFieldValue {
     name: String,
     value: IrValue,
@@ -129,11 +148,6 @@ struct IrBlock {
     term: IrTerm,
 }
 
-struct IrConst {
-    dst: i32,
-    value: IrValue,
-}
-
 struct IrLoadVar {
     dst: i32,
     name: String,
@@ -144,7 +158,7 @@ struct IrLoadVar {
 
 struct IrStoreVar {
     name: String,
-    src: i32,
+    src: IrOperand,
     ref: bool,
     ref_temp: i32,
 }
@@ -152,38 +166,38 @@ struct IrStoreVar {
 struct IrBinOp {
     dst: i32,
     op: String,
-    lhs: i32,
-    rhs: i32,
+    lhs: IrOperand,
+    rhs: IrOperand,
 }
 
 struct IrCall {
     dst: i32,
     callee: String,
-    args: [i32],
+    args: [IrOperand],
 }
 
 struct IrMakeArray {
     dst: i32,
-    elems: [i32],
+    elems: [IrOperand],
 }
 
 struct IrIndex {
     unchecked: bool,
     dst: i32,
-    array: i32,
-    index: i32,
+    array: IrOperand,
+    index: IrOperand,
 }
 
 struct IrSetIndex {
     unchecked: bool,
-    array: i32,
-    index: i32,
-    src: i32,
+    array: IrOperand,
+    index: IrOperand,
+    src: IrOperand,
 }
 
 struct IrStructFieldInit {
     name: String,
-    src: i32,
+    src: IrOperand,
 }
 
 struct IrMakeStruct {
@@ -201,11 +215,10 @@ struct IrGetField {
 struct IrSetField {
     src: i32,
     field: String,
-    value: i32,
+    value: IrOperand,
 }
 
 enum IrInstr {
-    Const(IrConst),
     LoadVar(IrLoadVar),
     StoreVar(IrStoreVar),
     BinOp(IrBinOp),
@@ -223,14 +236,14 @@ struct IrJump {
 }
 
 struct IrBranch {
-    cond: i32,
+    cond: IrOperand,
     then_label: String,
     else_label: String,
 }
 
 struct IrReturn {
     has_value: bool,
-    value: i32,
+    value: IrOperand,
 }
 
 struct IrNoTerm {}
@@ -283,7 +296,6 @@ fn ir_escape_string(s: String) -> String {
 
 fn ir_instr_string(inst: IrInstr) -> String {
     match inst {
-        IrInstr.Const(i) => { return "t" + int_to_string(i.dst) + " = const " + ir_value_stringify(i.value) }
         .LoadVar(i) => {
             if i.ref {
                 return "t" + int_to_string(i.dst) + " = load_ref t" + int_to_string(i.ref_temp)
@@ -293,18 +305,18 @@ fn ir_instr_string(inst: IrInstr) -> String {
             return "t" + int_to_string(i.dst) + " = " + op + " " + i.name
         }
         .StoreVar(i) => {
-            if i.ref { return "store_ref t" + int_to_string(i.ref_temp) + ", t" + int_to_string(i.src) }
-            return "store " + i.name + ", t" + int_to_string(i.src)
+            if i.ref { return "store_ref t" + int_to_string(i.ref_temp) + ", " + ir_operand_stringify(i.src) }
+            return "store " + i.name + ", " + ir_operand_stringify(i.src)
         }
         .BinOp(i) => {
-            return "t" + int_to_string(i.dst) + " = " + i.op + " t" + int_to_string(i.lhs) + ", t" + int_to_string(i.rhs)
+            return "t" + int_to_string(i.dst) + " = " + i.op + " " + ir_operand_stringify(i.lhs) + ", " + ir_operand_stringify(i.rhs)
         }
         IrInstr.Call(i) => {
             let mut args = ""
             let mut j = 0
             while j < len(i.args) {
                 if j > 0 { args = args + ", " }
-                args = args + "t" + int_to_string(i.args[j])
+                args = args + ir_operand_stringify(i.args[j])
                 j = j + 1
             }
             if i.dst >= 0 {
@@ -317,7 +329,7 @@ fn ir_instr_string(inst: IrInstr) -> String {
             let mut j = 0
             while j < len(i.elems) {
                 if j > 0 { elems = elems + ", " }
-                elems = elems + "t" + int_to_string(i.elems[j])
+                elems = elems + ir_operand_stringify(i.elems[j])
                 j = j + 1
             }
             return "t" + int_to_string(i.dst) + " = array [" + elems + "]"
@@ -325,25 +337,25 @@ fn ir_instr_string(inst: IrInstr) -> String {
         IrInstr.Index(i) => {
             let mut suffix = ""
             if i.unchecked { suffix = " @unchecked" }
-            return "t" + int_to_string(i.dst) + " = index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "]" + suffix
+            return "t" + int_to_string(i.dst) + " = index " + ir_operand_stringify(i.array) + "[" + ir_operand_stringify(i.index) + "]" + suffix
         }
         .SetIndex(i) => {
             let mut suffix = ""
             if i.unchecked { suffix = " @unchecked" }
-            return "set_index t" + int_to_string(i.array) + "[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + suffix
+            return "set_index " + ir_operand_stringify(i.array) + "[" + ir_operand_stringify(i.index) + "] = " + ir_operand_stringify(i.src) + suffix
         }
         .MakeStruct(i) => {
             let mut fields = ""
             let mut j = 0
             while j < len(i.fields) {
                 if j > 0 { fields = fields + ", " }
-                fields = fields + i.fields[j].name + ": t" + int_to_string(i.fields[j].src)
+                fields = fields + i.fields[j].name + ": " + ir_operand_stringify(i.fields[j].src)
                 j = j + 1
             }
             return "t" + int_to_string(i.dst) + " = struct " + i.name + " { " + fields + " }"
         }
         .GetField(i) => { return "t" + int_to_string(i.dst) + " = get_field t" + int_to_string(i.src) + "." + i.field }
-        .SetField(i) => { return "set_field t" + int_to_string(i.src) + "." + i.field + " = t" + int_to_string(i.value) }
+        .SetField(i) => { return "set_field t" + int_to_string(i.src) + "." + i.field + " = " + ir_operand_stringify(i.value) }
     }
     return ""
 }
@@ -353,11 +365,11 @@ fn ir_term_string(term: IrTerm) -> String {
         .None(_) => { return "" }
         .Jump(t) => { return "jump " + t.target }
         .Branch(t) => {
-            return "branch t" + int_to_string(t.cond) + ", " + t.then_label + ", " + t.else_label
+            return "branch " + ir_operand_stringify(t.cond) + ", " + t.then_label + ", " + t.else_label
         }
         IrTerm.Return(t) => {
             if !t.has_value { return "return" }
-            return "return t" + int_to_string(t.value)
+            return "return " + ir_operand_stringify(t.value)
         }
     }
 }
@@ -434,7 +446,7 @@ struct IrLineParse {
 }
 
 fn ir_instr_dummy() -> IrInstr {
-    return IrInstr.Const(IrConst { dst: 0, value: ir_value_unit() })
+    return IrInstr.BinOp(IrBinOp { dst: 0, op: "+", lhs: ir_operand_const(ir_value_int(0)), rhs: ir_operand_const(ir_value_int(0)) })
 }
 
 fn ir_is_space(c: i32) -> bool {
@@ -557,6 +569,22 @@ fn parse_temp_name(text: String) -> i32 {
     return parse_int(substr(t, 1, len(t) - 1))
 }
 
+struct IrOperandParse {
+    ok: bool,
+    operand: IrOperand,
+    max_temp: i32,
+    error: String,
+}
+
+fn parse_ir_operand(text: String) -> IrOperandParse {
+    let t = parse_temp_name(text)
+    if t >= 0 {
+        return IrOperandParse { ok: true, operand: ir_operand_temp(t), max_temp: t, error: "" }
+    }
+    let v = parse_ir_value(text)
+    return IrOperandParse { ok: true, operand: ir_operand_const(v), max_temp: -1, error: "" }
+}
+
 fn strip_quotes(text: String) -> String {
     if len(text) < 2 { return text }
     return ir_unescape_string(substr(text, 1, len(text) - 2))
@@ -642,21 +670,18 @@ fn ir_parse_call(text: String, dst: i32) -> IrLineParse {
     }
     let callee = trim_space(substr(text, 0, open))
     let args_text = trim_space(substr(text, open + 1, close - open - 1))
-    let mut args: [i32] = []
+    let mut max = dst
+    let mut args: [IrOperand] = []
     if args_text != "" {
         let parts = split_comma_list(args_text)
         let mut i = 0
         while i < len(parts) {
-            let t = parse_temp_name(parts[i])
-            push(&mut args, t)
+            let res = parse_ir_operand(parts[i])
+            if !res.ok { return ir_line_parse_error(res.error) }
+            push(&mut args, res.operand)
+            if res.max_temp > max { max = res.max_temp }
             i = i + 1
         }
-    }
-    let mut max = dst
-    let mut mi = 0
-    while mi < len(args) {
-        if args[mi] > max { max = args[mi] }
-        mi = mi + 1
     }
     return IrLineParse { ok: true, is_term: false, instr: IrInstr.Call(IrCall { dst: dst, callee: callee, args: args }), term: ir_term_none(), max_temp: max, error: "" }
 }
@@ -674,36 +699,40 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if first < 0 { return ir_line_parse_error("invalid branch syntax") }
         let second = find_char(rest, 44, first + 1)
         if second < 0 { return ir_line_parse_error("invalid branch syntax") }
-        let cond = parse_temp_name(substr(rest, 0, first))
+        let cond_res = parse_ir_operand(substr(rest, 0, first))
+        if !cond_res.ok { return ir_line_parse_error(cond_res.error) }
         let then_label = trim_space(substr(rest, first + 1, second - first - 1))
         let else_label = trim_space(substr(rest, second + 1, len(rest) - second - 1))
-        return IrLineParse { ok: true, is_term: true, instr: ir_instr_dummy(), term: IrTerm.Branch(IrBranch { cond: cond, then_label: then_label, else_label: else_label }), max_temp: cond, error: "" }
+        return IrLineParse { ok: true, is_term: true, instr: ir_instr_dummy(), term: IrTerm.Branch(IrBranch { cond: cond_res.operand, then_label: then_label, else_label: else_label }), max_temp: cond_res.max_temp, error: "" }
     }
     if has_prefix(l, "return") {
         let rest = trim_space(substr(l, 6, len(l) - 6))
         if rest == "" {
-            return IrLineParse { ok: true, is_term: true, instr: ir_instr_dummy(), term: IrTerm.Return(IrReturn { has_value: false, value: 0 }), max_temp: -1, error: "" }
+            return IrLineParse { ok: true, is_term: true, instr: ir_instr_dummy(), term: IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }), max_temp: -1, error: "" }
         }
-        let val = parse_temp_name(rest)
-        return IrLineParse { ok: true, is_term: true, instr: ir_instr_dummy(), term: IrTerm.Return(IrReturn { has_value: true, value: val }), max_temp: val, error: "" }
+        let val_res = parse_ir_operand(rest)
+        if !val_res.ok { return ir_line_parse_error(val_res.error) }
+        return IrLineParse { ok: true, is_term: true, instr: ir_instr_dummy(), term: IrTerm.Return(IrReturn { has_value: true, value: val_res.operand }), max_temp: val_res.max_temp, error: "" }
     }
     if has_prefix(l, "store_ref ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
         let comma = find_char(rest, 44, 0)
         if comma < 0 { return ir_line_parse_error("invalid store_ref syntax") }
         let r = parse_temp_name(substr(rest, 0, comma))
-        let src = parse_temp_name(substr(rest, comma + 1, len(rest) - comma - 1))
+        let src_res = parse_ir_operand(substr(rest, comma + 1, len(rest) - comma - 1))
+        if !src_res.ok { return ir_line_parse_error(src_res.error) }
         let mut max = r
-        if src > max { max = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: "", src: src, ref: true, ref_temp: r }), term: ir_term_none(), max_temp: max, error: "" }
+        if src_res.max_temp > max { max = src_res.max_temp }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: "", src: src_res.operand, ref: true, ref_temp: r }), term: ir_term_none(), max_temp: max, error: "" }
     }
     if has_prefix(l, "store ") {
         let rest = trim_space(substr(l, 6, len(l) - 6))
         let comma = find_char(rest, 44, 0)
         if comma < 0 { return ir_line_parse_error("invalid store syntax") }
         let name = trim_space(substr(rest, 0, comma))
-        let src = parse_temp_name(substr(rest, comma + 1, len(rest) - comma - 1))
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: name, src: src, ref: false, ref_temp: 0 }), term: ir_term_none(), max_temp: src, error: "" }
+        let src_res = parse_ir_operand(substr(rest, comma + 1, len(rest) - comma - 1))
+        if !src_res.ok { return ir_line_parse_error(src_res.error) }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.StoreVar(IrStoreVar { name: name, src: src_res.operand, ref: false, ref_temp: 0 }), term: ir_term_none(), max_temp: src_res.max_temp, error: "" }
     }
     if has_prefix(l, "set_index_unchecked ") {
         let rest = trim_space(substr(l, 20, len(l) - 20))
@@ -716,15 +745,16 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if open < 0 || close < 0 || close < open {
             return ir_line_parse_error("invalid set_index_unchecked syntax")
         }
-        let array = parse_temp_name(substr(left, 0, open))
-        let index = parse_temp_name(substr(left, open + 1, close - open - 1))
-        let src = parse_temp_name(right)
-        let max = array
-        let mut max2 = max
-        if index > max2 { max2 = index }
-        let mut max3 = max2
-        if src > max3 { max3 = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: true, array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
+        let array_res = parse_ir_operand(substr(left, 0, open))
+        if !array_res.ok { return ir_line_parse_error(array_res.error) }
+        let index_res = parse_ir_operand(substr(left, open + 1, close - open - 1))
+        if !index_res.ok { return ir_line_parse_error(index_res.error) }
+        let src_res = parse_ir_operand(right)
+        if !src_res.ok { return ir_line_parse_error(src_res.error) }
+        let mut max = array_res.max_temp
+        if index_res.max_temp > max { max = index_res.max_temp }
+        if src_res.max_temp > max { max = src_res.max_temp }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: true, array: array_res.operand, index: index_res.operand, src: src_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
     }
     if has_prefix(l, "set_index ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
@@ -742,15 +772,16 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if open < 0 || close < 0 || close < open {
             return ir_line_parse_error("invalid set_index syntax")
         }
-        let array = parse_temp_name(substr(left, 0, open))
-        let index = parse_temp_name(substr(left, open + 1, close - open - 1))
-        let src = parse_temp_name(right)
-        let max = array
-        let mut max2 = max
-        if index > max2 { max2 = index }
-        let mut max3 = max2
-        if src > max3 { max3 = src }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: unchecked, array: array, index: index, src: src }), term: ir_term_none(), max_temp: max3, error: "" }
+        let array_res = parse_ir_operand(substr(left, 0, open))
+        if !array_res.ok { return ir_line_parse_error(array_res.error) }
+        let index_res = parse_ir_operand(substr(left, open + 1, close - open - 1))
+        if !index_res.ok { return ir_line_parse_error(index_res.error) }
+        let src_res = parse_ir_operand(right)
+        if !src_res.ok { return ir_line_parse_error(src_res.error) }
+        let mut max = array_res.max_temp
+        if index_res.max_temp > max { max = index_res.max_temp }
+        if src_res.max_temp > max { max = src_res.max_temp }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetIndex(IrSetIndex { unchecked: unchecked, array: array_res.operand, index: index_res.operand, src: src_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
     }
     if has_prefix(l, "set_field ") {
         let rest = trim_space(substr(l, 10, len(l) - 10))
@@ -762,10 +793,11 @@ fn ir_parse_line(line: String) -> IrLineParse {
         if dot < 0 { return ir_line_parse_error("invalid set_field syntax") }
         let recv = parse_temp_name(substr(left, 0, dot))
         let field = trim_space(substr(left, dot + 1, len(left) - dot - 1))
-        let val = parse_temp_name(right)
+        let val_res = parse_ir_operand(right)
+        if !val_res.ok { return ir_line_parse_error(val_res.error) }
         let mut max = recv
-        if val > max { max = val }
-        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetField(IrSetField { src: recv, field: field, value: val }), term: ir_term_none(), max_temp: max, error: "" }
+        if val_res.max_temp > max { max = val_res.max_temp }
+        return IrLineParse { ok: true, is_term: false, instr: IrInstr.SetField(IrSetField { src: recv, field: field, value: val_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
     }
     if has_prefix(l, "call ") {
         let rest = trim_space(substr(l, 5, len(l) - 5))
@@ -777,10 +809,6 @@ fn ir_parse_line(line: String) -> IrLineParse {
         let left = trim_space(substr(l, 0, eq))
         let right = trim_space(substr(l, eq + 1, len(l) - eq - 1))
         let dst = parse_temp_name(left)
-        if has_prefix(right, "const ") {
-            let v = parse_ir_value(substr(right, 6, len(right) - 6))
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Const(IrConst { dst: dst, value: v }), term: ir_term_none(), max_temp: dst, error: "" }
-        }
         if has_prefix(right, "load_addr ") {
             let name = trim_space(substr(right, 10, len(right) - 10))
             return IrLineParse { ok: true, is_term: false, instr: IrInstr.LoadVar(IrLoadVar { dst: dst, name: name, addr: true, ref: false, ref_temp: 0 }), term: ir_term_none(), max_temp: dst, error: "" }
@@ -813,15 +841,16 @@ fn ir_parse_line(line: String) -> IrLineParse {
                 return ir_line_parse_error("invalid array syntax")
             }
             let inside = trim_space(substr(rest, open + 1, close - open - 1))
-            let mut elems: [i32] = []
+            let mut elems: [IrOperand] = []
             let mut max = dst
             if inside != "" {
                 let parts = split_comma_list(inside)
                 let mut i = 0
                 while i < len(parts) {
-                    let t = parse_temp_name(parts[i])
-                    push(&mut elems, t)
-                    if t > max { max = t }
+                    let res = parse_ir_operand(parts[i])
+                    if !res.ok { return ir_line_parse_error(res.error) }
+                    push(&mut elems, res.operand)
+                    if res.max_temp > max { max = res.max_temp }
                     i = i + 1
                 }
             }
@@ -834,12 +863,14 @@ fn ir_parse_line(line: String) -> IrLineParse {
             if open < 0 || close < 0 || close < open {
                 return ir_line_parse_error("invalid index_unchecked syntax")
             }
-            let array = parse_temp_name(substr(rest, 0, open))
-            let index = parse_temp_name(substr(rest, open + 1, close - open - 1))
+            let array_res = parse_ir_operand(substr(rest, 0, open))
+            if !array_res.ok { return ir_line_parse_error(array_res.error) }
+            let index_res = parse_ir_operand(substr(rest, open + 1, close - open - 1))
+            if !index_res.ok { return ir_line_parse_error(index_res.error) }
             let mut max = dst
-            if array > max { max = array }
-            if index > max { max = index }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: true, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
+            if array_res.max_temp > max { max = array_res.max_temp }
+            if index_res.max_temp > max { max = index_res.max_temp }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: true, dst: dst, array: array_res.operand, index: index_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "index ") {
             let mut rest = trim_space(substr(right, 6, len(right) - 6))
@@ -853,12 +884,14 @@ fn ir_parse_line(line: String) -> IrLineParse {
             if open < 0 || close < 0 || close < open {
                 return ir_line_parse_error("invalid index syntax")
             }
-            let array = parse_temp_name(substr(rest, 0, open))
-            let index = parse_temp_name(substr(rest, open + 1, close - open - 1))
+            let array_res = parse_ir_operand(substr(rest, 0, open))
+            if !array_res.ok { return ir_line_parse_error(array_res.error) }
+            let index_res = parse_ir_operand(substr(rest, open + 1, close - open - 1))
+            if !index_res.ok { return ir_line_parse_error(index_res.error) }
             let mut max = dst
-            if array > max { max = array }
-            if index > max { max = index }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: unchecked, dst: dst, array: array, index: index }), term: ir_term_none(), max_temp: max, error: "" }
+            if array_res.max_temp > max { max = array_res.max_temp }
+            if index_res.max_temp > max { max = index_res.max_temp }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.Index(IrIndex { unchecked: unchecked, dst: dst, array: array_res.operand, index: index_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
         }
         if has_prefix(right, "struct ") {
             let rest = trim_space(substr(right, 7, len(right) - 7))
@@ -879,9 +912,10 @@ fn ir_parse_line(line: String) -> IrLineParse {
                     let colon = find_char(part, 58, 0)
                     if colon < 0 { return ir_line_parse_error("invalid struct field") }
                     let fname = trim_space(substr(part, 0, colon))
-                    let fsrc = parse_temp_name(substr(part, colon + 1, len(part) - colon - 1))
-                    push(&mut fields, IrStructFieldInit { name: fname, src: fsrc })
-                    if fsrc > max { max = fsrc }
+                    let fsrc_res = parse_ir_operand(substr(part, colon + 1, len(part) - colon - 1))
+                    if !fsrc_res.ok { return ir_line_parse_error(fsrc_res.error) }
+                    push(&mut fields, IrStructFieldInit { name: fname, src: fsrc_res.operand })
+                    if fsrc_res.max_temp > max { max = fsrc_res.max_temp }
                     i = i + 1
                 }
             }
@@ -903,12 +937,14 @@ fn ir_parse_line(line: String) -> IrLineParse {
         let rest = trim_space(substr(right, space + 1, len(right) - space - 1))
         let comma = find_char(rest, 44, 0)
         if comma >= 0 {
-            let lhs = parse_temp_name(substr(rest, 0, comma))
-            let rhs = parse_temp_name(substr(rest, comma + 1, len(rest) - comma - 1))
+            let lhs_res = parse_ir_operand(substr(rest, 0, comma))
+            if !lhs_res.ok { return ir_line_parse_error(lhs_res.error) }
+            let rhs_res = parse_ir_operand(substr(rest, comma + 1, len(rest) - comma - 1))
+            if !rhs_res.ok { return ir_line_parse_error(rhs_res.error) }
             let mut max = dst
-            if lhs > max { max = lhs }
-            if rhs > max { max = rhs }
-            return IrLineParse { ok: true, is_term: false, instr: IrInstr.BinOp(IrBinOp { dst: dst, op: op, lhs: lhs, rhs: rhs }), term: ir_term_none(), max_temp: max, error: "" }
+            if lhs_res.max_temp > max { max = lhs_res.max_temp }
+            if rhs_res.max_temp > max { max = rhs_res.max_temp }
+            return IrLineParse { ok: true, is_term: false, instr: IrInstr.BinOp(IrBinOp { dst: dst, op: op, lhs: lhs_res.operand, rhs: rhs_res.operand }), term: ir_term_none(), max_temp: max, error: "" }
         }
         return ir_line_parse_error("invalid op syntax")
     }
@@ -1100,9 +1136,13 @@ fn ir_validate_temp(t: i32, temp_count: i32, allow_neg1: bool) -> String {
     return ""
 }
 
+fn ir_validate_operand(op: IrOperand, temp_count: i32) -> String {
+    if op.is_const { return "" }
+    return ir_validate_temp(op.temp, temp_count, false)
+}
+
 fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> String {
     match inst {
-        IrInstr.Const(i) => { return ir_validate_temp(i.dst, temp_count, false) }
         .LoadVar(i) => {
             if i.ref {
                 let err = ir_validate_temp(i.ref_temp, temp_count, false)
@@ -1117,18 +1157,18 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             if i.ref {
                 let err = ir_validate_temp(i.ref_temp, temp_count, false)
                 if err != "" { return err }
-                return ir_validate_temp(i.src, temp_count, false)
+                return ir_validate_operand(i.src, temp_count)
             }
             if i.name == "" { return "store var name is empty" }
-            return ir_validate_temp(i.src, temp_count, false)
+            return ir_validate_operand(i.src, temp_count)
         }
         .BinOp(i) => {
             if !ir_is_bin_op(i.op) { return "invalid binop '" + i.op + "'" }
             let err = ir_validate_temp(i.dst, temp_count, false)
             if err != "" { return err }
-            let err2 = ir_validate_temp(i.lhs, temp_count, false)
+            let err2 = ir_validate_operand(i.lhs, temp_count)
             if err2 != "" { return err2 }
-            return ir_validate_temp(i.rhs, temp_count, false)
+            return ir_validate_operand(i.rhs, temp_count)
         }
         IrInstr.Call(i) => {
             if i.callee == "" { return "call callee is empty" }
@@ -1136,7 +1176,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             if err != "" { return err }
             let mut a = 0
             while a < len(i.args) {
-                let e = ir_validate_temp(i.args[a], temp_count, false)
+                let e = ir_validate_operand(i.args[a], temp_count)
                 if e != "" { return e }
                 a = a + 1
             }
@@ -1147,7 +1187,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             if err != "" { return err }
             let mut j = 0
             while j < len(i.elems) {
-                let e = ir_validate_temp(i.elems[j], temp_count, false)
+                let e = ir_validate_operand(i.elems[j], temp_count)
                 if e != "" { return e }
                 j = j + 1
             }
@@ -1156,16 +1196,16 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
         IrInstr.Index(i) => {
             let err = ir_validate_temp(i.dst, temp_count, false)
             if err != "" { return err }
-            let e2 = ir_validate_temp(i.array, temp_count, false)
+            let e2 = ir_validate_operand(i.array, temp_count)
             if e2 != "" { return e2 }
-            return ir_validate_temp(i.index, temp_count, false)
+            return ir_validate_operand(i.index, temp_count)
         }
         .SetIndex(i) => {
-            let e1 = ir_validate_temp(i.array, temp_count, false)
+            let e1 = ir_validate_operand(i.array, temp_count)
             if e1 != "" { return e1 }
-            let e2 = ir_validate_temp(i.index, temp_count, false)
+            let e2 = ir_validate_operand(i.index, temp_count)
             if e2 != "" { return e2 }
-            return ir_validate_temp(i.src, temp_count, false)
+            return ir_validate_operand(i.src, temp_count)
         }
         .MakeStruct(i) => {
             if i.name == "" { return "struct name is empty" }
@@ -1178,7 +1218,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
                 if fld.name == "" { return "struct field name is empty" }
                 if ir_string_list_contains(fields, fld.name) { return "duplicate struct field '" + fld.name + "'" }
                 push(&mut fields, fld.name)
-                let e = ir_validate_temp(fld.src, temp_count, false)
+                let e = ir_validate_operand(fld.src, temp_count)
                 if e != "" { return e }
                 f = f + 1
             }
@@ -1194,7 +1234,7 @@ fn ir_validate_instr(inst: IrInstr, temp_count: i32, declared: [String]) -> Stri
             if i.field == "" { return "set_field name is empty" }
             let err = ir_validate_temp(i.src, temp_count, false)
             if err != "" { return err }
-            return ir_validate_temp(i.value, temp_count, false)
+            return ir_validate_operand(i.value, temp_count)
         }
     }
     return "unknown instruction"
@@ -1214,7 +1254,7 @@ fn ir_validate_block(blk: IrBlock, labels: [String], temp_count: i32, declared: 
             if !ir_string_list_contains(labels, t.target) { return "jump target '" + t.target + "' not found" }
         }
         .Branch(t) => {
-            let err = ir_validate_temp(t.cond, temp_count, false)
+            let err = ir_validate_operand(t.cond, temp_count)
             if err != "" { return err }
             if t.then_label == "" || t.else_label == "" { return "branch target is empty" }
             if !ir_string_list_contains(labels, t.then_label) { return "branch target '" + t.then_label + "' not found" }
@@ -1222,7 +1262,7 @@ fn ir_validate_block(blk: IrBlock, labels: [String], temp_count: i32, declared: 
         }
         IrTerm.Return(t) => {
             if t.has_value {
-                let err = ir_validate_temp(t.value, temp_count, false)
+                let err = ir_validate_operand(t.value, temp_count)
                 if err != "" { return err }
             }
         }
@@ -1593,6 +1633,16 @@ struct IrFoldResult {
     value: IrValue,
 }
 
+fn ir_operand_const(op: IrOperand, consts: IrConstMap) -> IrFoldResult {
+    if op.is_const {
+        return IrFoldResult { ok: true, value: op.value }
+    }
+    if ir_const_map_has(&consts, op.temp) {
+        return IrFoldResult { ok: true, value: ir_const_map_get(&consts, op.temp) }
+    }
+    return IrFoldResult { ok: false, value: ir_value_unit() }
+}
+
 struct IrConstMap {
     known: [bool],
     values: [IrValue],
@@ -1736,24 +1786,47 @@ fn ir_scan_array_safety(blk: IrBlock, temp_count: i32) -> IrArraySafety {
     return out
 }
 
+fn ir_operand_temps(op: IrOperand) -> [i32] {
+    let mut out: [i32] = []
+    if !op.is_const { push(&mut out, op.temp) }
+    return out
+}
+
 fn ir_instr_temps(inst: IrInstr) -> [i32] {
     let mut out: [i32] = []
     match inst {
-        IrInstr.Const(i) => { push(&mut out, i.dst) }
         .LoadVar(i) => {
             push(&mut out, i.dst)
             if i.ref { push(&mut out, i.ref_temp) }
         }
         .StoreVar(i) => {
             if i.ref { push(&mut out, i.ref_temp) }
-            push(&mut out, i.src)
+            let temps = ir_operand_temps(i.src)
+            let mut j = 0
+            while j < len(temps) {
+                push(&mut out, temps[j])
+                j = j + 1
+            }
         }
-        .BinOp(i) => { push(&mut out, i.dst); push(&mut out, i.lhs); push(&mut out, i.rhs) }
+        .BinOp(i) => {
+            push(&mut out, i.dst)
+            let temps_l = ir_operand_temps(i.lhs)
+            let temps_r = ir_operand_temps(i.rhs)
+            let mut j = 0
+            while j < len(temps_l) { push(&mut out, temps_l[j]); j = j + 1 }
+            j = 0
+            while j < len(temps_r) { push(&mut out, temps_r[j]); j = j + 1 }
+        }
         IrInstr.Call(i) => {
             if i.dst >= 0 { push(&mut out, i.dst) }
             let mut j = 0
             while j < len(i.args) {
-                push(&mut out, i.args[j])
+                let temps = ir_operand_temps(i.args[j])
+                let mut k = 0
+                while k < len(temps) {
+                    push(&mut out, temps[k])
+                    k = k + 1
+                }
                 j = j + 1
             }
         }
@@ -1761,22 +1834,58 @@ fn ir_instr_temps(inst: IrInstr) -> [i32] {
             push(&mut out, i.dst)
             let mut j = 0
             while j < len(i.elems) {
-                push(&mut out, i.elems[j])
+                let temps = ir_operand_temps(i.elems[j])
+                let mut k = 0
+                while k < len(temps) {
+                    push(&mut out, temps[k])
+                    k = k + 1
+                }
                 j = j + 1
             }
         }
-        IrInstr.Index(i) => { push(&mut out, i.dst); push(&mut out, i.array); push(&mut out, i.index) }
-        .SetIndex(i) => { push(&mut out, i.array); push(&mut out, i.index); push(&mut out, i.src) }
+        IrInstr.Index(i) => {
+            push(&mut out, i.dst)
+            let temps_a = ir_operand_temps(i.array)
+            let temps_i = ir_operand_temps(i.index)
+            let mut j = 0
+            while j < len(temps_a) { push(&mut out, temps_a[j]); j = j + 1 }
+            j = 0
+            while j < len(temps_i) { push(&mut out, temps_i[j]); j = j + 1 }
+        }
+        .SetIndex(i) => {
+            let temps_a = ir_operand_temps(i.array)
+            let temps_i = ir_operand_temps(i.index)
+            let temps_s = ir_operand_temps(i.src)
+            let mut j = 0
+            while j < len(temps_a) { push(&mut out, temps_a[j]); j = j + 1 }
+            j = 0
+            while j < len(temps_i) { push(&mut out, temps_i[j]); j = j + 1 }
+            j = 0
+            while j < len(temps_s) { push(&mut out, temps_s[j]); j = j + 1 }
+        }
         .MakeStruct(i) => {
             push(&mut out, i.dst)
             let mut j = 0
             while j < len(i.fields) {
-                push(&mut out, i.fields[j].src)
+                let temps = ir_operand_temps(i.fields[j].src)
+                let mut k = 0
+                while k < len(temps) {
+                    push(&mut out, temps[k])
+                    k = k + 1
+                }
                 j = j + 1
             }
         }
         .GetField(i) => { push(&mut out, i.dst); push(&mut out, i.src) }
-        .SetField(i) => { push(&mut out, i.src); push(&mut out, i.value) }
+        .SetField(i) => {
+            push(&mut out, i.src)
+            let temps = ir_operand_temps(i.value)
+            let mut k = 0
+            while k < len(temps) {
+                push(&mut out, temps[k])
+                k = k + 1
+            }
+        }
     }
     return out
 }
@@ -1889,10 +1998,6 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
     while i < len(blk.instrs) {
         let inst = blk.instrs[i]
         match inst {
-            IrInstr.Const(c) => {
-                push(&mut instrs, inst)
-                ir_const_map_set(&mut consts, c.dst, c.value)
-            }
             .LoadVar(c) => {
                 if c.ref {
                     push(&mut instrs, inst)
@@ -1903,9 +2008,8 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                     ir_varconst_clear(&mut var_consts, c.name)
                 } else if ir_varconst_has(var_consts, c.name) {
                     let v = ir_varconst_get(var_consts, c.name)
-                    let ni = IrInstr.Const(IrConst { dst: c.dst, value: v })
-                    push(&mut instrs, ni)
                     ir_const_map_set(&mut consts, c.dst, v)
+                    push(&mut instrs, inst)
                 } else {
                     push(&mut instrs, inst)
                     ir_const_map_clear(&mut consts, c.dst)
@@ -1915,30 +2019,29 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
                 push(&mut instrs, inst)
                 if c.ref {
                     ir_varconst_clear_all(&mut var_consts)
-                } else if ir_const_map_has(&consts, c.src) {
-                    let v = ir_const_map_get(&consts, c.src)
-                    ir_varconst_set(&mut var_consts, c.name, v)
                 } else {
-                    ir_varconst_clear(&mut var_consts, c.name)
+                    let srcv = ir_operand_const(c.src, consts)
+                    if srcv.ok {
+                        ir_varconst_set(&mut var_consts, c.name, srcv.value)
+                    } else {
+                        ir_varconst_clear(&mut var_consts, c.name)
+                    }
                 }
             }
             .BinOp(c) => {
-                let mut folded = false
-                if ir_const_map_has(&consts, c.lhs) && ir_const_map_has(&consts, c.rhs) {
-                    let l = ir_const_map_get(&consts, c.lhs)
-                    let r = ir_const_map_get(&consts, c.rhs)
-                    let res = ir_fold_binary(c.op, l, r)
+                let lhs = ir_operand_const(c.lhs, consts)
+                let rhs = ir_operand_const(c.rhs, consts)
+                if lhs.ok && rhs.ok {
+                    let res = ir_fold_binary(c.op, lhs.value, rhs.value)
                     if res.ok {
-                        let ni = IrInstr.Const(IrConst { dst: c.dst, value: res.value })
-                        push(&mut instrs, ni)
                         ir_const_map_set(&mut consts, c.dst, res.value)
-                        folded = true
+                    } else {
+                        ir_const_map_clear(&mut consts, c.dst)
                     }
-                }
-                if !folded {
-                    push(&mut instrs, inst)
+                } else {
                     ir_const_map_clear(&mut consts, c.dst)
                 }
+                push(&mut instrs, inst)
             }
             IrInstr.Call(c) => {
                 push(&mut instrs, inst)
@@ -1953,11 +2056,13 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             }
             IrInstr.Index(c) => {
                 let mut make_unchecked = c.unchecked
-                if !make_unchecked && ir_const_map_has(&consts, c.index) {
-                    let idx = ir_const_map_get(&consts, c.index)
-                    if idx.kind == ir_kind_int() && c.array >= 0 && c.array < len(safety.safe) {
-                        if safety.safe[c.array] && idx.int >= 0 && idx.int < safety.lens[c.array] {
-                            make_unchecked = true
+                if !make_unchecked {
+                    let idx = ir_operand_const(c.index, consts)
+                    if idx.ok && idx.value.kind == ir_kind_int() {
+                        if !c.array.is_const && c.array.temp >= 0 && c.array.temp < len(safety.safe) {
+                            if safety.safe[c.array.temp] && idx.value.int >= 0 && idx.value.int < safety.lens[c.array.temp] {
+                                make_unchecked = true
+                            }
                         }
                     }
                 }
@@ -1971,11 +2076,13 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
             }
             .SetIndex(c) => {
                 let mut make_unchecked = c.unchecked
-                if !make_unchecked && ir_const_map_has(&consts, c.index) {
-                    let idx = ir_const_map_get(&consts, c.index)
-                    if idx.kind == ir_kind_int() && c.array >= 0 && c.array < len(safety.safe) {
-                        if safety.safe[c.array] && idx.int >= 0 && idx.int < safety.lens[c.array] {
-                            make_unchecked = true
+                if !make_unchecked {
+                    let idx = ir_operand_const(c.index, consts)
+                    if idx.ok && idx.value.kind == ir_kind_int() {
+                        if !c.array.is_const && c.array.temp >= 0 && c.array.temp < len(safety.safe) {
+                            if safety.safe[c.array.temp] && idx.value.int >= 0 && idx.value.int < safety.lens[c.array.temp] {
+                                make_unchecked = true
+                            }
                         }
                     }
                 }
@@ -2003,15 +2110,13 @@ fn ir_fold_block(blk: IrBlock, temp_count: i32) -> IrBlock {
     let mut term = blk.term
     match blk.term {
         .Branch(t) => {
-            if ir_const_map_has(&consts, t.cond) {
-                let v = ir_const_map_get(&consts, t.cond)
-                if v.kind == ir_kind_bool() {
-                    let mut target = t.then_label
-                    if !v.bool {
-                        target = t.else_label
-                    }
-                    term = IrTerm.Jump(IrJump { target: target })
+            let v = ir_operand_const(t.cond, consts)
+            if v.ok && v.value.kind == ir_kind_bool() {
+                let mut target = t.then_label
+                if !v.value.bool {
+                    target = t.else_label
                 }
+                term = IrTerm.Jump(IrJump { target: target })
             }
         }
         _ => {}
@@ -2062,7 +2167,7 @@ struct IrInlineCandidate {
     name: String,
     func: IrFunction,
     has_ret: bool,
-    ret_temp: i32,
+    ret_op: IrOperand,
 }
 
 struct IrInlineResult {
@@ -2071,7 +2176,7 @@ struct IrInlineResult {
 }
 
 fn ir_inline_candidate(f: IrFunction) -> IrInlineCandidate {
-    if len(f.blocks) != 1 { return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_temp: -1 } }
+    if len(f.blocks) != 1 { return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_op: ir_operand_const(ir_value_unit()) } }
     let blk = f.blocks[0]
     let mut has_call = false
     let mut i = 0
@@ -2082,17 +2187,17 @@ fn ir_inline_candidate(f: IrFunction) -> IrInlineCandidate {
         }
         i = i + 1
     }
-    if has_call { return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_temp: -1 } }
+    if has_call { return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_op: ir_operand_const(ir_value_unit()) } }
     match blk.term {
         IrTerm.Return(t) => {
             if t.has_value {
-                return IrInlineCandidate { valid: true, name: f.name, func: f, has_ret: true, ret_temp: t.value }
+                return IrInlineCandidate { valid: true, name: f.name, func: f, has_ret: true, ret_op: t.value }
             }
-            return IrInlineCandidate { valid: true, name: f.name, func: f, has_ret: false, ret_temp: -1 }
+            return IrInlineCandidate { valid: true, name: f.name, func: f, has_ret: false, ret_op: ir_operand_const(ir_value_unit()) }
         }
         _ => {}
     }
-    return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_temp: -1 }
+    return IrInlineCandidate { valid: false, name: "", func: f, has_ret: false, ret_op: ir_operand_const(ir_value_unit()) }
 }
 
 fn ir_collect_inline_candidates(p: IrProgram) -> [IrInlineCandidate] {
@@ -2114,7 +2219,7 @@ fn ir_find_inline(cands: [IrInlineCandidate], name: String) -> IrInlineCandidate
         }
         i = i + 1
     }
-    return IrInlineCandidate { valid: false, name: "", func: IrFunction { name: "", params: string_list_new(), param_types: string_list_new(), return_type: "", blocks: ir_block_list_new(), temp_count: 0 }, has_ret: false, ret_temp: -1 }
+    return IrInlineCandidate { valid: false, name: "", func: IrFunction { name: "", params: string_list_new(), param_types: string_list_new(), return_type: "", blocks: ir_block_list_new(), temp_count: 0 }, has_ret: false, ret_op: ir_operand_const(ir_value_unit()) }
 }
 
 fn ir_inline_program(p: IrProgram) -> IrProgram {
@@ -2142,6 +2247,13 @@ fn ir_inline_function(f: IrFunction, cands: [IrInlineCandidate]) -> IrFunction {
                 IrInstr.Call(c) => {
                     let cand = ir_find_inline(cands, c.callee)
                     if cand.valid && cand.name != f.name {
+                        if c.dst >= 0 {
+                            if !cand.has_ret || cand.ret_op.is_const {
+                                push(&mut instrs, blk.instrs[i])
+                                i = i + 1
+                                continue
+                            }
+                        }
                         let res = ir_inline_call(c, cand, next_temp, inline_id)
                         instrs = ir_instr_list_concat(instrs, res.instrs)
                         next_temp = res.next_temp
@@ -2183,9 +2295,11 @@ fn ir_inline_call(call: IrCall, cand: IrInlineCandidate, next_temp: i32, inline_
         t = t + 1
     }
     let mut cur = next_temp
+    let mut ret_temp = -1
+    if cand.has_ret && !cand.ret_op.is_const { ret_temp = cand.ret_op.temp }
     let mut ti = 0
     while ti < cand.func.temp_count {
-        if cand.has_ret && call.dst >= 0 && ti == cand.ret_temp {
+        if ret_temp >= 0 && call.dst >= 0 && ti == ret_temp {
             temp_map[ti] = call.dst
         } else {
             temp_map[ti] = cur
@@ -2212,9 +2326,6 @@ fn ir_inline_call(call: IrCall, cand: IrInlineCandidate, next_temp: i32, inline_
         push(&mut out, ir_inline_remap_instr(inst, temp_map, &mut var_names, &mut var_vals, prefix))
         i = i + 1
     }
-    if !cand.has_ret && call.dst >= 0 {
-        push(&mut out, IrInstr.Const(IrConst { dst: call.dst, value: ir_value_unit() }))
-    }
     return IrInlineResult { instrs: out, next_temp: cur }
 }
 
@@ -2238,11 +2349,13 @@ fn ir_inline_remap_temp(map: [i32], idx: i32) -> i32 {
     return map[idx]
 }
 
+fn ir_inline_remap_operand(op: IrOperand, temp_map: [i32]) -> IrOperand {
+    if op.is_const { return op }
+    return ir_operand_temp(ir_inline_remap_temp(temp_map, op.temp))
+}
+
 fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], vals: &mut [String], prefix: String) -> IrInstr {
     match inst {
-        IrInstr.Const(i) => {
-            return IrInstr.Const(IrConst { dst: ir_inline_remap_temp(temp_map, i.dst), value: i.value })
-        }
         .LoadVar(i) => {
             let mut nm = i.name
             if !i.ref { nm = ir_inline_map_var(i.name, names, vals, prefix) }
@@ -2255,41 +2368,41 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
             if !i.ref { nm = ir_inline_map_var(i.name, names, vals, prefix) }
             let mut ref_temp = i.ref_temp
             if i.ref { ref_temp = ir_inline_remap_temp(temp_map, i.ref_temp) }
-            return IrInstr.StoreVar(IrStoreVar { name: nm, src: ir_inline_remap_temp(temp_map, i.src), ref: i.ref, ref_temp: ref_temp })
+            return IrInstr.StoreVar(IrStoreVar { name: nm, src: ir_inline_remap_operand(i.src, temp_map), ref: i.ref, ref_temp: ref_temp })
         }
         .BinOp(i) => {
-            return IrInstr.BinOp(IrBinOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, lhs: ir_inline_remap_temp(temp_map, i.lhs), rhs: ir_inline_remap_temp(temp_map, i.rhs) })
+            return IrInstr.BinOp(IrBinOp { dst: ir_inline_remap_temp(temp_map, i.dst), op: i.op, lhs: ir_inline_remap_operand(i.lhs, temp_map), rhs: ir_inline_remap_operand(i.rhs, temp_map) })
         }
         IrInstr.Call(i) => {
-            let mut args: [i32] = []
+            let mut args: [IrOperand] = []
             let mut j = 0
             while j < len(i.args) {
-                push(&mut args, ir_inline_remap_temp(temp_map, i.args[j]))
+                push(&mut args, ir_inline_remap_operand(i.args[j], temp_map))
                 j = j + 1
             }
             return IrInstr.Call(IrCall { dst: ir_inline_remap_temp(temp_map, i.dst), callee: i.callee, args: args })
         }
         .MakeArray(i) => {
-            let mut elems: [i32] = []
+            let mut elems: [IrOperand] = []
             let mut j = 0
             while j < len(i.elems) {
-                push(&mut elems, ir_inline_remap_temp(temp_map, i.elems[j]))
+                push(&mut elems, ir_inline_remap_operand(i.elems[j], temp_map))
                 j = j + 1
             }
             return IrInstr.MakeArray(IrMakeArray { dst: ir_inline_remap_temp(temp_map, i.dst), elems: elems })
         }
         IrInstr.Index(i) => {
-            return IrInstr.Index(IrIndex { unchecked: i.unchecked, dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index) })
+            return IrInstr.Index(IrIndex { unchecked: i.unchecked, dst: ir_inline_remap_temp(temp_map, i.dst), array: ir_inline_remap_operand(i.array, temp_map), index: ir_inline_remap_operand(i.index, temp_map) })
         }
         .SetIndex(i) => {
-            return IrInstr.SetIndex(IrSetIndex { unchecked: i.unchecked, array: ir_inline_remap_temp(temp_map, i.array), index: ir_inline_remap_temp(temp_map, i.index), src: ir_inline_remap_temp(temp_map, i.src) })
+            return IrInstr.SetIndex(IrSetIndex { unchecked: i.unchecked, array: ir_inline_remap_operand(i.array, temp_map), index: ir_inline_remap_operand(i.index, temp_map), src: ir_inline_remap_operand(i.src, temp_map) })
         }
         .MakeStruct(i) => {
             let mut fields: [IrStructFieldInit] = []
             let mut j = 0
             while j < len(i.fields) {
                 let f = i.fields[j]
-                push(&mut fields, IrStructFieldInit { name: f.name, src: ir_inline_remap_temp(temp_map, f.src) })
+                push(&mut fields, IrStructFieldInit { name: f.name, src: ir_inline_remap_operand(f.src, temp_map) })
                 j = j + 1
             }
             return IrInstr.MakeStruct(IrMakeStruct { dst: ir_inline_remap_temp(temp_map, i.dst), name: i.name, fields: fields })
@@ -2298,7 +2411,7 @@ fn ir_inline_remap_instr(inst: IrInstr, temp_map: [i32], names: &mut [String], v
             return IrInstr.GetField(IrGetField { dst: ir_inline_remap_temp(temp_map, i.dst), src: ir_inline_remap_temp(temp_map, i.src), field: i.field })
         }
         .SetField(i) => {
-            return IrInstr.SetField(IrSetField { src: ir_inline_remap_temp(temp_map, i.src), field: i.field, value: ir_inline_remap_temp(temp_map, i.value) })
+            return IrInstr.SetField(IrSetField { src: ir_inline_remap_temp(temp_map, i.src), field: i.field, value: ir_inline_remap_operand(i.value, temp_map) })
         }
     }
     return inst

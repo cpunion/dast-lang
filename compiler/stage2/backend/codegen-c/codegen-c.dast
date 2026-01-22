@@ -80,15 +80,80 @@ fn cg_value_init(v: IrValue, dst: String) -> String {
     return dst + ".i = 0"
 }
 
+fn cg_value_literal(v: IrValue) -> String {
+    if v.kind == ir_kind_int() {
+        return "(dast_value_t){ .i = " + int_to_string(v.int) + " }"
+    }
+    if v.kind == ir_kind_bool() {
+        if v.bool { return "(dast_value_t){ .b = true }" }
+        return "(dast_value_t){ .b = false }"
+    }
+    if v.kind == ir_kind_string() {
+        return "(dast_value_t){ .s = dast_string_from_literal(\"" + ir_escape_string(v.str) + "\") }"
+    }
+    return "(dast_value_t){ .i = 0 }"
+}
+
+fn cg_value_as_int(v: IrValue) -> String {
+    if v.kind == ir_kind_int() { return int_to_string(v.int) }
+    if v.kind == ir_kind_bool() {
+        if v.bool { return "1" }
+        return "0"
+    }
+    return "0"
+}
+
+fn cg_value_as_bool(v: IrValue) -> String {
+    if v.kind == ir_kind_bool() {
+        if v.bool { return "true" }
+        return "false"
+    }
+    if v.kind == ir_kind_int() {
+        return "(" + int_to_string(v.int) + " != 0)"
+    }
+    return "false"
+}
+
+fn cg_value_as_string(v: IrValue) -> String {
+    if v.kind == ir_kind_string() {
+        return "dast_string_from_literal(\"" + ir_escape_string(v.str) + "\")"
+    }
+    if v.kind == ir_kind_int() {
+        return "dast_int_to_string(" + int_to_string(v.int) + ")"
+    }
+    if v.kind == ir_kind_bool() {
+        if v.bool { return "dast_int_to_string(1)" }
+        return "dast_int_to_string(0)"
+    }
+    return "dast_string_from_literal(\"\")"
+}
+
+fn cg_operand_value(op: IrOperand) -> String {
+    if op.is_const { return cg_value_literal(op.value) }
+    return "t" + int_to_string(op.temp)
+}
+
+fn cg_operand_int(op: IrOperand) -> String {
+    if op.is_const { return cg_value_as_int(op.value) }
+    return "t" + int_to_string(op.temp) + ".i"
+}
+
+fn cg_operand_bool(op: IrOperand) -> String {
+    if op.is_const { return cg_value_as_bool(op.value) }
+    return "t" + int_to_string(op.temp) + ".b"
+}
+
+fn cg_operand_string(op: IrOperand) -> String {
+    if op.is_const { return cg_value_as_string(op.value) }
+    return "t" + int_to_string(op.temp) + ".s"
+}
+
 // =============================================================================
 // Instruction Generation
 // =============================================================================
 
 fn cg_instr(inst: IrInstr) -> String {
     match inst {
-        IrInstr.Const(i) => {
-            return cg_value_init(i.value, "t" + int_to_string(i.dst)) + ";"
-        }
         .LoadVar(i) => {
             if i.ref {
                 return "t" + int_to_string(i.dst) + " = *(int64_t*)t" + int_to_string(i.ref_temp) + ";"
@@ -100,19 +165,19 @@ fn cg_instr(inst: IrInstr) -> String {
         }
         .StoreVar(i) => {
             if i.ref {
-                return "*(int64_t*)t" + int_to_string(i.ref_temp) + " = t" + int_to_string(i.src) + ";"
+                return "*(int64_t*)t" + int_to_string(i.ref_temp) + " = " + cg_operand_int(i.src) + ";"
             }
-            return cg_mangle_var(i.name) + " = t" + int_to_string(i.src) + ";"
+            return cg_mangle_var(i.name) + " = " + cg_operand_value(i.src) + ";"
         }
         .BinOp(i) => {
-            return "t" + int_to_string(i.dst) + ".i = t" + int_to_string(i.lhs) + ".i " + i.op + " t" + int_to_string(i.rhs) + ".i;"
+            return "t" + int_to_string(i.dst) + ".i = " + cg_operand_int(i.lhs) + " " + i.op + " " + cg_operand_int(i.rhs) + ";"
         }
         IrInstr.Call(i) => {
             let mut args = ""
             let mut j = 0
             while j < len(i.args) {
                 if j > 0 { args = args + ", " }
-                args = args + "t" + int_to_string(i.args[j]) + ".s"
+                args = args + cg_operand_string(i.args[j])
                 j = j + 1
             }
             let call = cg_mangle_func(i.callee) + "(" + args + ")"
@@ -132,22 +197,22 @@ fn cg_instr(inst: IrInstr) -> String {
             let mut out = "t" + int_to_string(i.dst) + " = dast_array_new(sizeof(int64_t));"
             let mut j = 0
             while j < len(i.elems) {
-                out = out + " { int64_t _e = t" + int_to_string(i.elems[j]) + "; dast_array_push(&t" + int_to_string(i.dst) + ", &_e); }"
+                out = out + " { int64_t _e = " + cg_operand_int(i.elems[j]) + "; dast_array_push(&t" + int_to_string(i.dst) + ", &_e); }"
                 j = j + 1
             }
             return out
         }
         IrInstr.Index(i) => {
             if i.unchecked {
-                return "t" + int_to_string(i.dst) + " = ((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "];"
+                return "t" + int_to_string(i.dst) + " = ((int64_t*)((dast_array_t*)" + cg_operand_int(i.array) + ")->data)[" + cg_operand_int(i.index) + "];"
             }
-            return "t" + int_to_string(i.dst) + " = *(int64_t*)dast_array_get(t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ");"
+            return "t" + int_to_string(i.dst) + " = *(int64_t*)dast_array_get(" + cg_operand_int(i.array) + ", " + cg_operand_int(i.index) + ");"
         }
         .SetIndex(i) => {
             if i.unchecked {
-                return "((int64_t*)((dast_array_t*)t" + int_to_string(i.array) + ")->data)[t" + int_to_string(i.index) + "] = t" + int_to_string(i.src) + ";"
+                return "((int64_t*)((dast_array_t*)" + cg_operand_int(i.array) + ")->data)[" + cg_operand_int(i.index) + "] = " + cg_operand_int(i.src) + ";"
             }
-            return "{ int64_t _v = t" + int_to_string(i.src) + "; dast_array_set(t" + int_to_string(i.array) + ", t" + int_to_string(i.index) + ", &_v); }"
+            return "{ int64_t _v = " + cg_operand_int(i.src) + "; dast_array_set(" + cg_operand_int(i.array) + ", " + cg_operand_int(i.index) + ", &_v); }"
         }
         .MakeStruct(i) => {
             return "t" + int_to_string(i.dst) + " = 0; /* struct creation */"
@@ -159,10 +224,10 @@ fn cg_instr(inst: IrInstr) -> String {
             return "/* field set */"
         }
         .MakeEnum(i) => {
-            return "t" + int_to_string(i.dst) + " = " + int_to_string(i.tag) + "; /* enum creation */"
+            return "t" + int_to_string(i.dst) + " = " + cg_operand_int(i.tag) + "; /* enum creation */"
         }
         .EnumTag(i) => {
-            return "t" + int_to_string(i.dst) + " = t" + int_to_string(i.src) + "; /* enum tag */"
+            return "t" + int_to_string(i.dst) + " = " + cg_operand_value(i.src) + "; /* enum tag */"
         }
         .EnumPayload(i) => {
             return "/* enum payload */"
@@ -182,7 +247,7 @@ fn cg_term(term: IrTerm) -> String {
             return "goto " + cg_mangle_label(t.target) + ";"
         }
         .Branch(t) => {
-            return "if (t" + int_to_string(t.cond) + ") goto " + cg_mangle_label(t.then_label) + "; else goto " + cg_mangle_label(t.else_label) + ";"
+            return "if (" + cg_operand_bool(t.cond) + ") goto " + cg_mangle_label(t.then_label) + "; else goto " + cg_mangle_label(t.else_label) + ";"
         }
         IrTerm.Return(t) => {
             if t.has_value {

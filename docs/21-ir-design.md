@@ -90,21 +90,35 @@ t0 = ! t1
 
 **修改后**：
 ```
-t0 = const 0
-t1 = - t0, t2
-t3 = const false
-t4 = == t5, t3
+t0 = - 0, t1
+t2 = == t3, false
 ```
 
 - 一元运算在 IR 中降级为二元：`-x` → `0 - x`，`!x` → `x == false`
 - 移除 UnaryOp 指令
 - 指令数: 15 → 14 (减少 1 个)
 
-## 当前 IR v0 指令集 (14 个)
+### 6. 移除 Const
+
+**修改前**：
+```
+t0 = const 42
+store x, t0
+```
+
+**修改后**：
+```
+store x, 42
+```
+
+- 常量直接以内联 Operand 表示，不再需要 Const 指令
+- 简化优化路径，减少额外临时寄存器
+- 指令数: 14 → 13 (减少 1 个)
+
+## 当前 IR v0 指令集 (13 个)
 
 ```
-// 常量/变量 (3)
-Const dst, value
+// 变量 (2)
 LoadVar dst, name [, @addr] [, @ref]
 StoreVar name, src [, @ref]
 

@@ -45,7 +45,8 @@ func constValueToIr(v ast.ConstValue, typeName string) ir.Value {
 
 func (c *Compiler) constZero() int {
 	t := c.newTemp()
-	c.emit(&ir.Const{Dst: t, Value: ir.Value{Kind: ir.KindInt, Int: 0}})
+	c.setTempType(t, "i64")
+	c.emit(&ir.BinOp{Dst: t, Op: "+", Lhs: ir.IntOperand(0), Rhs: ir.IntOperand(0)})
 	return t
 }
 
@@ -240,17 +241,10 @@ func (c *Compiler) compileEnumVariant(enumName, variant string, args []ast.Expr,
 		return c.constZero()
 	}
 
-	// Create tag constant
-	tagTemp := c.newTemp()
-	c.setTempType(tagTemp, tagType)
-	c.emit(&ir.Const{Dst: tagTemp, Value: ir.Value{Kind: ir.KindInt, Int: tag, IntType: tagType}})
-
 	// Create payload (unit if no args)
-	payloadTemp := c.newTemp()
+	payload := ir.ConstOperand(ir.Value{Kind: ir.KindUnit})
 	if len(args) > 0 {
-		payloadTemp = c.compileExpr(args[0])
-	} else {
-		c.emit(&ir.Const{Dst: payloadTemp, Value: ir.Value{Kind: ir.KindUnit}})
+		payload = c.compileOperand(args[0])
 	}
 
 	// Create struct with _tag and _payload fields
@@ -260,8 +254,8 @@ func (c *Compiler) compileEnumVariant(enumName, variant string, args []ast.Expr,
 		Dst:  dst,
 		Name: enumName,
 		Fields: []ir.StructFieldInit{
-			{Name: "_tag", Src: tagTemp},
-			{Name: "_payload", Src: payloadTemp},
+			{Name: "_tag", Src: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tag, IntType: tagType})},
+			{Name: "_payload", Src: payload},
 		},
 	})
 	return dst

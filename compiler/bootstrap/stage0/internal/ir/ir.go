@@ -179,16 +179,6 @@ type Instr interface {
 	String() string
 }
 
-type Const struct {
-	Dst   int
-	Value Value
-}
-
-func (i *Const) instrNode() {}
-func (i *Const) String() string {
-	return fmt.Sprintf("t%d = const %s", i.Dst, i.Value.String())
-}
-
 type LoadVar struct {
 	Dst     int
 	Name    string
@@ -210,7 +200,7 @@ func (i *LoadVar) String() string {
 
 type StoreVar struct {
 	Name    string
-	Src     int
+	Src     Operand
 	Ref     bool
 	RefTemp int
 }
@@ -218,9 +208,9 @@ type StoreVar struct {
 func (i *StoreVar) instrNode() {}
 func (i *StoreVar) String() string {
 	if i.Ref {
-		return fmt.Sprintf("store_ref t%d, t%d", i.RefTemp, i.Src)
+		return fmt.Sprintf("store_ref t%d, %s", i.RefTemp, i.Src.String())
 	}
-	return fmt.Sprintf("store %s, t%d", i.Name, i.Src)
+	return fmt.Sprintf("store %s, %s", i.Name, i.Src.String())
 }
 
 type BinOp struct {
@@ -238,14 +228,14 @@ func (i *BinOp) String() string {
 type Call struct {
 	Dst    int
 	Callee string
-	Args   []int
+	Args   []Operand
 }
 
 func (i *Call) instrNode() {}
 func (i *Call) String() string {
 	args := make([]string, 0, len(i.Args))
 	for _, a := range i.Args {
-		args = append(args, fmt.Sprintf("t%d", a))
+		args = append(args, a.String())
 	}
 	if i.Dst >= 0 {
 		return fmt.Sprintf("t%d = call %s(%s)", i.Dst, i.Callee, strings.Join(args, ", "))
@@ -255,14 +245,14 @@ func (i *Call) String() string {
 
 type MakeArray struct {
 	Dst   int
-	Elems []int
+	Elems []Operand
 }
 
 func (i *MakeArray) instrNode() {}
 func (i *MakeArray) String() string {
 	parts := make([]string, 0, len(i.Elems))
 	for _, e := range i.Elems {
-		parts = append(parts, fmt.Sprintf("t%d", e))
+		parts = append(parts, e.String())
 	}
 	return fmt.Sprintf("t%d = array [%s]", i.Dst, strings.Join(parts, ", "))
 }
@@ -270,30 +260,36 @@ func (i *MakeArray) String() string {
 type Index struct {
 	Unchecked bool
 	Dst   int
-	Array int
-	Index int
+	Array Operand
+	Index Operand
 }
 
 func (i *Index) instrNode() {}
 func (i *Index) String() string {
-	if i.Unchecked { return fmt.Sprintf("t%d = index t%d[t%d] @unchecked", i.Dst, i.Array, i.Index) }; return fmt.Sprintf("t%d = index t%d[t%d]", i.Dst, i.Array, i.Index)
+	if i.Unchecked {
+		return fmt.Sprintf("t%d = index %s[%s] @unchecked", i.Dst, i.Array.String(), i.Index.String())
+	}
+	return fmt.Sprintf("t%d = index %s[%s]", i.Dst, i.Array.String(), i.Index.String())
 }
 
 type SetIndex struct {
 	Unchecked bool
-	Array int
-	Index int
-	Src   int
+	Array Operand
+	Index Operand
+	Src   Operand
 }
 
 func (i *SetIndex) instrNode() {}
 func (i *SetIndex) String() string {
-	if i.Unchecked { return fmt.Sprintf("set_index t%d[t%d] = t%d @unchecked", i.Array, i.Index, i.Src) }; return fmt.Sprintf("set_index t%d[t%d] = t%d", i.Array, i.Index, i.Src)
+	if i.Unchecked {
+		return fmt.Sprintf("set_index %s[%s] = %s @unchecked", i.Array.String(), i.Index.String(), i.Src.String())
+	}
+	return fmt.Sprintf("set_index %s[%s] = %s", i.Array.String(), i.Index.String(), i.Src.String())
 }
 
 type StructFieldInit struct {
 	Name string
-	Src  int
+	Src  Operand
 }
 
 type MakeStruct struct {
@@ -306,7 +302,7 @@ func (i *MakeStruct) instrNode() {}
 func (i *MakeStruct) String() string {
 	parts := make([]string, 0, len(i.Fields))
 	for _, f := range i.Fields {
-		parts = append(parts, fmt.Sprintf("%s: t%d", f.Name, f.Src))
+		parts = append(parts, fmt.Sprintf("%s: %s", f.Name, f.Src.String()))
 	}
 	return fmt.Sprintf("t%d = struct %s { %s }", i.Dst, i.Name, strings.Join(parts, ", "))
 }
@@ -325,12 +321,12 @@ func (i *GetField) String() string {
 type SetField struct {
 	Src   int
 	Field string
-	Value int
+	Value Operand
 }
 
 func (i *SetField) instrNode() {}
 func (i *SetField) String() string {
-	return fmt.Sprintf("t%d.%s = t%d", i.Src, i.Field, i.Value)
+	return fmt.Sprintf("t%d.%s = %s", i.Src, i.Field, i.Value.String())
 }
 
 type Term interface {
@@ -348,18 +344,18 @@ func (t *Jump) String() string {
 }
 
 type Branch struct {
-	Cond int
+	Cond Operand
 	Then string
 	Else string
 }
 
 func (t *Branch) termNode() {}
 func (t *Branch) String() string {
-	return fmt.Sprintf("branch t%d, %s, %s", t.Cond, t.Then, t.Else)
+	return fmt.Sprintf("branch %s, %s, %s", t.Cond.String(), t.Then, t.Else)
 }
 
 type Return struct {
-	Value *int
+	Value *Operand
 }
 
 func (t *Return) termNode() {}
@@ -367,7 +363,7 @@ func (t *Return) String() string {
 	if t.Value == nil {
 		return "return"
 	}
-	return fmt.Sprintf("return t%d", *t.Value)
+	return fmt.Sprintf("return %s", t.Value.String())
 }
 
 func (p *Program) Format() string {
@@ -584,7 +580,7 @@ func validateBlock(blk *Block, labels map[string]struct{}, tempCount int, declar
 			return fmt.Errorf("jump target '%s' not found", t.Target)
 		}
 	case *Branch:
-		if err := validateTemp(t.Cond, tempCount, false); err != nil {
+		if err := validateOperand(t.Cond, tempCount); err != nil {
 			return err
 		}
 		if t.Then == "" || t.Else == "" {
@@ -598,7 +594,7 @@ func validateBlock(blk *Block, labels map[string]struct{}, tempCount int, declar
 		}
 	case *Return:
 		if t.Value != nil {
-			if err := validateTemp(*t.Value, tempCount, false); err != nil {
+			if err := validateOperand(*t.Value, tempCount); err != nil {
 				return err
 			}
 		}
@@ -610,8 +606,6 @@ func validateBlock(blk *Block, labels map[string]struct{}, tempCount int, declar
 
 func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) error {
 	switch i := inst.(type) {
-	case *Const:
-		return validateTemp(i.Dst, tempCount, false)
 	case *LoadVar:
 		if i.Ref {
 			if err := validateTemp(i.RefTemp, tempCount, false); err != nil {
@@ -631,12 +625,12 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			if err := validateTemp(i.RefTemp, tempCount, false); err != nil {
 				return err
 			}
-			return validateTemp(i.Src, tempCount, false)
+			return validateOperand(i.Src, tempCount)
 		}
 		if i.Name == "" {
 			return fmt.Errorf("store var name is empty")
 		}
-		return validateTemp(i.Src, tempCount, false)
+		return validateOperand(i.Src, tempCount)
 	case *BinOp:
 		if !isValidBinOp(i.Op) {
 			return fmt.Errorf("invalid binop '%s'", i.Op)
@@ -656,7 +650,7 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		for _, arg := range i.Args {
-			if err := validateTemp(arg, tempCount, false); err != nil {
+			if err := validateOperand(arg, tempCount); err != nil {
 				return err
 			}
 		}
@@ -666,7 +660,7 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		for _, e := range i.Elems {
-			if err := validateTemp(e, tempCount, false); err != nil {
+			if err := validateOperand(e, tempCount); err != nil {
 				return err
 			}
 		}
@@ -675,18 +669,18 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 		if err := validateTemp(i.Dst, tempCount, false); err != nil {
 			return err
 		}
-		if err := validateTemp(i.Array, tempCount, false); err != nil {
+		if err := validateOperand(i.Array, tempCount); err != nil {
 			return err
 		}
-		return validateTemp(i.Index, tempCount, false)
+		return validateOperand(i.Index, tempCount)
 	case *SetIndex:
-		if err := validateTemp(i.Array, tempCount, false); err != nil {
+		if err := validateOperand(i.Array, tempCount); err != nil {
 			return err
 		}
-		if err := validateTemp(i.Index, tempCount, false); err != nil {
+		if err := validateOperand(i.Index, tempCount); err != nil {
 			return err
 		}
-		return validateTemp(i.Src, tempCount, false)
+		return validateOperand(i.Src, tempCount)
 	case *MakeStruct:
 		if i.Name == "" {
 			return fmt.Errorf("struct name is empty")
@@ -703,7 +697,7 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 				return fmt.Errorf("duplicate struct field '%s'", f.Name)
 			}
 			fields[f.Name] = struct{}{}
-			if err := validateTemp(f.Src, tempCount, false); err != nil {
+			if err := validateOperand(f.Src, tempCount); err != nil {
 				return err
 			}
 		}
@@ -723,7 +717,7 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 		if err := validateTemp(i.Src, tempCount, false); err != nil {
 			return err
 		}
-		return validateTemp(i.Value, tempCount, false)
+		return validateOperand(i.Value, tempCount)
 	default:
 		return fmt.Errorf("unknown instruction")
 	}

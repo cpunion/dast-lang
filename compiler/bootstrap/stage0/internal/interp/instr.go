@@ -9,8 +9,6 @@ import (
 
 func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 	switch i := inst.(type) {
-	case *ir.Const:
-		return rt.setTemp(fr, i.Dst, i.Value)
 	case *ir.LoadVar:
 		if i.Ref {
 			ref, err := rt.getTemp(fr, i.RefTemp)
@@ -42,13 +40,13 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			if err != nil {
 				return err
 			}
-			val, err := rt.getTemp(fr, i.Src)
+			val, err := rt.evalOperand(fr, i.Src)
 			if err != nil {
 				return err
 			}
 			return rt.storeRef(ref, val)
 		}
-		val, err := rt.getTemp(fr, i.Src)
+		val, err := rt.evalOperand(fr, i.Src)
 		if err != nil {
 			return err
 		}
@@ -78,7 +76,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 	case *ir.Call:
 		args := make([]ir.Value, 0, len(i.Args))
 		for _, arg := range i.Args {
-			val, err := rt.getTemp(fr, arg)
+			val, err := rt.evalOperand(fr, arg)
 			if err != nil {
 				return err
 			}
@@ -95,7 +93,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 	case *ir.MakeStruct:
 		fields := map[string]ir.Value{}
 		for _, f := range i.Fields {
-			val, err := rt.getTemp(fr, f.Src)
+			val, err := rt.evalOperand(fr, f.Src)
 			if err != nil {
 				return err
 			}
@@ -106,7 +104,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 	case *ir.MakeArray:
 		elems := make([]ir.Value, 0, len(i.Elems))
 		for _, e := range i.Elems {
-			val, err := rt.getTemp(fr, e)
+			val, err := rt.evalOperand(fr, e)
 			if err != nil {
 				return err
 			}
@@ -115,11 +113,11 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		val := ir.Value{Kind: ir.KindArray, Array: &ir.ArrayValue{Elems: elems}}
 		return rt.setTemp(fr, i.Dst, val)
 	case *ir.Index:
-		arrayVal, err := rt.getTemp(fr, i.Array)
+		arrayVal, err := rt.evalOperand(fr, i.Array)
 		if err != nil {
 			return err
 		}
-		indexVal, err := rt.getTemp(fr, i.Index)
+		indexVal, err := rt.evalOperand(fr, i.Index)
 		if err != nil {
 			return err
 		}
@@ -134,15 +132,15 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		return rt.setTemp(fr, i.Dst, res)
 	case *ir.SetIndex:
-		arrayVal, err := rt.getTemp(fr, i.Array)
+		arrayVal, err := rt.evalOperand(fr, i.Array)
 		if err != nil {
 			return err
 		}
-		indexVal, err := rt.getTemp(fr, i.Index)
+		indexVal, err := rt.evalOperand(fr, i.Index)
 		if err != nil {
 			return err
 		}
-		val, err := rt.getTemp(fr, i.Src)
+		val, err := rt.evalOperand(fr, i.Src)
 		if err != nil {
 			return err
 		}
@@ -165,7 +163,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		if err != nil {
 			return err
 		}
-		val, err := rt.getTemp(fr, i.Value)
+		val, err := rt.evalOperand(fr, i.Value)
 		if err != nil {
 			return err
 		}

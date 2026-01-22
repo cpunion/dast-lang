@@ -15,7 +15,7 @@ func Optimize(p *Program) *Program {
 
 type inlineCandidate struct {
 	fn      *Function
-	retTemp *int
+	retOp   *Operand
 }
 
 func optimizeFunction(fn *Function, inline map[string]inlineCandidate) {
@@ -42,11 +42,15 @@ func optimizeBlock(blk *Block) {
 		val, ok := consts[op.Temp]
 		return val, ok
 	}
+	getOperandTemp := func(op Operand) (int, bool) {
+		if op.IsConst {
+			return 0, false
+		}
+		return op.Temp, true
+	}
 
 	for i, inst := range blk.Instr {
 		switch v := inst.(type) {
-		case *Const:
-			consts[v.Dst] = v.Value
 		case *LoadVar:
 			if v.Ref {
 				delete(consts, v.Dst)
@@ -58,7 +62,6 @@ func optimizeBlock(blk *Block) {
 				continue
 			}
 			if val, ok := varConsts[v.Name]; ok {
-				blk.Instr[i] = &Const{Dst: v.Dst, Value: val}
 				consts[v.Dst] = val
 				continue
 			}
@@ -67,7 +70,6 @@ func optimizeBlock(blk *Block) {
 			if l, ok := getOperandConst(v.Lhs); ok {
 				if r, ok := getOperandConst(v.Rhs); ok {
 					if folded, ok := foldBinary(v.Op, l, r); ok {
-						blk.Instr[i] = &Const{Dst: v.Dst, Value: folded}
 						consts[v.Dst] = folded
 						continue
 					}
@@ -84,10 +86,12 @@ func optimizeBlock(blk *Block) {
 		case *MakeArray:
 			delete(consts, v.Dst)
 		case *Index:
-			if idx, ok := consts[v.Index]; ok && idx.Kind == KindInt {
-				if length, ok := arrayLens[v.Array]; ok && arraySafe[v.Array] {
-					if idx.Int >= 0 && idx.Int < int64(length) {
-						blk.Instr[i] = &Index{Unchecked: true, Dst: v.Dst, Array: v.Array, Index: v.Index}
+			if idx, ok := getOperandConst(v.Index); ok && idx.Kind == KindInt {
+				if arrTemp, ok := getOperandTemp(v.Array); ok {
+					if length, ok := arrayLens[arrTemp]; ok && arraySafe[arrTemp] {
+						if idx.Int >= 0 && idx.Int < int64(length) {
+							v.Unchecked = true
+						}
 					}
 				}
 			}
@@ -97,10 +101,12 @@ func optimizeBlock(blk *Block) {
 		case *GetField:
 			delete(consts, v.Dst)
 		case *SetIndex:
-			if idx, ok := consts[v.Index]; ok && idx.Kind == KindInt {
-				if length, ok := arrayLens[v.Array]; ok && arraySafe[v.Array] {
-					if idx.Int >= 0 && idx.Int < int64(length) {
-						blk.Instr[i] = &SetIndex{Unchecked: true, Array: v.Array, Index: v.Index, Src: v.Src}
+			if idx, ok := getOperandConst(v.Index); ok && idx.Kind == KindInt {
+				if arrTemp, ok := getOperandTemp(v.Array); ok {
+					if length, ok := arrayLens[arrTemp]; ok && arraySafe[arrTemp] {
+						if idx.Int >= 0 && idx.Int < int64(length) {
+							v.Unchecked = true
+						}
 					}
 				}
 			}
@@ -110,7 +116,7 @@ func optimizeBlock(blk *Block) {
 				for name := range varConsts {
 					delete(varConsts, name)
 				}
-			} else if val, ok := consts[sv.Src]; ok {
+			} else if val, ok := getOperandConst(sv.Src); ok {
 				varConsts[sv.Name] = val
 			} else {
 				delete(varConsts, sv.Name)
@@ -118,7 +124,7 @@ func optimizeBlock(blk *Block) {
 		}
 	}
 	if br, ok := blk.Term.(*Branch); ok {
-		if cond, ok := consts[br.Cond]; ok && cond.Kind == KindBool {
+		if cond, ok := getOperandConst(br.Cond); ok && cond.Kind == KindBool {
 			target := br.Then
 			if !cond.Bool {
 				target = br.Else
@@ -245,8 +251,6 @@ func instrTemps(inst Instr) []int {
 	}
 
 	switch v := inst.(type) {
-	case *Const:
-		return []int{v.Dst}
 	case *LoadVar:
 		if v.Ref {
 			return []int{v.Dst, v.RefTemp}
@@ -254,9 +258,10 @@ func instrTemps(inst Instr) []int {
 		return []int{v.Dst}
 	case *StoreVar:
 		if v.Ref {
-			return []int{v.RefTemp, v.Src}
+			out := []int{v.RefTemp}
+			return append(out, getTemp(v.Src)...)
 		}
-		return []int{v.Src}
+		return getTemp(v.Src)
 	case *BinOp:
 		out := []int{v.Dst}
 		out = append(out, getTemp(v.Lhs)...)
@@ -267,25 +272,38 @@ func instrTemps(inst Instr) []int {
 		if v.Dst >= 0 {
 			out = append(out, v.Dst)
 		}
-		out = append(out, v.Args...)
+		for _, a := range v.Args {
+			out = append(out, getTemp(a)...)
+		}
 		return out
 	case *MakeArray:
 		out := []int{v.Dst}
-		return append(out, v.Elems...)
+		for _, e := range v.Elems {
+			out = append(out, getTemp(e)...)
+		}
+		return out
 	case *Index:
-		return []int{v.Dst, v.Array, v.Index}
+		out := []int{v.Dst}
+		out = append(out, getTemp(v.Array)...)
+		out = append(out, getTemp(v.Index)...)
+		return out
 	case *SetIndex:
-		return []int{v.Array, v.Index, v.Src}
+		out := []int{}
+		out = append(out, getTemp(v.Array)...)
+		out = append(out, getTemp(v.Index)...)
+		out = append(out, getTemp(v.Src)...)
+		return out
 	case *MakeStruct:
 		out := []int{v.Dst}
 		for _, f := range v.Fields {
-			out = append(out, f.Src)
+			out = append(out, getTemp(f.Src)...)
 		}
 		return out
 	case *GetField:
 		return []int{v.Dst, v.Src}
 	case *SetField:
-		return []int{v.Src, v.Value}
+		out := []int{v.Src}
+		return append(out, getTemp(v.Value)...)
 	default:
 		return nil
 	}
@@ -305,12 +323,12 @@ func collectInlineCandidates(p *Program) map[string]inlineCandidate {
 		if containsCall(blk.Instr) {
 			continue
 		}
-		var retTemp *int
+		var retOp *Operand
 		if ret.Value != nil {
 			tmp := *ret.Value
-			retTemp = &tmp
+			retOp = &tmp
 		}
-		out[name] = inlineCandidate{fn: fn, retTemp: retTemp}
+		out[name] = inlineCandidate{fn: fn, retOp: retOp}
 	}
 	return out
 }
@@ -340,6 +358,12 @@ func inlineCalls(fn *Function, inline map[string]inlineCandidate) {
 				out = append(out, inst)
 				continue
 			}
+			if call.Dst >= 0 {
+				if cand.retOp == nil || cand.retOp.IsConst {
+					out = append(out, inst)
+					continue
+				}
+			}
 			inlined := inlineCall(call, cand, &nextTemp, inlineID)
 			inlineID++
 			out = append(out, inlined...)
@@ -352,8 +376,12 @@ func inlineCalls(fn *Function, inline map[string]inlineCandidate) {
 func inlineCall(call *Call, cand inlineCandidate, nextTemp *int, inlineID int) []Instr {
 	blk := cand.fn.Blocks[0]
 	tempMap := map[int]int{}
+	retTemp := -1
+	if cand.retOp != nil && !cand.retOp.IsConst {
+		retTemp = cand.retOp.Temp
+	}
 	for t := 0; t < cand.fn.TempCount; t++ {
-		if cand.retTemp != nil && call.Dst >= 0 && t == *cand.retTemp {
+		if retTemp >= 0 && call.Dst >= 0 && t == retTemp {
 			tempMap[t] = call.Dst
 			continue
 		}
@@ -379,9 +407,6 @@ func inlineCall(call *Call, cand inlineCandidate, nextTemp *int, inlineID int) [
 	for _, inst := range blk.Instr {
 		out = append(out, remapInstr(inst, tempMap, mapVar))
 	}
-	if cand.retTemp == nil && call.Dst >= 0 {
-		out = append(out, &Const{Dst: call.Dst, Value: Value{Kind: KindUnit}})
-	}
 	return out
 }
 
@@ -399,8 +424,6 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 		return TempOperand(remap(op.Temp))
 	}
 	switch v := inst.(type) {
-	case *Const:
-		return &Const{Dst: remap(v.Dst), Value: v.Value}
 	case *LoadVar:
 		remapped := &LoadVar{Dst: remap(v.Dst), Name: mapVar(v.Name), Addr: v.Addr, Ref: v.Ref, RefTemp: v.RefTemp}
 		if v.Ref {
@@ -408,7 +431,7 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 		}
 		return remapped
 	case *StoreVar:
-		remapped := &StoreVar{Name: mapVar(v.Name), Src: remap(v.Src), Ref: v.Ref, RefTemp: v.RefTemp}
+		remapped := &StoreVar{Name: mapVar(v.Name), Src: remapOperand(v.Src), Ref: v.Ref, RefTemp: v.RefTemp}
 		if v.Ref {
 			remapped.RefTemp = remap(v.RefTemp)
 		}
@@ -416,32 +439,32 @@ func remapInstr(inst Instr, tempMap map[int]int, mapVar func(string) string) Ins
 	case *BinOp:
 		return &BinOp{Dst: remap(v.Dst), Op: v.Op, Lhs: remapOperand(v.Lhs), Rhs: remapOperand(v.Rhs)}
 	case *Call:
-		args := make([]int, 0, len(v.Args))
+		args := make([]Operand, 0, len(v.Args))
 		for _, a := range v.Args {
-			args = append(args, remap(a))
+			args = append(args, remapOperand(a))
 		}
 		return &Call{Dst: remap(v.Dst), Callee: v.Callee, Args: args}
 	case *MakeArray:
-		elems := make([]int, 0, len(v.Elems))
+		elems := make([]Operand, 0, len(v.Elems))
 		for _, e := range v.Elems {
-			elems = append(elems, remap(e))
+			elems = append(elems, remapOperand(e))
 		}
 		return &MakeArray{Dst: remap(v.Dst), Elems: elems}
 	case *Index:
-		return &Index{Dst: remap(v.Dst), Array: remap(v.Array), Index: remap(v.Index)}
+		return &Index{Dst: remap(v.Dst), Array: remapOperand(v.Array), Index: remapOperand(v.Index)}
 	case *SetIndex:
-		return &SetIndex{Array: remap(v.Array), Index: remap(v.Index), Src: remap(v.Src)}
+		return &SetIndex{Array: remapOperand(v.Array), Index: remapOperand(v.Index), Src: remapOperand(v.Src)}
 
 	case *MakeStruct:
 		fields := make([]StructFieldInit, 0, len(v.Fields))
 		for _, f := range v.Fields {
-			fields = append(fields, StructFieldInit{Name: f.Name, Src: remap(f.Src)})
+			fields = append(fields, StructFieldInit{Name: f.Name, Src: remapOperand(f.Src)})
 		}
 		return &MakeStruct{Dst: remap(v.Dst), Name: v.Name, Fields: fields}
 	case *GetField:
 		return &GetField{Dst: remap(v.Dst), Src: remap(v.Src), Field: v.Field}
 	case *SetField:
-		return &SetField{Src: remap(v.Src), Field: v.Field, Value: remap(v.Value)}
+		return &SetField{Src: remap(v.Src), Field: v.Field, Value: remapOperand(v.Value)}
 	default:
 		return inst
 	}

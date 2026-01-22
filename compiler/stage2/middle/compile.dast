@@ -312,7 +312,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     set_current_block(c, entry_block)
     compile_function_body(c, f, self_name)
     if !current_block_has_term(c) {
-        emit_term(c, IrTerm.Return(IrReturn { has_value: false, value: -1 }))
+        emit_term(c, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
     }
 
     compiler_env_pop(c)
@@ -349,7 +349,7 @@ fn compile_block_with_tail(c: &mut Compiler, block: Block, allow_implicit: bool,
         if i == len(block.stmts) - 1 {
             match block.stmts[i] {
                 .Expr(e) => {
-                    let v = compile_expr(c, e.expr, self_name)
+                    let v = compile_operand(c, e.expr, self_name)
                     emit_term(c, IrTerm.Return(IrReturn { has_value: true, value: v }))
                     pop_scope(c)
                     return
@@ -427,7 +427,7 @@ fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
         decl_t = compiler_parse_type(c, s.typ, self_name)
     }
     let name = declare_var(c, s.name, decl_t, s.mutable)
-    let val = compile_expr(c, s.init, self_name)
+    let val = compile_operand(c, s.init, self_name)
     emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: val, ref: false, ref_temp: 0 }))
 }
 
@@ -439,7 +439,7 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
                 compiler_add_type_error(c, "undefined variable '" + id.name + "'")
                 return
             }
-            let val = compile_expr(c, s.value, self_name)
+            let val = compile_operand(c, s.value, self_name)
 
             // Check if this is a mutable captured variable
             if is_temp_ref(ir_name) && is_mutated_capture(c, id.name) {
@@ -452,18 +452,18 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
         }
         .Deref(d) => {
             let r = compile_expr(c, d.expr, self_name)
-            let val = compile_expr(c, s.value, self_name)
+            let val = compile_operand(c, s.value, self_name)
             emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: "", src: val, ref: true, ref_temp: r }))
         }
         Expr.Index(ix) => {
-            let recv = compile_expr(c, ix.recv, self_name)
-            let idx = compile_expr(c, ix.index, self_name)
-            let val = compile_expr(c, s.value, self_name)
+            let recv = compile_operand(c, ix.recv, self_name)
+            let idx = compile_operand(c, ix.index, self_name)
+            let val = compile_operand(c, s.value, self_name)
             emit_instr(c, IrInstr.SetIndex(IrSetIndex { array: recv, index: idx, src: val, unchecked: false }))
         }
         .Field(f) => {
             let recv = compile_expr(c, f.recv, self_name)
-            let val = compile_expr(c, s.value, self_name)
+            let val = compile_operand(c, s.value, self_name)
             emit_instr(c, IrInstr.SetField(IrSetField { src: recv, field: f.name, value: val }))
         }
         _ => {
@@ -474,15 +474,15 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
 
 fn compile_return(c: &mut Compiler, s: ReturnStmt, self_name: String) {
     if !s.has_value {
-        emit_term(c, IrTerm.Return(IrReturn { has_value: false, value: -1 }))
+        emit_term(c, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
         return
     }
-    let val = compile_expr(c, s.value, self_name)
+    let val = compile_operand(c, s.value, self_name)
     emit_term(c, IrTerm.Return(IrReturn { has_value: true, value: val }))
 }
 
 fn compile_if(c: &mut Compiler, s: IfStmt, self_name: String) {
-    let cond = compile_expr(c, s.cond, self_name)
+    let cond = compile_operand(c, s.cond, self_name)
     let then_block = new_block(c, "then")
     let else_block = new_block(c, "else")
     let merge_block = new_block(c, "merge")
@@ -510,7 +510,7 @@ fn compile_tail_if(c: &mut Compiler, s: IfStmt, allow_implicit: bool, self_name:
         compile_if(c, s, self_name)
         return
     }
-    let cond = compile_expr(c, s.cond, self_name)
+    let cond = compile_operand(c, s.cond, self_name)
     let then_block = new_block(c, "then")
     let else_block = new_block(c, "else")
     let merge_block = new_block(c, "merge")
@@ -538,7 +538,7 @@ fn compile_while(c: &mut Compiler, s: WhileStmt, self_name: String) {
     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, cond_block) }))
 
     set_current_block(c, cond_block)
-    let cond = compile_expr(c, s.cond, self_name)
+    let cond = compile_operand(c, s.cond, self_name)
     emit_term(c, IrTerm.Branch(IrBranch { cond: cond, then_label: block_label(c, body_block), else_label: block_label(c, after_block) }))
 
     set_current_block(c, body_block)
@@ -566,31 +566,27 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
         .Wildcard(_) => {}
         .Bind(_) => {}
         .Literal(lp) => {
-            let const_val = new_temp(c)
             let tname = compiler_type_name(c, value_type)
-            emit_instr(c, IrInstr.Const(IrConst { dst: const_val, value: const_to_ir(lp.value, tname) }))
             let cmp = new_temp(c)
-            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: value, rhs: const_val }))
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(value), rhs: ir_operand_const(const_to_ir(lp.value, tname)) }))
             let cont = new_block(c, "match_check")
-            emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, cont), else_label: next_label }))
+            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, cont), else_label: next_label }))
             set_current_block(c, cont)
         }
         .Range(rp) => {
             let tname = compiler_type_name(c, value_type)
-            let start = new_temp(c)
-            let end = new_temp(c)
-            emit_instr(c, IrInstr.Const(IrConst { dst: start, value: const_to_ir(rp.start, tname) }))
-            emit_instr(c, IrInstr.Const(IrConst { dst: end, value: const_to_ir(rp.end, tname) }))
+            let start = ir_operand_const(const_to_ir(rp.start, tname))
+            let end = ir_operand_const(const_to_ir(rp.end, tname))
             let ge = new_temp(c)
-            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: value, rhs: start }))
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: ir_operand_temp(value), rhs: start }))
             let le = new_temp(c)
             let mut op = "<"
             if rp.inclusive { op = "<=" }
-            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: value, rhs: end }))
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: ir_operand_temp(value), rhs: end }))
             let both = new_temp(c)
-            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ge, rhs: le }))
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ir_operand_temp(ge), rhs: ir_operand_temp(le) }))
             let cont = new_block(c, "match_check")
-            emit_term(c, IrTerm.Branch(IrBranch { cond: both, then_label: block_label(c, cont), else_label: next_label }))
+            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, cont), else_label: next_label }))
             set_current_block(c, cont)
         }
         .Variant(vp) => {
@@ -603,13 +599,11 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
                 compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
             }
             let tag = new_temp(c)
-            emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: value }))
-            let const_tag = new_temp(c)
-            emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
+            emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: ir_operand_temp(value) }))
             let cmp = new_temp(c)
-            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: tag, rhs: const_tag }))
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
             let cont = new_block(c, "match_check")
-            emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, cont), else_label: next_label }))
+            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, cont), else_label: next_label }))
             set_current_block(c, cont)
         }
         Pattern.Struct(sp) => {
@@ -659,12 +653,12 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
             emit_instr(c, IrInstr.GetField(IrGetField { dst: field_val, src: scrut, field: f.name }))
             if f.bind {
                 let name = declare_var(c, f.name, ft, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val, ref: false, ref_temp: 0 }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(field_val), ref: false, ref_temp: 0 }))
             } else if f.has_pattern {
                 match f.pattern {
                     .Bind(bp) => {
                         let name = declare_var(c, bp.name, ft, false)
-                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: field_val, ref: false, ref_temp: 0 }))
+                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(field_val), ref: false, ref_temp: 0 }))
                     }
                     .Variant(vp) => {
                         if vp.has_binding {
@@ -674,9 +668,9 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
                             }
                             let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                             let payload = new_temp(c)
-                            emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: field_val }))
+                            emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: ir_operand_temp(field_val) }))
                             let name = declare_var(c, vp.binding, payload_type, false)
-                            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload, ref: false, ref_temp: 0 }))
+                            emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(payload), ref: false, ref_temp: 0 }))
                         }
                     }
                     Pattern.Struct(sp2) => {
@@ -695,7 +689,7 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
         .Bind(bp) => {
             if bp.name != "" {
                 let name = declare_var(c, bp.name, scrut_type, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: scrut, ref: false, ref_temp: 0 }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(scrut), ref: false, ref_temp: 0 }))
             }
         }
         .Variant(vp) => {
@@ -705,10 +699,10 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
                     pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
                 }
                 let payload = new_temp(c)
-                emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: scrut }))
+                emit_instr(c, IrInstr.EnumPayload(IrEnumPayload { dst: payload, src: ir_operand_temp(scrut) }))
                 let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
                 let name = declare_var(c, vp.binding, payload_type, false)
-                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: payload, ref: false, ref_temp: 0 }))
+                emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(payload), ref: false, ref_temp: 0 }))
             }
         }
         Pattern.Struct(sp) => {
@@ -790,13 +784,11 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
                 let tag = new_temp(c)
-                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: scrut }))
-                let const_tag = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
+                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: ir_operand_temp(scrut) }))
                 let cmp = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: tag, rhs: const_tag }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
                 let next = new_block(c, "match_next")
-                emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -834,20 +826,18 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     compiler_add_type_error(c, "range pattern requires int expression")
                 }
                 let tname = compiler_type_name(c, scrut_type)
-                let start = new_temp(c)
-                let end = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: start, value: const_to_ir(rp.start, tname) }))
-                emit_instr(c, IrInstr.Const(IrConst { dst: end, value: const_to_ir(rp.end, tname) }))
+                let start = ir_operand_const(const_to_ir(rp.start, tname))
+                let end = ir_operand_const(const_to_ir(rp.end, tname))
                 let ge = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: scrut, rhs: start }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: ir_operand_temp(scrut), rhs: start }))
                 let le = new_temp(c)
                 let mut op = "<"
                 if rp.inclusive { op = "<=" }
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: scrut, rhs: end }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: ir_operand_temp(scrut), rhs: end }))
                 let both = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ge, rhs: le }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ir_operand_temp(ge), rhs: ir_operand_temp(le) }))
                 let next = new_block(c, "match_next")
-                emit_term(c, IrTerm.Branch(IrBranch { cond: both, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -862,13 +852,11 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
                     compiler_add_type_error(c, "literal pattern requires int, bool, or string expression")
                 }
-                let const_val = new_temp(c)
                 let tname = compiler_type_name(c, scrut_type)
-                emit_instr(c, IrInstr.Const(IrConst { dst: const_val, value: const_to_ir(lp.value, tname) }))
                 let cmp = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: scrut, rhs: const_val }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(scrut), rhs: ir_operand_const(const_to_ir(lp.value, tname)) }))
                 let next = new_block(c, "match_next")
-                emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -960,13 +948,11 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
                 let tag = new_temp(c)
-                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: scrut }))
-                let const_tag = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: const_tag, value: ir_value_int_t(tag_info.tag, tag_info.tag_type) }))
+                emit_instr(c, IrInstr.EnumTag(IrEnumTag { dst: tag, src: ir_operand_temp(scrut) }))
                 let cmp = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: tag, rhs: const_tag }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
                 let next = new_block(c, "match_next")
-                emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -1004,20 +990,18 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     compiler_add_type_error(c, "range pattern requires int expression")
                 }
                 let tname = compiler_type_name(c, scrut_type)
-                let start = new_temp(c)
-                let end = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: start, value: const_to_ir(rp.start, tname) }))
-                emit_instr(c, IrInstr.Const(IrConst { dst: end, value: const_to_ir(rp.end, tname) }))
+                let start = ir_operand_const(const_to_ir(rp.start, tname))
+                let end = ir_operand_const(const_to_ir(rp.end, tname))
                 let ge = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: scrut, rhs: start }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: ir_operand_temp(scrut), rhs: start }))
                 let le = new_temp(c)
                 let mut op = "<"
                 if rp.inclusive { op = "<=" }
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: scrut, rhs: end }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: le, op: op, lhs: ir_operand_temp(scrut), rhs: end }))
                 let both = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ge, rhs: le }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ir_operand_temp(ge), rhs: ir_operand_temp(le) }))
                 let next = new_block(c, "match_next")
-                emit_term(c, IrTerm.Branch(IrBranch { cond: both, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -1032,13 +1016,11 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                 if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
                     compiler_add_type_error(c, "literal pattern requires int, bool, or string expression")
                 }
-                let const_val = new_temp(c)
                 let tname = compiler_type_name(c, scrut_type)
-                emit_instr(c, IrInstr.Const(IrConst { dst: const_val, value: const_to_ir(lp.value, tname) }))
                 let cmp = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: scrut, rhs: const_val }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(scrut), rhs: ir_operand_const(const_to_ir(lp.value, tname)) }))
                 let next = new_block(c, "match_next")
-                emit_term(c, IrTerm.Branch(IrBranch { cond: cmp, then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
+                emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
                 compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
                 if !current_block_has_term(c) {
@@ -1062,7 +1044,7 @@ fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, scrut_type: i3
     push_scope(c)
     bind_match_pattern(c, arm.pattern, scrut, scrut_type, scrut_name, self_name)
     if arm.has_guard {
-        let cond = compile_expr(c, arm.guard, self_name)
+        let cond = compile_operand(c, arm.guard, self_name)
         let body_block = new_block(c, "match_body")
         emit_term(c, IrTerm.Branch(IrBranch { cond: cond, then_label: block_label(c, body_block), else_label: next_label }))
         set_current_block(c, body_block)
@@ -1077,8 +1059,7 @@ fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, scrut_type: i3
 
 fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, target: String) {
     push_scope(c)
-    let unit = new_temp(c)
-    emit_instr(c, IrInstr.Const(IrConst { dst: unit, value: ir_value_unit() }))
+    let unit = ir_operand_const(ir_value_unit())
     if len(block.stmts) == 0 {
         emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit, ref: false, ref_temp: 0 }))
         pop_scope(c)
@@ -1089,7 +1070,7 @@ fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, targ
         if i == len(block.stmts) - 1 {
             match block.stmts[i] {
                 Stmt.Expr(e) => {
-                    let v = compile_expr(c, e.expr, self_name)
+                    let v = compile_operand(c, e.expr, self_name)
                     emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: v, ref: false, ref_temp: 0 }))
                 }
                 _ => {
@@ -1118,9 +1099,7 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
         scrut_type = base
     }
     let res_name = declare_var(c, "$iflet", 0, false)
-    let init = new_temp(c)
-    emit_instr(c, IrInstr.Const(IrConst { dst: init, value: ir_value_unit() }))
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: res_name, src: init, ref: false, ref_temp: 0 }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: res_name, src: ir_operand_const(ir_value_unit()), ref: false, ref_temp: 0 }))
 
     let after = new_block(c, "iflet_after")
     let then_block = new_block(c, "iflet_then")
@@ -1161,30 +1140,53 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
     return out
 }
 
-fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
+fn compile_operand(c: &mut Compiler, expr: Expr, self_name: String) -> IrOperand {
     match expr {
         .IntLit(i) => {
             let v = parse_int(i.value)
-            let t = new_temp(c)
-            emit_instr(c, IrInstr.Const(IrConst { dst: t, value: ir_value_int(v) }))
-            return t
+            return ir_operand_const(ir_value_int(v))
         }
         .BoolLit(b) => {
-            let t = new_temp(c)
-            emit_instr(c, IrInstr.Const(IrConst { dst: t, value: ir_value_bool(b.value) }))
-            return t
+            return ir_operand_const(ir_value_bool(b.value))
         }
         .StringLit(s) => {
             let v = parse_string_literal(s.value)
-            let t = new_temp(c)
-            emit_instr(c, IrInstr.Const(IrConst { dst: t, value: ir_value_string(v) }))
-            return t
+            return ir_operand_const(ir_value_string(v))
+        }
+        Expr.Ident(id) => {
+            let cq = compiler_resolve_const_name(c, id.name)
+            let cidx = find_const_decl(c.consts, cq)
+            if cidx >= 0 {
+                let mut tname = ""
+                if c.consts[cidx].has_type { tname = c.consts[cidx].typ }
+                let v = const_to_ir(c.consts[cidx].value, tname)
+                return ir_operand_const(v)
+            }
+        }
+        _ => {}
+    }
+    return ir_operand_temp(compile_expr(c, expr, self_name))
+}
+
+fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
+    match expr {
+        .IntLit(_) => {
+            compiler_add_type_error(c, "int literal cannot be used where a temp is required")
+            return const_zero(c)
+        }
+        .BoolLit(_) => {
+            compiler_add_type_error(c, "bool literal cannot be used where a temp is required")
+            return const_zero(c)
+        }
+        .StringLit(_) => {
+            compiler_add_type_error(c, "string literal cannot be used where a temp is required")
+            return const_zero(c)
         }
         .ArrayLit(a) => {
-            let mut elems: [i32] = []
+            let mut elems: [IrOperand] = []
             let mut i = 0
             while i < len(a.elems) {
-                let v = compile_expr(c, a.elems[i], self_name)
+                let v = compile_operand(c, a.elems[i], self_name)
                 push(&mut elems, v)
                 i = i + 1
             }
@@ -1210,12 +1212,8 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let cq = compiler_resolve_const_name(c, id.name)
             let cidx = find_const_decl(c.consts, cq)
             if cidx >= 0 {
-                let mut tname = ""
-                if c.consts[cidx].has_type { tname = c.consts[cidx].typ }
-                let v = const_to_ir(c.consts[cidx].value, tname)
-                let t = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: t, value: v }))
-                return t
+                compiler_add_type_error(c, "const cannot be used where a temp is required")
+                return const_zero(c)
             }
             compiler_add_type_error(c, "undefined variable '" + id.name + "'")
             return const_zero(c)
@@ -1245,25 +1243,21 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return t
         }
         .Unary(u) => {
-            let src = compile_expr(c, u.expr, self_name)
+            let src = compile_operand(c, u.expr, self_name)
             let t = new_temp(c)
             if u.op == TokenKind.Minus {
-                let zero = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: zero, value: ir_value_int(0) }))
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "-", lhs: zero, rhs: src }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "-", lhs: ir_operand_const(ir_value_int(0)), rhs: src }))
                 return t
             }
             if u.op == TokenKind.Bang {
-                let fals = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: fals, value: ir_value_bool(false) }))
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "==", lhs: src, rhs: fals }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "==", lhs: src, rhs: ir_operand_const(ir_value_bool(false)) }))
                 return t
             }
             return const_zero(c)
         }
         .Binary(b) => {
-            let l = compile_expr(c, b.left, self_name)
-            let r = compile_expr(c, b.right, self_name)
+            let l = compile_operand(c, b.left, self_name)
+            let r = compile_operand(c, b.right, self_name)
             let t = new_temp(c)
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: op_string(b.op), lhs: l, rhs: r }))
             return t
@@ -1271,10 +1265,10 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         Expr.Call(call) => {
             match call.callee {
                 Expr.Ident(id) => {
-                    let mut args: [i32] = []
+                    let mut args: [IrOperand] = []
                     let mut i = 0
                     while i < len(call.args) {
-                        let v = compile_expr(c, call.args[i], self_name)
+                        let v = compile_operand(c, call.args[i], self_name)
                         push(&mut args, v)
                         i = i + 1
                     }
@@ -1295,7 +1289,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                         let closure_temp = new_temp(c)
                         emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: closure_temp, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
                         let dst = new_temp(c)
-                        emit_instr(c, IrInstr.CallClosure(IrCallClosure { dst: dst, closure: closure_temp, args: args }))
+                        emit_instr(c, IrInstr.CallClosure(IrCallClosure { dst: dst, closure: ir_operand_temp(closure_temp), args: args }))
                         return dst
                     }
 
@@ -1313,26 +1307,26 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .MethodCall(m) => {
             let res = resolve_method_call(c, m.recv, m.method, self_name)
             if res.is_enum {
-                let mut payload = -1
+                let mut payload = ir_operand_temp(-1)
                 if len(m.args) > 0 {
-                    payload = compile_expr(c, m.args[0], self_name)
+                    payload = compile_operand(c, m.args[0], self_name)
                 }
                 let tag_info = enum_tag_info(c, res.enum_name, res.method_name)
                 if !tag_info.ok {
                     compiler_add_type_error(c, "unknown enum variant '" + res.method_name + "'")
                 }
                 let dst = new_temp(c)
-                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: res.enum_name, variant: res.method_name, tag: tag_info.tag, tag_type: tag_info.tag_type, payload: payload }))
+                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: res.enum_name, variant: res.method_name, tag: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)), tag_type: tag_info.tag_type, payload: payload }))
                 return dst
             }
-            let mut final_args: [i32] = []
+            let mut final_args: [IrOperand] = []
             if res.with_self {
-                let recv = compile_expr(c, m.recv, self_name)
+                let recv = compile_operand(c, m.recv, self_name)
                 push(&mut final_args, recv)
             }
             let mut j = 0
             while j < len(m.args) {
-                let v = compile_expr(c, m.args[j], self_name)
+                let v = compile_operand(c, m.args[j], self_name)
                 push(&mut final_args, v)
                 j = j + 1
             }
@@ -1350,7 +1344,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let mut i = 0
             while i < len(s.fields) {
                 let f = s.fields[i]
-                let v = compile_expr(c, f.value, self_name)
+                let v = compile_operand(c, f.value, self_name)
                 push(&mut fields, IrStructFieldInit { name: f.name, src: v })
                 i = i + 1
             }
@@ -1371,7 +1365,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                                     compiler_add_type_error(c, "unknown enum variant '" + f.name + "'")
                                 }
                                 let dst = new_temp(c)
-                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: eq, variant: f.name, tag: tag_info.tag, tag_type: tag_info.tag_type, payload: -1 }))
+                                emit_instr(c, IrInstr.MakeEnum(IrMakeEnum { dst: dst, name: eq, variant: f.name, tag: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)), tag_type: tag_info.tag_type, payload: ir_operand_temp(-1) }))
                                 return dst
                             }
                         }
@@ -1385,8 +1379,8 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return dst
         }
         Expr.Index(ix) => {
-            let recv = compile_expr(c, ix.recv, self_name)
-            let idx = compile_expr(c, ix.index, self_name)
+            let recv = compile_operand(c, ix.recv, self_name)
+            let idx = compile_operand(c, ix.index, self_name)
             let dst = new_temp(c)
             emit_instr(c, IrInstr.Index(IrIndex { dst: dst, array: recv, index: idx, unchecked: false }))
             return dst
@@ -1481,7 +1475,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             }
 
             // Compile body
-            let body_val = compile_expr(c, cl.body, self_name)
+            let body_val = compile_operand(c, cl.body, self_name)
 
             // Add return if not present
             if !current_block_has_term(c) {
@@ -1552,12 +1546,12 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                             // Mutable capture: take address
                             let addr_temp = new_temp(c)
                             emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: addr_temp, name: ir_name, addr: true, ref: false, ref_temp: 0 }))
-                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: addr_temp })
+                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: ir_operand_temp(addr_temp) })
                         } else {
                             // Immutable capture: load value
                             let loaded = new_temp(c)
                             emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
-                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: loaded })
+                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: ir_operand_temp(loaded) })
                         }
                     }
                     k = k + 1
@@ -1567,12 +1561,9 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: env_temp, name: "$Env", fields: env_fields }))
 
                 // Create closure struct { func, env }
-                let func_name_temp = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: func_name_temp, value: ir_value_string(closure_name) }))
-
                 let mut closure_fields: [IrStructFieldInit] = []
-                push(&mut closure_fields, IrStructFieldInit { name: "func", src: func_name_temp })
-                push(&mut closure_fields, IrStructFieldInit { name: "env", src: env_temp })
+                push(&mut closure_fields, IrStructFieldInit { name: "func", src: ir_operand_const(ir_value_string(closure_name)) })
+                push(&mut closure_fields, IrStructFieldInit { name: "env", src: ir_operand_temp(env_temp) })
 
                 emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: "Closure", fields: closure_fields }))
             } else {
@@ -1581,12 +1572,9 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 let mut empty_fields: [IrStructFieldInit] = []
                 emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: env_temp, name: "$Env", fields: empty_fields }))
 
-                let func_name_temp = new_temp(c)
-                emit_instr(c, IrInstr.Const(IrConst { dst: func_name_temp, value: ir_value_string(closure_name) }))
-
                 let mut closure_fields: [IrStructFieldInit] = []
-                push(&mut closure_fields, IrStructFieldInit { name: "func", src: func_name_temp })
-                push(&mut closure_fields, IrStructFieldInit { name: "env", src: env_temp })
+                push(&mut closure_fields, IrStructFieldInit { name: "func", src: ir_operand_const(ir_value_string(closure_name)) })
+                push(&mut closure_fields, IrStructFieldInit { name: "env", src: ir_operand_temp(env_temp) })
 
                 emit_instr(c, IrInstr.MakeStruct(IrMakeStruct { dst: dst, name: "Closure", fields: closure_fields }))
             }
@@ -1747,7 +1735,7 @@ fn const_to_ir(v: ConstValue, type_name: String) -> IrValue {
 
 fn const_zero(c: &mut Compiler) -> i32 {
     let t = new_temp(c)
-    emit_instr(c, IrInstr.Const(IrConst { dst: t, value: ir_value_int(0) }))
+    emit_instr(c, IrInstr.BinOp(IrBinOp { dst: t, op: "+", lhs: ir_operand_const(ir_value_int(0)), rhs: ir_operand_const(ir_value_int(0)) }))
     return t
 }
 
@@ -2189,7 +2177,7 @@ fn declare_captured_var(c: &mut Compiler, name: String, temp: i32) {
     // The temp holds either a value (immutable capture) or a reference (mutable capture)
     // We need to make this accessible via the variable name
     let var_name = declare_var(c, name, 0, false)
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: var_name, src: temp, ref: false, ref_temp: 0 }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: var_name, src: ir_operand_temp(temp), ref: false, ref_temp: 0 }))
 }
 
 // Check if a string is in temp format (tN)

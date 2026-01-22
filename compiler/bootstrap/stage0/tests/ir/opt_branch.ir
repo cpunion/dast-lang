@@ -1,11 +1,8 @@
 ir v0
 fn main()
   block entry:
-    t0 = const true
-    branch t0, then, else
+    branch true, then, else
   block then:
-    t1 = const 1
-    return t1
+    return 1
   block else:
-    t2 = const 2
-    return t2
+    return 2

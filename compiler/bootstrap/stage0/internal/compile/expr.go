@@ -17,6 +17,10 @@ func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
 		return ir.BoolOperand(e.Value)
 	case *ast.StringLit:
 		return ir.StringOperand(e.Value)
+	case *ast.IdentExpr:
+		if info, ok := c.consts[e.Name]; ok {
+			return ir.ConstOperand(constValueToIr(info.Value, info.TypeName))
+		}
 	}
 	// For everything else, compile to temp and wrap
 	return ir.TempOperand(c.compileExpr(expr))
@@ -24,25 +28,10 @@ func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
 
 func (c *Compiler) compileExpr(expr ast.Expr) int {
 	switch e := expr.(type) {
-	case *ast.IntLit:
-		t := c.newTemp()
-		c.setTempType(t, "i64")
-		c.emit(&ir.Const{Dst: t, Value: ir.Value{Kind: ir.KindInt, Int: e.Value}})
-		return t
-	case *ast.BoolLit:
-		t := c.newTemp()
-		c.setTempType(t, "bool")
-		c.emit(&ir.Const{Dst: t, Value: ir.Value{Kind: ir.KindBool, Bool: e.Value}})
-		return t
-	case *ast.StringLit:
-		t := c.newTemp()
-		c.setTempType(t, "String")
-		c.emit(&ir.Const{Dst: t, Value: ir.Value{Kind: ir.KindString, Str: e.Value}})
-		return t
 	case *ast.ArrayLit:
-		elems := make([]int, 0, len(e.Elems))
+		elems := make([]ir.Operand, 0, len(e.Elems))
 		for _, elem := range e.Elems {
-			elems = append(elems, c.compileExpr(elem))
+			elems = append(elems, c.compileOperand(elem))
 		}
 		dst := c.newTemp()
 		c.setTempType(dst, "[i64]") // Array type
@@ -52,10 +41,8 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		varInfo, ok := c.lookupVar(e.Name)
 		if !ok {
 			if info, ok := c.consts[e.Name]; ok {
-				t := c.newTemp()
-				c.setTempType(t, info.TypeName)
-				c.emit(&ir.Const{Dst: t, Value: constValueToIr(info.Value, info.TypeName)})
-				return t
+				c.diag.Add(e.Span(), fmt.Sprintf("const '%s' cannot be used where a temp is required", e.Name))
+				return c.constZero()
 			}
 			c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
 			return c.constZero()
@@ -130,9 +117,9 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		c.emit(&ir.BinOp{Dst: t, Op: e.Op, Lhs: lhs, Rhs: rhs})
 		return t
 	case *ast.CallExpr:
-		args := make([]int, 0, len(e.Args))
+		args := make([]ir.Operand, 0, len(e.Args))
 		for _, arg := range e.Args {
-			args = append(args, c.compileExpr(arg))
+			args = append(args, c.compileOperand(arg))
 		}
 		dst := c.newTemp()
 		// Look up function return type
@@ -151,13 +138,13 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			c.diag.Add(e.Span(), "unresolved method call")
 			return c.constZero()
 		}
-		args := make([]int, 0, len(e.Args)+1)
+		args := make([]ir.Operand, 0, len(e.Args)+1)
 		if e.ResolvedSelf {
-			recv := c.compileExpr(e.Receiver)
+			recv := c.compileOperand(e.Receiver)
 			args = append(args, recv)
 		}
 		for _, arg := range e.Args {
-			args = append(args, c.compileExpr(arg))
+			args = append(args, c.compileOperand(arg))
 		}
 		dst := c.newTemp()
 		// Look up method return type
@@ -171,7 +158,7 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 	case *ast.StructLit:
 		fields := make([]ir.StructFieldInit, 0, len(e.Fields))
 		for _, f := range e.Fields {
-			src := c.compileExpr(f.Value)
+			src := c.compileOperand(f.Value)
 			fields = append(fields, ir.StructFieldInit{Name: f.Name, Src: src})
 		}
 		dst := c.newTemp()
@@ -196,8 +183,8 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		c.emit(&ir.GetField{Dst: dst, Src: recv, Field: e.Field})
 		return dst
 	case *ast.IndexExpr:
-		recv := c.compileExpr(e.Receiver)
-		index := c.compileExpr(e.Index)
+		recv := c.compileOperand(e.Receiver)
+		index := c.compileOperand(e.Index)
 		dst := c.newTemp()
 		c.setTempType(dst, "i64") // Array element type
 		c.emit(&ir.Index{Dst: dst, Array: recv, Index: index})

@@ -14,7 +14,7 @@ func (c *Compiler) compileStmt(stmt ast.Stmt) {
 	case *ast.AssignStmt:
 		c.compileAssign(s)
 	case *ast.ExprStmt:
-		c.compileExpr(s.Expr)
+		c.compileOperand(s.Expr)
 	case *ast.ReturnStmt:
 		c.compileReturn(s)
 	case *ast.IfStmt:
@@ -35,7 +35,6 @@ func (c *Compiler) compileLet(s *ast.LetStmt) {
 		c.diag.Add(s.Span(), "let requires initializer in stage 0")
 		return
 	}
-	val := c.compileExpr(s.Init)
 	// All let variables use named storage (so they can be referenced with &)
 	// The only difference between let and let mut is whether reassignment is allowed
 	name := c.declareMutVar(s.Name)
@@ -44,7 +43,7 @@ func (c *Compiler) compileLet(s *ast.LetStmt) {
 		// Mark as immutable in scope (declareMutVar sets Mutable=true, we need to fix it)
 		c.markImmutable(s.Name)
 	}
-	c.emit(&ir.StoreVar{Name: name, Src: val})
+	c.emit(&ir.StoreVar{Name: name, Src: c.compileOperand(s.Init)})
 }
 
 func (c *Compiler) compileAssign(s *ast.AssignStmt) {
@@ -63,20 +62,20 @@ func (c *Compiler) compileAssign(s *ast.AssignStmt) {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign to immutable variable '%s'", target.Name))
 			return
 		}
-		val := c.compileExpr(s.Value)
+		val := c.compileOperand(s.Value)
 		c.emit(&ir.StoreVar{Name: varInfo.Name, Src: val})
 	case *ast.DerefExpr:
 		refTemp := c.compileExpr(target.Expr)
-		val := c.compileExpr(s.Value)
+		val := c.compileOperand(s.Value)
 		c.emit(&ir.StoreVar{Ref: true, RefTemp: refTemp, Src: val})
 	case *ast.IndexExpr:
-		arrayTemp := c.compileExpr(target.Receiver)
-		indexTemp := c.compileExpr(target.Index)
-		val := c.compileExpr(s.Value)
+		arrayTemp := c.compileOperand(target.Receiver)
+		indexTemp := c.compileOperand(target.Index)
+		val := c.compileOperand(s.Value)
 		c.emit(&ir.SetIndex{Array: arrayTemp, Index: indexTemp, Src: val})
 	case *ast.AccessExpr:
 		recv := c.compileExpr(target.Receiver)
-		val := c.compileExpr(s.Value)
+		val := c.compileOperand(s.Value)
 		c.emit(&ir.SetField{Src: recv, Field: target.Field, Value: val})
 	default:
 		c.diag.Add(s.Span(), "invalid assignment target")
@@ -88,12 +87,12 @@ func (c *Compiler) compileReturn(s *ast.ReturnStmt) {
 		c.emitTerm(&ir.Return{Value: nil})
 		return
 	}
-	val := c.compileExpr(s.Value)
+	val := c.compileOperand(s.Value)
 	c.emitTerm(&ir.Return{Value: &val})
 }
 
 func (c *Compiler) compileIf(s *ast.IfStmt) {
-	cond := c.compileExpr(s.Cond)
+	cond := c.compileOperand(s.Cond)
 	thenBlock := c.newBlock("then")
 	elseBlock := c.newBlock("else")
 	mergeBlock := c.newBlock("merge")
@@ -122,7 +121,7 @@ func (c *Compiler) compileTailIf(s *ast.IfStmt, allowImplicit bool) {
 		c.compileIf(s)
 		return
 	}
-	cond := c.compileExpr(s.Cond)
+	cond := c.compileOperand(s.Cond)
 	thenBlock := c.newBlock("then")
 	elseBlock := c.newBlock("else")
 	mergeBlock := c.newBlock("merge")
@@ -154,7 +153,7 @@ func (c *Compiler) compileWhile(s *ast.WhileStmt) {
 	c.emitTerm(&ir.Jump{Target: condBlock.Label})
 
 	c.setCurrentBlock(condBlock)
-	cond := c.compileExpr(s.Cond)
+	cond := c.compileOperand(s.Cond)
 	c.emitTerm(&ir.Branch{Cond: cond, Then: bodyBlock.Label, Else: afterBlock.Label})
 
 	c.setCurrentBlock(bodyBlock)
@@ -200,8 +199,6 @@ func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 			}
 			tag := c.newTemp()
 			c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
-			constTag := c.newTemp()
-			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType}})
 			cmp := c.newTemp()
 			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
 			next := c.newBlock("match_next")
@@ -259,8 +256,6 @@ func (c *Compiler) compileTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 			}
 			tag := c.newTemp()
 			c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
-			constTag := c.newTemp()
-			c.emit(&ir.Const{Dst: constTag, Value: ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType}})
 			cmp := c.newTemp()
 			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
 			next := c.newBlock("match_next")
@@ -292,7 +287,7 @@ func (c *Compiler) compileMatchArm(arm *ast.MatchArm, scrut int) {
 			payload := c.newTemp()
 			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
 			name := c.declareMutVar(vp.Binding)
-			c.emit(&ir.StoreVar{Name: name, Src: payload})
+			c.emit(&ir.StoreVar{Name: name, Src: ir.TempOperand(payload)})
 		}
 	}
 	for _, stmt := range arm.Body.Stmts {
@@ -312,7 +307,7 @@ func (c *Compiler) compileMatchArmTail(arm *ast.MatchArm, scrut int, allowImplic
 			payload := c.newTemp()
 			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
 			name := c.declareMutVar(vp.Binding)
-			c.emit(&ir.StoreVar{Name: name, Src: payload})
+			c.emit(&ir.StoreVar{Name: name, Src: ir.TempOperand(payload)})
 		}
 	}
 	c.compileBlockWithTail(arm.Body, allowImplicit)

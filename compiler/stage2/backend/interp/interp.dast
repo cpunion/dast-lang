@@ -132,7 +132,7 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
                 fr.cur_block = idx
             }
             .Branch(t) => {
-                let cond = get_temp(rt, fr, t.cond)
+                let cond = eval_operand(rt, fr, t.cond)
                 if cond.kind != ir_kind_bool() {
                     runtime_error(rt, "branch condition must be bool")
                     return ir_value_unit()
@@ -150,7 +150,7 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
             }
             IrTerm.Return(t) => {
                 if !t.has_value { return ir_value_unit() }
-                return get_temp(rt, fr, t.value)
+                return eval_operand(rt, fr, t.value)
             }
         }
     }
@@ -159,7 +159,6 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
 
 fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
     match inst {
-        IrInstr.Const(i) => { set_temp(rt, fr, i.dst, i.value) }
         .LoadVar(i) => {
             if i.ref {
                 let r = get_temp(rt, fr, i.ref_temp)
@@ -180,7 +179,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             }
         }
         .StoreVar(i) => {
-            let v = get_temp(rt, fr, i.src)
+            let v = eval_operand(rt, fr, i.src)
             if i.ref {
                 let r = get_temp(rt, fr, i.ref_temp)
                 store_ref(rt, r, v)
@@ -200,8 +199,8 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             }
         }
         .BinOp(i) => {
-            let l = get_temp(rt, fr, i.lhs)
-            let r = get_temp(rt, fr, i.rhs)
+            let l = eval_operand(rt, fr, i.lhs)
+            let r = eval_operand(rt, fr, i.rhs)
             let res = eval_binary(rt, i.op, l, r)
             set_temp(rt, fr, i.dst, res)
         }
@@ -209,7 +208,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let mut args: [IrValue] = []
             let mut j = 0
             while j < len(i.args) {
-                push(&mut args, get_temp(rt, fr, i.args[j]))
+                push(&mut args, eval_operand(rt, fr, i.args[j]))
                 j = j + 1
             }
             let res = runtime_call(rt, i.callee, args)
@@ -219,7 +218,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
         }
         .CallClosure(i) => {
             // Get the closure value from the temp
-            let closure_val = get_temp(rt, fr, i.closure)
+            let closure_val = eval_operand(rt, fr, i.closure)
 
             let mut func_name = ""
             let mut env_arg = ir_value_unit()
@@ -250,7 +249,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
 
             let mut j = 0
             while j < len(i.args) {
-                push(&mut args, get_temp(rt, fr, i.args[j]))
+                push(&mut args, eval_operand(rt, fr, i.args[j]))
                 j = j + 1
             }
             // Call the closure function
@@ -261,15 +260,15 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let mut elems: [IrValue] = []
             let mut j = 0
             while j < len(i.elems) {
-                push(&mut elems, get_temp(rt, fr, i.elems[j]))
+                push(&mut elems, eval_operand(rt, fr, i.elems[j]))
                 j = j + 1
             }
             let arr_idx = array_alloc(rt, IrArrayValue { elems: elems })
             set_temp(rt, fr, i.dst, ir_value_array(arr_idx))
         }
         IrInstr.Index(i) => {
-            let arr = get_temp(rt, fr, i.array)
-            let idx = get_temp(rt, fr, i.index)
+            let arr = eval_operand(rt, fr, i.array)
+            let idx = eval_operand(rt, fr, i.index)
             let mut v = array_index(rt, arr, idx)
             if i.unchecked {
                 v = array_index_unchecked(rt, arr, idx)
@@ -277,9 +276,9 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             set_temp(rt, fr, i.dst, v)
         }
         .SetIndex(i) => {
-            let arr = get_temp(rt, fr, i.array)
-            let idx = get_temp(rt, fr, i.index)
-            let v = get_temp(rt, fr, i.src)
+            let arr = eval_operand(rt, fr, i.array)
+            let idx = eval_operand(rt, fr, i.index)
+            let v = eval_operand(rt, fr, i.src)
             if i.unchecked {
                 array_set_unchecked(rt, arr, idx, v)
             } else {
@@ -291,7 +290,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             let mut j = 0
             while j < len(i.fields) {
                 let f = i.fields[j]
-                let v = get_temp(rt, fr, f.src)
+                let v = eval_operand(rt, fr, f.src)
                 push(&mut fields, IrStructFieldValue { name: f.name, value: v })
                 j = j + 1
             }
@@ -305,26 +304,27 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
         }
         .SetField(i) => {
             let src = get_temp(rt, fr, i.src)
-            let v = get_temp(rt, fr, i.value)
+            let v = eval_operand(rt, fr, i.value)
             struct_set_field(rt, src, i.field, v)
         }
         .MakeEnum(i) => {
             let mut payload = ir_value_unit()
             let mut has_payload = false
-            if i.payload >= 0 {
-                payload = get_temp(rt, fr, i.payload)
+            if i.payload.is_const || i.payload.temp >= 0 {
+                payload = eval_operand(rt, fr, i.payload)
                 has_payload = true
             }
-            let eidx = enum_alloc(rt, IrEnumValue { name: i.name, variant: i.variant, tag: i.tag, tag_type: i.tag_type, has_payload: has_payload, payload: payload })
+            let tag_val = eval_operand(rt, fr, i.tag)
+            let eidx = enum_alloc(rt, IrEnumValue { name: i.name, variant: i.variant, tag: tag_val.int, tag_type: i.tag_type, has_payload: has_payload, payload: payload })
             set_temp(rt, fr, i.dst, ir_value_enum(eidx))
         }
         .EnumTag(i) => {
-            let src = get_temp(rt, fr, i.src)
+            let src = eval_operand(rt, fr, i.src)
             let v = enum_tag(rt, src)
             set_temp(rt, fr, i.dst, v)
         }
         .EnumPayload(i) => {
-            let src = get_temp(rt, fr, i.src)
+            let src = eval_operand(rt, fr, i.src)
             let v = enum_payload(rt, src)
             set_temp(rt, fr, i.dst, v)
         }
@@ -347,6 +347,11 @@ fn get_temp(rt: &mut Runtime, fr: &Frame, idx: i32) -> IrValue {
         return ir_value_unit()
     }
     return fr.temps[idx]
+}
+
+fn eval_operand(rt: &mut Runtime, fr: &Frame, op: IrOperand) -> IrValue {
+    if op.is_const { return op.value }
+    return get_temp(rt, fr, op.temp)
 }
 
 fn find_var_addr(fr: &Frame, name: String) -> i32 {

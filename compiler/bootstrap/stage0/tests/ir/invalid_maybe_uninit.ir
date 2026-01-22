@@ -1,11 +1,9 @@
 ir v0
 fn main()
   block entry:
-    t0 = const true
-    branch t0, then, else
+    branch true, then, else
   block then:
-    t1 = const 1
-    store x, t1
+    store x, 1
     jump merge
   block else:
     jump merge

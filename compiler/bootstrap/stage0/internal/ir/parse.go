@@ -170,22 +170,22 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		if len(parts) != 3 {
 			return lineParse{}, fmt.Errorf("invalid branch syntax")
 		}
-		cond, err := parseTempWithCtx(parts[0], ctx)
+		cond, condMax, err := parseOperandWithCtx(parts[0], ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		return lineParse{term: &Branch{Cond: cond, Then: parts[1], Else: parts[2]}, isTerm: true, maxTemp: cond}, nil
+		return lineParse{term: &Branch{Cond: cond, Then: parts[1], Else: parts[2]}, isTerm: true, maxTemp: condMax}, nil
 	}
 	if strings.HasPrefix(line, "return") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "return"))
 		if rest == "" {
 			return lineParse{term: &Return{Value: nil}, isTerm: true, maxTemp: -1}, nil
 		}
-		val, err := parseTempWithCtx(rest, ctx)
+		op, maxTemp, err := parseOperandWithCtx(rest, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		return lineParse{term: &Return{Value: &val}, isTerm: true, maxTemp: val}, nil
+		return lineParse{term: &Return{Value: &op}, isTerm: true, maxTemp: maxTemp}, nil
 	}
 	if strings.HasPrefix(line, "store_ref ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "store_ref "))
@@ -197,11 +197,11 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		if err != nil {
 			return lineParse{}, err
 		}
-		src, err := parseTempWithCtx(parts[1], ctx)
+		src, srcMax, err := parseOperandWithCtx(parts[1], ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		max := maxTempIdx(ref, src)
+		max := maxTempIdx(ref, srcMax)
 		return lineParse{instr: &StoreVar{Ref: true, RefTemp: ref, Src: src}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "store ") {
@@ -210,11 +210,11 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		if len(parts) != 2 {
 			return lineParse{}, fmt.Errorf("invalid store syntax")
 		}
-		src, err := parseTempWithCtx(parts[1], ctx)
+		src, srcMax, err := parseOperandWithCtx(parts[1], ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		return lineParse{instr: &StoreVar{Name: parts[0], Src: src}, maxTemp: src}, nil
+		return lineParse{instr: &StoreVar{Name: parts[0], Src: src}, maxTemp: srcMax}, nil
 	}
 	if strings.HasPrefix(line, "set_index_unchecked ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_index_unchecked "))
@@ -224,16 +224,16 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		}
 		left := strings.TrimSpace(rest[:eq])
 		right := strings.TrimSpace(rest[eq+1:])
-		array, index, err := parseIndexExprWithCtx(left, ctx)
+		array, index, indexMax, err := parseIndexExprWithCtx(left, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		src, err := parseTempWithCtx(right, ctx)
+		src, srcMax, err := parseOperandWithCtx(right, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		max := maxTempIdx(array, index, src)
-		return lineParse{instr: &SetIndex{Unchecked: true, Array: array, Index: index, Src: src}, maxTemp: max}, nil
+		max := maxTempIdx(array, indexMax, srcMax)
+		return lineParse{instr: &SetIndex{Unchecked: true, Array: TempOperand(array), Index: index, Src: src}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "set_index ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_index "))
@@ -248,16 +248,16 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			unchecked = true
 			right = strings.TrimSpace(right[:len(right)-10])
 		}
-		array, index, err := parseIndexExprWithCtx(left, ctx)
+		array, index, indexMax, err := parseIndexExprWithCtx(left, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		src, err := parseTempWithCtx(right, ctx)
+		src, srcMax, err := parseOperandWithCtx(right, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		max := maxTempIdx(array, index, src)
-		return lineParse{instr: &SetIndex{Unchecked: unchecked, Array: array, Index: index, Src: src}, maxTemp: max}, nil
+		max := maxTempIdx(array, indexMax, srcMax)
+		return lineParse{instr: &SetIndex{Unchecked: unchecked, Array: TempOperand(array), Index: index, Src: src}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "set_field ") {
 		rest := strings.TrimSpace(strings.TrimPrefix(line, "set_field "))
@@ -271,11 +271,11 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		if err != nil {
 			return lineParse{}, err
 		}
-		val, err := parseTempWithCtx(right, ctx)
+		val, valMax, err := parseOperandWithCtx(right, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
-		max := maxTempIdx(recv, val)
+		max := maxTempIdx(recv, valMax)
 		return lineParse{instr: &SetField{Src: recv, Field: field, Value: val}, maxTemp: max}, nil
 	}
 	if strings.HasPrefix(line, "call ") {
@@ -299,11 +299,11 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, err
 			}
 			field := strings.TrimSpace(left[dot+1:])
-			val, err := parseTempWithCtx(right, ctx)
+			val, valMax, err := parseOperandWithCtx(right, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			max := maxTempIdx(recv, val)
+			max := maxTempIdx(recv, valMax)
 			return lineParse{instr: &SetField{Src: recv, Field: field, Value: val}, maxTemp: max}, nil
 		}
 		dst, err := parseTempWithCtx(left, ctx)
@@ -311,12 +311,6 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			return lineParse{}, err
 		}
 		switch {
-		case strings.HasPrefix(right, "const "):
-			val, err := parseValue(strings.TrimSpace(strings.TrimPrefix(right, "const ")))
-			if err != nil {
-				return lineParse{}, err
-			}
-			return lineParse{instr: &Const{Dst: dst, Value: val}, maxTemp: dst}, nil
 		case strings.HasPrefix(right, "load_addr "):
 			name := strings.TrimSpace(strings.TrimPrefix(right, "load_addr "))
 			return lineParse{instr: &LoadVar{Dst: dst, Name: name, Addr: true}, maxTemp: dst}, nil
@@ -343,29 +337,29 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, fmt.Errorf("invalid array syntax")
 			}
 			inside := strings.TrimSpace(rest[open+1 : close])
-			elems := []int{}
+			elems := []Operand{}
 			max := dst
 			if inside != "" {
 				for _, part := range splitComma(inside, -1) {
-					t, err := parseTempWithCtx(part, ctx)
+					op, opMax, err := parseOperandWithCtx(part, ctx)
 					if err != nil {
 						return lineParse{}, err
 					}
-					elems = append(elems, t)
-					if t > max {
-						max = t
+					elems = append(elems, op)
+					if opMax > max {
+						max = opMax
 					}
 				}
 			}
 			return lineParse{instr: &MakeArray{Dst: dst, Elems: elems}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "index_unchecked "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index_unchecked "))
-			array, index, err := parseIndexExprWithCtx(rest, ctx)
+			array, index, indexMax, err := parseIndexExprWithCtx(rest, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			max := maxTempIdx(dst, array, index)
-			return lineParse{instr: &Index{Unchecked: true, Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
+			max := maxTempIdx(dst, array, indexMax)
+			return lineParse{instr: &Index{Unchecked: true, Dst: dst, Array: TempOperand(array), Index: index}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "index "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index "))
 			unchecked := false
@@ -373,12 +367,12 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				unchecked = true
 				rest = strings.TrimSpace(rest[:len(rest)-10])
 			}
-			array, index, err := parseIndexExprWithCtx(rest, ctx)
+			array, index, indexMax, err := parseIndexExprWithCtx(rest, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			max := maxTempIdx(dst, array, index)
-			return lineParse{instr: &Index{Unchecked: unchecked, Dst: dst, Array: array, Index: index}, maxTemp: max}, nil
+			max := maxTempIdx(dst, array, indexMax)
+			return lineParse{instr: &Index{Unchecked: unchecked, Dst: dst, Array: TempOperand(array), Index: index}, maxTemp: max}, nil
 		case strings.HasPrefix(right, "struct "):
 			name, fields, max, err := parseStructInitWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "struct ")), dst, ctx)
 			if err != nil {
@@ -399,18 +393,6 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, err
 			}
 			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
-		case right == "unit", right == "true", right == "false",
-			strings.HasPrefix(right, "\""), strings.HasPrefix(right, "i8 "),
-			strings.HasPrefix(right, "i16 "), strings.HasPrefix(right, "i32 "),
-			strings.HasPrefix(right, "i64 "), strings.HasPrefix(right, "u8 "),
-			strings.HasPrefix(right, "u16 "), strings.HasPrefix(right, "u32 "),
-			strings.HasPrefix(right, "u64 "), isIntLiteral(right):
-			// Bare constant value without "const" prefix
-			val, err := parseValue(right)
-			if err != nil {
-				return lineParse{}, err
-			}
-			return lineParse{instr: &Const{Dst: dst, Value: val}, maxTemp: dst}, nil
 		default:
 			op, rest, ok := splitOp(right)
 			if !ok {
@@ -669,25 +651,25 @@ func unescapeString(s string) (string, error) {
 	return string(out), nil
 }
 
-func parseIndexExpr(s string) (int, int, error) {
+func parseIndexExpr(s string) (int, Operand, int, error) {
 	return parseIndexExprWithCtx(s, nil)
 }
 
-func parseIndexExprWithCtx(s string, ctx *parseContext) (int, int, error) {
+func parseIndexExprWithCtx(s string, ctx *parseContext) (int, Operand, int, error) {
 	open := strings.Index(s, "[")
 	close := strings.Index(s, "]")
 	if open < 0 || close < 0 || close < open {
-		return 0, 0, fmt.Errorf("invalid index syntax")
+		return 0, Operand{}, 0, fmt.Errorf("invalid index syntax")
 	}
 	array, err := parseTempWithCtx(s[:open], ctx)
 	if err != nil {
-		return 0, 0, err
+		return 0, Operand{}, 0, err
 	}
-	index, err := parseTempWithCtx(s[open+1:close], ctx)
+	index, indexMax, err := parseOperandWithCtx(s[open+1:close], ctx)
 	if err != nil {
-		return 0, 0, err
+		return 0, Operand{}, 0, err
 	}
-	return array, index, nil
+	return array, index, indexMax, nil
 }
 
 func parseFieldExpr(s string) (int, string, error) {
@@ -732,13 +714,13 @@ func parseStructInitWithCtx(s string, dst int, ctx *parseContext) (string, []Str
 			}
 			fname := strings.TrimSpace(part[:colon])
 			fval := strings.TrimSpace(part[colon+1:])
-			fsrc, err := parseTempWithCtx(fval, ctx)
+			fsrc, fmax, err := parseOperandWithCtx(fval, ctx)
 			if err != nil {
 				return "", nil, 0, err
 			}
 			fields = append(fields, StructFieldInit{Name: fname, Src: fsrc})
-			if fsrc > max {
-				max = fsrc
+			if fmax > max {
+				max = fmax
 			}
 		}
 	}
@@ -784,17 +766,17 @@ func parseCallWithCtx(text string, dst int, ctx *parseContext) (*Call, int, erro
 	}
 	callee := strings.TrimSpace(text[:open])
 	argsText := strings.TrimSpace(text[open+1 : close])
-	args := []int{}
+	args := []Operand{}
 	max := dst
 	if argsText != "" {
 		for _, part := range splitComma(argsText, -1) {
-			t, err := parseTempWithCtx(part, ctx)
+			op, opMax, err := parseOperandWithCtx(part, ctx)
 			if err != nil {
 				return nil, 0, err
 			}
-			args = append(args, t)
-			if t > max {
-				max = t
+			args = append(args, op)
+			if opMax > max {
+				max = opMax
 			}
 		}
 	}

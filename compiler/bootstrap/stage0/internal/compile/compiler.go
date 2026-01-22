@@ -203,7 +203,7 @@ func (c *Compiler) compileBlockWithTail(block *ast.Block, allowImplicit bool) {
 		if i == len(block.Stmts)-1 {
 			switch s := stmt.(type) {
 			case *ast.ExprStmt:
-				val := c.compileExpr(s.Expr)
+				val := c.compileOperand(s.Expr)
 				c.emitTerm(&ir.Return{Value: &val})
 				c.popScope()
 				return
