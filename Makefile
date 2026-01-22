@@ -28,8 +28,13 @@ STAGE2_BUILD := $(wildcard compiler/stage2/tests/build/*)
 STAGE2_BUILD_FAIL := $(wildcard compiler/stage2/tests/build-fail/*)
 STAGE2_WORKSPACE := $(wildcard compiler/stage2/tests/workspace/*)
 STAGE2_EXAMPLES := $(wildcard compiler/stage2/tests/examples/*)
+CC ?= cc
+CFLAGS ?= -std=c11 -O2
+NATIVE_PATH ?= compiler/stage2/tests/examples/native-full
+NATIVE_BUILD_ARGS ?= --example hello
+NATIVE_TARGET_DIR ?=
 
-.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean vscode-ext vscode-ext-install vscode-ext-clean
+.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean stage2-native vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -177,6 +182,22 @@ test-stage2: build-stage0
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
 	done
+
+stage2-native: build-stage0
+	@set -e; \
+	path="$(NATIVE_PATH)"; \
+	if [ -d "$$path" ]; then root="$$path"; else root=$$(dirname "$$path"); fi; \
+	if [ -n "$(NATIVE_TARGET_DIR)" ]; then target="$(NATIVE_TARGET_DIR)"; else target="$$root/target"; fi; \
+	echo "[stage2-native] build $$path"; \
+	rm -rf "$$target"; \
+	./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(NATIVE_BUILD_ARGS) "$$path"; \
+	ir=$$(ls "$$target"/*.ir 2>/dev/null | head -1); \
+	if [ -z "$$ir" ]; then echo "missing build output in $$target"; exit 1; fi; \
+	cfile="$${ir%.ir}.c"; \
+	out="$${ir%.ir}"; \
+	./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-c "$$ir" > "$$cfile"; \
+	$(CC) $(CFLAGS) "$$cfile" compiler/stage2/backend/codegen-c/c_runtime.c -I compiler/stage2/backend/codegen-c -o "$$out"; \
+	echo "native: $$out"
 
 test-stage1-ir: build-stage0 build-stage1-ir
 	@for f in $(EXAMPLES); do \

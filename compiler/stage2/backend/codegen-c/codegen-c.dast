@@ -37,11 +37,23 @@ fn cg_has_prefix(s: String, prefix: String) -> bool {
 fn cg_trim_space(s: String) -> String {
     let mut start = 0
     let mut end = len(s)
-    while start < end && (char_at(s, start) == 32 || char_at(s, start) == 9) {
-        start = start + 1
+    let mut done = false
+    while start < end && !done {
+        let c = char_at(s, start)
+        if c == 32 || c == 9 {
+            start = start + 1
+        } else {
+            done = true
+        }
     }
-    while end > start && (char_at(s, end - 1) == 32 || char_at(s, end - 1) == 9) {
-        end = end - 1
+    done = false
+    while end > start && !done {
+        let c = char_at(s, end - 1)
+        if c == 32 || c == 9 {
+            end = end - 1
+        } else {
+            done = true
+        }
     }
     if end <= start { return "" }
     return substr(s, start, end - start)
@@ -73,7 +85,8 @@ fn cg_normalize_type(t: String) -> String {
 fn cg_is_array_type(t: String) -> bool {
     let s = cg_trim_space(t)
     if len(s) < 2 { return false }
-    return char_at(s, 0) == 91 && char_at(s, len(s) - 1) == 93
+    if char_at(s, 0) != 91 { return false }
+    return char_at(s, len(s) - 1) == 93
 }
 
 fn cg_array_elem_type(t: String) -> String {
@@ -130,6 +143,8 @@ fn cg_type_unify(a: String, b: String) -> String {
     let b2 = cg_normalize_type(b)
     if a2 == "" { return b2 }
     if b2 == "" { return a2 }
+    if a2 == "unit" { return b2 }
+    if b2 == "unit" { return a2 }
     if a2 == b2 { return a2 }
     if cg_is_ref_type(a2) && cg_is_ref_type(b2) {
         let ba = cg_ref_base_type(a2)
@@ -191,6 +206,29 @@ fn string_map_set(m: &mut StringMap, key: String, val: String) -> bool {
     m.keys = keys
     m.values = values
     return true
+}
+
+fn cg_merge_field_types(dst: &mut StringMap, src: StringMap) {
+    let mut i = 0
+    while i < len(src.keys) {
+        let key = src.keys[i]
+        let val = src.values[i]
+        let cur = string_map_get(dst, key)
+        let next = cg_type_unify(cur, val)
+        let _ = string_map_set(dst, key, next)
+        i = i + 1
+    }
+}
+
+fn cg_collect_field_types(p: IrProgram) -> StringMap {
+    let mut out = string_map_new()
+    let mut i = 0
+    while i < len(p.functions) {
+        let inf = cg_infer_function_types(p, p.functions[i], string_map_new())
+        cg_merge_field_types(&mut out, inf.field_types)
+        i = i + 1
+    }
+    return out
 }
 
 // =============================================================================
@@ -268,6 +306,16 @@ fn cg_get_field_type(infer: CgInfer, key: String) -> String {
 fn cg_get_var_closure(infer: CgInfer, name: String) -> String {
     let map = infer.var_closure_funcs
     return string_map_get(&map, name)
+}
+
+fn cg_get_temp_type_at(infer: CgInfer, idx: i32) -> String {
+    if idx < 0 || idx >= len(infer.temp_types) { return "" }
+    return infer.temp_types[idx]
+}
+
+fn cg_get_temp_closure(infer: CgInfer, idx: i32) -> String {
+    if idx < 0 || idx >= len(infer.temp_closure_funcs) { return "" }
+    return infer.temp_closure_funcs[idx]
 }
 
 fn cg_operand_type(op: IrOperand, temp_types: [String]) -> String {
@@ -375,7 +423,7 @@ fn cg_infer_builtin_call(inst: IrCall, infer: &mut CgInfer) -> bool {
                     }
                 }
             } else if inst.dst >= 0 {
-                let dt = infer.temp_types[inst.dst]
+                let dt = cg_get_temp_type_at(*infer, inst.dst)
                 if dt != "" && inst.args[0].temp >= 0 {
                     let newt = "&[" + dt + "]"
                     if cg_set_temp_type(infer, inst.args[0].temp, newt) { changed = true }
@@ -454,10 +502,12 @@ fn cg_infer_builtin_call(inst: IrCall, infer: &mut CgInfer) -> bool {
         if inst.dst >= 0 {
             if cg_set_temp_type(infer, inst.dst, "[string]") { changed = true }
         }
-        if len(inst.args) > 0 && inst.args[0].temp >= 0 {
-            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
-            if t0 == "" {
-                if cg_set_temp_type(infer, inst.args[0].temp, "string") { changed = true }
+        if len(inst.args) > 0 {
+            if inst.args[0].temp >= 0 {
+                let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+                if t0 == "" {
+                    if cg_set_temp_type(infer, inst.args[0].temp, "string") { changed = true }
+                }
             }
         }
         return changed
@@ -472,10 +522,12 @@ fn cg_infer_builtin_call(inst: IrCall, infer: &mut CgInfer) -> bool {
         if inst.dst >= 0 {
             if cg_set_temp_type(infer, inst.dst, "string") { changed = true }
         }
-        if len(inst.args) > 0 && inst.args[0].temp >= 0 {
-            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
-            if t0 == "" {
-                if cg_set_temp_type(infer, inst.args[0].temp, "int") { changed = true }
+        if len(inst.args) > 0 {
+            if inst.args[0].temp >= 0 {
+                let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+                if t0 == "" {
+                    if cg_set_temp_type(infer, inst.args[0].temp, "int") { changed = true }
+                }
             }
         }
         return changed
@@ -483,7 +535,7 @@ fn cg_infer_builtin_call(inst: IrCall, infer: &mut CgInfer) -> bool {
     return changed
 }
 
-fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
+fn cg_infer_function_types(p: IrProgram, f: IrFunction, seed_fields: StringMap) -> CgInfer {
     let mut temp_types: [String] = []
     let mut i = 0
     while i < f.temp_count {
@@ -491,7 +543,7 @@ fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
         i = i + 1
     }
     let mut var_types = string_map_new()
-    let mut field_types = string_map_new()
+    let mut field_types = seed_fields
     let mut temp_closure_funcs: [String] = []
     i = 0
     while i < f.temp_count {
@@ -617,8 +669,12 @@ fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
                         let fidx = cg_find_function_index(p, i2.callee)
                         if fidx >= 0 {
                             let callee = p.functions[fidx]
-                            if i2.dst >= 0 && callee.return_type != "" {
-                                if cg_set_temp_type(&mut infer, i2.dst, callee.return_type) { changed = true }
+                            if i2.dst >= 0 {
+                                let mut rt = cg_normalize_type(callee.return_type)
+                                if rt == "" || rt == "unit" {
+                                    rt = "unit"
+                                }
+                                if cg_set_temp_type(&mut infer, i2.dst, rt) { changed = true }
                             }
                             let mut k = 0
                             while k < len(i2.args) && k < len(callee.param_types) {
@@ -664,7 +720,7 @@ fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
                                 }
                             }
                         } else if i2.array.temp >= 0 {
-                            let dt = infer.temp_types[i2.dst]
+                            let dt = cg_get_temp_type_at(infer, i2.dst)
                             if dt != "" {
                                 let at2 = "[" + dt + "]"
                                 if cg_set_temp_type(&mut infer, i2.array.temp, at2) { changed = true }
@@ -703,6 +759,7 @@ fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
                     IrInstr.GetField(i2) => {
                         let mut st = ""
                         if i2.src >= 0 && i2.src < len(infer.temp_types) { st = infer.temp_types[i2.src] }
+                        if cg_is_ref_type(st) { st = cg_ref_base_type(st) }
                         if st != "" {
                             let key = cg_field_key(st, i2.field)
                             let ft = cg_get_field_type(infer, key)
@@ -714,6 +771,7 @@ fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
                     IrInstr.SetField(i2) => {
                         let mut st = ""
                         if i2.src >= 0 && i2.src < len(infer.temp_types) { st = infer.temp_types[i2.src] }
+                        if cg_is_ref_type(st) { st = cg_ref_base_type(st) }
                         let vt = cg_operand_type(i2.value, infer.temp_types)
                         if st != "" && vt != "" {
                             if cg_set_field_type(&mut infer, st, i2.field, vt) { changed = true }
@@ -794,6 +852,7 @@ fn cg_c_type(t: String) -> String {
 
 fn cg_c_zero(t: String) -> String {
     let s = cg_normalize_type(t)
+    if s == "" { return "0" }
     if cg_is_bool_type(s) { return "false" }
     if cg_is_int_type(s) { return "0" }
     if cg_is_ref_type(s) { return "0" }
@@ -1020,6 +1079,10 @@ fn cg_emit_call(inst: IrCall, infer: CgInfer, p: IrProgram) -> String {
     let mut args = ""
     let mut j = 0
     let fidx = cg_find_function_index(p, name)
+    let mut ret = ""
+    if fidx >= 0 {
+        ret = cg_normalize_type(p.functions[fidx].return_type)
+    }
     while j < len(inst.args) {
         if j > 0 { args = args + ", " }
         let mut expected = ""
@@ -1029,6 +1092,9 @@ fn cg_emit_call(inst: IrCall, infer: CgInfer, p: IrProgram) -> String {
     }
     let call = cg_mangle_func(name) + "(" + args + ")"
     if inst.dst >= 0 {
+        if ret == "" || ret == "unit" {
+            return "{ " + call + "; t" + int_to_string(inst.dst) + " = (dast_unit_t){0}; }"
+        }
         return "t" + int_to_string(inst.dst) + " = " + call + ";"
     }
     return call + ";"
@@ -1037,10 +1103,7 @@ fn cg_emit_call(inst: IrCall, infer: CgInfer, p: IrProgram) -> String {
 fn cg_emit_call_closure(inst: IrCallClosure, infer: CgInfer, p: IrProgram, closure_funcs: [String]) -> String {
     let ct = cg_operand_type(inst.closure, infer.temp_types)
     let closure_expr = cg_operand_expr(inst.closure, ct, infer.temp_types)
-    let mut func_name = ""
-    if inst.closure.temp >= 0 && inst.closure.temp < len(infer.temp_closure_funcs) {
-        func_name = infer.temp_closure_funcs[inst.closure.temp]
-    }
+    let mut func_name = cg_get_temp_closure(infer, inst.closure.temp)
     let mut out = ""
     if func_name != "" {
         let env = "dast_struct_get_struct(" + closure_expr + ", \"env\")"
@@ -1126,7 +1189,7 @@ fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]
         IrInstr.Call(i) => { return cg_emit_call(i, infer, p) }
         .CallClosure(i) => { return cg_emit_call_closure(i, infer, p, closure_funcs) }
         IrInstr.MakeArray(i) => {
-            let at = infer.temp_types[i.dst]
+            let at = cg_get_temp_type_at(infer, i.dst)
             let mut elem = "int"
             if cg_is_array_type(at) { elem = cg_array_elem_type(at) }
             let ctype = cg_c_type(elem)
@@ -1182,7 +1245,12 @@ fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]
             let mut j = 0
             while j < len(i.fields) {
                 let f = i.fields[j]
-                let ft = cg_operand_type(f.src, infer.temp_types)
+                let mut ft = cg_operand_type(f.src, infer.temp_types)
+                let key = cg_field_key(i.name, f.name)
+                let mapped = cg_get_field_type(infer, key)
+                if mapped != "" {
+                    if ft == "" || ft == "unit" { ft = mapped }
+                }
                 let setter = cg_struct_setter(ft)
                 let val = cg_operand_expr(f.src, ft, infer.temp_types)
                 out = out + " " + setter + "(t" + int_to_string(i.dst) + ", \"" + f.name + "\", " + val + ");"
@@ -1193,19 +1261,29 @@ fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]
         IrInstr.GetField(i) => {
             let mut st = ""
             if i.src >= 0 && i.src < len(infer.temp_types) { st = infer.temp_types[i.src] }
+            let mut recv = "t" + int_to_string(i.src)
+            if cg_is_ref_type(st) {
+                recv = "*" + recv
+                st = cg_ref_base_type(st)
+            }
             let key = cg_field_key(st, i.field)
             let ft = cg_get_field_type(infer, key)
             let getter = cg_struct_getter(ft)
-            return "t" + int_to_string(i.dst) + " = " + getter + "(t" + int_to_string(i.src) + ", \"" + i.field + "\");"
+            return "t" + int_to_string(i.dst) + " = " + getter + "(" + recv + ", \"" + i.field + "\");"
         }
         IrInstr.SetField(i) => {
             let mut st = ""
             if i.src >= 0 && i.src < len(infer.temp_types) { st = infer.temp_types[i.src] }
+            let mut recv = "t" + int_to_string(i.src)
+            if cg_is_ref_type(st) {
+                recv = "*" + recv
+                st = cg_ref_base_type(st)
+            }
             let key = cg_field_key(st, i.field)
             let ft = cg_get_field_type(infer, key)
             let setter = cg_struct_setter(ft)
             let val = cg_operand_expr(i.value, ft, infer.temp_types)
-            return setter + "(t" + int_to_string(i.src) + ", \"" + i.field + "\", " + val + ");"
+            return setter + "(" + recv + ", \"" + i.field + "\", " + val + ");"
         }
     }
     return "/* unknown */"
@@ -1232,7 +1310,7 @@ fn cg_term(term: IrTerm, infer: CgInfer, f: IrFunction) -> String {
                 let expr = cg_operand_expr(t.value, ret_t, infer.temp_types)
                 return "return " + expr + ";"
             }
-            return "return;"
+            return "return " + cg_c_zero(ret_t) + ";"
         }
     }
 }
@@ -1278,16 +1356,18 @@ fn cg_collect_closure_funcs(p: IrProgram) -> [String] {
     let mut i = 0
     while i < len(p.functions) {
         let f = p.functions[i]
-        if len(f.param_types) > 0 && f.param_types[0] == "Env" {
-            push(&mut out, f.name)
+        if len(f.param_types) > 0 {
+            if f.param_types[0] == "Env" {
+                push(&mut out, f.name)
+            }
         }
         i = i + 1
     }
     return out
 }
 
-fn cg_function(p: IrProgram, f: IrFunction) -> String {
-    let infer = cg_infer_function_types(p, f)
+fn cg_function(p: IrProgram, f: IrFunction, field_types: StringMap) -> String {
+    let infer = cg_infer_function_types(p, f, field_types)
     let closure_funcs = cg_collect_closure_funcs(p)
 
     let mut ret_type = "void"
@@ -1300,8 +1380,10 @@ fn cg_function(p: IrProgram, f: IrFunction) -> String {
     while i < len(f.params) {
         if i > 0 { params = params + ", " }
         let mut ptype = "int64_t"
-        if i < len(f.param_types) && f.param_types[i] != "" {
-            ptype = cg_c_type(f.param_types[i])
+        if i < len(f.param_types) {
+            if f.param_types[i] != "" {
+                ptype = cg_c_type(f.param_types[i])
+            }
         }
         params = params + ptype + " " + cg_mangle_var(f.params[i])
         i = i + 1
@@ -1381,8 +1463,10 @@ fn ir_program_to_c(p: IrProgram) -> String {
         while j < len(f.params) {
             if j > 0 { params = params + ", " }
             let mut ptype = "int64_t"
-            if j < len(f.param_types) && f.param_types[j] != "" {
-                ptype = cg_c_type(f.param_types[j])
+            if j < len(f.param_types) {
+                if f.param_types[j] != "" {
+                    ptype = cg_c_type(f.param_types[j])
+                }
             }
             params = params + ptype + " " + cg_mangle_var(f.params[j])
             j = j + 1
@@ -1394,9 +1478,10 @@ fn ir_program_to_c(p: IrProgram) -> String {
     out = out + "\n"
 
     // Generate functions
+    let field_types = cg_collect_field_types(p)
     i = 0
     while i < len(p.functions) {
-        out = out + cg_function(p, p.functions[i]) + "\n"
+        out = out + cg_function(p, p.functions[i], field_types) + "\n"
         i = i + 1
     }
 

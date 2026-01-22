@@ -1,0 +1,71 @@
+pub struct Counter { value: int }
+
+impl Counter {
+    pub fn add(self: &mut Counter, delta: int) -> int {
+        self.value = self.value + delta
+        self.value
+    }
+
+    pub fn get(self: &Counter) -> int {
+        self.value
+    }
+}
+
+pub struct Point { pub x: int, pub y: int }
+
+impl Point {
+    pub fn sum(self: &Point) -> int {
+        self.x + self.y
+    }
+}
+
+pub enum MaybeI32 {
+    Some(int),
+    None,
+}
+
+pub fn make_point(x: int, y: int) -> Point {
+    return Point { x: x, y: y }
+}
+
+pub fn counter_new(value: int) -> Counter {
+    return Counter { value: value }
+}
+
+pub fn point_x(p: &Point) -> int { return p.x }
+
+pub fn point_y(p: &Point) -> int { return p.y }
+
+pub fn maybe_add(x: int, y: int) -> MaybeI32 {
+    if x > y { return MaybeI32.Some(x + y) }
+    return MaybeI32.None
+}
+
+pub fn unwrap_or(m: MaybeI32, fallback: int) -> int {
+    match m {
+        .Some(v) => v,
+        .None => fallback,
+    }
+}
+
+pub fn sum_array(arr: [int]) -> int {
+    let mut i = 0
+    let mut acc = 0
+    while i < len(arr) {
+        acc = acc + arr[i]
+        i = i + 1
+    }
+    return acc
+}
+
+pub fn inc_ref(r: &mut int, delta: int) {
+    *r = *r + delta
+}
+
+pub fn classify(n: int) -> string {
+    match n {
+        -1 => "neg",
+        0 => "zero",
+        _ => "other",
+    }
+}
