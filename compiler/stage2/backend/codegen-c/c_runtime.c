@@ -1,5 +1,8 @@
 // Dast C Runtime Implementation
 #include "c_runtime.h"
+#include <dirent.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 // Global state
 static int g_argc = 0;
@@ -17,6 +20,10 @@ void dast_runtime_cleanup(void) {
 
 // String operations
 dast_string_t dast_string_from_literal(const char *s) {
+  return dast_string_from_cstr(s);
+}
+
+dast_string_t dast_string_from_cstr(const char *s) {
   dast_string_t str;
   str.len = strlen(s);
   str.cap = str.len + 1;
@@ -24,6 +31,30 @@ dast_string_t dast_string_from_literal(const char *s) {
   memcpy(str.data, s, str.len);
   str.data[str.len] = '\0';
   return str;
+}
+
+dast_int dast_string_len(dast_string_t s) { return (dast_int)s.len; }
+
+dast_string_t dast_string_concat(dast_string_t a, dast_string_t b) {
+  dast_string_t out;
+  out.len = a.len + b.len;
+  out.cap = out.len + 1;
+  out.data = (char *)malloc(out.cap);
+  memcpy(out.data, a.data, a.len);
+  memcpy(out.data + a.len, b.data, b.len);
+  out.data[out.len] = '\0';
+  return out;
+}
+
+bool dast_string_eq(dast_string_t a, dast_string_t b) {
+  if (a.len != b.len) return false;
+  return memcmp(a.data, b.data, a.len) == 0;
+}
+
+bool dast_string_eq_cstr(dast_string_t a, const char *b) {
+  size_t blen = strlen(b);
+  if (a.len != blen) return false;
+  return memcmp(a.data, b, a.len) == 0;
 }
 
 dast_int dast_string_char_at(dast_string_t s, dast_int i) {
@@ -79,6 +110,16 @@ void dast_array_push(dast_array_t *arr, void *elem) {
   arr->len++;
 }
 
+void dast_array_pop(dast_array_t *arr, void *out) {
+  if (arr->len == 0) {
+    fprintf(stderr, "pop from empty array\n");
+    exit(1);
+  }
+  size_t idx = arr->len - 1;
+  memcpy(out, (char *)arr->data + idx * arr->elem_size, arr->elem_size);
+  arr->len--;
+}
+
 void *dast_array_get(dast_array_t *arr, dast_int i) {
   if (i < 0 || (size_t)i >= arr->len) {
     fprintf(stderr, "array index out of bounds\n");
@@ -98,12 +139,30 @@ void dast_array_set(dast_array_t *arr, dast_int i, void *elem) {
 // I/O operations
 void dast_print(dast_string_t s) { fwrite(s.data, 1, s.len, stdout); }
 
+void dast_print_cstr(const char *s) { fputs(s, stdout); }
+
 void dast_println(dast_string_t s) {
   fwrite(s.data, 1, s.len, stdout);
   putchar('\n');
 }
 
 void dast_print_int(dast_int n) { printf("%lld", (long long)n); }
+
+void dast_print_bool(bool b) { fputs(b ? "true" : "false", stdout); }
+
+void dast_print_newline(void) { putchar('\n'); }
+
+void dast_print_array(dast_array_t *arr) {
+  printf("[len=%zu]", arr->len);
+}
+
+void dast_print_struct(dast_struct_t *st) {
+  if (st && st->name) {
+    printf("%s{...}", st->name);
+  } else {
+    printf("struct{...}");
+  }
+}
 
 void dast_println_int(dast_string_t label, dast_int n) {
   fwrite(label.data, 1, label.len, stdout);
@@ -128,3 +187,239 @@ void dast_panic(dast_string_t msg) {
   fprintf(stderr, "\n");
   exit(1);
 }
+
+// =============================================================================
+// Struct operations
+// =============================================================================
+
+static int dast_struct_find(dast_struct_t *st, const char *field) {
+  for (size_t i = 0; i < st->len; i++) {
+    if (st->field_names[i] && strcmp(st->field_names[i], field) == 0) {
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+static int dast_struct_insert(dast_struct_t *st, const char *field) {
+  for (size_t i = 0; i < st->len; i++) {
+    if (st->field_names[i] == NULL) {
+      st->field_names[i] = field;
+      return (int)i;
+    }
+  }
+  return -1;
+}
+
+dast_struct_t *dast_struct_new(const char *name, size_t field_count) {
+  dast_struct_t *st = (dast_struct_t *)calloc(1, sizeof(dast_struct_t));
+  st->name = name;
+  st->len = field_count;
+  st->field_names = (const char **)calloc(field_count, sizeof(char *));
+  st->field_values = (dast_value_t *)calloc(field_count, sizeof(dast_value_t));
+  return st;
+}
+
+static int dast_struct_slot(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx >= 0) return idx;
+  idx = dast_struct_insert(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return idx;
+}
+
+void dast_struct_set_int(dast_struct_t *st, const char *field, dast_int v) {
+  int idx = dast_struct_slot(st, field);
+  st->field_values[idx].i = v;
+}
+
+void dast_struct_set_bool(dast_struct_t *st, const char *field, bool v) {
+  int idx = dast_struct_slot(st, field);
+  st->field_values[idx].b = v;
+}
+
+void dast_struct_set_string(dast_struct_t *st, const char *field, dast_string_t v) {
+  int idx = dast_struct_slot(st, field);
+  st->field_values[idx].s = v;
+}
+
+void dast_struct_set_array(dast_struct_t *st, const char *field, dast_array_t v) {
+  int idx = dast_struct_slot(st, field);
+  st->field_values[idx].a = v;
+}
+
+void dast_struct_set_struct(dast_struct_t *st, const char *field, dast_struct_t *v) {
+  int idx = dast_struct_slot(st, field);
+  st->field_values[idx].st = v;
+}
+
+void dast_struct_set_ref(dast_struct_t *st, const char *field, void *v) {
+  int idx = dast_struct_slot(st, field);
+  st->field_values[idx].p = v;
+}
+
+dast_int dast_struct_get_int(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return st->field_values[idx].i;
+}
+
+bool dast_struct_get_bool(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return st->field_values[idx].b;
+}
+
+dast_string_t dast_struct_get_string(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return st->field_values[idx].s;
+}
+
+dast_array_t dast_struct_get_array(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return st->field_values[idx].a;
+}
+
+dast_struct_t *dast_struct_get_struct(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return st->field_values[idx].st;
+}
+
+void *dast_struct_get_ref(dast_struct_t *st, const char *field) {
+  int idx = dast_struct_find(st, field);
+  if (idx < 0) {
+    fprintf(stderr, "struct field '%s' not found\n", field);
+    exit(1);
+  }
+  return st->field_values[idx].p;
+}
+
+// =============================================================================
+// Misc builtins
+// =============================================================================
+
+dast_array_t dast_args(void) {
+  dast_array_t arr = dast_array_new(sizeof(dast_string_t));
+  for (int i = 0; i < g_argc; i++) {
+    dast_string_t s = dast_string_from_cstr(g_argv[i]);
+    dast_array_push(&arr, &s);
+  }
+  return arr;
+}
+
+dast_string_t dast_read_file(dast_string_t path) {
+  FILE *f = fopen(path.data, "rb");
+  if (!f) {
+    fprintf(stderr, "read_file failed: %s\n", path.data);
+    exit(1);
+  }
+  fseek(f, 0, SEEK_END);
+  long size = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (size < 0) size = 0;
+  dast_string_t out;
+  out.len = (size_t)size;
+  out.cap = out.len + 1;
+  out.data = (char *)malloc(out.cap);
+  size_t n = fread(out.data, 1, out.len, f);
+  fclose(f);
+  out.len = n;
+  out.data[out.len] = '\0';
+  return out;
+}
+
+dast_array_t dast_read_dir(dast_string_t path) {
+  dast_array_t arr = dast_array_new(sizeof(dast_string_t));
+  DIR *dir = opendir(path.data);
+  if (!dir) {
+    fprintf(stderr, "read_dir failed: %s\n", path.data);
+    exit(1);
+  }
+  struct dirent *ent;
+  while ((ent = readdir(dir)) != NULL) {
+    const char *name = ent->d_name;
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+    dast_string_t s = dast_string_from_cstr(name);
+    dast_array_push(&arr, &s);
+  }
+  closedir(dir);
+  return arr;
+}
+
+void dast_write_file(dast_string_t path, dast_string_t data) {
+  FILE *f = fopen(path.data, "wb");
+  if (!f) {
+    fprintf(stderr, "write_file failed: %s\n", path.data);
+    exit(1);
+  }
+  fwrite(data.data, 1, data.len, f);
+  fclose(f);
+}
+
+void dast_mkdir(dast_string_t path) {
+#ifdef _WIN32
+  int rc = _mkdir(path.data);
+#else
+  int rc = mkdir(path.data, 0755);
+#endif
+  if (rc != 0 && errno != EEXIST) {
+    fprintf(stderr, "mkdir failed: %s\n", path.data);
+    exit(1);
+  }
+}
+
+dast_string_t dast_read_line(void) {
+  size_t cap = 256;
+  char *buf = (char *)malloc(cap);
+  if (!fgets(buf, (int)cap, stdin)) {
+    buf[0] = '\0';
+  }
+  size_t len = strlen(buf);
+  if (len > 0 && buf[len - 1] == '\n') {
+    buf[len - 1] = '\0';
+    len--;
+  }
+  dast_string_t out;
+  out.len = len;
+  out.cap = len + 1;
+  out.data = (char *)malloc(out.cap);
+  memcpy(out.data, buf, len);
+  out.data[len] = '\0';
+  free(buf);
+  return out;
+}
+
+dast_string_t dast_read_bytes(dast_int n) {
+  if (n < 0) n = 0;
+  dast_string_t out;
+  out.len = (size_t)n;
+  out.cap = out.len + 1;
+  out.data = (char *)malloc(out.cap);
+  size_t readn = fread(out.data, 1, out.len, stdin);
+  out.len = readn;
+  out.data[out.len] = '\0';
+  return out;
+}
+
+void dast_exit(dast_int code) { exit((int)code); }

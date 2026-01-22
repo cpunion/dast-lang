@@ -8,12 +8,17 @@
 fn cg_map_type(typ: String) -> String {
     if typ == "int" || typ == "i64" { return "int64_t" }
     if typ == "i32" { return "int32_t" }
-    if typ == "i8" { return "int8_t" }
     if typ == "i16" { return "int16_t" }
+    if typ == "i8" { return "int8_t" }
     if typ == "u8" { return "uint8_t" }
     if typ == "u16" { return "uint16_t" }
     if typ == "u32" { return "uint32_t" }
     if typ == "u64" { return "uint64_t" }
+    if typ == "isize" { return "intptr_t" }
+    if typ == "usize" { return "uintptr_t" }
+    if typ == "char" { return "uint32_t" }
+    if typ == "f32" { return "float" }
+    if typ == "f64" { return "double" }
     if typ == "bool" { return "bool" }
     if typ == "String" || typ == "string" { return "dast_string_t" }
     if typ == "unit" || typ == "" { return "void" }
@@ -21,8 +26,729 @@ fn cg_map_type(typ: String) -> String {
 }
 
 // =============================================================================
+// String Helpers
+// =============================================================================
+
+fn cg_has_prefix(s: String, prefix: String) -> bool {
+    if len(s) < len(prefix) { return false }
+    return substr(s, 0, len(prefix)) == prefix
+}
+
+fn cg_trim_space(s: String) -> String {
+    let mut start = 0
+    let mut end = len(s)
+    while start < end && (char_at(s, start) == 32 || char_at(s, start) == 9) {
+        start = start + 1
+    }
+    while end > start && (char_at(s, end - 1) == 32 || char_at(s, end - 1) == 9) {
+        end = end - 1
+    }
+    if end <= start { return "" }
+    return substr(s, start, end - start)
+}
+
+fn cg_string_list_contains(items: [String], name: String) -> bool {
+    let mut i = 0
+    while i < len(items) {
+        if items[i] == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn cg_normalize_type(t: String) -> String {
+    let mut s = cg_trim_space(t)
+    if cg_has_prefix(s, "&mut ") {
+        let base = cg_trim_space(substr(s, 5, len(s) - 5))
+        return "&" + cg_normalize_type(base)
+    }
+    if cg_has_prefix(s, "&") {
+        let base = cg_trim_space(substr(s, 1, len(s) - 1))
+        return "&" + cg_normalize_type(base)
+    }
+    if s == "String" { return "string" }
+    return s
+}
+
+fn cg_is_array_type(t: String) -> bool {
+    let s = cg_trim_space(t)
+    if len(s) < 2 { return false }
+    return char_at(s, 0) == 91 && char_at(s, len(s) - 1) == 93
+}
+
+fn cg_array_elem_type(t: String) -> String {
+    let s = cg_trim_space(t)
+    if len(s) < 2 { return "" }
+    return cg_normalize_type(substr(s, 1, len(s) - 2))
+}
+
+fn cg_is_ref_type(t: String) -> bool {
+    let s = cg_trim_space(t)
+    return cg_has_prefix(s, "&")
+}
+
+fn cg_ref_base_type(t: String) -> String {
+    let s = cg_trim_space(t)
+    if !cg_has_prefix(s, "&") { return "" }
+    return cg_normalize_type(substr(s, 1, len(s) - 1))
+}
+
+fn cg_is_int_type(t: String) -> bool {
+    let s = cg_normalize_type(t)
+    if s == "int" { return true }
+    if s == "i8" || s == "i16" || s == "i32" || s == "i64" { return true }
+    if s == "u8" || s == "u16" || s == "u32" || s == "u64" { return true }
+    if s == "isize" || s == "usize" { return true }
+    if s == "char" { return true }
+    return false
+}
+
+fn cg_is_bool_type(t: String) -> bool {
+    return cg_normalize_type(t) == "bool"
+}
+
+fn cg_is_string_type(t: String) -> bool {
+    let s = cg_normalize_type(t)
+    return s == "string" || s == "String"
+}
+
+fn cg_is_unit_type(t: String) -> bool {
+    let s = cg_normalize_type(t)
+    return s == "unit" || s == ""
+}
+
+fn cg_is_struct_type(t: String) -> bool {
+    let s = cg_normalize_type(t)
+    if s == "" { return false }
+    if cg_is_int_type(s) || cg_is_bool_type(s) || cg_is_string_type(s) || cg_is_unit_type(s) { return false }
+    if cg_is_ref_type(s) || cg_is_array_type(s) { return false }
+    return true
+}
+
+fn cg_type_unify(a: String, b: String) -> String {
+    let a2 = cg_normalize_type(a)
+    let b2 = cg_normalize_type(b)
+    if a2 == "" { return b2 }
+    if b2 == "" { return a2 }
+    if a2 == b2 { return a2 }
+    if cg_is_ref_type(a2) && cg_is_ref_type(b2) {
+        let ba = cg_ref_base_type(a2)
+        let bb = cg_ref_base_type(b2)
+        return "&" + cg_type_unify(ba, bb)
+    }
+    if cg_is_array_type(a2) && cg_is_array_type(b2) {
+        let ea = cg_array_elem_type(a2)
+        let eb = cg_array_elem_type(b2)
+        return "[" + cg_type_unify(ea, eb) + "]"
+    }
+    if cg_is_int_type(a2) && cg_is_int_type(b2) {
+        if a2 == "int" { return b2 }
+        if b2 == "int" { return a2 }
+    }
+    return a2
+}
+
+// =============================================================================
+// Simple String Map
+// =============================================================================
+
+struct StringMap {
+    keys: [String],
+    values: [String],
+}
+
+fn string_map_new() -> StringMap {
+    let mut k: [String] = []
+    let mut v: [String] = []
+    return StringMap { keys: k, values: v }
+}
+
+fn string_map_get(m: &StringMap, key: String) -> String {
+    let mut i = 0
+    while i < len(m.keys) {
+        if m.keys[i] == key { return m.values[i] }
+        i = i + 1
+    }
+    return ""
+}
+
+fn string_map_set(m: &mut StringMap, key: String, val: String) -> bool {
+    let mut i = 0
+    while i < len(m.keys) {
+        if m.keys[i] == key {
+            if m.values[i] == val { return false }
+            let mut values = m.values
+            values[i] = val
+            m.values = values
+            return true
+        }
+        i = i + 1
+    }
+    let mut keys = m.keys
+    let mut values = m.values
+    push(&mut keys, key)
+    push(&mut values, val)
+    m.keys = keys
+    m.values = values
+    return true
+}
+
+// =============================================================================
+// Type Inference
+// =============================================================================
+
+struct CgInfer {
+    temp_types: [String],
+    var_types: StringMap,
+    field_types: StringMap,
+    temp_closure_funcs: [String],
+    var_closure_funcs: StringMap,
+}
+
+fn cg_field_key(struct_name: String, field: String) -> String {
+    return struct_name + "." + field
+}
+
+fn cg_set_temp_type(infer: &mut CgInfer, idx: i32, typ: String) -> bool {
+    if idx < 0 || idx >= len(infer.temp_types) { return false }
+    let cur = infer.temp_types[idx]
+    let next = cg_type_unify(cur, typ)
+    if next != "" && next != cur {
+        let mut temps = infer.temp_types
+        temps[idx] = next
+        infer.temp_types = temps
+        return true
+    }
+    return false
+}
+
+fn cg_set_var_type(infer: &mut CgInfer, name: String, typ: String) -> bool {
+    let map0 = infer.var_types
+    let cur = string_map_get(&map0, name)
+    let next = cg_type_unify(cur, typ)
+    if next == "" || next == cur { return false }
+    let mut map = infer.var_types
+    let changed = string_map_set(&mut map, name, next)
+    infer.var_types = map
+    return changed
+}
+
+fn cg_set_field_type(infer: &mut CgInfer, struct_name: String, field: String, typ: String) -> bool {
+    let key = cg_field_key(struct_name, field)
+    let map0 = infer.field_types
+    let cur = string_map_get(&map0, key)
+    let next = cg_type_unify(cur, typ)
+    if next == "" || next == cur { return false }
+    let mut map = infer.field_types
+    let changed = string_map_set(&mut map, key, next)
+    infer.field_types = map
+    return changed
+}
+
+fn cg_set_var_closure(infer: &mut CgInfer, name: String, val: String) -> bool {
+    let map0 = infer.var_closure_funcs
+    let cur = string_map_get(&map0, name)
+    if cur == val { return false }
+    let mut map = infer.var_closure_funcs
+    let changed = string_map_set(&mut map, name, val)
+    infer.var_closure_funcs = map
+    return changed
+}
+
+fn cg_get_var_type(infer: CgInfer, name: String) -> String {
+    let map = infer.var_types
+    return string_map_get(&map, name)
+}
+
+fn cg_get_field_type(infer: CgInfer, key: String) -> String {
+    let map = infer.field_types
+    return string_map_get(&map, key)
+}
+
+fn cg_get_var_closure(infer: CgInfer, name: String) -> String {
+    let map = infer.var_closure_funcs
+    return string_map_get(&map, name)
+}
+
+fn cg_operand_type(op: IrOperand, temp_types: [String]) -> String {
+    if op.is_const {
+        let v = op.value
+        if v.kind == ir_kind_int() {
+            if v.int_type != "" { return cg_normalize_type(v.int_type) }
+            return "int"
+        }
+        if v.kind == ir_kind_bool() { return "bool" }
+        if v.kind == ir_kind_string() { return "string" }
+        if v.kind == ir_kind_unit() { return "unit" }
+        return ""
+    }
+    if op.temp < 0 || op.temp >= len(temp_types) { return "" }
+    return temp_types[op.temp]
+}
+
+fn cg_find_function_index(p: IrProgram, name: String) -> i32 {
+    let mut i = 0
+    while i < len(p.functions) {
+        if p.functions[i].name == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn cg_is_builtin(name: String) -> bool {
+    if name == "print" || name == "println" { return true }
+    if name == "len" || name == "push" || name == "pop" { return true }
+    if name == "exit" { return true }
+    if name == "read_file" || name == "read_dir" || name == "write_file" { return true }
+    if name == "mkdir" || name == "args" { return true }
+    if name == "char_at" || name == "substr" { return true }
+    if name == "read_line" || name == "read_bytes" { return true }
+    if name == "int_to_string" { return true }
+    return false
+}
+
+fn cg_infer_builtin_call(inst: IrCall, infer: &mut CgInfer) -> bool {
+    let mut changed = false
+    let name = inst.callee
+    if name == "print" || name == "println" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "unit") { changed = true }
+        }
+        return changed
+    }
+    if name == "len" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "int") { changed = true }
+        }
+        if len(inst.args) > 0 {
+            let at = cg_operand_type(inst.args[0], infer.temp_types)
+            if at != "" {
+                let mut base = at
+                if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+                if cg_is_array_type(base) || cg_is_string_type(base) {
+                    // no-op
+                }
+            }
+        }
+        return changed
+    }
+    if name == "push" {
+        if len(inst.args) >= 2 {
+            let at = cg_operand_type(inst.args[0], infer.temp_types)
+            let et = cg_operand_type(inst.args[1], infer.temp_types)
+            if at != "" {
+                let mut base = at
+                if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+                if cg_is_array_type(base) {
+                    let elem = cg_array_elem_type(base)
+                    if elem != "" && et != "" {
+                        if cg_set_temp_type(infer, inst.args[1].temp, elem) { changed = true }
+                    } else if elem != "" && et == "" {
+                        // infer operand type
+                        // no direct place to set const
+                    } else if elem == "" && et != "" {
+                        if cg_is_ref_type(at) {
+                            let newt = "&[" + et + "]"
+                            if cg_set_temp_type(infer, inst.args[0].temp, newt) { changed = true }
+                        }
+                    }
+                }
+            } else if et != "" {
+                if inst.args[0].temp >= 0 {
+                    let newt = "&[" + et + "]"
+                    if cg_set_temp_type(infer, inst.args[0].temp, newt) { changed = true }
+                }
+            }
+        }
+        return changed
+    }
+    if name == "pop" {
+        if len(inst.args) >= 1 {
+            let at = cg_operand_type(inst.args[0], infer.temp_types)
+            if at != "" {
+                let mut base = at
+                if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+                if cg_is_array_type(base) {
+                    let elem = cg_array_elem_type(base)
+                    if elem != "" && inst.dst >= 0 {
+                        if cg_set_temp_type(infer, inst.dst, elem) { changed = true }
+                    }
+                }
+            } else if inst.dst >= 0 {
+                let dt = infer.temp_types[inst.dst]
+                if dt != "" && inst.args[0].temp >= 0 {
+                    let newt = "&[" + dt + "]"
+                    if cg_set_temp_type(infer, inst.args[0].temp, newt) { changed = true }
+                }
+            }
+        }
+        return changed
+    }
+    if name == "args" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "[string]") { changed = true }
+        }
+        return changed
+    }
+    if name == "char_at" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "int") { changed = true }
+        }
+        if len(inst.args) > 0 {
+            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+            if t0 == "" && inst.args[0].temp >= 0 {
+                if cg_set_temp_type(infer, inst.args[0].temp, "string") { changed = true }
+            }
+        }
+        if len(inst.args) > 1 {
+            let t1 = cg_operand_type(inst.args[1], infer.temp_types)
+            if t1 == "" && inst.args[1].temp >= 0 {
+                if cg_set_temp_type(infer, inst.args[1].temp, "int") { changed = true }
+            }
+        }
+        return changed
+    }
+    if name == "substr" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "string") { changed = true }
+        }
+        if len(inst.args) > 0 {
+            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+            if t0 == "" && inst.args[0].temp >= 0 {
+                if cg_set_temp_type(infer, inst.args[0].temp, "string") { changed = true }
+            }
+        }
+        if len(inst.args) > 1 {
+            let t1 = cg_operand_type(inst.args[1], infer.temp_types)
+            if t1 == "" && inst.args[1].temp >= 0 {
+                if cg_set_temp_type(infer, inst.args[1].temp, "int") { changed = true }
+            }
+        }
+        if len(inst.args) > 2 {
+            let t2 = cg_operand_type(inst.args[2], infer.temp_types)
+            if t2 == "" && inst.args[2].temp >= 0 {
+                if cg_set_temp_type(infer, inst.args[2].temp, "int") { changed = true }
+            }
+        }
+        return changed
+    }
+    if name == "read_file" || name == "read_line" || name == "read_bytes" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "string") { changed = true }
+        }
+        if len(inst.args) > 0 {
+            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+            if name == "read_bytes" {
+                if t0 == "" && inst.args[0].temp >= 0 {
+                    if cg_set_temp_type(infer, inst.args[0].temp, "int") { changed = true }
+                }
+            } else {
+                if t0 == "" && inst.args[0].temp >= 0 {
+                    if cg_set_temp_type(infer, inst.args[0].temp, "string") { changed = true }
+                }
+            }
+        }
+        return changed
+    }
+    if name == "read_dir" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "[string]") { changed = true }
+        }
+        if len(inst.args) > 0 && inst.args[0].temp >= 0 {
+            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+            if t0 == "" {
+                if cg_set_temp_type(infer, inst.args[0].temp, "string") { changed = true }
+            }
+        }
+        return changed
+    }
+    if name == "write_file" || name == "mkdir" || name == "exit" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "unit") { changed = true }
+        }
+        return changed
+    }
+    if name == "int_to_string" {
+        if inst.dst >= 0 {
+            if cg_set_temp_type(infer, inst.dst, "string") { changed = true }
+        }
+        if len(inst.args) > 0 && inst.args[0].temp >= 0 {
+            let t0 = cg_operand_type(inst.args[0], infer.temp_types)
+            if t0 == "" {
+                if cg_set_temp_type(infer, inst.args[0].temp, "int") { changed = true }
+            }
+        }
+        return changed
+    }
+    return changed
+}
+
+fn cg_infer_function_types(p: IrProgram, f: IrFunction) -> CgInfer {
+    let mut temp_types: [String] = []
+    let mut i = 0
+    while i < f.temp_count {
+        push(&mut temp_types, "")
+        i = i + 1
+    }
+    let mut var_types = string_map_new()
+    let mut field_types = string_map_new()
+    let mut temp_closure_funcs: [String] = []
+    i = 0
+    while i < f.temp_count {
+        push(&mut temp_closure_funcs, "")
+        i = i + 1
+    }
+    let mut var_closure = string_map_new()
+
+    // Param types
+    i = 0
+    while i < len(f.params) {
+        if i < len(f.param_types) {
+            let pt = cg_normalize_type(f.param_types[i])
+            if pt != "" {
+                let _ = string_map_set(&mut var_types, f.params[i], pt)
+            }
+        }
+        i = i + 1
+    }
+
+    let mut infer = CgInfer { temp_types: temp_types, var_types: var_types, field_types: field_types, temp_closure_funcs: temp_closure_funcs, var_closure_funcs: var_closure }
+    let mut changed = true
+    while changed {
+        changed = false
+        let mut bi = 0
+        while bi < len(f.blocks) {
+            let blk = f.blocks[bi]
+            let mut j = 0
+            while j < len(blk.instrs) {
+                let inst = blk.instrs[j]
+                match inst {
+                    IrInstr.LoadVar(i2) => {
+                        if i2.ref {
+                            let mut rt = ""
+                            if i2.ref_temp >= 0 && i2.ref_temp < len(infer.temp_types) { rt = infer.temp_types[i2.ref_temp] }
+                            if rt != "" {
+                                let mut base = ""
+                                if cg_is_ref_type(rt) { base = cg_ref_base_type(rt) }
+                                if base != "" {
+                                    if cg_set_temp_type(&mut infer, i2.dst, base) { changed = true }
+                                }
+                            }
+                        } else if i2.addr {
+                            let vt = cg_get_var_type(infer, i2.name)
+                            if vt != "" {
+                                let rt = "&" + vt
+                                if cg_set_temp_type(&mut infer, i2.dst, rt) { changed = true }
+                            }
+                        } else {
+                            let vt = cg_get_var_type(infer, i2.name)
+                            if vt != "" {
+                                if cg_set_temp_type(&mut infer, i2.dst, vt) { changed = true }
+                            }
+                        }
+                        // closure propagation
+                        if !i2.addr && !i2.ref {
+                            let cf = cg_get_var_closure(infer, i2.name)
+                            if cf != "" && i2.dst >= 0 && i2.dst < len(infer.temp_closure_funcs) {
+                                if infer.temp_closure_funcs[i2.dst] == "" {
+                                    infer.temp_closure_funcs[i2.dst] = cf
+                                    changed = true
+                                }
+                            }
+                        }
+                    }
+                    IrInstr.StoreVar(i2) => {
+                        if i2.ref {
+                            let mut rt = ""
+                            if i2.ref_temp >= 0 && i2.ref_temp < len(infer.temp_types) { rt = infer.temp_types[i2.ref_temp] }
+                            let st = cg_operand_type(i2.src, infer.temp_types)
+                            if rt != "" && st != "" {
+                                let mut base = ""
+                                if cg_is_ref_type(rt) { base = cg_ref_base_type(rt) }
+                                if base != "" {
+                                    let _ = cg_type_unify(base, st)
+                                }
+                            }
+                        } else {
+                            let st = cg_operand_type(i2.src, infer.temp_types)
+                            if st != "" {
+                                if cg_set_var_type(&mut infer, i2.name, st) { changed = true }
+                            }
+                            // closure propagation
+                            if i2.src.temp >= 0 && i2.src.temp < len(infer.temp_closure_funcs) {
+                                let cf = infer.temp_closure_funcs[i2.src.temp]
+                                if cf != "" {
+                                    if cg_set_var_closure(&mut infer, i2.name, cf) { changed = true }
+                                }
+                            }
+                        }
+                    }
+                    IrInstr.BinOp(i2) => {
+                        let lt = cg_operand_type(i2.lhs, infer.temp_types)
+                        let rt = cg_operand_type(i2.rhs, infer.temp_types)
+                        if i2.op == "&&" || i2.op == "||" {
+                            if cg_set_temp_type(&mut infer, i2.dst, "bool") { changed = true }
+                        } else if i2.op == "==" || i2.op == "!=" || i2.op == "<" || i2.op == "<=" || i2.op == ">" || i2.op == ">=" {
+                            if cg_set_temp_type(&mut infer, i2.dst, "bool") { changed = true }
+                            if lt != "" && rt == "" && i2.rhs.temp >= 0 {
+                                if cg_set_temp_type(&mut infer, i2.rhs.temp, lt) { changed = true }
+                            }
+                            if rt != "" && lt == "" && i2.lhs.temp >= 0 {
+                                if cg_set_temp_type(&mut infer, i2.lhs.temp, rt) { changed = true }
+                            }
+                        } else {
+                            if (lt == "string" || rt == "string") && i2.op == "+" {
+                                if cg_set_temp_type(&mut infer, i2.dst, "string") { changed = true }
+                            } else {
+                                if cg_set_temp_type(&mut infer, i2.dst, lt) { changed = true }
+                                if lt == "" && rt != "" {
+                                    if cg_set_temp_type(&mut infer, i2.lhs.temp, rt) { changed = true }
+                                }
+                                if rt == "" && lt != "" {
+                                    if cg_set_temp_type(&mut infer, i2.rhs.temp, lt) { changed = true }
+                                }
+                            }
+                        }
+                    }
+                    IrInstr.Call(i2) => {
+                        if cg_is_builtin(i2.callee) {
+                            if cg_infer_builtin_call(i2, &mut infer) { changed = true }
+                        }
+                        let fidx = cg_find_function_index(p, i2.callee)
+                        if fidx >= 0 {
+                            let callee = p.functions[fidx]
+                            if i2.dst >= 0 && callee.return_type != "" {
+                                if cg_set_temp_type(&mut infer, i2.dst, callee.return_type) { changed = true }
+                            }
+                            let mut k = 0
+                            while k < len(i2.args) && k < len(callee.param_types) {
+                                let pt = cg_normalize_type(callee.param_types[k])
+                                if pt != "" {
+                                    if i2.args[k].temp >= 0 {
+                                        if cg_set_temp_type(&mut infer, i2.args[k].temp, pt) { changed = true }
+                                    }
+                                }
+                                k = k + 1
+                            }
+                        }
+                    }
+                    IrInstr.CallClosure(i2) => {
+                        // best-effort: infer dst type from usage elsewhere
+                        let ct = cg_operand_type(i2.closure, infer.temp_types)
+                        if ct == "" && i2.closure.temp >= 0 {
+                            if cg_set_temp_type(&mut infer, i2.closure.temp, "Closure") { changed = true }
+                        }
+                    }
+                    IrInstr.MakeArray(i2) => {
+                        let mut elem = ""
+                        let mut k = 0
+                        while k < len(i2.elems) {
+                            let et = cg_operand_type(i2.elems[k], infer.temp_types)
+                            elem = cg_type_unify(elem, et)
+                            k = k + 1
+                        }
+                        if elem != "" {
+                            let at = "[" + elem + "]"
+                            if cg_set_temp_type(&mut infer, i2.dst, at) { changed = true }
+                        }
+                    }
+                    IrInstr.Index(i2) => {
+                        let at = cg_operand_type(i2.array, infer.temp_types)
+                        if at != "" {
+                            let mut base = at
+                            if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+                            if cg_is_array_type(base) {
+                                let elem = cg_array_elem_type(base)
+                                if elem != "" {
+                                    if cg_set_temp_type(&mut infer, i2.dst, elem) { changed = true }
+                                }
+                            }
+                        } else if i2.array.temp >= 0 {
+                            let dt = infer.temp_types[i2.dst]
+                            if dt != "" {
+                                let at2 = "[" + dt + "]"
+                                if cg_set_temp_type(&mut infer, i2.array.temp, at2) { changed = true }
+                            }
+                        }
+                    }
+                    IrInstr.SetIndex(i2) => {
+                        let at = cg_operand_type(i2.array, infer.temp_types)
+                        let st = cg_operand_type(i2.src, infer.temp_types)
+                        if at == "" && i2.array.temp >= 0 && st != "" {
+                            let at2 = "[" + st + "]"
+                            if cg_set_temp_type(&mut infer, i2.array.temp, at2) { changed = true }
+                        }
+                    }
+                    IrInstr.MakeStruct(i2) => {
+                        if cg_set_temp_type(&mut infer, i2.dst, i2.name) { changed = true }
+                        let mut k = 0
+                        while k < len(i2.fields) {
+                            let ft = cg_operand_type(i2.fields[k].src, infer.temp_types)
+                            if ft != "" {
+                                if cg_set_field_type(&mut infer, i2.name, i2.fields[k].name, ft) { changed = true }
+                            }
+                            if i2.name == "Closure" && i2.fields[k].name == "func" {
+                                if i2.fields[k].src.is_const && i2.fields[k].src.value.kind == ir_kind_string() {
+                                    if i2.dst >= 0 && i2.dst < len(infer.temp_closure_funcs) {
+                                        if infer.temp_closure_funcs[i2.dst] == "" {
+                                            infer.temp_closure_funcs[i2.dst] = i2.fields[k].src.value.str
+                                            changed = true
+                                        }
+                                    }
+                                }
+                            }
+                            k = k + 1
+                        }
+                    }
+                    IrInstr.GetField(i2) => {
+                        let mut st = ""
+                        if i2.src >= 0 && i2.src < len(infer.temp_types) { st = infer.temp_types[i2.src] }
+                        if st != "" {
+                            let key = cg_field_key(st, i2.field)
+                            let ft = cg_get_field_type(infer, key)
+                            if ft != "" {
+                                if cg_set_temp_type(&mut infer, i2.dst, ft) { changed = true }
+                            }
+                        }
+                    }
+                    IrInstr.SetField(i2) => {
+                        let mut st = ""
+                        if i2.src >= 0 && i2.src < len(infer.temp_types) { st = infer.temp_types[i2.src] }
+                        let vt = cg_operand_type(i2.value, infer.temp_types)
+                        if st != "" && vt != "" {
+                            if cg_set_field_type(&mut infer, st, i2.field, vt) { changed = true }
+                        }
+                    }
+                }
+                j = j + 1
+            }
+            bi = bi + 1
+        }
+    }
+
+    return infer
+}
+
+// =============================================================================
 // Name Mangling
 // =============================================================================
+
+fn cg_mangle_ident(name: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(name) {
+        let c = char_at(name, i)
+        let is_alnum = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+        if is_alnum {
+            out = out + substr(name, i, 1)
+        } else {
+            out = out + "_"
+        }
+        i = i + 1
+    }
+    if out == "" { return "_" }
+    return out
+}
 
 fn cg_mangle_func(name: String) -> String {
     if name == "print" { return "dast_print" }
@@ -36,192 +762,450 @@ fn cg_mangle_func(name: String) -> String {
     if name == "panic" { return "dast_panic" }
     if name == "char_at" { return "dast_string_char_at" }
     if name == "substr" { return "dast_string_substr" }
-
-    let mut out = "dast_"
-    let mut i = 0
-    while i < len(name) {
-        let c = char_at(name, i)
-        if c == 58 || c == 46 {  // : or .
-            out = out + "_"
-            if c == 58 && i + 1 < len(name) && char_at(name, i + 1) == 58 {
-                i = i + 1
-            }
-        } else {
-            out = out + substr(name, i, 1)
-        }
-        i = i + 1
-    }
-    return out
+    return "dast_" + cg_mangle_ident(name)
 }
 
 fn cg_mangle_var(name: String) -> String {
-    return "v_" + name
+    return "v_" + cg_mangle_ident(name)
 }
 
 fn cg_mangle_label(name: String) -> String {
-    return "L_" + name
+    return "L_" + cg_mangle_ident(name)
 }
 
 // =============================================================================
-// Value Generation
+// C Type Mapping Helpers
 // =============================================================================
 
-fn cg_value_init(v: IrValue, dst: String) -> String {
-    if v.kind == ir_kind_int() {
-        return dst + ".i = " + int_to_string(v.int)
+fn cg_c_type(t: String) -> String {
+    let s = cg_normalize_type(t)
+    if s == "" { return "int64_t" }
+    if cg_is_ref_type(s) {
+        let base = cg_ref_base_type(s)
+        return cg_c_type(base) + "*"
     }
-    if v.kind == ir_kind_bool() {
-        if v.bool { return dst + ".b = true" }
-        return dst + ".b = false"
-    }
-    if v.kind == ir_kind_string() {
-        return dst + ".s = dast_string_from_literal(\"" + ir_escape_string(v.str) + "\")"
-    }
-    return dst + ".i = 0"
+    if cg_is_array_type(s) { return "dast_array_t" }
+    if cg_is_string_type(s) { return "dast_string_t" }
+    if cg_is_bool_type(s) { return "bool" }
+    if cg_is_unit_type(s) { return "dast_unit_t" }
+    if cg_is_int_type(s) { return cg_map_type(s) }
+    return "dast_struct_t*"
 }
 
-fn cg_value_literal(v: IrValue) -> String {
-    if v.kind == ir_kind_int() {
-        return "(dast_value_t){ .i = " + int_to_string(v.int) + " }"
-    }
-    if v.kind == ir_kind_bool() {
-        if v.bool { return "(dast_value_t){ .b = true }" }
-        return "(dast_value_t){ .b = false }"
-    }
-    if v.kind == ir_kind_string() {
-        return "(dast_value_t){ .s = dast_string_from_literal(\"" + ir_escape_string(v.str) + "\") }"
-    }
-    return "(dast_value_t){ .i = 0 }"
-}
-
-fn cg_value_as_int(v: IrValue) -> String {
-    if v.kind == ir_kind_int() { return int_to_string(v.int) }
-    if v.kind == ir_kind_bool() {
-        if v.bool { return "1" }
-        return "0"
-    }
+fn cg_c_zero(t: String) -> String {
+    let s = cg_normalize_type(t)
+    if cg_is_bool_type(s) { return "false" }
+    if cg_is_int_type(s) { return "0" }
+    if cg_is_ref_type(s) { return "0" }
+    if cg_is_string_type(s) { return "(dast_string_t){0}" }
+    if cg_is_array_type(s) { return "(dast_array_t){0}" }
+    if cg_is_unit_type(s) { return "(dast_unit_t){0}" }
+    if cg_is_struct_type(s) { return "0" }
     return "0"
 }
 
-fn cg_value_as_bool(v: IrValue) -> String {
+fn cg_const_literal(v: IrValue, expected: String) -> String {
+    let t = cg_normalize_type(expected)
+    if v.kind == ir_kind_int() {
+        let mut val = int_to_string(v.int)
+        let mut typ = t
+        if typ == "" { typ = v.int_type }
+        if typ != "" {
+            return "(" + cg_c_type(typ) + ")" + val
+        }
+        return val
+    }
     if v.kind == ir_kind_bool() {
         if v.bool { return "true" }
         return "false"
     }
-    if v.kind == ir_kind_int() {
-        return "(" + int_to_string(v.int) + " != 0)"
-    }
-    return "false"
-}
-
-fn cg_value_as_string(v: IrValue) -> String {
     if v.kind == ir_kind_string() {
         return "dast_string_from_literal(\"" + ir_escape_string(v.str) + "\")"
     }
-    if v.kind == ir_kind_int() {
-        return "dast_int_to_string(" + int_to_string(v.int) + ")"
-    }
-    if v.kind == ir_kind_bool() {
-        if v.bool { return "dast_int_to_string(1)" }
-        return "dast_int_to_string(0)"
-    }
-    return "dast_string_from_literal(\"\")"
+    return cg_c_zero(t)
 }
 
-fn cg_operand_value(op: IrOperand) -> String {
-    if op.is_const { return cg_value_literal(op.value) }
+fn cg_operand_expr(op: IrOperand, expected: String, temp_types: [String]) -> String {
+    if op.is_const { return cg_const_literal(op.value, expected) }
     return "t" + int_to_string(op.temp)
-}
-
-fn cg_operand_int(op: IrOperand) -> String {
-    if op.is_const { return cg_value_as_int(op.value) }
-    return "t" + int_to_string(op.temp) + ".i"
-}
-
-fn cg_operand_bool(op: IrOperand) -> String {
-    if op.is_const { return cg_value_as_bool(op.value) }
-    return "t" + int_to_string(op.temp) + ".b"
-}
-
-fn cg_operand_string(op: IrOperand) -> String {
-    if op.is_const { return cg_value_as_string(op.value) }
-    return "t" + int_to_string(op.temp) + ".s"
 }
 
 // =============================================================================
 // Instruction Generation
 // =============================================================================
 
-fn cg_instr(inst: IrInstr) -> String {
+fn cg_struct_setter(t: String) -> String {
+    let s = cg_normalize_type(t)
+    if cg_is_int_type(s) { return "dast_struct_set_int" }
+    if cg_is_bool_type(s) { return "dast_struct_set_bool" }
+    if cg_is_string_type(s) { return "dast_struct_set_string" }
+    if cg_is_array_type(s) { return "dast_struct_set_array" }
+    if cg_is_ref_type(s) { return "dast_struct_set_ref" }
+    return "dast_struct_set_struct"
+}
+
+fn cg_struct_getter(t: String) -> String {
+    let s = cg_normalize_type(t)
+    if cg_is_int_type(s) { return "dast_struct_get_int" }
+    if cg_is_bool_type(s) { return "dast_struct_get_bool" }
+    if cg_is_string_type(s) { return "dast_struct_get_string" }
+    if cg_is_array_type(s) { return "dast_struct_get_array" }
+    if cg_is_ref_type(s) { return "dast_struct_get_ref" }
+    return "dast_struct_get_struct"
+}
+
+fn cg_emit_print_args(args: [IrOperand], temp_types: [String], newline: bool) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(args) {
+        if i > 0 {
+            out = out + "dast_print_cstr(\" \"); "
+        }
+        let t = cg_operand_type(args[i], temp_types)
+        let expr = cg_operand_expr(args[i], t, temp_types)
+        if cg_is_string_type(t) {
+            out = out + "dast_print(" + expr + "); "
+        } else if cg_is_bool_type(t) {
+            out = out + "dast_print_bool(" + expr + "); "
+        } else if cg_is_int_type(t) {
+            out = out + "dast_print_int(" + expr + "); "
+        } else if cg_is_array_type(t) {
+            out = out + "dast_print_array(&" + expr + "); "
+        } else if cg_is_struct_type(t) {
+            out = out + "dast_print_struct(" + expr + "); "
+        } else {
+            out = out + "dast_print_cstr(\"<value>\"); "
+        }
+        i = i + 1
+    }
+    if newline {
+        out = out + "dast_print_newline();"
+    }
+    return out
+}
+
+fn cg_emit_call(inst: IrCall, infer: CgInfer, p: IrProgram) -> String {
+    let name = inst.callee
+    if name == "print" {
+        return cg_emit_print_args(inst.args, infer.temp_types, false)
+    }
+    if name == "println" {
+        return cg_emit_print_args(inst.args, infer.temp_types, true)
+    }
+    if name == "len" {
+        if len(inst.args) == 0 { return "" }
+        let at = cg_operand_type(inst.args[0], infer.temp_types)
+        let mut base = at
+        if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+        let arg_expr = cg_operand_expr(inst.args[0], at, infer.temp_types)
+        let mut call = ""
+        if cg_is_array_type(base) {
+            if cg_is_ref_type(at) {
+                call = "dast_array_len(" + arg_expr + ")"
+            } else {
+                call = "dast_array_len(&" + arg_expr + ")"
+            }
+        } else {
+            if cg_is_ref_type(at) {
+                call = "dast_string_len(*" + arg_expr + ")"
+            } else {
+                call = "dast_string_len(" + arg_expr + ")"
+            }
+        }
+        if inst.dst >= 0 {
+            return "t" + int_to_string(inst.dst) + " = " + call + ";"
+        }
+        return call + ";"
+    }
+    if name == "push" {
+        if len(inst.args) < 2 { return "" }
+        let arr_t = cg_operand_type(inst.args[0], infer.temp_types)
+        let elem_t = cg_operand_type(inst.args[1], infer.temp_types)
+        let arr_expr = cg_operand_expr(inst.args[0], arr_t, infer.temp_types)
+        let elem_expr = cg_operand_expr(inst.args[1], elem_t, infer.temp_types)
+        let mut arr_ptr = arr_expr
+        if !cg_is_ref_type(arr_t) {
+            arr_ptr = "&" + arr_expr
+        }
+        let mut base = inst.dst
+        if base < 0 { base = 0 }
+        let tmp = "_push" + int_to_string(base)
+        let ctype = cg_c_type(elem_t)
+        return "{ " + ctype + " " + tmp + " = " + elem_expr + "; dast_array_push(" + arr_ptr + ", &" + tmp + "); }"
+    }
+    if name == "pop" {
+        if len(inst.args) < 1 { return "" }
+        let arr_t = cg_operand_type(inst.args[0], infer.temp_types)
+        let arr_expr = cg_operand_expr(inst.args[0], arr_t, infer.temp_types)
+        let mut base = arr_t
+        if cg_is_ref_type(arr_t) { base = cg_ref_base_type(arr_t) }
+        let mut elem_t = "int"
+        if cg_is_array_type(base) { elem_t = cg_array_elem_type(base) }
+        let ctype = cg_c_type(elem_t)
+        let mut base_id = inst.dst
+        if base_id < 0 { base_id = 0 }
+        let tmp = "_pop" + int_to_string(base_id)
+        let mut arr_ptr = arr_expr
+        if !cg_is_ref_type(arr_t) {
+            arr_ptr = "&" + arr_expr
+        }
+        if inst.dst >= 0 {
+            return "{ " + ctype + " " + tmp + "; dast_array_pop(" + arr_ptr + ", &" + tmp + "); t" + int_to_string(inst.dst) + " = " + tmp + "; }"
+        }
+        return "{ " + ctype + " " + tmp + "; dast_array_pop(" + arr_ptr + ", &" + tmp + "); }"
+    }
+    if name == "args" {
+        if inst.dst >= 0 {
+            return "t" + int_to_string(inst.dst) + " = dast_args();"
+        }
+        return "dast_args();"
+    }
+    if name == "read_file" {
+        let arg = cg_operand_expr(inst.args[0], "string", infer.temp_types)
+        if inst.dst >= 0 {
+            return "t" + int_to_string(inst.dst) + " = dast_read_file(" + arg + ");"
+        }
+        return "dast_read_file(" + arg + ");"
+    }
+    if name == "read_dir" {
+        let arg = cg_operand_expr(inst.args[0], "string", infer.temp_types)
+        if inst.dst >= 0 {
+            return "t" + int_to_string(inst.dst) + " = dast_read_dir(" + arg + ");"
+        }
+        return "dast_read_dir(" + arg + ");"
+    }
+    if name == "write_file" {
+        let a0 = cg_operand_expr(inst.args[0], "string", infer.temp_types)
+        let a1 = cg_operand_expr(inst.args[1], "string", infer.temp_types)
+        return "dast_write_file(" + a0 + ", " + a1 + ");"
+    }
+    if name == "mkdir" {
+        let a0 = cg_operand_expr(inst.args[0], "string", infer.temp_types)
+        return "dast_mkdir(" + a0 + ");"
+    }
+    if name == "read_line" {
+        if inst.dst >= 0 { return "t" + int_to_string(inst.dst) + " = dast_read_line();" }
+        return "dast_read_line();"
+    }
+    if name == "read_bytes" {
+        let a0 = cg_operand_expr(inst.args[0], "int", infer.temp_types)
+        if inst.dst >= 0 { return "t" + int_to_string(inst.dst) + " = dast_read_bytes(" + a0 + ");" }
+        return "dast_read_bytes(" + a0 + ");"
+    }
+    if name == "char_at" {
+        let a0 = cg_operand_expr(inst.args[0], "string", infer.temp_types)
+        let a1 = cg_operand_expr(inst.args[1], "int", infer.temp_types)
+        if inst.dst >= 0 { return "t" + int_to_string(inst.dst) + " = dast_string_char_at(" + a0 + ", " + a1 + ");" }
+        return "dast_string_char_at(" + a0 + ", " + a1 + ");"
+    }
+    if name == "substr" {
+        let a0 = cg_operand_expr(inst.args[0], "string", infer.temp_types)
+        let a1 = cg_operand_expr(inst.args[1], "int", infer.temp_types)
+        let a2 = cg_operand_expr(inst.args[2], "int", infer.temp_types)
+        if inst.dst >= 0 { return "t" + int_to_string(inst.dst) + " = dast_string_substr(" + a0 + ", " + a1 + ", " + a2 + ");" }
+        return "dast_string_substr(" + a0 + ", " + a1 + ", " + a2 + ");"
+    }
+    if name == "int_to_string" {
+        let a0 = cg_operand_expr(inst.args[0], "int", infer.temp_types)
+        if inst.dst >= 0 { return "t" + int_to_string(inst.dst) + " = dast_int_to_string(" + a0 + ");" }
+        return "dast_int_to_string(" + a0 + ");"
+    }
+    if name == "exit" {
+        if len(inst.args) == 0 { return "dast_exit(0);" }
+        let a0 = cg_operand_expr(inst.args[0], "int", infer.temp_types)
+        return "dast_exit(" + a0 + ");"
+    }
+
+    // User function call
+    let mut args = ""
+    let mut j = 0
+    let fidx = cg_find_function_index(p, name)
+    while j < len(inst.args) {
+        if j > 0 { args = args + ", " }
+        let mut expected = ""
+        if fidx >= 0 && j < len(p.functions[fidx].param_types) { expected = p.functions[fidx].param_types[j] }
+        args = args + cg_operand_expr(inst.args[j], expected, infer.temp_types)
+        j = j + 1
+    }
+    let call = cg_mangle_func(name) + "(" + args + ")"
+    if inst.dst >= 0 {
+        return "t" + int_to_string(inst.dst) + " = " + call + ";"
+    }
+    return call + ";"
+}
+
+fn cg_emit_call_closure(inst: IrCallClosure, infer: CgInfer, p: IrProgram, closure_funcs: [String]) -> String {
+    let ct = cg_operand_type(inst.closure, infer.temp_types)
+    let closure_expr = cg_operand_expr(inst.closure, ct, infer.temp_types)
+    let mut func_name = ""
+    if inst.closure.temp >= 0 && inst.closure.temp < len(infer.temp_closure_funcs) {
+        func_name = infer.temp_closure_funcs[inst.closure.temp]
+    }
+    let mut out = ""
+    if func_name != "" {
+        let env = "dast_struct_get_struct(" + closure_expr + ", \"env\")"
+        let mut args = env
+        let mut j = 0
+        while j < len(inst.args) {
+            args = args + ", " + cg_operand_expr(inst.args[j], "", infer.temp_types)
+            j = j + 1
+        }
+        let call = cg_mangle_func(func_name) + "(" + args + ")"
+        if inst.dst >= 0 {
+            out = "t" + int_to_string(inst.dst) + " = " + call + ";"
+        } else {
+            out = call + ";"
+        }
+        return out
+    }
+
+    // Fallback: dispatch by function name
+    out = "{ dast_string_t _fn = dast_struct_get_string(" + closure_expr + ", \"func\"); dast_struct_t* _env = dast_struct_get_struct(" + closure_expr + ", \"env\"); "
+    let mut i = 0
+    while i < len(closure_funcs) {
+        let fname = closure_funcs[i]
+        let mut args = "_env"
+        let mut j = 0
+        while j < len(inst.args) {
+            args = args + ", " + cg_operand_expr(inst.args[j], "", infer.temp_types)
+            j = j + 1
+        }
+        let call = cg_mangle_func(fname) + "(" + args + ")"
+        if i == 0 {
+            out = out + "if (dast_string_eq_cstr(_fn, \"" + fname + "\")) { "
+        } else {
+            out = out + "else if (dast_string_eq_cstr(_fn, \"" + fname + "\")) { "
+        }
+        if inst.dst >= 0 {
+            out = out + "t" + int_to_string(inst.dst) + " = " + call + "; } "
+        } else {
+            out = out + call + "; } "
+        }
+        i = i + 1
+    }
+    out = out + "else { dast_panic(dast_string_from_literal(\"unknown closure\")); } }"
+    return out
+}
+
+fn cg_instr(inst: IrInstr, infer: CgInfer, p: IrProgram, closure_funcs: [String]) -> String {
     match inst {
-        .LoadVar(i) => {
+        IrInstr.LoadVar(i) => {
             if i.ref {
-                return "t" + int_to_string(i.dst) + " = *(int64_t*)t" + int_to_string(i.ref_temp) + ";"
+                return "t" + int_to_string(i.dst) + " = *t" + int_to_string(i.ref_temp) + ";"
             }
             if i.addr {
-                return "t" + int_to_string(i.dst) + " = (int64_t)&" + cg_mangle_var(i.name) + ";"
+                return "t" + int_to_string(i.dst) + " = &" + cg_mangle_var(i.name) + ";"
             }
-            return "t" + int_to_string(i.dst) + ".i = " + cg_mangle_var(i.name) + ".i;"
+            return "t" + int_to_string(i.dst) + " = " + cg_mangle_var(i.name) + ";"
         }
-        .StoreVar(i) => {
+        IrInstr.StoreVar(i) => {
             if i.ref {
-                return "*(int64_t*)t" + int_to_string(i.ref_temp) + " = " + cg_operand_int(i.src) + ";"
+                let st = cg_operand_expr(i.src, "", infer.temp_types)
+                return "*t" + int_to_string(i.ref_temp) + " = " + st + ";"
             }
-            return cg_mangle_var(i.name) + " = " + cg_operand_value(i.src) + ";"
+            let st = cg_operand_expr(i.src, "", infer.temp_types)
+            return cg_mangle_var(i.name) + " = " + st + ";"
         }
-        .BinOp(i) => {
-            return "t" + int_to_string(i.dst) + ".i = " + cg_operand_int(i.lhs) + " " + i.op + " " + cg_operand_int(i.rhs) + ";"
-        }
-        IrInstr.Call(i) => {
-            let mut args = ""
-            let mut j = 0
-            while j < len(i.args) {
-                if j > 0 { args = args + ", " }
-                args = args + cg_operand_string(i.args[j])
-                j = j + 1
+        IrInstr.BinOp(i) => {
+            let lt = cg_operand_type(i.lhs, infer.temp_types)
+            let rt = cg_operand_type(i.rhs, infer.temp_types)
+            let l = cg_operand_expr(i.lhs, lt, infer.temp_types)
+            let r = cg_operand_expr(i.rhs, rt, infer.temp_types)
+            if i.op == "+" && (lt == "string" || rt == "string") {
+                return "t" + int_to_string(i.dst) + " = dast_string_concat(" + l + ", " + r + ");"
             }
-            let call = cg_mangle_func(i.callee) + "(" + args + ")"
-            // Skip assignment for void functions
-            if i.callee == "print" || i.callee == "println" || i.callee == "panic" {
-                return call + ";"
+            if (i.op == "==" || i.op == "!=") && (lt == "string" || rt == "string") {
+                let eq = "dast_string_eq(" + l + ", " + r + ")"
+                if i.op == "!=" {
+                    return "t" + int_to_string(i.dst) + " = !" + eq + ";"
+                }
+                return "t" + int_to_string(i.dst) + " = " + eq + ";"
             }
-            if i.dst >= 0 {
-                return "t" + int_to_string(i.dst) + ".i = " + call + ";"
-            }
-            return call + ";"
+            return "t" + int_to_string(i.dst) + " = " + l + " " + i.op + " " + r + ";"
         }
-        .CallClosure(i) => {
-            return "/* closure call not supported in C */"
-        }
-        .MakeArray(i) => {
-            let mut out = "t" + int_to_string(i.dst) + " = dast_array_new(sizeof(int64_t));"
+        IrInstr.Call(i) => { return cg_emit_call(i, infer, p) }
+        .CallClosure(i) => { return cg_emit_call_closure(i, infer, p, closure_funcs) }
+        IrInstr.MakeArray(i) => {
+            let at = infer.temp_types[i.dst]
+            let mut elem = "int"
+            if cg_is_array_type(at) { elem = cg_array_elem_type(at) }
+            let ctype = cg_c_type(elem)
+            let mut out = "t" + int_to_string(i.dst) + " = dast_array_new(sizeof(" + ctype + "));"
             let mut j = 0
             while j < len(i.elems) {
-                out = out + " { int64_t _e = " + cg_operand_int(i.elems[j]) + "; dast_array_push(&t" + int_to_string(i.dst) + ", &_e); }"
+                let eexpr = cg_operand_expr(i.elems[j], elem, infer.temp_types)
+                let tmp = "_e" + int_to_string(i.dst) + "_" + int_to_string(j)
+                out = out + " { " + ctype + " " + tmp + " = " + eexpr + "; dast_array_push(&t" + int_to_string(i.dst) + ", &" + tmp + "); }"
                 j = j + 1
             }
             return out
         }
         IrInstr.Index(i) => {
-            if i.unchecked {
-                return "t" + int_to_string(i.dst) + " = ((int64_t*)((dast_array_t*)" + cg_operand_int(i.array) + ")->data)[" + cg_operand_int(i.index) + "];"
+            let at = cg_operand_type(i.array, infer.temp_types)
+            let mut base = at
+            if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+            let mut elem = "int"
+            if cg_is_array_type(base) { elem = cg_array_elem_type(base) }
+            let ctype = cg_c_type(elem)
+            let arr = cg_operand_expr(i.array, at, infer.temp_types)
+            let idx = cg_operand_expr(i.index, "int", infer.temp_types)
+            let mut arr_expr = arr
+            if cg_is_ref_type(at) {
+                arr_expr = "*" + arr
             }
-            return "t" + int_to_string(i.dst) + " = *(int64_t*)dast_array_get(" + cg_operand_int(i.array) + ", " + cg_operand_int(i.index) + ");"
-        }
-        .SetIndex(i) => {
             if i.unchecked {
-                return "((int64_t*)((dast_array_t*)" + cg_operand_int(i.array) + ")->data)[" + cg_operand_int(i.index) + "] = " + cg_operand_int(i.src) + ";"
+                return "t" + int_to_string(i.dst) + " = ((" + ctype + "*)(" + arr_expr + ").data)[" + idx + "];"
             }
-            return "{ int64_t _v = " + cg_operand_int(i.src) + "; dast_array_set(" + cg_operand_int(i.array) + ", " + cg_operand_int(i.index) + ", &_v); }"
+            return "t" + int_to_string(i.dst) + " = *(" + ctype + "*)dast_array_get(&" + arr_expr + ", " + idx + ");"
         }
-        .MakeStruct(i) => {
-            return "t" + int_to_string(i.dst) + " = 0; /* struct creation */"
+        IrInstr.SetIndex(i) => {
+            let at = cg_operand_type(i.array, infer.temp_types)
+            let mut base = at
+            if cg_is_ref_type(at) { base = cg_ref_base_type(at) }
+            let mut elem = "int"
+            if cg_is_array_type(base) { elem = cg_array_elem_type(base) }
+            let ctype = cg_c_type(elem)
+            let arr = cg_operand_expr(i.array, at, infer.temp_types)
+            let idx = cg_operand_expr(i.index, "int", infer.temp_types)
+            let src = cg_operand_expr(i.src, elem, infer.temp_types)
+            let mut arr_expr = arr
+            if cg_is_ref_type(at) {
+                arr_expr = "*" + arr
+            }
+            if i.unchecked {
+                return "((" + ctype + "*)(" + arr_expr + ").data)[" + idx + "] = " + src + ";"
+            }
+            return "{ " + ctype + " _v = " + src + "; dast_array_set(&" + arr_expr + ", " + idx + ", &_v); }"
         }
-        .GetField(i) => {
-            return "t" + int_to_string(i.dst) + " = 0; /* field access */"
+        IrInstr.MakeStruct(i) => {
+            let mut out = "t" + int_to_string(i.dst) + " = dast_struct_new(\"" + i.name + "\", " + int_to_string(len(i.fields)) + ");"
+            let mut j = 0
+            while j < len(i.fields) {
+                let f = i.fields[j]
+                let ft = cg_operand_type(f.src, infer.temp_types)
+                let setter = cg_struct_setter(ft)
+                let val = cg_operand_expr(f.src, ft, infer.temp_types)
+                out = out + " " + setter + "(t" + int_to_string(i.dst) + ", \"" + f.name + "\", " + val + ");"
+                j = j + 1
+            }
+            return out
         }
-        .SetField(i) => {
-            return "/* field set */"
+        IrInstr.GetField(i) => {
+            let mut st = ""
+            if i.src >= 0 && i.src < len(infer.temp_types) { st = infer.temp_types[i.src] }
+            let key = cg_field_key(st, i.field)
+            let ft = cg_get_field_type(infer, key)
+            let getter = cg_struct_getter(ft)
+            return "t" + int_to_string(i.dst) + " = " + getter + "(t" + int_to_string(i.src) + ", \"" + i.field + "\");"
+        }
+        IrInstr.SetField(i) => {
+            let mut st = ""
+            if i.src >= 0 && i.src < len(infer.temp_types) { st = infer.temp_types[i.src] }
+            let key = cg_field_key(st, i.field)
+            let ft = cg_get_field_type(infer, key)
+            let setter = cg_struct_setter(ft)
+            let val = cg_operand_expr(i.value, ft, infer.temp_types)
+            return setter + "(t" + int_to_string(i.src) + ", \"" + i.field + "\", " + val + ");"
         }
     }
     return "/* unknown */"
@@ -231,18 +1215,22 @@ fn cg_instr(inst: IrInstr) -> String {
 // Terminator Generation
 // =============================================================================
 
-fn cg_term(term: IrTerm) -> String {
+fn cg_term(term: IrTerm, infer: CgInfer, f: IrFunction) -> String {
     match term {
         .None(_) => { return "" }
-        .Jump(t) => {
-            return "goto " + cg_mangle_label(t.target) + ";"
-        }
+        .Jump(t) => { return "goto " + cg_mangle_label(t.target) + ";" }
         .Branch(t) => {
-            return "if (" + cg_operand_bool(t.cond) + ") goto " + cg_mangle_label(t.then_label) + "; else goto " + cg_mangle_label(t.else_label) + ";"
+            let cond = cg_operand_expr(t.cond, "bool", infer.temp_types)
+            return "if (" + cond + ") goto " + cg_mangle_label(t.then_label) + "; else goto " + cg_mangle_label(t.else_label) + ";"
         }
         IrTerm.Return(t) => {
-            if t.has_value {
+            let ret_t = cg_normalize_type(f.return_type)
+            if ret_t == "" || ret_t == "unit" {
                 return "return;"
+            }
+            if t.has_value {
+                let expr = cg_operand_expr(t.value, ret_t, infer.temp_types)
+                return "return " + expr + ";"
             }
             return "return;"
         }
@@ -253,10 +1241,58 @@ fn cg_term(term: IrTerm) -> String {
 // Function Generation
 // =============================================================================
 
-fn cg_function(f: IrFunction) -> String {
+fn cg_collect_vars(f: IrFunction) -> [String] {
+    let mut vars: [String] = []
+    let mut i = 0
+    while i < len(f.blocks) {
+        let blk = f.blocks[i]
+        let mut j = 0
+        while j < len(blk.instrs) {
+            match blk.instrs[j] {
+                IrInstr.LoadVar(x) => {
+                    if x.name != "" && !cg_string_list_contains(vars, x.name) { push(&mut vars, x.name) }
+                }
+                IrInstr.StoreVar(x) => {
+                    if x.name != "" && !cg_string_list_contains(vars, x.name) { push(&mut vars, x.name) }
+                }
+                _ => {}
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return vars
+}
+
+fn cg_is_param(f: IrFunction, name: String) -> bool {
+    let mut i = 0
+    while i < len(f.params) {
+        if f.params[i] == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn cg_collect_closure_funcs(p: IrProgram) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(p.functions) {
+        let f = p.functions[i]
+        if len(f.param_types) > 0 && f.param_types[0] == "Env" {
+            push(&mut out, f.name)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn cg_function(p: IrProgram, f: IrFunction) -> String {
+    let infer = cg_infer_function_types(p, f)
+    let closure_funcs = cg_collect_closure_funcs(p)
+
     let mut ret_type = "void"
     if f.return_type != "" && f.return_type != "unit" {
-        ret_type = cg_map_type(f.return_type)
+        ret_type = cg_c_type(f.return_type)
     }
 
     let mut params = ""
@@ -265,7 +1301,7 @@ fn cg_function(f: IrFunction) -> String {
         if i > 0 { params = params + ", " }
         let mut ptype = "int64_t"
         if i < len(f.param_types) && f.param_types[i] != "" {
-            ptype = cg_map_type(f.param_types[i])
+            ptype = cg_c_type(f.param_types[i])
         }
         params = params + ptype + " " + cg_mangle_var(f.params[i])
         i = i + 1
@@ -274,11 +1310,27 @@ fn cg_function(f: IrFunction) -> String {
 
     let mut out = ret_type + " " + cg_mangle_func(f.name) + "(" + params + ") {\n"
 
-    // Declare temps as dast_value_t union
+    // Declare locals
+    let vars = cg_collect_vars(f)
+    let mut vi = 0
+    while vi < len(vars) {
+        let vname = vars[vi]
+        if !cg_is_param(f, vname) {
+            let vt = cg_get_var_type(infer, vname)
+            let ctype = cg_c_type(vt)
+            out = out + "    " + ctype + " " + cg_mangle_var(vname) + " = " + cg_c_zero(vt) + ";\n"
+        }
+        vi = vi + 1
+    }
+
+    // Declare temps
     if f.temp_count > 0 {
         i = 0
         while i < f.temp_count {
-            out = out + "    dast_value_t t" + int_to_string(i) + " = {0};\n"
+            let mut tt = ""
+            if i < len(infer.temp_types) { tt = infer.temp_types[i] }
+            let ctype = cg_c_type(tt)
+            out = out + "    " + ctype + " t" + int_to_string(i) + " = " + cg_c_zero(tt) + ";\n"
             i = i + 1
         }
         out = out + "\n"
@@ -292,11 +1344,11 @@ fn cg_function(f: IrFunction) -> String {
 
         let mut j = 0
         while j < len(blk.instrs) {
-            out = out + "    " + cg_instr(blk.instrs[j]) + "\n"
+            out = out + "    " + cg_instr(blk.instrs[j], infer, p, closure_funcs) + "\n"
             j = j + 1
         }
 
-        let term = cg_term(blk.term)
+        let term = cg_term(blk.term, infer, f)
         if term != "" {
             out = out + "    " + term + "\n"
         }
@@ -322,9 +1374,21 @@ fn ir_program_to_c(p: IrProgram) -> String {
         let f = p.functions[i]
         let mut ret_type = "void"
         if f.return_type != "" && f.return_type != "unit" {
-            ret_type = cg_map_type(f.return_type)
+            ret_type = cg_c_type(f.return_type)
         }
-        out = out + ret_type + " " + cg_mangle_func(f.name) + "();\n"
+        let mut params = ""
+        let mut j = 0
+        while j < len(f.params) {
+            if j > 0 { params = params + ", " }
+            let mut ptype = "int64_t"
+            if j < len(f.param_types) && f.param_types[j] != "" {
+                ptype = cg_c_type(f.param_types[j])
+            }
+            params = params + ptype + " " + cg_mangle_var(f.params[j])
+            j = j + 1
+        }
+        if params == "" { params = "void" }
+        out = out + ret_type + " " + cg_mangle_func(f.name) + "(" + params + ");\n"
         i = i + 1
     }
     out = out + "\n"
@@ -332,7 +1396,7 @@ fn ir_program_to_c(p: IrProgram) -> String {
     // Generate functions
     i = 0
     while i < len(p.functions) {
-        out = out + cg_function(p.functions[i]) + "\n"
+        out = out + cg_function(p, p.functions[i]) + "\n"
         i = i + 1
     }
 
