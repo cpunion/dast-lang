@@ -25,6 +25,7 @@ IR_OPT_CONST := $(IR_TEST_DIR)/opt_const.ir
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE0_RUN_PASS := $(wildcard compiler/bootstrap/stage0/tests/run-pass/*.dast)
 STAGE0_COMPILE_FAIL := $(wildcard compiler/bootstrap/stage0/tests/compile-fail/*.dast)
+STAGE0_MODULE_TEST_DIR := compiler/bootstrap/stage0/tests/module-basic
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
@@ -60,6 +61,13 @@ test-stage0: build-stage0
 		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
 		if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi; \
 	done
+	@echo "[stage0-build] $(STAGE0_MODULE_TEST_DIR)"; \
+	./$(STAGE0_BIN) build $(STAGE0_MODULE_TEST_DIR) -o /tmp/dast-stage0-module.ir || exit 1; \
+	rm -f /tmp/dast-stage0-module.ir
+	@echo "[stage0-run] $(STAGE0_MODULE_TEST_DIR)"; \
+	./$(STAGE0_BIN) run $(STAGE0_MODULE_TEST_DIR) || exit 1
+	@echo "[stage0-test] $(STAGE0_MODULE_TEST_DIR)"; \
+	./$(STAGE0_BIN) test $(STAGE0_MODULE_TEST_DIR) || exit 1
 
 test-stage1: build-stage0
 	@for f in $(EXAMPLES); do \

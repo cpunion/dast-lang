@@ -33,6 +33,25 @@ type module struct {
 	aliases map[string]struct{}
 }
 
+func normalizeImportPath(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return p
+	}
+	relPrefix := ""
+	if strings.HasPrefix(p, "./") {
+		relPrefix = "./"
+		p = strings.TrimPrefix(p, "./")
+	} else if strings.HasPrefix(p, "../") {
+		relPrefix = "../"
+		p = strings.TrimPrefix(p, "../")
+	}
+	if !strings.Contains(p, "/") && strings.Contains(p, ".") {
+		p = strings.ReplaceAll(p, ".", "/")
+	}
+	return relPrefix + p
+}
+
 // LoadProgram loads a program with module imports resolved.
 func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error) {
 	if len(paths) == 0 {
@@ -93,12 +112,13 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 				if imp.path == "" {
 					continue
 				}
+				normPath := normalizeImportPath(imp.path)
 				if imp.alias != "" {
 					aliases[imp.alias] = struct{}{}
 				} else {
-					aliases[defaultAlias(imp.path)] = struct{}{}
+					aliases[defaultAlias(normPath)] = struct{}{}
 				}
-				target, err := resolveImport(rootDir, absDir, imp.path, imp.span)
+				target, err := resolveImport(rootDir, absDir, normPath, imp.span)
 				if err != nil {
 					scanDiags.Add(imp.span, err.Error())
 					continue
@@ -171,7 +191,18 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 			if err != nil {
 				return "", "", nil, err
 			}
-			rootDir = entryDir
+			pkgRoot, _ := findPackageRoot(entryDir)
+			if pkgRoot != "" {
+				rootDir = codeRoot(pkgRoot)
+				if entryDir == pkgRoot {
+					entryDir = rootDir
+				}
+				if !isWithin(entryDir, rootDir) {
+					return "", "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+				}
+			} else {
+				rootDir = entryDir
+			}
 			entryFiles, err = listDastFiles(entryDir, includeTests)
 			if err != nil {
 				return "", "", nil, err
@@ -196,7 +227,15 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 		return "", "", nil, err
 	}
 	entryDir = firstDir
-	rootDir = entryDir
+	pkgRoot, _ := findPackageRoot(entryDir)
+	if pkgRoot != "" {
+		rootDir = codeRoot(pkgRoot)
+		if !isWithin(entryDir, rootDir) {
+			return "", "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+		}
+	} else {
+		rootDir = entryDir
+	}
 
 	var files []string
 	for _, p := range paths {
@@ -206,6 +245,9 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 		}
 		if filepath.Dir(abs) != entryDir {
 			return "", "", nil, fmt.Errorf("all entry files must be in the same directory")
+		}
+		if !isWithin(entryDir, rootDir) {
+			return "", "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
 		}
 		files = append(files, abs)
 	}
@@ -224,6 +266,55 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 
 	sort.Strings(files)
 	return rootDir, entryDir, files, nil
+}
+
+func findPackageRoot(startDir string) (string, error) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", err
+	}
+	for {
+		path := filepath.Join(dir, "dast.toml")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", nil
+}
+
+func codeRoot(pkgRoot string) string {
+	if pkgRoot == "" {
+		return ""
+	}
+	srcDir := filepath.Join(pkgRoot, "src")
+	if info, err := os.Stat(srcDir); err == nil && info.IsDir() {
+		return srcDir
+	}
+	return pkgRoot
+}
+
+func isWithin(path string, root string) bool {
+	if root == "" {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return false
+	}
+	return rel == "." || !strings.HasPrefix(rel, "..")
 }
 
 func listDastFiles(dir string, includeTests bool) ([]string, error) {
@@ -272,6 +363,7 @@ func defaultAlias(path string) string {
 }
 
 func resolveImport(rootDir string, curDir string, path string, span source.Span) (string, error) {
+	path = normalizeImportPath(path)
 	if path == "" {
 		return "", fmt.Errorf("empty import path")
 	}
@@ -330,11 +422,28 @@ func scanImports(filename string, input string) ([]importSpec, *diag.Bag) {
 		if depth != 0 {
 			continue
 		}
-		if tok.Kind != lexer.TokenImport {
+		if tok.Kind != lexer.TokenImport && tok.Kind != lexer.TokenMod {
 			continue
 		}
 		if i+1 >= len(toks) {
 			diags.Add(tok.Span, "expected import path")
+			continue
+		}
+		if tok.Kind == lexer.TokenMod {
+			end := i + 1
+			if toks[end].Kind != lexer.TokenIdent {
+				diags.Add(toks[end].Span, "expected module name")
+				continue
+			}
+			name := toks[end].Lexeme
+			lastSpan := toks[end].Span
+			for end+2 < len(toks) && toks[end+1].Kind == lexer.TokenDot && toks[end+2].Kind == lexer.TokenIdent {
+				name += "." + toks[end+2].Lexeme
+				lastSpan = toks[end+2].Span
+				end += 2
+			}
+			i = end
+			out = append(out, importSpec{path: "./" + name, alias: "", span: lastSpan})
 			continue
 		}
 		pathTok := toks[i+1]

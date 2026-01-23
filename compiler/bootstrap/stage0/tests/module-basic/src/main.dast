@@ -1,0 +1,19 @@
+import "utils"
+import "util.sub" as sub
+mod local
+
+struct Counter { value: i64 }
+
+fn main() {
+    let c = Counter { value: 1 }
+    let x = add(c.value, 2)
+    println(x)
+    let y = mul(3, 4)
+    println(y)
+    let z = sub.add10(5)
+    println(z)
+    let w = local_value()
+    println(w)
+    let k = inc(9)
+    println(k)
+}

@@ -355,6 +355,8 @@ func lookupKeyword(lex string) TokenKind {
 		return TokenConst
 	case "import":
 		return TokenImport
+	case "mod":
+		return TokenMod
 	case "as":
 		return TokenAs
 	case "let":

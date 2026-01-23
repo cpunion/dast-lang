@@ -25,6 +25,8 @@ func main() {
 	}
 	cmd := os.Args[1]
 	switch cmd {
+	case "build":
+		buildCmd(os.Args[2:])
 	case "run":
 		run(os.Args[2:])
 	case "test":
@@ -49,6 +51,7 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "dast - stage0 prototype")
 	fmt.Fprintln(os.Stderr, "usage:")
+	fmt.Fprintln(os.Stderr, "  dast build <dir|file.dast ...> [-o output.ir]")
 	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast test [dir|file.dast ...]")
 	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...]")
@@ -69,20 +72,9 @@ func run(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	prog := loadProgram(files, loader.LoadNormal)
-	if prog == nil {
+	irProg := buildProgram(files, loader.LoadNormal, nil)
+	if irProg == nil {
 		return
-	}
-	if exitOnDiag(typecheck.Check(prog)) {
-		return
-	}
-	irProg, diags := compile.Compile(prog)
-	if exitOnDiag(diags) {
-		return
-	}
-	if err := irProg.Validate(); err != nil {
-		printStage0Error("<ir>", 0, 0, err.Error())
-		os.Exit(1)
 	}
 	rt := interp.New(irProg)
 	if len(progArgs) > 0 {
@@ -105,20 +97,9 @@ func dumpIR(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	prog := loadProgram(files, loader.LoadNormal)
-	if prog == nil {
+	irProg := buildProgram(files, loader.LoadNormal, nil)
+	if irProg == nil {
 		return
-	}
-	if exitOnDiag(typecheck.Check(prog)) {
-		return
-	}
-	irProg, diags := compile.Compile(prog)
-	if exitOnDiag(diags) {
-		return
-	}
-	if err := irProg.Validate(); err != nil {
-		printStage0Error("<ir>", 0, 0, err.Error())
-		os.Exit(1)
 	}
 	fmt.Print(irProg.Format())
 }
@@ -131,38 +112,53 @@ func testCmd(args []string) {
 			files = []string{"."}
 		}
 	}
-	prog := loadProgram(files, loader.LoadTest)
-	if prog == nil {
+	var entry string
+	irProg := buildProgram(files, loader.LoadTest, &entry)
+	if irProg == nil {
 		return
 	}
-	tests, diags := collectTests(prog)
-	if exitOnDiag(diags) {
-		return
+	if entry != "" {
+		irProg.Entry = entry
 	}
-	if len(tests) == 0 {
-		return
-	}
-	testMain, diagMain := buildTestMain(prog, tests)
-	if exitOnDiag(diagMain) {
-		return
-	}
-	prog.Items = append(prog.Items, testMain)
-	if exitOnDiag(typecheck.Check(prog)) {
-		return
-	}
-	irProg, diags := compile.Compile(prog)
-	if exitOnDiag(diags) {
-		return
-	}
-	if err := irProg.Validate(); err != nil {
-		printStage0Error("<ir>", 0, 0, err.Error())
-		os.Exit(1)
-	}
-	irProg.Entry = testMain.Name
 	rt := interp.New(irProg)
 	if _, err := rt.Run(irProg.Entry); err != nil {
 		exitOnRunErr(err)
 	}
+}
+
+func buildCmd(args []string) {
+	if len(args) < 1 {
+		printStage0Error("", 0, 0, "missing input file")
+		usage()
+		os.Exit(1)
+	}
+	outPath := ""
+	files := []string{}
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-o" && i+1 < len(args) {
+			outPath = args[i+1]
+			i++
+			continue
+		}
+		files = append(files, args[i])
+	}
+	if len(files) == 0 {
+		printStage0Error("", 0, 0, "missing input file")
+		usage()
+		os.Exit(1)
+	}
+	irProg := buildProgram(files, loader.LoadNormal, nil)
+	if irProg == nil {
+		return
+	}
+	if outPath != "" {
+		if err := os.WriteFile(outPath, []byte(irProg.Format()), 0644); err != nil {
+			printStage0Error(outPath, 0, 0, fmt.Sprintf("write failed: %v", err))
+			os.Exit(1)
+		}
+		return
+	}
+	fmt.Print(irProg.Format())
 }
 
 func runIR(args []string) {
@@ -290,6 +286,42 @@ func loadProgram(paths []string, mode loader.LoadMode) *ast.Program {
 		return nil
 	}
 	return prog
+}
+
+func buildProgram(paths []string, mode loader.LoadMode, testEntry *string) *ir.Program {
+	prog := loadProgram(paths, mode)
+	if prog == nil {
+		return nil
+	}
+	if mode == loader.LoadTest {
+		tests, diags := collectTests(prog)
+		if exitOnDiag(diags) {
+			return nil
+		}
+		if len(tests) == 0 {
+			return nil
+		}
+		testMain, diagMain := buildTestMain(prog, tests)
+		if exitOnDiag(diagMain) {
+			return nil
+		}
+		prog.Items = append(prog.Items, testMain)
+		if testEntry != nil {
+			*testEntry = testMain.Name
+		}
+	}
+	if exitOnDiag(typecheck.Check(prog)) {
+		return nil
+	}
+	irProg, diags := compile.Compile(prog)
+	if exitOnDiag(diags) {
+		return nil
+	}
+	if err := irProg.Validate(); err != nil {
+		printStage0Error("<ir>", 0, 0, err.Error())
+		os.Exit(1)
+	}
+	return irProg
 }
 
 func collectTests(prog *ast.Program) ([]testInfo, *diag.Bag) {
