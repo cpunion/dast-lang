@@ -38,13 +38,6 @@ func (p *Parser) parseImport() ast.Item {
 	return &ast.ImportDecl{Path: pathTok.Lexeme, Alias: alias, SpanInfo: mergeSpan(startTok.Span, endSpan)}
 }
 
-func (p *Parser) parseMod() ast.Item {
-	startTok := p.prev()
-	name, span := p.parseQualifiedName()
-	p.maybeConsumeSemicolon()
-	return &ast.ImportDecl{Path: "./" + name, Alias: "", SpanInfo: mergeSpan(startTok.Span, span)}
-}
-
 func (p *Parser) parseEnumDecl(repr string) ast.Item {
 	nameTok := p.expect(lexer.TokenIdent, "expected enum name")
 	decl := &ast.EnumDecl{Name: nameTok.Lexeme, Repr: repr, SpanInfo: nameTok.Span}

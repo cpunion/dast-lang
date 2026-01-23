@@ -1,6 +1,6 @@
 import "utils"
 import "util.sub" as sub
-mod local
+import "local"
 
 struct Counter { value: i64 }
 

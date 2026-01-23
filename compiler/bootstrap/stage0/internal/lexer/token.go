@@ -19,7 +19,6 @@ const (
 	TokenSelfType
 	TokenConst
 	TokenImport
-	TokenMod
 	TokenAs
 	TokenLet
 	TokenMut
@@ -98,8 +97,6 @@ func (k TokenKind) String() string {
 		return "const"
 	case TokenImport:
 		return "import"
-	case TokenMod:
-		return "mod"
 	case TokenAs:
 		return "as"
 	case TokenLet:

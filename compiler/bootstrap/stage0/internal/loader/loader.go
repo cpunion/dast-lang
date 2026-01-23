@@ -422,28 +422,11 @@ func scanImports(filename string, input string) ([]importSpec, *diag.Bag) {
 		if depth != 0 {
 			continue
 		}
-		if tok.Kind != lexer.TokenImport && tok.Kind != lexer.TokenMod {
+		if tok.Kind != lexer.TokenImport {
 			continue
 		}
 		if i+1 >= len(toks) {
 			diags.Add(tok.Span, "expected import path")
-			continue
-		}
-		if tok.Kind == lexer.TokenMod {
-			end := i + 1
-			if toks[end].Kind != lexer.TokenIdent {
-				diags.Add(toks[end].Span, "expected module name")
-				continue
-			}
-			name := toks[end].Lexeme
-			lastSpan := toks[end].Span
-			for end+2 < len(toks) && toks[end+1].Kind == lexer.TokenDot && toks[end+2].Kind == lexer.TokenIdent {
-				name += "." + toks[end+2].Lexeme
-				lastSpan = toks[end+2].Span
-				end += 2
-			}
-			i = end
-			out = append(out, importSpec{path: "./" + name, alias: "", span: lastSpan})
 			continue
 		}
 		pathTok := toks[i+1]
