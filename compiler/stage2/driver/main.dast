@@ -1549,7 +1549,7 @@ fn collect_tests(prog: Program) -> [String] {
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
-        if f.is_test || driver_string_starts_with(f.name, "test_") {
+        if driver_string_starts_with(f.name, "test_") {
             push(&mut out, driver_qualify_name(f.module, f.name))
         }
         i = i + 1

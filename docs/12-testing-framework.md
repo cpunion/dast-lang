@@ -28,7 +28,7 @@ fn test_string_concat() {
 **规则**:
 - `*_test.dast` 文件中的 `test_*` 函数自动识别为测试
 - 同包文件无需 `import`
-- 目前 stage2 仅支持 `test_*` 发现规则（暂不要求 `@test`）
+- 当前仅支持 `test_*` 发现规则，**不支持** `@test` 等测试注解
 
 ### 断言宏
 
@@ -68,32 +68,13 @@ $ dast build  # 自动忽略 *_test.dast
 $ dast test   # 包含 *_test.dast
 ```
 
-### 预期失败
+### 未来：测试注解（非当前）
 
 ```dast
-// 使用属性标记
-@should_panic
-fn test_divide_by_zero() {
-    let _ = 1 / 0  // 应该 panic
-}
-
-@should_panic(expected: "division by zero")
-fn test_specific_panic() {
-    divide(10, 0)
-}
-```
-
-### 忽略测试
-
-```dast
-@ignore
+// 计划中的跳过测试标记（当前不支持）
+@skip
 fn test_expensive() {
-    // 默认不运行，除非 --ignored
-}
-
-@ignore(reason: "waiting for bug fix")
-fn test_broken() {
-    // ...
+    // 默认不运行，除非显式启用
 }
 ```
 

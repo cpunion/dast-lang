@@ -255,9 +255,8 @@ fn serialize[T](obj: &T) -> Vec[u8] {
 ```dast
 comptime fn generate_tests() {
     comptime for test_case in TEST_CASES {
-        @test(test_case.name, || {
-            assert_eq(test_case.input, test_case.expected)
-        })
+        // 生成 test_ 前缀的测试函数（示意）
+        // 例如：fn test_<name>() { assert_eq(...) }
     }
 }
 ```

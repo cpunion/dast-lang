@@ -3,8 +3,7 @@ fn test_add() {
     println("test_add", v)
 }
 
-@test
-fn add_check() {
+fn test_add_check() {
     let v = add(1, 4)
     println("add_check", v)
 }
