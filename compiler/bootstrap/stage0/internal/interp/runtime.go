@@ -35,6 +35,8 @@ func New(prog *ir.Program) *Runtime {
 	rt.Builtins = map[string]Builtin{
 		"print":      rt.builtinPrint(false),
 		"println":    rt.builtinPrint(true),
+		"eprint":     rt.builtinEprint(false),
+		"eprintln":   rt.builtinEprint(true),
 		"len":        rt.builtinLen(),
 		"push":       rt.builtinPush(),
 		"exit":       rt.builtinExit(),
@@ -48,6 +50,7 @@ func New(prog *ir.Program) *Runtime {
 		"pop":        rt.builtinPop(),
 		"read_line":  rt.builtinReadLine(),
 		"read_bytes": rt.builtinReadBytes(),
+		"exec":       rt.builtinExec(),
 	}
 	return rt
 }
@@ -102,7 +105,9 @@ func (rt *Runtime) callFunction(name string, args []ir.Value) (ir.Value, error) 
 			return ir.Value{Kind: ir.KindUnit}, err
 		}
 	}
-	return rt.execFrame(fr)
+	res, err := rt.execFrame(fr)
+	rt.freeFrame(fr)
+	return res, err
 }
 
 func (rt *Runtime) execFrame(fr *frame) (ir.Value, error) {
@@ -169,4 +174,10 @@ func (rt *Runtime) allocAddr(ptr *ir.Value) int {
 	rt.nextAddr++
 	rt.heap[addr] = ptr
 	return addr
+}
+
+func (rt *Runtime) freeFrame(fr *frame) {
+	for _, addr := range fr.varAddrs {
+		delete(rt.heap, addr)
+	}
 }

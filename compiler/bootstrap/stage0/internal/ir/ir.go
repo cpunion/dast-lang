@@ -144,10 +144,24 @@ type TypeDecl struct {
 	Fields []Var // For struct types
 }
 
+type EnumVariant struct {
+	Name        string
+	Tag         int64
+	PayloadType string
+}
+
+type EnumDecl struct {
+	Name       string
+	TypeParams []string
+	TagType    string
+	Variants   []EnumVariant
+}
+
 type Program struct {
 	Version   string
 	Features  []string
-	TypeDecls map[string]*TypeDecl // Type declarations (structs, enums)
+	TypeDecls map[string]*TypeDecl // Type declarations (structs)
+	Enums     []*EnumDecl
 	Functions map[string]*Function
 	Entry     string
 }
@@ -259,9 +273,9 @@ func (i *MakeArray) String() string {
 
 type Index struct {
 	Unchecked bool
-	Dst   int
-	Array Operand
-	Index Operand
+	Dst       int
+	Array     Operand
+	Index     Operand
 }
 
 func (i *Index) instrNode() {}
@@ -274,9 +288,9 @@ func (i *Index) String() string {
 
 type SetIndex struct {
 	Unchecked bool
-	Array Operand
-	Index Operand
-	Src   Operand
+	Array     Operand
+	Index     Operand
+	Src       Operand
 }
 
 func (i *SetIndex) instrNode() {}
@@ -373,6 +387,34 @@ func (p *Program) Format() string {
 		version = "v0"
 	}
 	sb.WriteString(fmt.Sprintf("ir %s\n", version))
+
+	// Output enum declarations
+	if len(p.Enums) > 0 {
+		for _, e := range p.Enums {
+			tagType := e.TagType
+			if tagType == "" {
+				tagType = "i32"
+			}
+			sb.WriteString("enum ")
+			sb.WriteString(e.Name)
+			if len(e.TypeParams) > 0 {
+				sb.WriteString("[")
+				sb.WriteString(strings.Join(e.TypeParams, ", "))
+				sb.WriteString("]")
+			}
+			sb.WriteString(" tag ")
+			sb.WriteString(tagType)
+			sb.WriteString("\n")
+			for _, v := range e.Variants {
+				pt := v.PayloadType
+				if pt == "" {
+					pt = "unit"
+				}
+				sb.WriteString(fmt.Sprintf("  variant %s = %d : %s\n", v.Name, v.Tag, pt))
+			}
+			sb.WriteString("\n")
+		}
+	}
 
 	// Output type declarations
 	if len(p.TypeDecls) > 0 {

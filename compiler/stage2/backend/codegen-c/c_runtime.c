@@ -2,7 +2,9 @@
 #include "c_runtime.h"
 #include <dirent.h>
 #include <errno.h>
+#include <spawn.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 // Global state
 static int g_argc = 0;
@@ -152,6 +154,25 @@ void dast_print_bool(bool b) { fputs(b ? "true" : "false", stdout); }
 
 void dast_print_newline(void) { putchar('\n'); }
 
+void dast_eprint(dast_string_t s) { fwrite(s.data, 1, s.len, stderr); }
+
+void dast_eprint_cstr(const char *s) { fputs(s, stderr); }
+
+void dast_eprintln(dast_string_t s) {
+  fwrite(s.data, 1, s.len, stderr);
+  fputc('\n', stderr);
+}
+
+void dast_eprint_int(dast_int n) { fprintf(stderr, "%lld", (long long)n); }
+
+void dast_eprint_bool(bool b) { fputs(b ? "true" : "false", stderr); }
+
+void dast_eprint_newline(void) { fputc('\n', stderr); }
+
+void dast_eprint_array(dast_array_t *arr) {
+  fprintf(stderr, "[len=%zu]", arr->len);
+}
+
 void dast_print_array(dast_array_t *arr) {
   printf("[len=%zu]", arr->len);
 }
@@ -186,6 +207,62 @@ void dast_panic(dast_string_t msg) {
   fwrite(msg.data, 1, msg.len, stderr);
   fprintf(stderr, "\n");
   exit(1);
+}
+
+// =============================================================================
+// Process execution
+// =============================================================================
+
+extern char **environ;
+
+static char *dast_string_to_cstr(dast_string_t s) {
+  char *buf = (char *)malloc(s.len + 1);
+  memcpy(buf, s.data, s.len);
+  buf[s.len] = '\0';
+  return buf;
+}
+
+int64_t dast_exec(dast_string_t cmd, dast_array_t args) {
+  size_t argc = args.len;
+  char **argv = (char **)malloc(sizeof(char *) * (argc + 2));
+  argv[0] = dast_string_to_cstr(cmd);
+  for (size_t i = 0; i < argc; i++) {
+    dast_string_t *s = (dast_string_t *)dast_array_get(&args, (dast_int)i);
+    argv[i + 1] = dast_string_to_cstr(*s);
+  }
+  argv[argc + 1] = NULL;
+
+  pid_t pid = 0;
+  int status = 0;
+  int rc = posix_spawnp(&pid, argv[0], NULL, NULL, argv, environ);
+  if (rc != 0) {
+    fprintf(stderr, "exec failed: %s\n", strerror(rc));
+    for (size_t i = 0; i < argc + 1; i++) {
+      free(argv[i]);
+    }
+    free(argv);
+    return 127;
+  }
+  if (waitpid(pid, &status, 0) < 0) {
+    fprintf(stderr, "exec wait failed\n");
+    for (size_t i = 0; i < argc + 1; i++) {
+      free(argv[i]);
+    }
+    free(argv);
+    return 127;
+  }
+  for (size_t i = 0; i < argc + 1; i++) {
+    free(argv[i]);
+  }
+  free(argv);
+
+  if (WIFEXITED(status)) {
+    return (int64_t)WEXITSTATUS(status);
+  }
+  if (WIFSIGNALED(status)) {
+    return (int64_t)(128 + WTERMSIG(status));
+  }
+  return 127;
 }
 
 // =============================================================================
@@ -321,7 +398,7 @@ void *dast_struct_get_ref(dast_struct_t *st, const char *field) {
 
 dast_array_t dast_args(void) {
   dast_array_t arr = dast_array_new(sizeof(dast_string_t));
-  for (int i = 0; i < g_argc; i++) {
+  for (int i = 1; i < g_argc; i++) {
     dast_string_t s = dast_string_from_cstr(g_argv[i]);
     dast_array_push(&arr, &s);
   }
@@ -353,6 +430,9 @@ dast_array_t dast_read_dir(dast_string_t path) {
   dast_array_t arr = dast_array_new(sizeof(dast_string_t));
   DIR *dir = opendir(path.data);
   if (!dir) {
+    if (errno == ENOENT || errno == ENOTDIR) {
+      return arr;
+    }
     fprintf(stderr, "read_dir failed: %s\n", path.data);
     exit(1);
   }

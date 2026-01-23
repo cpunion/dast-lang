@@ -5,6 +5,10 @@ STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
 STAGE1_FILES := compiler/bootstrap/stage1/compiler/ compiler/bootstrap/stage1/irv0/ compiler/bootstrap/stage1/interp/
 STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/codegen-c/codegen-c.dast
 STAGE1_IR := compiler/bootstrap/stage1/stage1.ir
+STAGE2_COMPILER_DIRS := compiler/stage2 compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/backend compiler/stage2/backend/interp compiler/stage2/backend/codegen-c
+STAGE2_COMPILER_OUT ?= compiler/stage2/target/dast-stage2
+STAGE2_COMPILER_DEBUG ?=
+STAGE2_COMPILER_DEBUG_FLAG := $(if $(STAGE2_COMPILER_DEBUG),--debug,)
 IR_TEST_DIR := compiler/bootstrap/stage0/tests/ir
 IR_VALID := $(IR_TEST_DIR)/valid.ir
 IR_INVALID := $(IR_TEST_DIR)/invalid_missing_term.ir
@@ -34,7 +38,7 @@ NATIVE_PATH ?= compiler/stage2/tests/examples/native-full
 NATIVE_BUILD_ARGS ?= --example hello
 NATIVE_TARGET_DIR ?=
 
-.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean stage2-native vscode-ext vscode-ext-install vscode-ext-clean
+.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -118,7 +122,7 @@ test-stage2: build-stage0
 	@for d in $(STAGE2_BUILD); do \
 		echo "[stage2-build] $$d"; \
 		rm -rf $$d/target; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $$d 2>&1); \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --emit-ir $$d 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -134,7 +138,7 @@ test-stage2: build-stage0
 	@for d in $(STAGE2_BUILD_FAIL); do \
 		echo "[stage2-build-fail] $$d"; \
 		rm -rf $$d/target; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $$d 2>&1); \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --emit-ir $$d 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
@@ -159,7 +163,7 @@ test-stage2: build-stage0
 	@for d in $(STAGE2_WORKSPACE); do \
 		echo "[stage2-workspace-build] $$d"; \
 		rm -rf $$d/app/target; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --package app $$d 2>&1); \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --emit-ir --package app $$d 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -176,7 +180,7 @@ test-stage2: build-stage0
 	@for d in $(STAGE2_EXAMPLES); do \
 		echo "[stage2-example-build] $$d"; \
 		rm -rf $$d/target; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --example hello $$d 2>&1); \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --emit-ir --example hello $$d 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -190,12 +194,44 @@ stage2-native: build-stage0
 	if [ -n "$(NATIVE_TARGET_DIR)" ]; then target="$(NATIVE_TARGET_DIR)"; else target="$$root/target"; fi; \
 	echo "[stage2-native] build $$path"; \
 	rm -rf "$$target"; \
-	./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(NATIVE_BUILD_ARGS) "$$path"; \
+	./$(STAGE0_BIN) run $(STAGE2_FILES) -- build --emit-ir $(NATIVE_BUILD_ARGS) "$$path"; \
 	ir=$$(ls "$$target"/*.ir 2>/dev/null | head -1); \
 	if [ -z "$$ir" ]; then echo "missing build output in $$target"; exit 1; fi; \
 	cfile="$${ir%.ir}.c"; \
 	out="$${ir%.ir}"; \
 	./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-c "$$ir" > "$$cfile"; \
+	$(CC) $(CFLAGS) "$$cfile" compiler/stage2/backend/codegen-c/c_runtime.c -I compiler/stage2/backend/codegen-c -o "$$out"; \
+	echo "native: $$out"
+
+stage2-compiler: build-stage0
+	@set -e; \
+	root="compiler/stage2"; \
+	target="$$root/target"; \
+	stage2_bin="$(STAGE2_COMPILER_OUT)"; \
+	use_native=0; \
+	if [ -x "$$stage2_bin" ]; then \
+		use_native=1; \
+		for f in compiler/stage2/backend/codegen-c/codegen-c.dast compiler/stage2/backend/codegen-c/c_runtime.c compiler/stage2/backend/codegen-c/c_runtime.h compiler/stage2/middle/ir.dast compiler/stage2/driver/main.dast; do \
+			if [ "$$f" -nt "$$stage2_bin" ]; then use_native=0; break; fi; \
+		done; \
+	fi; \
+	mkdir -p "$$target"; \
+	rm -f "$$target"/*.ir "$$target"/*.c; \
+	echo "[stage2-compiler] emit IR"; \
+	./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap --emit-ir $(STAGE2_COMPILER_DIRS); \
+	ir=$$(ls "$$target"/*.ir 2>/dev/null | head -1); \
+	if [ -z "$$ir" ]; then echo "missing build output in $$target"; exit 1; fi; \
+	cfile="$${ir%.ir}.c"; \
+	out="$(STAGE2_COMPILER_OUT)"; \
+	mkdir -p $$(dirname "$$out"); \
+	echo "[stage2-compiler] ir -> c: $$cfile"; \
+	if [ $$use_native -eq 1 ]; then \
+		echo "[stage2-compiler] ir-c using native stage2"; \
+		"$$stage2_bin" ir-c "$$ir" > "$$cfile"; \
+	else \
+		./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-c "$$ir" > "$$cfile"; \
+	fi; \
+	echo "[stage2-compiler] clang -> $$out"; \
 	$(CC) $(CFLAGS) "$$cfile" compiler/stage2/backend/codegen-c/c_runtime.c -I compiler/stage2/backend/codegen-c -o "$$out"; \
 	echo "native: $$out"
 

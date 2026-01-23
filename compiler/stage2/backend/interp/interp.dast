@@ -709,6 +709,8 @@ fn find_function(p: IrProgram, name: String) -> i32 {
 fn is_builtin_name(name: String) -> bool {
     if name == "print" { return true }
     if name == "println" { return true }
+    if name == "eprint" { return true }
+    if name == "eprintln" { return true }
     if name == "len" { return true }
     if name == "push" { return true }
     if name == "pop" { return true }
@@ -722,6 +724,7 @@ fn is_builtin_name(name: String) -> bool {
     if name == "substr" { return true }
     if name == "read_line" { return true }
     if name == "read_bytes" { return true }
+    if name == "exec" { return true }
     return false
 }
 
@@ -737,6 +740,20 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         }
         if name == "println" {
             println("")
+        }
+        return ir_value_unit()
+    }
+    if name == "eprint" || name == "eprintln" {
+        let mut i = 0
+        while i < len(args) {
+            if i > 0 {
+                eprint(" ")
+            }
+            eprint(format_value(rt, args[i]))
+            i = i + 1
+        }
+        if name == "eprintln" {
+            eprintln("")
         }
         return ir_value_unit()
     }
@@ -884,6 +901,22 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         let n = args[0].int
         let data = read_bytes(n)
         return ir_value_string(data)
+    }
+    if name == "exec" {
+        if len(args) != 2 { runtime_error(rt, "exec expects 2 arguments"); return ir_value_unit() }
+        if args[0].kind != ir_kind_string() { runtime_error(rt, "exec expects string command"); return ir_value_unit() }
+        if args[1].kind != ir_kind_array() { runtime_error(rt, "exec expects [string] args"); return ir_value_unit() }
+        let arr = array_value(rt, args[1])
+        let mut argv: [String] = []
+        let mut i = 0
+        while i < len(arr.elems) {
+            let v = arr.elems[i]
+            if v.kind != ir_kind_string() { runtime_error(rt, "exec expects [string] args"); return ir_value_unit() }
+            push(&mut argv, v.str)
+            i = i + 1
+        }
+        let code = exec(args[0].str, argv)
+        return ir_value_int(code)
     }
     runtime_error(rt, "unknown builtin")
     return ir_value_unit()

@@ -99,6 +99,26 @@ func (c *Compiler) computeEnumTags() {
 	}
 }
 
+func (c *Compiler) enumDeclToIR(decl *ast.EnumDecl) *ir.EnumDecl {
+	tagType := decl.Repr
+	if tagType == "" {
+		tagType = "i32"
+	}
+	variants := make([]ir.EnumVariant, 0, len(decl.Variants))
+	for _, v := range decl.Variants {
+		tag, _, ok := c.enumTagInfo(decl.Name, v.Name)
+		if !ok {
+			tag = 0
+		}
+		payloadType := "unit"
+		if v.Payload != nil {
+			payloadType = formatType(*v.Payload)
+		}
+		variants = append(variants, ir.EnumVariant{Name: v.Name, Tag: tag, PayloadType: payloadType})
+	}
+	return &ir.EnumDecl{Name: decl.Name, TypeParams: nil, TagType: tagType, Variants: variants}
+}
+
 func (c *Compiler) enumTagInfo(enumName string, variant string) (int64, string, bool) {
 	tags, ok := c.enumTags[enumName]
 	if !ok {

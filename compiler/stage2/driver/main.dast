@@ -9,6 +9,8 @@ struct ArgSplitPkg {
     package: String,
     example: String,
     debug: bool,
+    emit_ir: bool,
+    bootstrap: bool,
 }
 
 struct LineCol {
@@ -107,7 +109,7 @@ fn driver_qualify_name(module: String, name: String) -> String {
 
 fn usage() {
     println("usage:")
-    println("  dast build [--package name] [--example name] <file.dast|dir> [more ...]")
+    println("  dast build [--bootstrap] [-c|--emit-ir] [--package name] [--example name] <file.dast|dir> [more ...]")
     println("  dast run [--package name] [--example name] <file.dast|dir> [more ...] [-- args...]")
     println("  dast ir [--package name] [--example name] <file.dast|dir> [more ...]")
     println("  dast test [--package name] <file.dast|dir> [more ...]")
@@ -174,6 +176,8 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
     let mut pkg = ""
     let mut example = ""
     let mut debug = false
+    let mut emit_ir = false
+    let mut bootstrap = false
     let mut i = start
     let mut done = false
     while i < len(args) && !done {
@@ -182,6 +186,15 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
             done = true
         } else if args[i] == "--debug" {
             debug = true
+            i = i + 1
+        } else if args[i] == "--bootstrap" {
+            bootstrap = true
+            i = i + 1
+        } else if args[i] == "--emit-ir" {
+            emit_ir = true
+            i = i + 1
+        } else if args[i] == "-c" {
+            emit_ir = true
             i = i + 1
         } else if args[i] == "--package" || args[i] == "-p" {
             if i + 1 >= len(args) {
@@ -210,7 +223,7 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
         push(&mut rest, args[i])
         i = i + 1
     }
-    return ArgSplitPkg { files: files, rest: rest, package: pkg, example: example, debug: debug }
+    return ArgSplitPkg { files: files, rest: rest, package: pkg, example: example, debug: debug, emit_ir: emit_ir, bootstrap: bootstrap }
 }
 
 fn expand_path_to_files(path: String, include_tests: bool) -> [String] {
@@ -1462,6 +1475,8 @@ fn driver_source_for(state: &LoadState, path: String) -> String {
 
 fn attach_error_locations(errors: [ParseError], state: &LoadState) -> [ParseError] {
     let mut out: [ParseError] = []
+    let mut tok_files: [String] = []
+    let mut tok_list: [Tokens] = []
     let mut i = 0
     while i < len(errors) {
         let e = errors[i]
@@ -1469,12 +1484,25 @@ fn attach_error_locations(errors: [ParseError], state: &LoadState) -> [ParseErro
         if e.file != "" && e.pos >= 0 && (e.line == 0 || e.col == 0) {
             let src = driver_source_for(state, e.file)
             if src != "" {
-                let mut lex = lexer_new(src)
                 let mut offset = 0
-                if e.pos < len(lex.toks.items) {
-                    offset = tok_start(lex.toks, e.pos)
+                let idx = driver_list_index(tok_files, e.file)
+                if idx >= 0 && idx < len(tok_list) {
+                    let toks = tok_list[idx]
+                    if e.pos < len(toks.items) {
+                        offset = tok_start(toks, e.pos)
+                    } else {
+                        offset = len(src)
+                    }
                 } else {
-                    offset = len(src)
+                    let mut lex = lexer_new(src)
+                    let toks = lex.toks
+                    push(&mut tok_files, e.file)
+                    push(&mut tok_list, toks)
+                    if e.pos < len(toks.items) {
+                        offset = tok_start(toks, e.pos)
+                    } else {
+                        offset = len(src)
+                    }
                 }
                 let lc = line_col_from_offset(src, offset)
                 push(&mut out, ParseError { pos: e.pos, file: e.file, line: lc.line, col: lc.col, msg: e.msg })
@@ -1529,7 +1557,81 @@ fn collect_tests(prog: Program) -> [String] {
     return out
 }
 
-fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, example: String) {
+fn driver_output_name(pkg_has_toml: bool, pkg_name: String, example: String) -> String {
+    let mut name = "main"
+    if example != "" {
+        name = example
+    } else if pkg_has_toml {
+        if pkg_name != "" { name = pkg_name }
+    }
+    return name
+}
+
+fn driver_emit_ir_file(target_dir: String, name: String, prog: IrProgram) -> String {
+    let out_path = driver_path_join(target_dir, name + ".ir")
+    write_file(out_path, ir_program_format(prog))
+    return out_path
+}
+
+fn driver_emit_c_file(target_dir: String, name: String, prog: IrProgram, debug: bool) -> String {
+    let opt = ir_opt_program_no_inline(prog)
+    let c_code = ir_program_to_c(opt, debug)
+    let out_path = driver_path_join(target_dir, name + ".c")
+    write_file(out_path, c_code)
+    return out_path
+}
+
+fn driver_build_native(target_dir: String, name: String, prog: IrProgram, debug: bool) -> String {
+    let cfile = driver_emit_c_file(target_dir, name, prog, debug)
+    let out_path = driver_path_join(target_dir, name)
+    let mut args: [String] = []
+    push(&mut args, "-std=c11")
+    push(&mut args, "-O2")
+    push(&mut args, cfile)
+    push(&mut args, "compiler/stage2/backend/codegen-c/c_runtime.c")
+    push(&mut args, "-I")
+    push(&mut args, "compiler/stage2/backend/codegen-c")
+    push(&mut args, "-o")
+    push(&mut args, out_path)
+    let code = exec("clang", args)
+    if code != 0 {
+        die_error("clang failed")
+    }
+    return out_path
+}
+
+fn driver_make_test_program(prog: IrProgram, tests: [String]) -> IrProgram {
+    let mut instrs: [IrInstr] = []
+    let mut i = 0
+    while i < len(tests) {
+        let mut args: [IrOperand] = []
+        push(&mut instrs, IrInstr.Call(IrCall { dst: -1, callee: tests[i], args: args }))
+        i = i + 1
+    }
+    let mut ok_args: [IrOperand] = []
+    push(&mut ok_args, ir_operand_const(ir_value_string("ok")))
+    push(&mut ok_args, ir_operand_const(ir_value_int(len(tests))))
+    push(&mut instrs, IrInstr.Call(IrCall { dst: -1, callee: "println", args: ok_args }))
+    let term = IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) })
+    let mut blocks: [IrBlock] = []
+    push(&mut blocks, IrBlock { label: "entry", instrs: instrs, term: term })
+    let test_fn = IrFunction {
+        name: "__dast_test_main",
+        params: driver_string_list_new(),
+        param_types: driver_string_list_new(),
+        return_type: "unit",
+        blocks: blocks,
+        temp_count: 0,
+    }
+    let mut funcs = prog.functions
+    push(&mut funcs, test_fn)
+    let mut out = prog
+    out.functions = funcs
+    out.entry = "__dast_test_main"
+    return out
+}
+
+fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, example: String, emit_ir: bool, bootstrap: bool) {
     let mut pkg_root = driver_find_package_root(files[0])
     let mut pkg_has_toml = pkg_root != ""
     if !pkg_has_toml {
@@ -1640,11 +1742,13 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             fi = fi + 1
         }
     }
-    let tctx = check_program(parse_res.prog)
+    let tctx = check_program(parse_res.prog, debug, bootstrap)
+    if debug { println("stage2: typecheck errors raw", len(tctx.errors)) }
     let terrs = attach_error_locations(tctx.errors, &state)
+    if debug { println("stage2: typecheck errors loc", len(terrs)) }
     if len(terrs) > 0 { die_errors(terrs) }
     if debug { println("stage2: typechecked") }
-    let comp = compile_program(parse_res.prog, tctx)
+    let comp = compile_program(parse_res.prog, tctx, debug)
     let cerrs = attach_error_locations(comp.errors, &state)
     if len(cerrs) > 0 { die_errors(cerrs) }
     if debug { println("stage2: compiled") }
@@ -1652,41 +1756,42 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
     if verr != "" {
         die_error(verr)
     }
+    if cmd != "build" && emit_ir {
+        die_error("emit flags only supported for build")
+    }
     if cmd == "ir" {
         print(ir_program_format(comp.prog))
         return
     }
-    if cmd == "build" {
-        let mut name = "main"
-        if example != "" {
-            name = example
-        } else if pkg_has_toml {
-            if pkg_name != "" { name = pkg_name }
-        }
+    if cmd == "build" || cmd == "run" || cmd == "test" {
+        let mut name = driver_output_name(pkg_has_toml, pkg_name, example)
         let target_dir = driver_path_join(pkg_root, "target")
         mkdir(target_dir)
-        let out_path = driver_path_join(target_dir, name + ".ir")
-        write_file(out_path, ir_program_format(comp.prog))
-        return
-    }
-    if cmd == "test" {
-        let tests = collect_tests(parse_res.prog)
-        if len(tests) == 0 {
-            println("ok 0")
+        if cmd == "build" {
+            if emit_ir {
+                let _ = driver_emit_ir_file(target_dir, name, comp.prog)
+                return
+            }
+            let _ = driver_build_native(target_dir, name, comp.prog, debug)
             return
         }
-        let mut ti = 0
-        while ti < len(tests) {
-            let name = tests[ti]
-            if debug { println("stage2: test", name) }
-            let mut rt = runtime_new(comp.prog, driver_string_list_new())
-            runtime_run(&mut rt, name)
-            if rt.error != "" {
-                handle_runtime_error(rt.error)
+        if cmd == "test" {
+            let tests = collect_tests(parse_res.prog)
+            if len(tests) == 0 {
+                println("ok 0")
+                return
             }
-            ti = ti + 1
+            name = name + "_test"
+            let test_prog = driver_make_test_program(comp.prog, tests)
+            let out_path = driver_build_native(target_dir, name, test_prog, debug)
+            let code = exec(out_path, driver_string_list_new())
+            if code != 0 { exit(code) }
+            return
         }
-        println("ok", len(tests))
+        // run
+        let out_path = driver_build_native(target_dir, name, comp.prog, debug)
+        let code = exec(out_path, rest)
+        if code != 0 { exit(code) }
         return
     }
     let mut rt = runtime_new(comp.prog, rest)
@@ -1719,7 +1824,7 @@ fn main() {
             die_usage()
         }
         let text = read_file(split.files[0])
-        let parsed = ir_parse_program(text)
+        let parsed = ir_parse_program(text, debug)
         if !parsed.ok {
             die_parse(split.files[0], parsed.line, parsed.error)
         }
@@ -1738,7 +1843,7 @@ fn main() {
             die_usage()
         }
         let text = read_file(split.files[0])
-        let parsed = ir_parse_program(text)
+        let parsed = ir_parse_program(text, debug)
         if !parsed.ok {
             die_parse(split.files[0], parsed.line, parsed.error)
         }
@@ -1753,7 +1858,7 @@ fn main() {
             die_usage()
         }
         let text = read_file(split.files[0])
-        let parsed = ir_parse_program(text)
+        let parsed = ir_parse_program(text, debug)
         if !parsed.ok {
             die_parse(split.files[0], parsed.line, parsed.error)
         }
@@ -1774,17 +1879,21 @@ fn main() {
             die_usage()
         }
         let text = read_file(split.files[0])
-        let parsed = ir_parse_program(text)
+        if debug {
+            eprintln("ir-c: input bytes", len(text))
+        }
+        let parsed = ir_parse_program(text, debug)
         if !parsed.ok {
             die_parse(split.files[0], parsed.line, parsed.error)
         }
+        if debug { eprintln("ir-c: parsed funcs", len(parsed.prog.functions), "entry", parsed.prog.entry) }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
             die_error(verr)
         }
-        let opt = ir_opt_program(parsed.prog)
-        let c_code = ir_program_to_c(opt)
-        print(c_code)
+        let opt = ir_opt_program_no_inline(parsed.prog)
+        if debug { eprintln("ir-c: opt funcs", len(opt.functions), "entry", opt.entry) }
+        ir_program_to_c_emit(opt, true)
         return
     }
     let mut use_workspace = false
@@ -1840,7 +1949,7 @@ fn main() {
             if debug { println("stage2: workspace", member_paths[k]) }
             let mut files: [String] = []
             push(&mut files, member_paths[k])
-            driver_execute(cmd, files, split.rest, debug, split.example)
+            driver_execute(cmd, files, split.rest, debug, split.example, split.emit_ir, split.bootstrap)
             k = k + 1
         }
         return
@@ -1848,5 +1957,5 @@ fn main() {
     if split.package != "" {
         die_error("package flag only valid for workspace root")
     }
-    driver_execute(cmd, split.files, split.rest, debug, split.example)
+    driver_execute(cmd, split.files, split.rest, debug, split.example, split.emit_ir, split.bootstrap)
 }

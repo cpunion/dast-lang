@@ -88,11 +88,10 @@ func TestLetBindingNoStore(t *testing.T) {
 	want := `ir v0
 fn main() -> unit
   block entry0:
-    t0: i64 = 42
-    store x, t0
-    t1: i64 = load x
-    t2: unit = call println(t1)
-    return t2
+    store x, 42
+    t0: i64 = load x
+    t1: unit = call println(t0)
+    return t1
 
 `
 	got := compileToIR(t, src)
@@ -132,13 +131,12 @@ func TestMutVarUsesStoreLoad(t *testing.T) {
 	want := `ir v0
 fn counter() -> i64
   block entry0:
-    t0: i64 = 0
-    store x, t0
-    t1: i64 = load x
-    t2: i64 = + t1, 1
-    store x, t2
-    t3: i64 = load x
-    return t3
+    store x, 0
+    t0: i64 = load x
+    t1: i64 = + t0, 1
+    store x, t1
+    t2: i64 = load x
+    return t2
 
 `
 	got := compileToIR(t, src)
@@ -162,10 +160,8 @@ type Point = { x: i64, y: i64 }
 
 fn origin() -> Point
   block entry0:
-    t0: i64 = 0
-    t1: i64 = 0
-    t2: Point = struct Point { x: t0, y: t1 }
-    return t2
+    t0: Point = struct Point { x: 0, y: 0 }
+    return t0
 
 `
 	got := compileToIR(t, src)
@@ -225,12 +221,14 @@ fn none() -> Option { Option.None }
 `
 	// 枚举展开为 struct（_tag + _payload）
 	want := `ir v0
+enum Option tag i32
+  variant Some = 0 : i64
+  variant None = 1 : unit
+
 fn none() -> Option
   block entry0:
-    t0: i32 = i32 1
-    t1 = unit
-    t2: Option = struct Option { _tag: t0, _payload: t1 }
-    return t2
+    t0: Option = struct Option { _tag: i32 1, _payload: unit }
+    return t0
 
 `
 	got := compileToIR(t, src)
@@ -278,7 +276,7 @@ fn abs(x: i64) -> i64
     t0: bool = < x, 0
     branch t0, then1, else2
   block then1:
-    t1: i64 = - x
+    t1: i64 = - 0, x
     return t1
   block else2:
     return x
@@ -298,21 +296,20 @@ func TestWhileLoop(t *testing.T) {
 	want := `ir v0
 fn count() -> i64
   block entry0:
-    t0: i64 = 0
-    store i, t0
+    store i, 0
     jump cond1
   block cond1:
-    t1: i64 = load i
-    t2: bool = < t1, 3
-    branch t2, body2, after3
+    t0: i64 = load i
+    t1: bool = < t0, 3
+    branch t1, body2, after3
   block body2:
-    t3: i64 = load i
-    t4: i64 = + t3, 1
-    store i, t4
+    t2: i64 = load i
+    t3: i64 = + t2, 1
+    store i, t3
     jump cond1
   block after3:
-    t5: i64 = load i
-    return t5
+    t4: i64 = load i
+    return t4
 
 `
 	got := compileToIR(t, src)
@@ -320,4 +317,3 @@ fn count() -> i64
 		t.Errorf("IR mismatch\nwant:\n%s\ngot:\n%s", want, got)
 	}
 }
-

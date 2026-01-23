@@ -42,7 +42,16 @@ t4 = t2._payload     // GetField
 
 - 移除 MakeEnum, EnumTag, EnumPayload 三个指令
 - Enum 在 IR 层面表示为 Struct，字段为 `_tag` 和 `_payload`
+- **新增 Enum 元数据**：IR header 记录每个 enum 的 tag 类型与各变体 payload 类型，后端可生成强类型 `tag + union`，但指令仍保持 `GetField/SetField`
 - 指令数: 20 → 17 (减少 3 个)
+
+**IR Header 示例**：
+```
+ir v0
+enum Option[T] tag i32
+  variant None = 1 : unit
+  variant Some = 0 : T
+```
 
 ### 3. LoadVar 支持取址（移除 AddrOf）
 

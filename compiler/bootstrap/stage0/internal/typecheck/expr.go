@@ -301,6 +301,22 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					c.diag.Add(e.Args[0].Span(), "mkdir expects string path")
 				}
 				return Type{Kind: TypeUnit}
+			case "exec":
+				if len(e.Args) != 2 {
+					c.diag.Add(e.Span(), "exec expects 2 arguments")
+					return Type{Kind: TypeInt, Name: "int"}
+				}
+				cmdType := c.checkExpr(e.Args[0])
+				if !isString(cmdType) && cmdType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "exec expects string command")
+				}
+				argsType := c.checkExpr(e.Args[1])
+				if argsType.Kind != TypeArray || argsType.Elem == nil || argsType.Elem.Kind != TypeString {
+					if argsType.Kind != TypeInvalid {
+						c.diag.Add(e.Args[1].Span(), "exec expects [string] args")
+					}
+				}
+				return Type{Kind: TypeInt, Name: "int"}
 			default:
 				for _, arg := range e.Args {
 					c.checkExpr(arg)

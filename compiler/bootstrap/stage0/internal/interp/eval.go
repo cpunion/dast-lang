@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"syscall"
 
 	"dastlang/internal/ir"
@@ -133,25 +134,33 @@ func valuesEqual(a, b ir.Value) bool {
 	}
 }
 
-func (rt *Runtime) builtinPrint(newline bool) Builtin {
+func (rt *Runtime) builtinPrintTo(w io.Writer, newline bool) Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		for i, arg := range args {
 			if i > 0 {
-				if _, err := fmt.Fprint(rt.Stdout, " "); err != nil {
+				if _, err := fmt.Fprint(w, " "); err != nil {
 					return ir.Value{Kind: ir.KindUnit}, err
 				}
 			}
-			if _, err := fmt.Fprint(rt.Stdout, formatValue(arg)); err != nil {
+			if _, err := fmt.Fprint(w, formatValue(arg)); err != nil {
 				return ir.Value{Kind: ir.KindUnit}, err
 			}
 		}
 		if newline {
-			if _, err := fmt.Fprint(rt.Stdout, "\n"); err != nil {
+			if _, err := fmt.Fprint(w, "\n"); err != nil {
 				return ir.Value{Kind: ir.KindUnit}, err
 			}
 		}
 		return ir.Value{Kind: ir.KindUnit}, nil
 	}
+}
+
+func (rt *Runtime) builtinPrint(newline bool) Builtin {
+	return rt.builtinPrintTo(rt.Stdout, newline)
+}
+
+func (rt *Runtime) builtinEprint(newline bool) Builtin {
+	return rt.builtinPrintTo(os.Stderr, newline)
 }
 
 func formatValue(v ir.Value) string {
@@ -449,5 +458,37 @@ func (rt *Runtime) builtinReadBytes() Builtin {
 			totalRead += n
 		}
 		return ir.Value{Kind: ir.KindString, Str: string(buf[:totalRead])}, nil
+	}
+}
+
+func (rt *Runtime) builtinExec() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 2 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("exec expects 2 arguments")
+		}
+		if args[0].Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("exec expects string command")
+		}
+		if args[1].Kind != ir.KindArray || args[1].Array == nil {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("exec expects [string] args")
+		}
+		argv := make([]string, 0, len(args[1].Array.Elems))
+		for _, v := range args[1].Array.Elems {
+			if v.Kind != ir.KindString {
+				return ir.Value{Kind: ir.KindUnit}, errors.New("exec expects [string] args")
+			}
+			argv = append(argv, v.Str)
+		}
+		cmd := exec.Command(args[0].Str, argv...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = rt.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				return ir.Value{Kind: ir.KindInt, Int: int64(exitErr.ExitCode())}, nil
+			}
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		return ir.Value{Kind: ir.KindInt, Int: 0}, nil
 	}
 }

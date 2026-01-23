@@ -54,7 +54,6 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		if !ok {
 			v := val
 			fr.vars[i.Name] = &v
-			fr.varAddrs[i.Name] = rt.allocAddr(&v)
 			return nil
 		}
 		*ptr = val

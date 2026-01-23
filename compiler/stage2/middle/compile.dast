@@ -181,7 +181,7 @@ fn compiler_find_method(c: &mut Compiler, type_name: String, name: String) -> i3
     return find_method(&mut tctx, type_name, name)
 }
 
-fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
+fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResult {
     let mut pending_closures: [IrFunction] = []
     let mut c = Compiler {
         tctx: tctx,
@@ -206,7 +206,12 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
     let mut funcs: [IrFunction] = []
     let mut entry = ""
     let mut i = 0
+    let total_funcs = len(prog.functions)
+    if debug { println("stage2: compile funcs", total_funcs) }
     while i < len(prog.functions) {
+        if debug && i % 50 == 0 {
+            println("stage2: compile func", i, "/", total_funcs)
+        }
         let decl = prog.functions[i]
         let qname = qualify_name(decl.module, decl.name)
         let f = compile_function(&mut c, decl, qname, "")
@@ -216,6 +221,7 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         }
         i = i + 1
     }
+    if debug { println("stage2: compile impls") }
     let mut j = 0
     while j < len(prog.impls) {
         let imp = prog.impls[j]
@@ -235,6 +241,7 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         }
         j = j + 1
     }
+    if debug { println("stage2: compile impl-traits") }
     // Compile impl Trait for Type methods
     let mut jt = 0
     while jt < len(prog.impl_traits) {
@@ -261,7 +268,8 @@ fn compile_program(prog: Program, tctx: TypeContext) -> CompileResult {
         push(&mut funcs, c.pending_closures[ci])
         ci = ci + 1
     }
-    let ir_prog = IrProgram { version: "v0", features: string_list_new(), functions: funcs, entry: entry }
+    let enum_decls = compile_enum_decls(&mut c)
+    let ir_prog = IrProgram { version: "v0", features: string_list_new(), enums: enum_decls, functions: funcs, entry: entry }
     return CompileResult { prog: ir_prog, errors: c.tctx.errors }
 }
 
@@ -1779,6 +1787,45 @@ fn enum_has_variant(e: EnumDecl, name: String) -> bool {
         i = i + 1
     }
     return false
+}
+
+fn compile_enum_decls(c: &mut Compiler) -> [IrEnumDecl] {
+    let mut out: [IrEnumDecl] = []
+    let mut i = 0
+    while i < len(c.enums) {
+        let e = c.enums[i]
+        let name = enum_qname(e)
+        let mut params: [String] = []
+        let mut pi = 0
+        while pi < len(e.type_params) {
+            push(&mut params, e.type_params[pi].name)
+            pi = pi + 1
+        }
+        let mut tag_type = e.repr
+        if tag_type == "" { tag_type = "i32" }
+        let mut variants: [IrEnumVariant] = []
+        let mut next = 0
+        let mut j = 0
+        while j < len(e.variants) {
+            let v = e.variants[j]
+            if v.has_value {
+                next = parse_int(v.value)
+            }
+            let tag = next
+            let mut pt = "unit"
+            if v.has_payload {
+                let tid = variant_payload_type(c, name, v.name, "")
+                let s = compiler_type_string(c, tid)
+                if s != "" { pt = s }
+            }
+            push(&mut variants, IrEnumVariant { name: v.name, tag: tag, payload_type: pt })
+            next = next + 1
+            j = j + 1
+        }
+        push(&mut out, IrEnumDecl { name: name, type_params: params, tag_type: tag_type, variants: variants })
+        i = i + 1
+    }
+    return out
 }
 
 struct EnumTagInfo {

@@ -38,7 +38,7 @@ type ConstInfo struct {
 
 func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 	c := &Compiler{
-		prog:         &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Functions: map[string]*ir.Function{}},
+		prog:         &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Enums: []*ir.EnumDecl{}, Functions: map[string]*ir.Function{}},
 		diag:         &diag.Bag{},
 		structs:      map[string]*ast.StructDecl{},
 		enums:        map[string]*ast.EnumDecl{},
@@ -64,6 +64,7 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 	c.funcRetTypes["exit"] = "unit"
 	c.funcRetTypes["read_line"] = "String"
 	c.funcRetTypes["read_bytes"] = "String"
+	c.funcRetTypes["exec"] = "i64"
 	c.funcRetTypes["int_to_string"] = "String"
 	c.funcRetTypes["parse_int"] = "i32"
 	c.funcRetTypes["string_to_int"] = "i64"
@@ -89,6 +90,11 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 		}
 	}
 	c.computeEnumTags()
+	for _, item := range prog.Items {
+		if e, ok := item.(*ast.EnumDecl); ok {
+			c.prog.Enums = append(c.prog.Enums, c.enumDeclToIR(e))
+		}
+	}
 	// Collect function return types before compiling
 	for _, item := range prog.Items {
 		switch t := item.(type) {

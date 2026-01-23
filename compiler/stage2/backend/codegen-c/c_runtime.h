@@ -81,9 +81,17 @@ void dast_print_int(dast_int n);
 void dast_print_bool(bool b);
 void dast_print_newline(void);
 dast_string_t dast_int_to_string(dast_int n);
+void dast_eprint(dast_string_t s);
+void dast_eprintln(dast_string_t s);
+void dast_eprint_cstr(const char *s);
+void dast_eprint_int(dast_int n);
+void dast_eprint_bool(bool b);
+void dast_eprint_newline(void);
+void dast_eprint_array(dast_array_t *arr);
 void dast_print_array(dast_array_t *arr);
 void dast_print_struct(dast_struct_t *st);
 void dast_panic(dast_string_t msg);
+int64_t dast_exec(dast_string_t cmd, dast_array_t args);
 
 // Struct operations
 dast_struct_t *dast_struct_new(const char *name, size_t field_count);

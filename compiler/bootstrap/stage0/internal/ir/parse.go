@@ -40,11 +40,13 @@ func Parse(text string) (*Program, error) {
 	if version == "" {
 		version = "v0"
 	}
-	prog := &Program{Version: version, Functions: map[string]*Function{}}
+	prog := &Program{Version: version, Enums: []*EnumDecl{}, Functions: map[string]*Function{}}
 	i++
 	var curFn *Function
 	var curBlk *Block
 	var ctx *parseContext
+	var enumActive bool
+	var curEnum *EnumDecl
 	maxTemp := -1
 	flushBlock := func() {
 		if curBlk != nil && curFn != nil {
@@ -69,9 +71,17 @@ func Parse(text string) (*Program, error) {
 		ctx = nil
 		return nil
 	}
+	flushEnum := func() {
+		if enumActive && curEnum != nil {
+			prog.Enums = append(prog.Enums, curEnum)
+		}
+		enumActive = false
+		curEnum = nil
+	}
 	for i < len(lines) {
 		line := strings.TrimSpace(lines[i])
 		if line == "" {
+			flushEnum()
 			flushBlock()
 			if err := flushFn(); err != nil {
 				return nil, err
@@ -84,7 +94,34 @@ func Parse(text string) (*Program, error) {
 			i++
 			continue
 		}
+		if strings.HasPrefix(line, "enum ") {
+			if curFn != nil || curBlk != nil {
+				return nil, fmt.Errorf("ir parse error (line %d): enum inside function", i+1)
+			}
+			flushEnum()
+			decl, err := parseEnumHeader(line)
+			if err != nil {
+				return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
+			}
+			curEnum = decl
+			enumActive = true
+			i++
+			continue
+		}
+		if strings.HasPrefix(line, "variant ") {
+			if !enumActive || curEnum == nil {
+				return nil, fmt.Errorf("ir parse error (line %d): variant outside enum", i+1)
+			}
+			variant, err := parseEnumVariant(line)
+			if err != nil {
+				return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
+			}
+			curEnum.Variants = append(curEnum.Variants, variant)
+			i++
+			continue
+		}
 		if strings.HasPrefix(line, "fn ") {
+			flushEnum()
 			flushBlock()
 			if err := flushFn(); err != nil {
 				return nil, err
@@ -135,6 +172,7 @@ func Parse(text string) (*Program, error) {
 		i++
 	}
 	flushBlock()
+	flushEnum()
 	if err := flushFn(); err != nil {
 		return nil, err
 	}
@@ -728,6 +766,74 @@ func parseStructInitWithCtx(s string, dst int, ctx *parseContext) (string, []Str
 		}
 	}
 	return name, fields, max, nil
+}
+
+func parseEnumName(text string) (string, []string, error) {
+	s := strings.TrimSpace(text)
+	if s == "" {
+		return "", nil, fmt.Errorf("empty enum name")
+	}
+	open := strings.Index(s, "[")
+	if open < 0 {
+		return s, nil, nil
+	}
+	close := strings.Index(s[open+1:], "]")
+	if close < 0 {
+		return "", nil, fmt.Errorf("invalid enum params")
+	}
+	close += open + 1
+	base := strings.TrimSpace(s[:open])
+	inner := strings.TrimSpace(s[open+1 : close])
+	var params []string
+	if inner != "" {
+		params = splitComma(inner, -1)
+	}
+	return base, params, nil
+}
+
+func parseEnumHeader(line string) (*EnumDecl, error) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "enum "))
+	sep := " tag "
+	pos := strings.Index(rest, sep)
+	if pos < 0 {
+		return nil, fmt.Errorf("invalid enum header")
+	}
+	namePart := strings.TrimSpace(rest[:pos])
+	tagType := strings.TrimSpace(rest[pos+len(sep):])
+	if tagType == "" {
+		return nil, fmt.Errorf("missing enum tag type")
+	}
+	name, params, err := parseEnumName(namePart)
+	if err != nil {
+		return nil, err
+	}
+	return &EnumDecl{Name: name, TypeParams: params, TagType: tagType, Variants: []EnumVariant{}}, nil
+}
+
+func parseEnumVariant(line string) (EnumVariant, error) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "variant "))
+	eqSep := " = "
+	colonSep := " : "
+	eqPos := strings.Index(rest, eqSep)
+	if eqPos < 0 {
+		return EnumVariant{}, fmt.Errorf("invalid variant syntax")
+	}
+	name := strings.TrimSpace(rest[:eqPos])
+	tail := strings.TrimSpace(rest[eqPos+len(eqSep):])
+	colonPos := strings.Index(tail, colonSep)
+	if colonPos < 0 {
+		return EnumVariant{}, fmt.Errorf("invalid variant payload")
+	}
+	tagText := strings.TrimSpace(tail[:colonPos])
+	payload := strings.TrimSpace(tail[colonPos+len(colonSep):])
+	if name == "" || tagText == "" || payload == "" {
+		return EnumVariant{}, fmt.Errorf("invalid variant fields")
+	}
+	tag, err := strconv.ParseInt(tagText, 10, 64)
+	if err != nil {
+		return EnumVariant{}, fmt.Errorf("invalid variant tag")
+	}
+	return EnumVariant{Name: name, Tag: tag, PayloadType: payload}, nil
 }
 
 func parseIntTypePrefix(s string) (string, string, bool) {
