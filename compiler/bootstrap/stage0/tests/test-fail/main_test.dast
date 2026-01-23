@@ -1,0 +1,6 @@
+fn test_should_fail() {
+    if 1 == 1 {
+        println("test fail")
+        exit(1)
+    }
+}
