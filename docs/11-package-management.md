@@ -1,5 +1,36 @@
 # 包管理与依赖系统
 
+## 目前实现（Bootstrap 最小集）
+
+当前阶段仅要求 **路径依赖**，用于本地包组合与快速迭代。其余能力（版本、Git、features、发布等）属于后续规划。
+
+### dast.toml（最小规范）
+
+```toml
+[package]
+name = "my_project"
+version = "0.1.0"     # 可选，但建议填写
+
+[dependencies]
+utils = { path = "../utils" }
+foo = { path = "vendor/foo" }
+
+[dev-dependencies]
+test_utils = { path = "../test_utils" }
+
+[build-dependencies]
+build_support = { path = "../build_support" }
+```
+
+### 解析规则
+
+- `dast.toml` 位于包根目录。若存在 `src/`，则 `src/` 为代码根目录。
+- 依赖项**只允许** `{ path = "..." }` 形式。
+- `path` 为**相对路径**，相对 `dast.toml` 所在目录解析，必须指向一个**目录**。
+- 依赖包若存在 `src/` 则以 `src/` 作为其代码根。
+- `import "dep_name"` 解析到依赖包 `dep_name` 的代码根；`import "./x"` / `import "../x"` 保持相对路径语义。
+- 其它字段（`version/git/features`）目前**不支持**（保留给未来扩展）。
+
 ## 包配置文件 (dast.toml)
 
 ### 基础配置
