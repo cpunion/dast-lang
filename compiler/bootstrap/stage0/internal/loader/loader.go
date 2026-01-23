@@ -47,7 +47,9 @@ func normalizeImportPath(path string) string {
 		p = strings.TrimPrefix(p, "../")
 	}
 	if !strings.Contains(p, "/") && strings.Contains(p, ".") {
-		p = strings.ReplaceAll(p, ".", "/")
+		if !strings.HasPrefix(p, ".") && !strings.HasSuffix(p, ".dast") {
+			p = strings.ReplaceAll(p, ".", "/")
+		}
 	}
 	return relPrefix + p
 }

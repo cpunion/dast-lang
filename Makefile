@@ -27,6 +27,7 @@ STAGE0_RUN_PASS := $(wildcard compiler/bootstrap/stage0/tests/run-pass/*.dast)
 STAGE0_COMPILE_FAIL := $(wildcard compiler/bootstrap/stage0/tests/compile-fail/*.dast)
 STAGE0_MODULE_TEST_DIR := compiler/bootstrap/stage0/tests/module-basic
 STAGE0_TEST_FAIL_DIR := compiler/bootstrap/stage0/tests/test-fail
+STAGE0_TEST_FAIL_COMPILE_DIR := compiler/bootstrap/stage0/tests/test-fail-compile
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
@@ -71,6 +72,12 @@ test-stage0: build-stage0
 	./$(STAGE0_BIN) test $(STAGE0_MODULE_TEST_DIR) || exit 1
 	@echo "[stage0-test-fail] $(STAGE0_TEST_FAIL_DIR)"; \
 	out=$$(./$(STAGE0_BIN) test $(STAGE0_TEST_FAIL_DIR) 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if [ $$status -eq 0 ]; then echo "expected test failure"; exit 1; fi; \
+	if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi
+	@echo "[stage0-test-fail-compile] $(STAGE0_TEST_FAIL_COMPILE_DIR)"; \
+	out=$$(./$(STAGE0_BIN) test $(STAGE0_TEST_FAIL_COMPILE_DIR) 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -eq 0 ]; then echo "expected test failure"; exit 1; fi; \

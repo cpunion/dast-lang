@@ -1,0 +1,5 @@
+import "module_import_file.dast"
+
+fn main() {
+    println(1)
+}
