@@ -627,7 +627,6 @@ fn cg_seed_field_types() -> StringMap {
     let _ = string_map_set(&mut out, "frontend::FunctionDecl.pos", "i32")
     let _ = string_map_set(&mut out, "frontend::FunctionDecl.name", "string")
     let _ = string_map_set(&mut out, "frontend::FunctionDecl.type_params", "[frontend::GenericParam]")
-    let _ = string_map_set(&mut out, "frontend::FunctionDecl.is_test", "bool")
     let _ = string_map_set(&mut out, "frontend::FunctionDecl.params", "[frontend::Param]")
     let _ = string_map_set(&mut out, "frontend::FunctionDecl.has_return", "bool")
     let _ = string_map_set(&mut out, "frontend::FunctionDecl.ret", "string")

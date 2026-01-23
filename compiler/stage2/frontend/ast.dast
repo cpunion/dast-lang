@@ -366,7 +366,6 @@ struct FunctionDecl {
     pos: i32,
     name: String,
     type_params: [GenericParam],
-    is_test: bool,
     params: [Param],
     has_return: bool,
     ret: String,

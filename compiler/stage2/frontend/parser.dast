@@ -1085,7 +1085,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                     }
                     push(&mut methods, FunctionDecl {
                         vis: mvis, module: "", file: "", pos: fn_pos, name: name,
-                        type_params: type_params, is_test: false, params: params,
+                        type_params: type_params, params: params,
                         has_return: has_return, ret: ret, body: body,
                     })
                 } else {
@@ -1166,7 +1166,6 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                     pos: fn_pos,
                     name: name,
                     type_params: type_params,
-                    is_test: false,
                     params: params,
                     has_return: has_return,
                     ret: ret,
@@ -1802,7 +1801,6 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
     let mut impls: [ImplDecl] = []
     let mut impl_traits: [ImplTrait] = []
     let mut pending_repr = ""
-    let mut pending_test = false
     while peek_kind(lex) != TokenKind.Eof {
         let k = peek_kind(lex)
         if k == TokenKind.At {
@@ -1814,39 +1812,21 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 } else {
                     pending_repr = attr.repr
                 }
-            } else if attr.kind == "test" {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "duplicate test attribute");
-                } else {
-                    pending_test = true
-                }
             }
         } else {
             let vis = parse_visibility(src, lex, errors)
             let kk = peek_kind(lex)
             if kk == TokenKind.Import {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 let import_pos = lexer_pos(lex)
                 let decl = parse_import_decl(src, lex, errors, vis, import_pos)
                 push(&mut imports, decl)
             } else if kk == TokenKind.Mod {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 let mod_pos = lexer_pos(lex)
                 lexer_next(lex)
                 let name = parse_ident(src, lex, errors)
                 maybe_consume_semi(lex)
                 push(&mut imports, ImportDecl { vis: vis, module: "", file: "", pos: mod_pos, has_items: false, items: import_item_list_new(), path: name, path_is_string: false, has_alias: false, alias: "" })
             } else if kk == TokenKind.Struct {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
                     pending_repr = ""
@@ -1855,19 +1835,11 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 let decl = parse_struct_decl(src, lex, errors, vis, struct_pos)
                 push(&mut structs, decl)
             } else if kk == TokenKind.Enum {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 let enum_pos = lexer_pos(lex)
                 let decl = parse_enum_decl(src, lex, errors, pending_repr, vis, enum_pos)
                 pending_repr = ""
                 push(&mut enums, decl)
             } else if kk == TokenKind.Const {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
                     pending_repr = ""
@@ -1877,10 +1849,6 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 let decl = parse_const_decl(src, lex, errors, vis, const_pos)
                 push(&mut consts, decl)
             } else if kk == TokenKind.Trait {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
                     pending_repr = ""
@@ -1889,10 +1857,6 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 let decl = parse_trait(src, lex, errors, vis, trait_pos)
                 push(&mut traits, decl)
             } else if kk == TokenKind.Type {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
                     pending_repr = ""
@@ -1901,10 +1865,6 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 let decl = parse_type_alias(src, lex, errors, vis, type_pos)
                 push(&mut type_aliases, decl)
             } else if kk == TokenKind.Impl {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
                     pending_repr = ""
@@ -1957,18 +1917,12 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                     pos: fn_pos,
                     name: name,
                     type_params: type_params,
-                    is_test: pending_test,
                     params: params,
                     has_return: has_return,
                     ret: ret,
                     body: body,
                 })
-                pending_test = false
             } else {
-                if pending_test {
-                    add_error(errors, lexer_pos(lex), "test attribute only valid on function");
-                    pending_test = false
-                }
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
                     pending_repr = ""
