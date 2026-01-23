@@ -78,6 +78,33 @@ func (p *Parser) expect(kind lexer.TokenKind, msg string) lexer.Token {
 	return lexer.Token{Kind: kind, Span: p.peek().Span}
 }
 
+func (p *Parser) parseQualifiedName() (string, source.Span) {
+	nameTok := p.expect(lexer.TokenIdent, "expected identifier")
+	name := nameTok.Lexeme
+	span := nameTok.Span
+	for p.match(lexer.TokenDot) {
+		partTok := p.expect(lexer.TokenIdent, "expected identifier")
+		name += "." + partTok.Lexeme
+		span = mergeSpan(span, partTok.Span)
+	}
+	return name, span
+}
+
+func (p *Parser) peekQualifiedName() (end int, name string, last string, ok bool) {
+	if p.peek().Kind != lexer.TokenIdent {
+		return 0, "", "", false
+	}
+	end = p.pos + 1
+	name = p.peek().Lexeme
+	last = name
+	for end+1 < len(p.tokens) && p.tokens[end].Kind == lexer.TokenDot && p.tokens[end+1].Kind == lexer.TokenIdent {
+		name += "." + p.tokens[end+1].Lexeme
+		last = p.tokens[end+1].Lexeme
+		end += 2
+	}
+	return end, name, last, true
+}
+
 func (p *Parser) errorCurrent(msg string) {
 	tok := p.peek()
 	p.diag.Add(tok.Span, fmt.Sprintf("%s: found %s", msg, tok.Kind.String()))

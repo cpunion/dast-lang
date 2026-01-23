@@ -95,10 +95,15 @@ func (p *Parser) parsePostfix() ast.Expr {
 func (p *Parser) parsePrimary() ast.Expr {
 	tok := p.peek()
 	switch tok.Kind {
-	case lexer.TokenIdent, lexer.TokenSelf:
-		if p.peekN(1).Kind == lexer.TokenLBrace && p.isStructName(tok.Lexeme) {
-			return p.parseStructLit()
+	case lexer.TokenIdent:
+		if end, _, last, ok := p.peekQualifiedName(); ok {
+			if end < len(p.tokens) && p.tokens[end].Kind == lexer.TokenLBrace && p.isStructName(last) {
+				return p.parseStructLit()
+			}
 		}
+		p.advance()
+		return &ast.IdentExpr{Name: tok.Lexeme, SpanInfo: tok.Span}
+	case lexer.TokenSelf:
 		p.advance()
 		return &ast.IdentExpr{Name: tok.Lexeme, SpanInfo: tok.Span}
 	case lexer.TokenInt:
@@ -131,10 +136,10 @@ func (p *Parser) parsePrimary() ast.Expr {
 }
 
 func (p *Parser) parseStructLit() ast.Expr {
-	nameTok := p.expect(lexer.TokenIdent, "expected struct name")
-	start := nameTok.Span
+	name, span := p.parseQualifiedName()
+	start := span
 	p.expect(lexer.TokenLBrace, "expected '{' in struct literal")
-	lit := &ast.StructLit{Name: nameTok.Lexeme, SpanInfo: start}
+	lit := &ast.StructLit{Name: name, SpanInfo: start}
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		fieldTok := p.expect(lexer.TokenIdent, "expected field name")
 		p.expect(lexer.TokenColon, "expected ':' in field initializer")

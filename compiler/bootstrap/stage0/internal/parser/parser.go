@@ -86,6 +86,12 @@ func (p *Parser) parseItem() ast.Item {
 		}
 		return p.parseFunction()
 	}
+	if p.match(lexer.TokenImport) {
+		if repr != "" {
+			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+		}
+		return p.parseImport()
+	}
 	if p.match(lexer.TokenStruct) {
 		if repr != "" {
 			p.diag.Add(p.peek().Span, "@repr only valid on enum")

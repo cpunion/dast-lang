@@ -15,6 +15,17 @@ func (f *Function) Span() source.Span {
 	return f.SpanInfo
 }
 
+type ImportDecl struct {
+	Path     string
+	Alias    string
+	SpanInfo source.Span
+}
+
+func (i *ImportDecl) itemNode() {}
+func (i *ImportDecl) Span() source.Span {
+	return i.SpanInfo
+}
+
 type StructDecl struct {
 	Name     string
 	Fields   []FieldDef

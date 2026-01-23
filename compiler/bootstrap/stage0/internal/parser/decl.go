@@ -24,6 +24,20 @@ func (p *Parser) parseStructDecl() ast.Item {
 	return decl
 }
 
+func (p *Parser) parseImport() ast.Item {
+	startTok := p.prev()
+	pathTok := p.expect(lexer.TokenString, "expected import path")
+	alias := ""
+	endSpan := pathTok.Span
+	if p.match(lexer.TokenAs) {
+		aliasTok := p.expect(lexer.TokenIdent, "expected import alias")
+		alias = aliasTok.Lexeme
+		endSpan = aliasTok.Span
+	}
+	p.maybeConsumeSemicolon()
+	return &ast.ImportDecl{Path: pathTok.Lexeme, Alias: alias, SpanInfo: mergeSpan(startTok.Span, endSpan)}
+}
+
 func (p *Parser) parseEnumDecl(repr string) ast.Item {
 	nameTok := p.expect(lexer.TokenIdent, "expected enum name")
 	decl := &ast.EnumDecl{Name: nameTok.Lexeme, Repr: repr, SpanInfo: nameTok.Span}
@@ -152,10 +166,10 @@ func (p *Parser) parseType() ast.Type {
 		}
 		return t
 	}
-	nameTok := p.expect(lexer.TokenIdent, "expected type name")
-	t.Name = nameTok.Lexeme
+	name, span := p.parseQualifiedName()
+	t.Name = name
 	if t.Span == (source.Span{}) {
-		t.Span = mergeSpan(start, nameTok.Span)
+		t.Span = mergeSpan(start, span)
 	}
 	return t
 }
@@ -198,8 +212,8 @@ func (p *Parser) parseConstValue() ast.ConstValue {
 
 func (p *Parser) parseImplDecl() ast.Item {
 	start := p.prev().Span
-	typeTok := p.expect(lexer.TokenIdent, "expected type name after impl")
-	impl := &ast.ImplDecl{TypeName: typeTok.Lexeme, SpanInfo: mergeSpan(start, typeTok.Span)}
+	typeName, typeSpan := p.parseQualifiedName()
+	impl := &ast.ImplDecl{TypeName: typeName, SpanInfo: mergeSpan(start, typeSpan)}
 	p.expect(lexer.TokenLBrace, "expected '{' after impl type")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		if p.match(lexer.TokenFn) {

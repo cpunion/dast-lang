@@ -4,16 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"dastlang/internal/ast"
 	"dastlang/internal/compile"
 	"dastlang/internal/diag"
 	"dastlang/internal/interp"
 	"dastlang/internal/ir"
-	"dastlang/internal/parser"
+	"dastlang/internal/loader"
+	"dastlang/internal/source"
 	"dastlang/internal/typecheck"
 )
 
@@ -26,6 +27,8 @@ func main() {
 	switch cmd {
 	case "run":
 		run(os.Args[2:])
+	case "test":
+		testCmd(os.Args[2:])
 	case "ir":
 		dumpIR(os.Args[2:])
 	case "ir-run":
@@ -47,6 +50,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "dast - stage0 prototype")
 	fmt.Fprintln(os.Stderr, "usage:")
 	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [-- args...]")
+	fmt.Fprintln(os.Stderr, "  dast test [dir|file.dast ...]")
 	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...]")
 	fmt.Fprintln(os.Stderr, "  dast ir-run <file.ir> [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast ir-verify <file.ir>")
@@ -65,17 +69,8 @@ func run(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	sources := make([]parser.Source, 0, len(files))
-	for _, filename := range files {
-		src, err := os.ReadFile(filename)
-		if err != nil {
-			printStage0Error(filename, 0, 0, fmt.Sprintf("read failed: %v", err))
-			os.Exit(1)
-		}
-		sources = append(sources, parser.Source{Filename: filename, Input: string(src)})
-	}
-	prog, diags := parser.ParseFiles(sources)
-	if exitOnDiag(diags) {
+	prog := loadProgram(files, loader.LoadNormal)
+	if prog == nil {
 		return
 	}
 	if exitOnDiag(typecheck.Check(prog)) {
@@ -110,17 +105,8 @@ func dumpIR(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	sources := make([]parser.Source, 0, len(files))
-	for _, filename := range files {
-		src, err := os.ReadFile(filename)
-		if err != nil {
-			printStage0Error(filename, 0, 0, fmt.Sprintf("read failed: %v", err))
-			os.Exit(1)
-		}
-		sources = append(sources, parser.Source{Filename: filename, Input: string(src)})
-	}
-	prog, diags := parser.ParseFiles(sources)
-	if exitOnDiag(diags) {
+	prog := loadProgram(files, loader.LoadNormal)
+	if prog == nil {
 		return
 	}
 	if exitOnDiag(typecheck.Check(prog)) {
@@ -135,6 +121,48 @@ func dumpIR(args []string) {
 		os.Exit(1)
 	}
 	fmt.Print(irProg.Format())
+}
+
+func testCmd(args []string) {
+	files := []string{"."}
+	if len(args) > 0 {
+		files, _ = splitArgs(args)
+		if len(files) == 0 {
+			files = []string{"."}
+		}
+	}
+	prog := loadProgram(files, loader.LoadTest)
+	if prog == nil {
+		return
+	}
+	tests, diags := collectTests(prog)
+	if exitOnDiag(diags) {
+		return
+	}
+	if len(tests) == 0 {
+		return
+	}
+	testMain, diagMain := buildTestMain(prog, tests)
+	if exitOnDiag(diagMain) {
+		return
+	}
+	prog.Items = append(prog.Items, testMain)
+	if exitOnDiag(typecheck.Check(prog)) {
+		return
+	}
+	irProg, diags := compile.Compile(prog)
+	if exitOnDiag(diags) {
+		return
+	}
+	if err := irProg.Validate(); err != nil {
+		printStage0Error("<ir>", 0, 0, err.Error())
+		os.Exit(1)
+	}
+	irProg.Entry = testMain.Name
+	rt := interp.New(irProg)
+	if _, err := rt.Run(irProg.Entry); err != nil {
+		exitOnRunErr(err)
+	}
 }
 
 func runIR(args []string) {
@@ -242,38 +270,85 @@ func splitArgs(args []string) ([]string, []string) {
 			progArgs = args[i+1:]
 			break
 		}
-		expanded := expandPath(arg)
-		files = append(files, expanded...)
+		files = append(files, arg)
 	}
 	return files, progArgs
 }
 
-// expandPath expands a path to a list of .dast files.
-// If the path is a file, it returns a single-element slice.
-// If the path is a directory, it recursively finds all .dast files.
-func expandPath(path string) []string {
-	info, err := os.Stat(path)
+type testInfo struct {
+	name string
+	span source.Span
+}
+
+func loadProgram(paths []string, mode loader.LoadMode) *ast.Program {
+	prog, diags, err := loader.LoadProgram(paths, mode)
 	if err != nil {
-		// Return as-is, let the caller handle the error
-		return []string{path}
+		printStage0Error("", 0, 0, err.Error())
+		os.Exit(1)
 	}
-	if !info.IsDir() {
-		return []string{path}
-	}
-	// Directory: recursively find all .dast files
-	var files []string
-	filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() && strings.HasSuffix(p, ".dast") {
-			files = append(files, p)
-		}
+	if exitOnDiag(diags) {
 		return nil
+	}
+	return prog
+}
+
+func collectTests(prog *ast.Program) ([]testInfo, *diag.Bag) {
+	if prog == nil {
+		return nil, nil
+	}
+	diags := &diag.Bag{}
+	var tests []testInfo
+	for _, item := range prog.Items {
+		fn, ok := item.(*ast.Function)
+		if !ok {
+			continue
+		}
+		if !strings.HasPrefix(fn.Name, "test_") {
+			continue
+		}
+		file := fn.Span().Start.Filename
+		if !strings.HasSuffix(file, "_test.dast") {
+			continue
+		}
+		if len(fn.Params) != 0 {
+			diags.Add(fn.Span(), "test function must not accept parameters")
+			continue
+		}
+		tests = append(tests, testInfo{name: fn.Name, span: fn.Span()})
+	}
+	sort.Slice(tests, func(i, j int) bool {
+		return tests[i].name < tests[j].name
 	})
-	// Sort for consistent ordering
-	sort.Strings(files)
-	return files
+	if len(diags.Items) == 0 {
+		return tests, nil
+	}
+	return tests, diags
+}
+
+func buildTestMain(prog *ast.Program, tests []testInfo) (*ast.Function, *diag.Bag) {
+	diags := &diag.Bag{}
+	const name = "__dast_test_main"
+	for _, item := range prog.Items {
+		if fn, ok := item.(*ast.Function); ok && fn.Name == name {
+			diags.Add(fn.Span(), "test entry function already defined")
+			break
+		}
+	}
+	if len(diags.Items) > 0 {
+		return nil, diags
+	}
+	span := source.Span{}
+	if len(tests) > 0 {
+		span = tests[0].span
+	}
+	block := &ast.Block{SpanInfo: span}
+	for _, t := range tests {
+		call := &ast.CallExpr{Callee: t.name, Args: nil, SpanInfo: t.span}
+		stmt := &ast.ExprStmt{Expr: call, SpanInfo: t.span}
+		block.Stmts = append(block.Stmts, stmt)
+	}
+	fn := &ast.Function{Name: name, Body: block, SpanInfo: span}
+	return fn, nil
 }
 
 func exitOnDiag(diags *diag.Bag) bool {
