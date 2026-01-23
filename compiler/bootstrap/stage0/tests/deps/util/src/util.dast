@@ -1,0 +1,5 @@
+import "base"
+
+fn util_value() -> i64 {
+    base_value() + 1
+}

@@ -1,0 +1,5 @@
+import "base"
+
+fn add_base(x: i64) -> i64 {
+    x + base_value()
+}

@@ -1,0 +1,9 @@
+import "util"
+import "math"
+
+fn main() {
+    let a = util_value()
+    let b = add_base(2)
+    println(a)
+    println(b)
+}

@@ -33,6 +33,30 @@ type module struct {
 	aliases map[string]struct{}
 }
 
+type depRef struct {
+	name     string
+	pkgRoot  string
+	codeRoot string
+}
+
+type pkgInfo struct {
+	pkgRoot      string
+	codeRoot     string
+	deps         map[string]depRef
+	includeTests bool
+}
+
+type depSpec struct {
+	name string
+	path string
+	line int
+}
+
+type parseError struct {
+	line int
+	msg  string
+}
+
 func normalizeImportPath(path string) string {
 	p := strings.TrimSpace(path)
 	if p == "" {
@@ -60,19 +84,24 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 		return nil, nil, fmt.Errorf("missing input path")
 	}
 	includeTests := mode == LoadTest
+	packages := map[string]*pkgInfo{}
+	loadingPkgs := map[string]bool{}
 
-	rootDir, entryDir, entryFiles, err := resolveEntry(paths, includeTests)
+	var scanDiags diag.Bag
+	entryPkg, entryDir, entryFiles, err := resolveEntry(paths, includeTests, packages, loadingPkgs, &scanDiags)
 	if err != nil {
 		return nil, nil, err
+	}
+	if scanDiags.HasErrors() {
+		return nil, &scanDiags, nil
 	}
 
 	modules := map[string]*module{}
 	visiting := map[string]bool{}
 	var stack []string
-	var scanDiags diag.Bag
 
-	var loadModule func(dir string, files []string, include bool) error
-	loadModule = func(dir string, files []string, include bool) error {
+	var loadModule func(pkg *pkgInfo, dir string, files []string, include bool) error
+	loadModule = func(pkg *pkgInfo, dir string, files []string, include bool) error {
 		absDir, err := filepath.Abs(dir)
 		if err != nil {
 			return err
@@ -120,12 +149,12 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 				} else {
 					aliases[defaultAlias(normPath)] = struct{}{}
 				}
-				target, err := resolveImport(rootDir, absDir, normPath, imp.span)
+				target, targetPkg, err := resolveImport(pkg, absDir, normPath, imp.span, packages, loadingPkgs, &scanDiags)
 				if err != nil {
 					scanDiags.Add(imp.span, err.Error())
 					continue
 				}
-				if err := loadModule(target, nil, false); err != nil {
+				if err := loadModule(targetPkg, target, nil, false); err != nil {
 					return err
 				}
 			}
@@ -137,10 +166,9 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 		return nil
 	}
 
-	if err := loadModule(entryDir, entryFiles, includeTests); err != nil {
+	if err := loadModule(entryPkg, entryDir, entryFiles, includeTests); err != nil {
 		return nil, nil, err
 	}
-
 	if scanDiags.HasErrors() {
 		return nil, &scanDiags, nil
 	}
@@ -184,32 +212,39 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 	return prog, diags, nil
 }
 
-func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir string, entryFiles []string, err error) {
+func resolveEntry(paths []string, includeTests bool, packages map[string]*pkgInfo, loading map[string]bool, diags *diag.Bag) (entryPkg *pkgInfo, entryDir string, entryFiles []string, err error) {
 	if len(paths) == 1 {
 		p := paths[0]
 		info, statErr := os.Stat(p)
 		if statErr == nil && info.IsDir() {
 			entryDir, err = filepath.Abs(p)
 			if err != nil {
-				return "", "", nil, err
+				return nil, "", nil, err
 			}
 			pkgRoot, _ := findPackageRoot(entryDir)
 			if pkgRoot != "" {
-				rootDir = codeRoot(pkgRoot)
-				if entryDir == pkgRoot {
-					entryDir = rootDir
+				entryPkg = loadPackage(pkgRoot, includeTests, packages, loading, diags)
+				if entryPkg == nil {
+					return nil, "", nil, fmt.Errorf("failed to load package: %s", pkgRoot)
 				}
-				if !isWithin(entryDir, rootDir) {
-					return "", "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+				codeRoot := entryPkg.codeRoot
+				if entryDir == pkgRoot {
+					entryDir = codeRoot
+				}
+				if !isWithin(entryDir, codeRoot) {
+					return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
 				}
 			} else {
-				rootDir = entryDir
+				entryPkg = loadPackage(entryDir, includeTests, packages, loading, diags)
+				if entryPkg == nil {
+					return nil, "", nil, fmt.Errorf("failed to load package: %s", entryDir)
+				}
 			}
 			entryFiles, err = listDastFiles(entryDir, includeTests)
 			if err != nil {
-				return "", "", nil, err
+				return nil, "", nil, err
 			}
-			return rootDir, entryDir, entryFiles, nil
+			return entryPkg, entryDir, entryFiles, nil
 		}
 	}
 
@@ -217,39 +252,45 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 	for _, p := range paths {
 		info, statErr := os.Stat(p)
 		if statErr != nil {
-			return "", "", nil, fmt.Errorf("read failed: %s: %v", p, statErr)
+			return nil, "", nil, fmt.Errorf("read failed: %s: %v", p, statErr)
 		}
 		if info.IsDir() {
-			return "", "", nil, fmt.Errorf("expected file, got dir: %s", p)
+			return nil, "", nil, fmt.Errorf("expected file, got dir: %s", p)
 		}
 	}
 
 	firstDir, err := filepath.Abs(filepath.Dir(paths[0]))
 	if err != nil {
-		return "", "", nil, err
+		return nil, "", nil, err
 	}
 	entryDir = firstDir
 	pkgRoot, _ := findPackageRoot(entryDir)
 	if pkgRoot != "" {
-		rootDir = codeRoot(pkgRoot)
-		if !isWithin(entryDir, rootDir) {
-			return "", "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+		entryPkg = loadPackage(pkgRoot, includeTests, packages, loading, diags)
+		if entryPkg == nil {
+			return nil, "", nil, fmt.Errorf("failed to load package: %s", pkgRoot)
+		}
+		if !isWithin(entryDir, entryPkg.codeRoot) {
+			return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
 		}
 	} else {
-		rootDir = entryDir
+		entryPkg = loadPackage(entryDir, includeTests, packages, loading, diags)
+		if entryPkg == nil {
+			return nil, "", nil, fmt.Errorf("failed to load package: %s", entryDir)
+		}
 	}
 
 	var files []string
 	for _, p := range paths {
 		abs, err := filepath.Abs(p)
 		if err != nil {
-			return "", "", nil, err
+			return nil, "", nil, err
 		}
 		if filepath.Dir(abs) != entryDir {
-			return "", "", nil, fmt.Errorf("all entry files must be in the same directory")
+			return nil, "", nil, fmt.Errorf("all entry files must be in the same directory")
 		}
-		if !isWithin(entryDir, rootDir) {
-			return "", "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+		if !isWithin(entryDir, entryPkg.codeRoot) {
+			return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
 		}
 		files = append(files, abs)
 	}
@@ -257,7 +298,7 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 	if includeTests {
 		testFiles, err := listDastFiles(entryDir, true)
 		if err != nil {
-			return "", "", nil, err
+			return nil, "", nil, err
 		}
 		for _, tf := range testFiles {
 			if strings.HasSuffix(tf, "_test.dast") && !containsFile(files, tf) {
@@ -267,7 +308,7 @@ func resolveEntry(paths []string, includeTests bool) (rootDir string, entryDir s
 	}
 
 	sort.Strings(files)
-	return rootDir, entryDir, files, nil
+	return entryPkg, entryDir, files, nil
 }
 
 func findPackageRoot(startDir string) (string, error) {
@@ -319,6 +360,238 @@ func isWithin(path string, root string) bool {
 	return rel == "." || !strings.HasPrefix(rel, "..")
 }
 
+func resolveWithin(baseDir string, rootDir string, relPath string) (string, error) {
+	if relPath == "" {
+		relPath = "."
+	}
+	target := filepath.Join(baseDir, relPath)
+	target = filepath.Clean(target)
+	rootClean := filepath.Clean(rootDir)
+	rel, err := filepath.Rel(rootClean, target)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(rel, "..") {
+		return "", fmt.Errorf("import escapes root: %s", relPath)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return "", fmt.Errorf("import not found: %s", relPath)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("import path is not a directory: %s", relPath)
+	}
+	return target, nil
+}
+
+func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo, loading map[string]bool, diags *diag.Bag) *pkgInfo {
+	if pkgRoot == "" {
+		return nil
+	}
+	absRoot, err := filepath.Abs(pkgRoot)
+	if err != nil {
+		return nil
+	}
+	if pkg, ok := packages[absRoot]; ok {
+		return pkg
+	}
+	if loading[absRoot] {
+		if diags != nil {
+			addManifestError(diags, filepath.Join(absRoot, "dast.toml"), 1, "circular dependency detected")
+		}
+		return nil
+	}
+	loading[absRoot] = true
+
+	code := codeRoot(absRoot)
+	pkg := &pkgInfo{
+		pkgRoot:      absRoot,
+		codeRoot:     code,
+		deps:         map[string]depRef{},
+		includeTests: includeTests,
+	}
+	packages[absRoot] = pkg
+
+	manifestPath := filepath.Join(absRoot, "dast.toml")
+	if _, err := os.Stat(manifestPath); err == nil {
+		deps, devDeps, buildDeps, errs := parseManifestDeps(manifestPath)
+		for _, e := range errs {
+			if diags != nil {
+				addManifestError(diags, manifestPath, e.line, e.msg)
+			}
+		}
+		specs := deps
+		if includeTests {
+			specs = append(specs, devDeps...)
+		}
+		specs = append(specs, buildDeps...)
+		for _, spec := range specs {
+			if spec.name == "" {
+				continue
+			}
+			if _, exists := pkg.deps[spec.name]; exists {
+				if diags != nil {
+					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("duplicate dependency '%s'", spec.name))
+				}
+				continue
+			}
+			if spec.path == "" {
+				if diags != nil {
+					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("dependency '%s' missing path", spec.name))
+				}
+				continue
+			}
+			if filepath.IsAbs(spec.path) {
+				if diags != nil {
+					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("dependency '%s' path must be relative", spec.name))
+				}
+				continue
+			}
+			depRoot := filepath.Clean(filepath.Join(absRoot, spec.path))
+			info, err := os.Stat(depRoot)
+			if err != nil {
+				if diags != nil {
+					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("dependency '%s' not found: %s", spec.name, spec.path))
+				}
+				continue
+			}
+			if !info.IsDir() {
+				if diags != nil {
+					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("dependency '%s' path is not a directory: %s", spec.name, spec.path))
+				}
+				continue
+			}
+			depPkg := loadPackage(depRoot, includeTests, packages, loading, diags)
+			if depPkg == nil {
+				if diags != nil {
+					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("failed to load dependency '%s'", spec.name))
+				}
+				continue
+			}
+			pkg.deps[spec.name] = depRef{name: spec.name, pkgRoot: depPkg.pkgRoot, codeRoot: depPkg.codeRoot}
+		}
+	}
+
+	loading[absRoot] = false
+	return pkg
+}
+
+func parseManifestDeps(manifestPath string) (deps []depSpec, devDeps []depSpec, buildDeps []depSpec, errs []parseError) {
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, nil, nil, []parseError{{line: 1, msg: "failed to read manifest"}}
+	}
+	lines := strings.Split(string(data), "\n")
+	section := ""
+	for i, raw := range lines {
+		lineNo := i + 1
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if idx := strings.Index(line, "#"); idx >= 0 {
+			line = strings.TrimSpace(line[:idx])
+		}
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			continue
+		}
+		if section != "dependencies" && section != "dev-dependencies" && section != "build-dependencies" {
+			continue
+		}
+		eq := strings.Index(line, "=")
+		if eq < 0 {
+			continue
+		}
+		name := strings.TrimSpace(line[:eq])
+		value := strings.TrimSpace(line[eq+1:])
+		if name == "" {
+			continue
+		}
+		pathVal, perr := parsePathDep(value)
+		if perr != "" {
+			errs = append(errs, parseError{line: lineNo, msg: perr})
+			continue
+		}
+		spec := depSpec{name: name, path: pathVal, line: lineNo}
+		switch section {
+		case "dependencies":
+			deps = append(deps, spec)
+		case "dev-dependencies":
+			devDeps = append(devDeps, spec)
+		case "build-dependencies":
+			buildDeps = append(buildDeps, spec)
+		}
+	}
+	return deps, devDeps, buildDeps, errs
+}
+
+func parsePathDep(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", "dependency must be inline table with path"
+	}
+	if strings.HasPrefix(value, "{") && strings.HasSuffix(value, "}") {
+		inner := strings.TrimSpace(value[1 : len(value)-1])
+		if inner == "" {
+			return "", "dependency must specify path"
+		}
+		parts := strings.Split(inner, ",")
+		pathVal := ""
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			kv := strings.SplitN(part, "=", 2)
+			if len(kv) != 2 {
+				return "", "dependency entry must be key = value"
+			}
+			key := strings.TrimSpace(kv[0])
+			val := strings.TrimSpace(kv[1])
+			if key == "path" {
+				str, ok := parseStringLiteral(val)
+				if !ok {
+					return "", "dependency path must be string"
+				}
+				pathVal = str
+			} else {
+				return "", "only path dependencies are supported"
+			}
+		}
+		if pathVal == "" {
+			return "", "dependency must specify path"
+		}
+		return pathVal, ""
+	}
+	return "", "only path dependencies are supported"
+}
+
+func parseStringLiteral(value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+		return "", false
+	}
+	return value[1 : len(value)-1], true
+}
+
+func addManifestError(diags *diag.Bag, file string, line int, msg string) {
+	if diags == nil {
+		return
+	}
+	if line <= 0 {
+		line = 1
+	}
+	span := source.Span{
+		Start: source.Position{Filename: file, Line: line, Column: 1},
+		End:   source.Position{Filename: file, Line: line, Column: 1},
+	}
+	diags.Add(span, msg)
+}
+
 func listDastFiles(dir string, includeTests bool) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -364,37 +637,39 @@ func defaultAlias(path string) string {
 	return base
 }
 
-func resolveImport(rootDir string, curDir string, path string, span source.Span) (string, error) {
+func resolveImport(pkg *pkgInfo, curDir string, path string, span source.Span, packages map[string]*pkgInfo, loading map[string]bool, diags *diag.Bag) (string, *pkgInfo, error) {
 	path = normalizeImportPath(path)
 	if path == "" {
-		return "", fmt.Errorf("empty import path")
+		return "", nil, fmt.Errorf("empty import path")
 	}
 	if filepath.IsAbs(path) {
-		return "", fmt.Errorf("absolute import path not allowed")
+		return "", nil, fmt.Errorf("absolute import path not allowed")
 	}
-	var target string
+	if pkg == nil {
+		return "", nil, fmt.Errorf("missing package context")
+	}
 	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
-		target = filepath.Join(curDir, path)
-	} else {
-		target = filepath.Join(rootDir, path)
+		target, err := resolveWithin(curDir, pkg.codeRoot, path)
+		return target, pkg, err
 	}
-	target = filepath.Clean(target)
-	rootClean := filepath.Clean(rootDir)
-	rel, err := filepath.Rel(rootClean, target)
-	if err != nil {
-		return "", err
+	parts := strings.Split(path, "/")
+	if len(parts) > 0 {
+		if dep, ok := pkg.deps[parts[0]]; ok {
+			depPkg := loadPackage(dep.pkgRoot, pkg.includeTests, packages, loading, diags)
+			if depPkg == nil {
+				return "", nil, fmt.Errorf("failed to load dependency '%s'", dep.name)
+			}
+			base := depPkg.codeRoot
+			rel := ""
+			if len(parts) > 1 {
+				rel = filepath.Join(parts[1:]...)
+			}
+			target, err := resolveWithin(base, depPkg.codeRoot, rel)
+			return target, depPkg, err
+		}
 	}
-	if strings.HasPrefix(rel, "..") {
-		return "", fmt.Errorf("import escapes root: %s", path)
-	}
-	info, err := os.Stat(target)
-	if err != nil {
-		return "", fmt.Errorf("import not found: %s", path)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("import path is not a directory: %s", path)
-	}
-	return target, nil
+	target, err := resolveWithin(pkg.codeRoot, pkg.codeRoot, path)
+	return target, pkg, err
 }
 
 func scanImports(filename string, input string) ([]importSpec, *diag.Bag) {

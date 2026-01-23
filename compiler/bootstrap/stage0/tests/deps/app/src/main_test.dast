@@ -1,0 +1,7 @@
+import "util"
+import "math"
+
+fn test_deps() {
+    if util_value() != 41 { exit(1) }
+    if add_base(2) != 42 { exit(1) }
+}

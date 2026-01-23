@@ -28,6 +28,7 @@ STAGE0_COMPILE_FAIL := $(wildcard compiler/bootstrap/stage0/tests/compile-fail/*
 STAGE0_MODULE_TEST_DIR := compiler/bootstrap/stage0/tests/module-basic
 STAGE0_TEST_FAIL_DIR := compiler/bootstrap/stage0/tests/test-fail
 STAGE0_TEST_FAIL_COMPILE_DIR := compiler/bootstrap/stage0/tests/test-fail-compile
+STAGE0_DEPS_APP_DIR := compiler/bootstrap/stage0/tests/deps/app
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
@@ -82,6 +83,13 @@ test-stage0: build-stage0
 	echo "$$out"; \
 	if [ $$status -eq 0 ]; then echo "expected test failure"; exit 1; fi; \
 	if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi
+	@echo "[stage0-deps-build] $(STAGE0_DEPS_APP_DIR)"; \
+	./$(STAGE0_BIN) build $(STAGE0_DEPS_APP_DIR) -o /tmp/dast-stage0-deps.ir || exit 1; \
+	rm -f /tmp/dast-stage0-deps.ir
+	@echo "[stage0-deps-run] $(STAGE0_DEPS_APP_DIR)"; \
+	./$(STAGE0_BIN) run $(STAGE0_DEPS_APP_DIR) || exit 1
+	@echo "[stage0-deps-test] $(STAGE0_DEPS_APP_DIR)"; \
+	./$(STAGE0_BIN) test $(STAGE0_DEPS_APP_DIR) || exit 1
 
 test-stage1: build-stage0
 	@for f in $(EXAMPLES); do \
