@@ -1,357 +1,241 @@
 # 宏系统设计
 
-## 设计目标
+## 目标
 
-1. **卫生宏** - 避免名称冲突
-2. **类型安全** - 编译期检查
-3. **简洁** - 比 Rust 过程宏更易用
-4. **强大** - 支持代码生成
+1. **卫生宏**：默认不捕获、避免名称冲突（Racket/Nim 风格）
+2. **人体工学**：像普通函数一样可测试、可组合、可复用
+3. **类型安全**：宏展开后正常类型检查
+4. **语法扩展**：支持 DSL 与代码生成
 
----
-
-## 宏的层次
-
-### 1. 声明宏 (Declarative Macros)
-
-类似 Rust 的 `macro_rules!`，基于模式匹配
-
-```dast
-macro vec {
-    () => { Vec.new() },
-    ($($x:expr),+ $(,)?) => {
-        {
-            let mut temp = Vec.new()
-            $(temp.push($x))*
-            temp
-        }
-    }
-}
-
-// 使用
-let v = vec![1, 2, 3]
-```
-
-### 2. 过程宏 (Procedural Macros)
-
-编译期执行的函数，操作 AST
-
-```dast
-// 派生宏
-@derive(Clone, Debug, Serialize)
-struct Point { x: f32, y: f32 }
-
-// 属性宏
-@route(GET, "/users/:id")
-fn get_user(id: i32) -> User { ... }
-
-// 函数式宏
-let sql = sql!("SELECT * FROM users WHERE id = ?")
-```
+> 说明：宏系统与 `comptile`、泛型常量参数等编译期计算并行发展，设计分开维护，不互相耦合。
 
 ---
 
-## 与 Comptime 的关系
+## 核心模型
 
-### 关键区别
+### 1) AST 宏（唯一形态）
 
-| 特性 | Comptime | 宏 |
-|------|---------|-----|
-| 执行时机 | 编译期 | 编译期 |
-| 输入 | 值、类型 | AST/Token |
-| 输出 | 值、类型 | AST/Token |
-| 用途 | 计算、反射 | 代码生成、DSL |
+宏是编译期函数，返回 AST 值：
 
-### 结合使用
+- `AstExpr` / `AstStmt` / `AstItem` / `AstBlock`
 
 ```dast
-// Comptime 生成数据
-comptime const TABLE = generate_table()
-
-// 宏生成代码
-macro generate_accessors {
-    ($struct_name:ident, $($field:ident: $ty:ty),*) => {
-        impl $struct_name {
-            $(
-                fn get_$field(self: &Self) -> $ty {
-                    self.$field
-                }
-            )*
-        }
-    }
+macro fn gen_add(a: AstExpr, b: AstExpr) -> AstExpr {
+    quote { $a + $b }
 }
+
+fn main() {
+    let v = gen_add!(quote{1}, quote{2})
+    println("v", v)
+}
+```
+
+### 2) 生成 AST 的两种方式
+
+**结构化：`quote`（推荐）**
+
+```dast
+macro fn mk_stmt(x: AstExpr) -> AstStmt {
+    quote { let v = $x; }
+}
+```
+
+**字符串：`ast_*`（低阶/调试用途）**
+
+```dast
+macro fn mk_stmt(x: AstExpr) -> AstStmt {
+    ast_stmt("let v = 1;")
+}
+```
+
+### 3) AST 插回代码（splice）
+
+**隐式：`macro_name!()`**
+
+- 表达式/语句/顶层位置均视作隐式 unquote
+
+```dast
+let x = add1!(quote{1})
+log_stmt!()
+gen_const!(quote{MAGIC}, quote{7})
+```
+
+**显式：`compile!(ast)`**
+
+- 用于非宏函数返回的 AST 值，或需要显式插入的场景
+
+```dast
+let ast = some_macro_like_fn()
+let v = compile!(ast)
 ```
 
 ---
 
-## 方案对比
+## 语法细节
 
-### 方案 A: Rust 风格（过程宏 + 声明宏）
+### quote
+
+`quote` 是结构化 AST 构造器，推荐使用显式目标形式以消除歧义：
 
 ```dast
-// 声明宏
-macro vec { ... }
-
-// 过程宏（需要单独 crate）
-// proc_macro crate
-fn derive_serialize(input: TokenStream) -> TokenStream {
-    // 解析 AST，生成代码
-}
+quote expr { 1 + 2 }        // -> AstExpr
+quote stmt { let x = 1; }   // -> AstStmt
+quote item { const X: i64 = 1 } // -> AstItem
+quote block { { let x = 1; x } } // -> AstBlock
 ```
 
-**优点**: 成熟、强大
-**缺点**: 过程宏复杂（需要单独 crate）
+> `quote{...}` 的简写也允许，但其返回类型应由上下文决定（宏签名的返回类型）。
+
+### unquote/splice
+
+在 `quote` 里用 `$` 插入 AST：
+
+```dast
+quote expr { $a + $b }
+quote stmt { let $name = $value; }
+quote item { struct $name { value: i64 } }
+quote expr { $(bind("tmp")) + 1 }
+```
+
+规则：
+
+- `$x` 允许直接插入标识符
+- `$(expr)` 允许插入任意表达式（常用于 `bind`/函数调用）
+- `$x` 与 `$(expr)` 的 AST 类型需与当前位置匹配
+- 类型不匹配时编译期报错
+- `$$` 表示字面量 `$`
+
+### macro 调用的插入规则
+
+`macro_name!()` 在三种位置都视为 **隐式 unquote**：
+
+| 位置 | 期望 AST 类型 |
+|------|--------------|
+| 表达式 | `AstExpr` / `AstBlock` / `AstStmt(仅表达式语句)` |
+| 语句 | `AstStmt` / `AstExpr` / `AstBlock` |
+| 顶层 | `AstItem` |
+
+显式插入使用 `compile!(ast)`，用于非宏函数返回的 AST 值。
 
 ---
 
-### 方案 B: Comptime 宏（Zig 风格）
+## 卫生性（Racket/Nim 风格）
+
+### 默认规则（卫生）
+
+- 宏内部“新引入的名字”不会捕获调用点变量
+- 宏参数插入的标识符保留调用点语义
+
+这避免了大多数宏陷阱，读写体验最好。
+
+### 显式破坏卫生（必要时）
+
+提供两类逃逸工具：
+
+- `gensym(prefix) -> AstExpr`：生成唯一标识符（避免冲突）
+- `bind(name) -> AstExpr`：显式绑定调用点同名标识符（故意捕获）
+
+示例：
 
 ```dast
-// 用 comptime 实现宏
-comptime fn derive_serialize(T: type) -> type {
-    // 编译期反射 + 代码生成
-    return generated_impl
+macro fn with_tmp(x: AstExpr) -> AstExpr {
+    let t = gensym("tmp")
+    quote { let $t = $x; $t + 1 }
 }
 
-@derive_serialize
-struct Point { x: f32, y: f32 }
-```
-
-**优点**: 统一、简洁
-**缺点**: 需要强大的编译期反射
-
----
-
-### 方案 C: 混合方案（推荐）
-
-```dast
-// 简单场景: 声明宏
-macro vec { ... }
-
-// 复杂场景: Comptime 宏
-comptime fn derive[T](trait_name: &str) {
-    comptime match trait_name {
-        "Clone" => generate_clone_impl(T),
-        "Debug" => generate_debug_impl(T),
-        _ => @compile_error("unknown trait"),
-    }
-}
-
-@derive("Clone")
-struct Point { x: f32, y: f32 }
-```
-
-**优点**: 灵活、渐进
-**缺点**: 两套系统
-
----
-
-## 推荐设计
-
-### 第一阶段: 声明宏
-
-```dast
-macro vec {
-    () => { Vec.new() },
-    ($($x:expr),+) => {
-        {
-            let mut v = Vec.new()
-            $(v.push($x))*
-            v
-        }
-    }
-}
-```
-
-### 第二阶段: Comptime 宏
-
-```dast
-// 利用编译期反射实现派生
-comptime fn auto_derive(T: type, trait_name: &str) {
-    comptime if trait_name == "Clone" {
-        // 生成 Clone 实现
-        impl Clone for T {
-            fn clone(self: &Self) -> Self {
-                Self {
-                    comptime for i in 0..@field_count(T) {
-                        @field_name(T, i): self.@field_name(T, i).clone(),
-                    }
-                }
-            }
-        }
-    }
-}
-
-@derive(Clone)
-struct Point { x: f32, y: f32 }
-```
-
-### 第三阶段: 过程宏（可选）
-
-```dast
-// 如果 comptime 不够用，提供过程宏
-@proc_macro
-fn custom_derive(input: TokenStream) -> TokenStream {
-    // 完全自定义的 AST 操作
+macro fn use_caller_tmp() -> AstExpr {
+    quote { $(bind("tmp")) + 1 }
 }
 ```
 
 ---
 
-## 内置宏
+## 模块与可见性
 
-### 格式化宏
-
-```dast
-println!("x = {}, y = {}", x, y)
-format!("Hello, {}!", name)
-```
-
-### 断言宏
+宏遵循普通可见性规则：
 
 ```dast
-assert!(x > 0)
-assert_eq!(a, b)
-debug_assert!(condition)
-```
+pub macro fn gen_const(...) -> AstItem { ... }
 
-### 向量宏
-
-```dast
-vec![1, 2, 3]
-vec![0; 10]  // [0, 0, ..., 0]
+foo.gen_const!(...)
 ```
 
 ---
 
-## 与其他语言对比
+## 编译流程
 
-| 语言 | 宏系统 | 强度 |
-|------|--------|------|
-| **C/C++** | 文本替换 | ⭐⭐ |
-| **Rust** | 声明宏 + 过程宏 | ⭐⭐⭐⭐⭐ |
-| **Zig** | Comptime | ⭐⭐⭐⭐ |
-| **Nim** | 模板 + 宏 | ⭐⭐⭐⭐⭐ |
-| **Dast** | 声明宏 + Comptime | ⭐⭐⭐⭐⭐ |
+```
+parse
+  -> macro expand (quote/unquote, !)
+  -> typecheck
+  -> compile
+```
+
+宏展开阶段会多轮执行（可设置上限），直到 AST 中不再出现宏调用。
 
 ---
 
-## 最终设计：Comptime + AST 宏
+## 宏展开规则
 
-### 两层宏系统
+### 展开顺序
 
-```dast
-// 层次 1: Comptime - 类型和值的编译期操作
-comptime fn derive(T: type, trait: &str) {
-    comptime match trait {
-        "Clone" => generate_clone_impl(T),
-        "Debug" => generate_debug_impl(T),
-        _ => @compile_error("unknown trait"),
-    }
-}
+1. **先内后外**：优先展开最内层的宏调用
+2. **同层从左到右**：按源代码顺序处理
+3. **多轮迭代**：一轮展开可能引入新的宏，直到不再出现或达到上限
 
-@derive(Clone, Debug)
-struct Point { x: f32, y: f32 }
+### 递归与上限
 
-// 层次 2: AST 宏 - 语法扩展和 DSL
-macro sql(query: AstNode) -> AstNode {
-    comptime {
-        let parsed = parse_sql(query.string_value())
-        if !parsed.is_valid() {
-            @compile_error("Invalid SQL")
-        }
-    }
+- 允许宏展开宏（嵌套/递归）
+- 设定最大展开深度与总步数（避免无限递归）
+- 触顶时报错，提示可能的递归宏
 
-    quote! {
-        Query[#infer_type(parsed)] {
-            sql: #query,
-        }
-    }
-}
+### 错误定位
 
-let users = sql!("SELECT id, name FROM users")
-// 类型: Query<(i32, String)>
-```
+- 展开产生的错误应尽量回溯到宏调用点
+- 可选提供“展开栈”用于诊断（宏调用链）
 
 ---
 
-## 实际应用示例
+## 示例
 
-### SQL 宏
-
+### 1) 生成表达式
 ```dast
-macro sql(query: AstNode) -> AstNode {
-    comptime {
-        let parsed = parse_sql(query.string_value())
-        validate_sql(parsed)
-        let result_type = infer_result_type(parsed)
-    }
-
-    quote! {
-        Query[#result_type] {
-            sql: #query,
-            params: vec![],
-        }
-    }
+macro fn add1(x: AstExpr) -> AstExpr {
+    quote { $x + 1 }
 }
 
-// 编译期类型安全
-let query = sql!("SELECT id, name, email FROM users WHERE age > ?")
-// 类型: Query<(i32, String, String)>
-```
-
-### HTML 宏
-
-```dast
-macro html(template: AstNode) -> AstNode {
-    comptime {
-        let dom = parse_html_ast(template)
-        validate_html(dom)
-    }
-
-    generate_dom_builder(dom)
-}
-
-let page = html! {
-    <div class="container">
-        <h1>{"Hello"}</h1>
-        <p>{user.name}</p>
-    </div>
+fn main() {
+    let v = add1!(quote{41})
+    println("v", v)
 }
 ```
 
-### Regex 宏
-
+### 2) 生成语句
 ```dast
-macro regex(pattern: AstNode) -> AstNode {
-    comptime {
-        let compiled = compile_regex(pattern.string_value())
-        if let .Err(e) = compiled {
-            @compile_error(format("Invalid regex: {}", e))
-        }
-    }
+macro fn log_stmt() -> AstStmt {
+    quote { println("hello") }
+}
 
-    quote! {
-        Regex { pattern: #pattern, compiled: #compiled }
+fn main() {
+    log_stmt!()
+}
+```
+
+### 3) 生成全局定义
+```dast
+macro fn gen_counter(name: AstExpr) -> AstItem {
+    quote {
+        struct $name { value: i64 }
     }
 }
 
-let email = regex!(r"^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$")
+gen_counter!(quote{Counter})
 ```
 
 ---
 
-## 优势总结
+## 未来扩展
 
-| 特性 | Comptime + AST 宏 |
-|------|------------------|
-| 覆盖率 | 100% |
-| 复杂度 | 中（比 Rust 简单） |
-| 类型安全 | ✅ |
-| DSL 支持 | ✅ |
-| 编译期验证 | ✅ |
-
-**核心**:
-- Comptime 处理类型和反射
-- AST 宏处理语法扩展
-- 两者结合覆盖所有场景
-
+- `quote` 支持更丰富的插值与模式
+- typed macro（可选）
+- 宏调试/展开追踪工具

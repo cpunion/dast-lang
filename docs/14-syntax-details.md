@@ -254,7 +254,12 @@ match value {
 match point {
     Point { x: 0, y: 0 } => "origin",
     Point { x, y } => "point",
+    Point { x: a, y } => "alias binding",
 }
+
+// 结构体模式字段绑定规则：
+// - `Point { x }` 等价于 `Point { x: x }`
+// - `Point { x: a }` 表示字段名是 `x`，绑定名是 `a`
 
 // if let
 if let .Some(x) = optional {
