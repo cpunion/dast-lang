@@ -23,6 +23,11 @@ struct ParseResult {
     errors: [ParseError],
 }
 
+struct TestCollect {
+    tests: [String],
+    errors: [ParseError],
+}
+
 struct Manifest {
     has_package: bool,
     package_line: i32,
@@ -1546,17 +1551,33 @@ fn print_error_line(file: String, line: i32, col: i32, msg: String) {
     println("stage2: " + loc + ": error " + msg)
 }
 
-fn collect_tests(prog: Program) -> [String] {
+fn collect_tests(prog: Program) -> TestCollect {
     let mut out: [String] = []
+    let mut errs: [ParseError] = []
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
-        if driver_string_starts_with(f.name, "test_") {
-            push(&mut out, driver_qualify_name(f.module, f.name))
+        if f.name == "__dast_test_main" {
+            push(&mut errs, ParseError { pos: f.pos, file: f.file, line: 0, col: 0, msg: "test entry function already defined" })
         }
+        if !driver_string_starts_with(f.name, "test_") {
+            i = i + 1
+            continue
+        }
+        if !driver_is_test_file(f.file) {
+            i = i + 1
+            continue
+        }
+        if len(f.params) != 0 {
+            push(&mut errs, ParseError { pos: f.pos, file: f.file, line: 0, col: 0, msg: "test function must not accept parameters" })
+            i = i + 1
+            continue
+        }
+        push(&mut out, driver_qualify_name(f.module, f.name))
         i = i + 1
     }
-    return out
+    out = driver_sort_strings(out)
+    return TestCollect { tests: out, errors: errs }
 }
 
 fn driver_output_name(pkg_has_toml: bool, pkg_name: String, example: String) -> String {
@@ -1780,12 +1801,16 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             }
             if cmd == "test" {
                 let tests = collect_tests(parse_res.prog)
-                if len(tests) == 0 {
+                if len(tests.errors) > 0 {
+                    let perrs = attach_error_locations(tests.errors, &state)
+                    die_errors(perrs)
+                }
+                if len(tests.tests) == 0 {
                     println("ok 0")
                     return
                 }
                 name = name + "_test"
-                let test_prog = driver_make_test_program(comp.prog, tests)
+                let test_prog = driver_make_test_program(comp.prog, tests.tests)
                 let mut rt = runtime_new(test_prog, driver_string_list_new())
                 if debug { println("stage2: running") }
                 runtime_run(&mut rt, test_prog.entry)
@@ -1809,12 +1834,16 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
         }
         if cmd == "test" {
             let tests = collect_tests(parse_res.prog)
-            if len(tests) == 0 {
+            if len(tests.errors) > 0 {
+                let perrs = attach_error_locations(tests.errors, &state)
+                die_errors(perrs)
+            }
+            if len(tests.tests) == 0 {
                 println("ok 0")
                 return
             }
             name = name + "_test"
-            let test_prog = driver_make_test_program(comp.prog, tests)
+            let test_prog = driver_make_test_program(comp.prog, tests.tests)
             let out_path = driver_build_native(target_dir, name, test_prog, debug)
             let code = exec(out_path, driver_string_list_new())
             if code != 0 { exit(code) }
