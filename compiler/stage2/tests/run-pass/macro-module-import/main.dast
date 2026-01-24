@@ -1,0 +1,6 @@
+import { inc } from "math"
+
+fn main() {
+    let v = inc!(quote expr { 1 })
+    println("v", v)
+}

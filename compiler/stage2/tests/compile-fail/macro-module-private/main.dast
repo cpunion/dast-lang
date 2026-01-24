@@ -1,0 +1,6 @@
+import "math" as m
+
+fn main() {
+    let v = m.hidden!(quote expr { 1 })
+    println("v", v)
+}
