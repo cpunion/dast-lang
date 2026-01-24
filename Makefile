@@ -426,12 +426,15 @@ test-ir-opt: build-stage0
 
 test:
 	@echo "[test] start"
-	@$(MAKE) test-stage0
+	@$(MAKE) verify-stage0
 	@$(MAKE) test-stage2
 	@$(MAKE) test-ir
 	@$(MAKE) test-ir-verify
 	@$(MAKE) test-ir-opt
 	@echo "[test] done"
+
+verify-stage0:
+	@./scripts/verify-stage0.sh
 
 clean:
 	@rm -f $(STAGE0_BIN)
