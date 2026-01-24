@@ -1,0 +1,11 @@
+ir v0
+fn main(a: int) -> int
+  block entry:
+    t0 = load a
+    store x, 1
+    t1 = load x
+    t2 = load_addr x
+    store_ref t2, 3
+    t3 = load_ref t2
+    t4 = + t0, t1
+    return t4

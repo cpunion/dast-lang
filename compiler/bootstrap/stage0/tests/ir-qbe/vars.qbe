@@ -1,0 +1,18 @@
+export function l $dast_user_main(l %t0) {
+@entry
+  %v_a =l alloc8 8
+  %v_x =l alloc8 8
+  storel %t0, %v_a
+
+@entry
+  %t1 =l load %v_a
+  storel 1, %v_x
+  %t2 =l load %v_x
+  %t3 =l copy %v_x
+  storel 3, %t3
+  %t4 =l load %t3
+  %t5 =l add %t1, %t2
+  ret %t5
+
+}
+

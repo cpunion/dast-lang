@@ -152,6 +152,18 @@ dast-stage0 run \
   ...
 ```
 
+### Stage0 build 输出
+
+Stage0 的 `build` 默认输出**可执行文件**（通过 **IR → QBE → cc** 流水线生成）；仅在显式指定 `--emit-ir`/`--emit-qbe` 时输出 IR/QBE：
+
+```bash
+dast-stage0 build src/ -o app.out
+dast-stage0 build --emit-ir src/ -o app.ir
+dast-stage0 build --emit-qbe src/ -o app.qbe
+```
+
+> 依赖本机 `qbe` 与 `cc/clang`（用于从 QBE 生成可执行文件）。
+
 ## IR v0 静态类型
 
 新版 IR v0 采用静态类型，详见 [irv0-newspec.md](./irv0-newspec.md)。
@@ -160,6 +172,11 @@ dast-stage0 run \
 - 每个 temp 有类型：`t0: String = const "Hello"`
 - 支持局部变量声明：`var counter: int`
 - 生成强类型 C 代码
+
+## Stage0 语言特性（扩展版）
+
+当前 Stage0 实现已超出最初最小子集，包含模块/依赖/测试、宏系统、泛型/trait/type alias 等能力。
+详见：[Stage0 语言特性（扩展版）](./22-stage0-language.md)
 
 ## 编译流程
 

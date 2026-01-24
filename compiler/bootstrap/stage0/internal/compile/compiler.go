@@ -22,6 +22,10 @@ type Compiler struct {
 	enumTagType  map[string]string
 	consts       map[string]ConstInfo
 	funcRetTypes map[string]string // function name -> return type
+	loopStack    []loopContext
+	opts         Options
+	closureID    int
+	currentFuncName string
 }
 
 // VarInfo tracks variable info for value semantics
@@ -29,6 +33,8 @@ type VarInfo struct {
 	Temp    int    // temp ID for value vars, -1 for mutable vars
 	Name    string // IR name (for mutable vars used in load/store)
 	Mutable bool   // true if let mut
+	RefTemp int    // temp ID for captured ref vars, -1 if not a ref capture
+	Closure bool   // true if this var holds a closure value
 }
 
 type ConstInfo struct {
@@ -36,7 +42,24 @@ type ConstInfo struct {
 	TypeName string
 }
 
+type loopContext struct {
+	breakLabel    string
+	continueLabel string
+}
+
+type Options struct {
+	AllowCompile bool
+}
+
 func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
+	return CompileWithOptions(prog, Options{})
+}
+
+func CompileForMacro(prog *ast.Program) (*ir.Program, *diag.Bag) {
+	return CompileWithOptions(prog, Options{AllowCompile: true})
+}
+
+func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag) {
 	c := &Compiler{
 		prog:         &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Enums: []*ir.EnumDecl{}, Functions: map[string]*ir.Function{}},
 		diag:         &diag.Bag{},
@@ -47,6 +70,7 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 		enumTagType:  map[string]string{},
 		consts:       map[string]ConstInfo{},
 		funcRetTypes: map[string]string{},
+		opts:         opts,
 	}
 	// Initialize builtin function return types
 	c.funcRetTypes["len"] = "i64"
@@ -69,6 +93,13 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 	c.funcRetTypes["parse_int"] = "i32"
 	c.funcRetTypes["string_to_int"] = "i64"
 	c.funcRetTypes["has_prefix"] = "bool"
+	c.funcRetTypes["ast_expr"] = "AstExpr"
+	c.funcRetTypes["ast_stmt"] = "AstStmt"
+	c.funcRetTypes["ast_item"] = "AstItem"
+	c.funcRetTypes["ast_block"] = "AstBlock"
+	c.funcRetTypes["ast_to_string"] = "String"
+	c.funcRetTypes["gensym"] = "AstExpr"
+	c.funcRetTypes["bind"] = "AstExpr"
 	for _, item := range prog.Items {
 		switch t := item.(type) {
 		case *ast.StructDecl:
@@ -113,6 +144,15 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 					c.funcRetTypes[name] = "unit"
 				}
 			}
+		case *ast.ImplTraitDecl:
+			for _, method := range t.Methods {
+				name := t.ForTypeName + "." + method.Name
+				if method.ReturnType != nil {
+					c.funcRetTypes[name] = formatType(*method.ReturnType)
+				} else {
+					c.funcRetTypes[name] = "unit"
+				}
+			}
 		}
 	}
 	for _, item := range prog.Items {
@@ -122,6 +162,10 @@ func Compile(prog *ast.Program) (*ir.Program, *diag.Bag) {
 		case *ast.ImplDecl:
 			for _, method := range t.Methods {
 				c.compileFunctionNamed(method, t.TypeName+"."+method.Name)
+			}
+		case *ast.ImplTraitDecl:
+			for _, method := range t.Methods {
+				c.compileFunctionNamed(method, t.ForTypeName+"."+method.Name)
 			}
 		}
 	}
@@ -138,6 +182,8 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	c.scopeStack = nil
 	c.nameCount = map[string]int{}
 	c.tempTypes = map[int]string{}
+	c.closureID = 0
+	c.currentFuncName = name
 
 	irFn := &ir.Function{Name: name}
 	c.current = irFn
@@ -226,4 +272,26 @@ func (c *Compiler) compileBlockWithTail(block *ast.Block, allowImplicit bool) {
 		c.compileStmt(stmt)
 	}
 	c.popScope()
+}
+
+func (c *Compiler) compileBlockExprOperand(block *ast.Block) ir.Operand {
+	if block == nil {
+		return ir.ConstOperand(ir.Value{Kind: ir.KindUnit})
+	}
+	c.pushScope()
+	result := ir.ConstOperand(ir.Value{Kind: ir.KindUnit})
+	for i, stmt := range block.Stmts {
+		if c.currentBlock().Term != nil {
+			break
+		}
+		if i == len(block.Stmts)-1 {
+			if exprStmt, ok := stmt.(*ast.ExprStmt); ok {
+				result = c.compileOperand(exprStmt.Expr)
+				break
+			}
+		}
+		c.compileStmt(stmt)
+	}
+	c.popScope()
+	return result
 }

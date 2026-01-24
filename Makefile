@@ -2,9 +2,7 @@ SHELL := /bin/sh
 
 STAGE0_DIR := compiler/bootstrap/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
-STAGE1_FILES := compiler/bootstrap/stage1/compiler/ compiler/bootstrap/stage1/irv0/ compiler/bootstrap/stage1/interp/
 STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/codegen-c/codegen-c.dast
-STAGE1_IR := compiler/bootstrap/stage1/stage1.ir
 STAGE2_COMPILER_DIRS := compiler/stage2 compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/backend compiler/stage2/backend/interp compiler/stage2/backend/codegen-c
 STAGE2_COMPILER_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2_COMPILER_DEBUG ?=
@@ -22,6 +20,8 @@ IR_DUPBLOCK := $(IR_TEST_DIR)/invalid_dup_block.ir
 IR_DUPFIELD := $(IR_TEST_DIR)/invalid_dup_field.ir
 IR_DUPFN := $(IR_TEST_DIR)/invalid_dup_fn.ir
 IR_OPT_CONST := $(IR_TEST_DIR)/opt_const.ir
+IR_GEN_DIR := compiler/bootstrap/stage0/tests/ir-gen
+IR_QBE_DIR := compiler/bootstrap/stage0/tests/ir-qbe
 EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
 STAGE0_RUN_PASS := $(wildcard compiler/bootstrap/stage0/tests/run-pass/*.dast)
 STAGE0_COMPILE_FAIL := $(wildcard compiler/bootstrap/stage0/tests/compile-fail/*.dast)
@@ -29,6 +29,7 @@ STAGE0_MODULE_TEST_DIR := compiler/bootstrap/stage0/tests/module-basic
 STAGE0_TEST_FAIL_DIR := compiler/bootstrap/stage0/tests/test-fail
 STAGE0_TEST_FAIL_COMPILE_DIR := compiler/bootstrap/stage0/tests/test-fail-compile
 STAGE0_DEPS_APP_DIR := compiler/bootstrap/stage0/tests/deps/app
+STAGE0_WORKSPACE_APP_DIR := compiler/bootstrap/stage0/tests/workspace/app
 STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
@@ -42,7 +43,7 @@ NATIVE_PATH ?= compiler/stage2/tests/examples/native-full
 NATIVE_BUILD_ARGS ?= --example hello
 NATIVE_TARGET_DIR ?=
 
-.PHONY: build-stage0 build-stage1-ir test-stage0 test-stage1 test-stage2 test-stage1-ir test-stage1-full test-ir test-ir-verify test-ir-opt test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
+.PHONY: build-stage0 test-stage0 test-stage2 test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-qbe test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -65,7 +66,7 @@ test-stage0: build-stage0
 		if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi; \
 	done
 	@echo "[stage0-build] $(STAGE0_MODULE_TEST_DIR)"; \
-	./$(STAGE0_BIN) build $(STAGE0_MODULE_TEST_DIR) -o /tmp/dast-stage0-module.ir || exit 1; \
+	./$(STAGE0_BIN) build --emit-ir $(STAGE0_MODULE_TEST_DIR) -o /tmp/dast-stage0-module.ir || exit 1; \
 	rm -f /tmp/dast-stage0-module.ir
 	@echo "[stage0-run] $(STAGE0_MODULE_TEST_DIR)"; \
 	./$(STAGE0_BIN) run $(STAGE0_MODULE_TEST_DIR) || exit 1
@@ -84,45 +85,40 @@ test-stage0: build-stage0
 	if [ $$status -eq 0 ]; then echo "expected test failure"; exit 1; fi; \
 	if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi
 	@echo "[stage0-deps-build] $(STAGE0_DEPS_APP_DIR)"; \
-	./$(STAGE0_BIN) build $(STAGE0_DEPS_APP_DIR) -o /tmp/dast-stage0-deps.ir || exit 1; \
+	./$(STAGE0_BIN) build --emit-ir $(STAGE0_DEPS_APP_DIR) -o /tmp/dast-stage0-deps.ir || exit 1; \
 	rm -f /tmp/dast-stage0-deps.ir
 	@echo "[stage0-deps-run] $(STAGE0_DEPS_APP_DIR)"; \
 	./$(STAGE0_BIN) run $(STAGE0_DEPS_APP_DIR) || exit 1
 	@echo "[stage0-deps-test] $(STAGE0_DEPS_APP_DIR)"; \
 	./$(STAGE0_BIN) test $(STAGE0_DEPS_APP_DIR) || exit 1
+	@echo "[stage0-workspace-run] $(STAGE0_WORKSPACE_APP_DIR)"; \
+	./$(STAGE0_BIN) run $(STAGE0_WORKSPACE_APP_DIR) || exit 1
+	@echo "[stage0-workspace-test] $(STAGE0_WORKSPACE_APP_DIR)"; \
+	./$(STAGE0_BIN) test $(STAGE0_WORKSPACE_APP_DIR) || exit 1
+	@$(MAKE) test-ir-gen
+	@$(MAKE) test-ir-qbe
 
-test-stage1: build-stage0
-	@for f in $(EXAMPLES); do \
-		echo "[stage1] $$f"; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- run $$f 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+test-ir-gen: build-stage0
+	@for f in $(IR_GEN_DIR)/*.dast; do \
+		echo "[ir-gen] $$f"; \
+		tmp="/tmp/dast-ir-gen-$$.ir"; \
+		exp="$${f%.dast}.ir"; \
+		if [ ! -f "$$exp" ]; then echo "missing $$exp"; exit 1; fi; \
+		./$(STAGE0_BIN) ir $$f > $$tmp || exit 1; \
+		diff -u "$$exp" "$$tmp" || exit 1; \
+		rm -f "$$tmp"; \
 	done
 
-test-stage1-full: test-stage1
-
-test-stage1-self: build-stage0
-	@echo "[stage1-self] stage1 self-host IR check"; \
-	tmp0="/tmp/dast-stage1-self-$$.ir"; \
-	tmp1="/tmp/dast-stage1-self-$$.ir1"; \
-	tmp2="/tmp/dast-stage1-self-$$.ir2"; \
-	./$(STAGE0_BIN) ir $(STAGE1_FILES) > $$tmp0 || exit 1; \
-	./$(STAGE0_BIN) ir-verify $$tmp0 || exit 1; \
-	./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE1_FILES) > $$tmp1 || exit 1; \
-	./$(STAGE0_BIN) ir-verify $$tmp1 || exit 1; \
-	./$(STAGE0_BIN) ir-run $$tmp0 -- ir $(STAGE1_FILES) > $$tmp2 || exit 1; \
-	./$(STAGE0_BIN) ir-verify $$tmp2 || exit 1; \
-	diff -q $$tmp1 $$tmp2 >/tmp/dast-stage1-self.out 2>&1 || { \
-		echo "stage1 self-host IR mismatch"; \
-		cat /tmp/dast-stage1-self.out; \
-		exit 1; \
-	}; \
-	rm -f $$tmp0 $$tmp1 $$tmp2
-
-build-stage1-ir: build-stage0
-	@./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $(STAGE2_FILES) > $(STAGE1_IR)
+test-ir-qbe: build-stage0
+	@for f in $(IR_QBE_DIR)/*.ir; do \
+		echo "[ir-qbe] $$f"; \
+		tmp="/tmp/dast-ir-qbe-$$.qbe"; \
+		exp="$${f%.ir}.qbe"; \
+		if [ ! -f "$$exp" ]; then echo "missing $$exp"; exit 1; fi; \
+		./$(STAGE0_BIN) ir-qbe $$f > $$tmp || exit 1; \
+		diff -u "$$exp" "$$tmp" || exit 1; \
+		rm -f "$$tmp"; \
+	done
 
 test-stage2: build-stage0
 	@for f in $(STAGE2_RUN_PASS); do \
@@ -241,14 +237,21 @@ stage2-compiler: build-stage0
 	use_native=0; \
 	if [ -x "$$stage2_bin" ]; then \
 		use_native=1; \
-		for f in compiler/stage2/backend/codegen-c/codegen-c.dast compiler/stage2/backend/codegen-c/c_runtime.c compiler/stage2/backend/codegen-c/c_runtime.h compiler/stage2/middle/ir.dast compiler/stage2/driver/main.dast; do \
+		for f in $(STAGE2_FILES) compiler/stage2/backend/codegen-c/c_runtime.c compiler/stage2/backend/codegen-c/c_runtime.h; do \
 			if [ "$$f" -nt "$$stage2_bin" ]; then use_native=0; break; fi; \
 		done; \
 	fi; \
 	mkdir -p "$$target"; \
 	rm -f "$$target"/*.ir "$$target"/*.c; \
 	echo "[stage2-compiler] emit IR"; \
-	./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap --emit-ir $(STAGE2_COMPILER_DIRS); \
+	if [ $$use_native -eq 1 ]; then \
+		if ! "$$stage2_bin" build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap --emit-ir $(STAGE2_COMPILER_DIRS); then \
+			echo "[stage2-compiler] native build failed, falling back to stage0"; \
+			./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap --emit-ir $(STAGE2_COMPILER_DIRS); \
+		fi; \
+	else \
+		./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap --emit-ir $(STAGE2_COMPILER_DIRS); \
+	fi; \
 	ir=$$(ls "$$target"/*.ir 2>/dev/null | head -1); \
 	if [ -z "$$ir" ]; then echo "missing build output in $$target"; exit 1; fi; \
 	cfile="$${ir%.ir}.c"; \
@@ -414,12 +417,6 @@ test-ir-opt: build-stage0
 	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT_CONST)); \
 	echo "$$out" | grep -q 't0 = + 1, 2' || { echo "expected inline const binop"; echo "$$out"; exit 1; }; \
 	echo "$$out" | grep -q 't1 = == true, false' || { echo "expected inline const cmp"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-opt $(IR_OPT) 2>&1); \
-	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
-	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-opt $(IR_OPT_CONST) 2>&1); \
-	echo "$$out" | grep -q 't0 = + 1, 2' || { echo "expected inline const binop"; echo "$$out"; exit 1; }; \
-	echo "$$out" | grep -q 't1 = == true, false' || { echo "expected inline const cmp"; echo "$$out"; exit 1; }
 	@out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-opt $(IR_OPT) 2>&1); \
 	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
 	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
@@ -430,8 +427,6 @@ test-ir-opt: build-stage0
 test:
 	@echo "[test] start"
 	@$(MAKE) test-stage0
-	@$(MAKE) test-stage1
-	@$(MAKE) test-stage1-self
 	@$(MAKE) test-stage2
 	@$(MAKE) test-ir
 	@$(MAKE) test-ir-verify

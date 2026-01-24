@@ -1,0 +1,5 @@
+const A = foo()
+
+fn main() {
+    println("A", A)
+}

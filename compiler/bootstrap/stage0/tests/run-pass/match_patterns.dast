@@ -1,0 +1,35 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum OptionI32 {
+    Some(i32),
+    None,
+}
+
+fn main() {
+    let v = 3
+    let a = match v {
+        0 => 10,
+        1 | 2 => 20,
+        3..=5 => 30,
+        _ => 40,
+    }
+    println("a", a)
+
+    let p = Point { x: 1, y: 2 }
+    let b = match p {
+        Point { x: 0, y: 0 } => 0,
+        Point { x, y } => x + y,
+    }
+    println("b", b)
+
+    let opt = OptionI32.Some(5)
+    let c = match opt {
+        .Some(x) if x > 3 => x,
+        .Some(x) => x + 1,
+        .None => 0,
+    }
+    println("c", c)
+}

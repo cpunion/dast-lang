@@ -1,0 +1,14 @@
+ir v0
+fn add(a: i64, b: i64) -> i64
+  block entry0:
+    t0: i64 = + a, b
+    return t0
+
+fn main() -> unit
+  block entry0:
+    t0: i64 = call add(1, 2)
+    store x, t0
+    t1: i64 = load x
+    t2: unit = call println(t1)
+    return t2
+

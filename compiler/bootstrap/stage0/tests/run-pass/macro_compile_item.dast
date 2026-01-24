@@ -1,0 +1,5 @@
+compile!(ast_item("fn gen() { println(7) }"))
+
+fn main() {
+    gen()
+}

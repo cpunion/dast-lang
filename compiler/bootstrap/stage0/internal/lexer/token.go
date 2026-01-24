@@ -15,9 +15,14 @@ const (
 	TokenStruct
 	TokenEnum
 	TokenImpl
+	TokenTrait
 	TokenSelf
 	TokenSelfType
 	TokenConst
+	TokenType
+	TokenPub
+	TokenMacro
+	TokenQuote
 	TokenImport
 	TokenAs
 	TokenLet
@@ -25,6 +30,10 @@ const (
 	TokenIf
 	TokenElse
 	TokenWhile
+	TokenLoop
+	TokenFor
+	TokenBreak
+	TokenContinue
 	TokenMatch
 	TokenReturn
 	TokenTrue
@@ -42,7 +51,11 @@ const (
 	TokenArrow
 	TokenFatArrow
 	TokenDot
+	TokenColonColon
+	TokenDotDot
+	TokenDotDotEq
 	TokenAt
+	TokenDollar
 
 	TokenAssign
 	TokenPlus
@@ -52,6 +65,7 @@ const (
 	TokenPercent
 	TokenBang
 	TokenAmp
+	TokenPipe
 
 	TokenEqEq
 	TokenNotEq
@@ -89,12 +103,22 @@ func (k TokenKind) String() string {
 		return "enum"
 	case TokenImpl:
 		return "impl"
+	case TokenTrait:
+		return "trait"
 	case TokenSelf:
 		return "self"
 	case TokenSelfType:
 		return "Self"
 	case TokenConst:
 		return "const"
+	case TokenType:
+		return "type"
+	case TokenPub:
+		return "pub"
+	case TokenMacro:
+		return "macro"
+	case TokenQuote:
+		return "quote"
 	case TokenImport:
 		return "import"
 	case TokenAs:
@@ -109,6 +133,14 @@ func (k TokenKind) String() string {
 		return "else"
 	case TokenWhile:
 		return "while"
+	case TokenLoop:
+		return "loop"
+	case TokenFor:
+		return "for"
+	case TokenBreak:
+		return "break"
+	case TokenContinue:
+		return "continue"
 	case TokenMatch:
 		return "match"
 	case TokenReturn:
@@ -141,8 +173,16 @@ func (k TokenKind) String() string {
 		return "=>"
 	case TokenDot:
 		return "."
+	case TokenColonColon:
+		return "::"
+	case TokenDotDot:
+		return ".."
+	case TokenDotDotEq:
+		return "..="
 	case TokenAt:
 		return "@"
+	case TokenDollar:
+		return "$"
 	case TokenAssign:
 		return "="
 	case TokenPlus:
@@ -159,6 +199,8 @@ func (k TokenKind) String() string {
 		return "!"
 	case TokenAmp:
 		return "&"
+	case TokenPipe:
+		return "|"
 	case TokenEqEq:
 		return "=="
 	case TokenNotEq:

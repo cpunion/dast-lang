@@ -1,0 +1,11 @@
+fn main() {
+    let v = true
+    match v {
+        0..=1 => {
+            println("bad", v)
+        }
+        _ => {
+            println("ok", v)
+        }
+    }
+}

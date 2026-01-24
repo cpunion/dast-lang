@@ -1,0 +1,11 @@
+ir v0
+fn add(a: int, b: int) -> int
+  block entry:
+    t0 = + a, b
+    return t0
+
+fn main() -> int
+  block entry:
+    call_closure &0()
+    t0 = call add(1, 2)
+    return t0

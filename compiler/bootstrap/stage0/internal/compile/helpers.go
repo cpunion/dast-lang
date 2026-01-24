@@ -70,7 +70,7 @@ func formatType(t ast.Type) string {
 
 func isIntTypeName(name string) bool {
 	switch name {
-	case "i8", "i16", "i32", "i64", "i128",
+	case "int", "i8", "i16", "i32", "i64", "i128",
 		"u8", "u16", "u32", "u64", "u128",
 		"isize", "usize", "char":
 		return true
@@ -216,7 +216,7 @@ func (c *Compiler) popScope() {
 // declareValueVar declares an immutable value variable (param or let)
 // The temp ID is stored and returned directly when accessed
 func (c *Compiler) declareValueVar(name string, temp int) {
-	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: temp, Mutable: false}
+	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: temp, Mutable: false, RefTemp: -1}
 }
 
 // declareMutVar declares a mutable variable (let mut)
@@ -228,8 +228,12 @@ func (c *Compiler) declareMutVar(name string) string {
 	if count > 0 {
 		irName = fmt.Sprintf("%s#%d", name, count)
 	}
-	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: -1, Name: irName, Mutable: true}
+	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: -1, Name: irName, Mutable: true, RefTemp: -1}
 	return irName
+}
+
+func (c *Compiler) declareRefVar(name string, refTemp int, mutable bool) {
+	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: -1, Name: "", Mutable: mutable, RefTemp: refTemp}
 }
 
 func (c *Compiler) lookupVar(name string) (VarInfo, bool) {
@@ -250,6 +254,49 @@ func (c *Compiler) markImmutable(name string) {
 			return
 		}
 	}
+}
+
+func (c *Compiler) markClosure(name string) {
+	for i := len(c.scopeStack) - 1; i >= 0; i-- {
+		if v, ok := c.scopeStack[i][name]; ok {
+			v.Closure = true
+			c.scopeStack[i][name] = v
+			return
+		}
+	}
+}
+
+func (c *Compiler) pushLoop(breakLabel, continueLabel string) {
+	c.loopStack = append(c.loopStack, loopContext{breakLabel: breakLabel, continueLabel: continueLabel})
+}
+
+func (c *Compiler) popLoop() {
+	if len(c.loopStack) == 0 {
+		return
+	}
+	c.loopStack = c.loopStack[:len(c.loopStack)-1]
+}
+
+func (c *Compiler) currentLoop() (loopContext, bool) {
+	if len(c.loopStack) == 0 {
+		return loopContext{}, false
+	}
+	return c.loopStack[len(c.loopStack)-1], true
+}
+
+func (c *Compiler) operandToTemp(op ir.Operand, typ string) int {
+	if !op.IsConst {
+		return op.Temp
+	}
+	name := c.declareMutVar("__tmp")
+	c.emit(&ir.StoreVar{Name: name, Src: op})
+	dst := c.newTemp()
+	if typ == "" {
+		typ = "i64"
+	}
+	c.setTempType(dst, typ)
+	c.emit(&ir.LoadVar{Dst: dst, Name: name})
+	return dst
 }
 
 // compileEnumVariant compiles an enum variant construction using MakeStruct.

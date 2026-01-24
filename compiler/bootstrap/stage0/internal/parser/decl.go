@@ -6,9 +6,12 @@ import (
 	"dastlang/internal/source"
 )
 
-func (p *Parser) parseStructDecl() ast.Item {
+func (p *Parser) parseStructDecl(vis ast.Visibility) ast.Item {
 	nameTok := p.expect(lexer.TokenIdent, "expected struct name")
-	decl := &ast.StructDecl{Name: nameTok.Lexeme, SpanInfo: nameTok.Span}
+	decl := &ast.StructDecl{Name: nameTok.Lexeme, Vis: vis, SpanInfo: nameTok.Span}
+	if p.at(lexer.TokenLBracket) {
+		decl.TypeParams = p.parseTypeParams()
+	}
 	p.expect(lexer.TokenLBrace, "expected '{'")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		fieldName := p.expect(lexer.TokenIdent, "expected field name")
@@ -38,9 +41,12 @@ func (p *Parser) parseImport() ast.Item {
 	return &ast.ImportDecl{Path: pathTok.Lexeme, Alias: alias, SpanInfo: mergeSpan(startTok.Span, endSpan)}
 }
 
-func (p *Parser) parseEnumDecl(repr string) ast.Item {
+func (p *Parser) parseEnumDecl(repr string, vis ast.Visibility) ast.Item {
 	nameTok := p.expect(lexer.TokenIdent, "expected enum name")
-	decl := &ast.EnumDecl{Name: nameTok.Lexeme, Repr: repr, SpanInfo: nameTok.Span}
+	decl := &ast.EnumDecl{Name: nameTok.Lexeme, Repr: repr, Vis: vis, SpanInfo: nameTok.Span}
+	if p.at(lexer.TokenLBracket) {
+		decl.TypeParams = p.parseTypeParams()
+	}
 	p.expect(lexer.TokenLBrace, "expected '{'")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		variantTok := p.expect(lexer.TokenIdent, "expected variant name")
@@ -66,9 +72,9 @@ func (p *Parser) parseEnumDecl(repr string) ast.Item {
 	return decl
 }
 
-func (p *Parser) parseConstDecl() ast.Item {
+func (p *Parser) parseConstDecl(vis ast.Visibility) ast.Item {
 	nameTok := p.expect(lexer.TokenIdent, "expected const name")
-	decl := &ast.ConstDecl{Name: nameTok.Lexeme, SpanInfo: nameTok.Span}
+	decl := &ast.ConstDecl{Name: nameTok.Lexeme, Vis: vis, SpanInfo: nameTok.Span}
 	if p.match(lexer.TokenColon) {
 		t := p.parseType()
 		decl.Type = &t
@@ -82,9 +88,76 @@ func (p *Parser) parseConstDecl() ast.Item {
 	return decl
 }
 
-func (p *Parser) parseFunction() ast.Item {
+func (p *Parser) parseTypeAlias(vis ast.Visibility) ast.Item {
+	nameTok := p.expect(lexer.TokenIdent, "expected type name")
+	alias := &ast.TypeAlias{Name: nameTok.Lexeme, Vis: vis, SpanInfo: nameTok.Span}
+	if p.at(lexer.TokenLBracket) {
+		alias.TypeParams = p.parseTypeParams()
+	}
+	p.expect(lexer.TokenAssign, "expected '=' in type alias")
+	val := p.parseType()
+	alias.Value = val
+	p.maybeConsumeSemicolon()
+	alias.SpanInfo = mergeSpan(alias.SpanInfo, val.Span)
+	return alias
+}
+
+func (p *Parser) parseTraitDecl(vis ast.Visibility) ast.Item {
+	nameTok := p.expect(lexer.TokenIdent, "expected trait name")
+	decl := &ast.TraitDecl{Name: nameTok.Lexeme, Vis: vis, SpanInfo: nameTok.Span}
+	if p.at(lexer.TokenLBracket) {
+		decl.TypeParams = p.parseTypeParams()
+	}
+	p.expect(lexer.TokenLBrace, "expected '{' after trait name")
+	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
+		vis := ast.VisPrivate
+		if p.match(lexer.TokenPub) {
+			vis = ast.VisPublic
+		}
+		if !p.match(lexer.TokenFn) {
+			p.errorCurrent("expected trait method")
+			p.advance()
+			continue
+		}
+		method := p.parseTraitMethod(vis)
+		decl.Methods = append(decl.Methods, method)
+	}
+	rbrace := p.expect(lexer.TokenRBrace, "expected '}'")
+	decl.SpanInfo = mergeSpan(decl.SpanInfo, rbrace.Span)
+	return decl
+}
+
+func (p *Parser) parseTraitMethod(vis ast.Visibility) ast.TraitMethod {
+	nameTok := p.expect(lexer.TokenIdent, "expected method name")
+	method := ast.TraitMethod{Name: nameTok.Lexeme, SpanInfo: nameTok.Span}
+	_ = vis
+	p.expect(lexer.TokenLParen, "expected '('")
+	if !p.at(lexer.TokenRParen) {
+		for {
+			param := p.parseParam()
+			method.Params = append(method.Params, param)
+			if p.match(lexer.TokenComma) {
+				continue
+			}
+			break
+		}
+	}
+	p.expect(lexer.TokenRParen, "expected ')'")
+	if p.match(lexer.TokenArrow) {
+		ret := p.parseType()
+		method.ReturnType = &ret
+		method.SpanInfo = mergeSpan(method.SpanInfo, ret.Span)
+	}
+	p.expect(lexer.TokenSemicolon, "expected ';' after trait method")
+	return method
+}
+
+func (p *Parser) parseFunction(vis ast.Visibility, isMacro bool) *ast.Function {
 	nameTok := p.expect(lexer.TokenIdent, "expected function name")
-	fn := &ast.Function{Name: nameTok.Lexeme, SpanInfo: mergeSpan(nameTok.Span, nameTok.Span)}
+	fn := &ast.Function{Name: nameTok.Lexeme, Vis: vis, IsMacro: isMacro, SpanInfo: mergeSpan(nameTok.Span, nameTok.Span)}
+	if p.at(lexer.TokenLBracket) {
+		fn.TypeParams = p.parseTypeParams()
+	}
 
 	p.expect(lexer.TokenLParen, "expected '('")
 	if !p.at(lexer.TokenRParen) {
@@ -108,6 +181,54 @@ func (p *Parser) parseFunction() ast.Item {
 	fn.Body = body
 	fn.SpanInfo = mergeSpan(fn.SpanInfo, body.Span())
 	return fn
+}
+
+func (p *Parser) parseTypeParams() []ast.TypeParam {
+	if !p.match(lexer.TokenLBracket) {
+		return nil
+	}
+	var params []ast.TypeParam
+	for !p.at(lexer.TokenRBracket) && !p.at(lexer.TokenEOF) {
+		nameTok := p.expect(lexer.TokenIdent, "expected type parameter")
+		param := ast.TypeParam{Name: nameTok.Lexeme, Span: nameTok.Span}
+		if p.match(lexer.TokenColon) {
+			for {
+				boundName, boundSpan := p.parseQualifiedName()
+				if boundName == "" {
+					p.diag.Add(boundSpan, "expected trait bound")
+				} else {
+					param.Bounds = append(param.Bounds, boundName)
+				}
+				if !p.match(lexer.TokenPlus) {
+					break
+				}
+			}
+		}
+		params = append(params, param)
+		if p.match(lexer.TokenComma) {
+			continue
+		}
+		break
+	}
+	p.expect(lexer.TokenRBracket, "expected ']' after type parameters")
+	return params
+}
+
+func (p *Parser) parseTypeArgs() []ast.Type {
+	if !p.match(lexer.TokenLBracket) {
+		return nil
+	}
+	var args []ast.Type
+	for !p.at(lexer.TokenRBracket) && !p.at(lexer.TokenEOF) {
+		arg := p.parseType()
+		args = append(args, arg)
+		if p.match(lexer.TokenComma) {
+			continue
+		}
+		break
+	}
+	p.expect(lexer.TokenRBracket, "expected ']' after type arguments")
+	return args
 }
 
 func (p *Parser) parseParam() ast.Param {
@@ -164,12 +285,27 @@ func (p *Parser) parseType() ast.Type {
 		if t.Span == (source.Span{}) {
 			t.Span = mergeSpan(start, nameTok.Span)
 		}
+		if p.at(lexer.TokenLBracket) {
+			p.diag.Add(p.peek().Span, "type arguments not allowed on Self")
+		}
 		return t
 	}
 	name, span := p.parseQualifiedName()
 	t.Name = name
 	if t.Span == (source.Span{}) {
 		t.Span = mergeSpan(start, span)
+	}
+	if p.match(lexer.TokenLBracket) {
+		for !p.at(lexer.TokenRBracket) && !p.at(lexer.TokenEOF) {
+			arg := p.parseType()
+			t.Args = append(t.Args, arg)
+			if p.match(lexer.TokenComma) {
+				continue
+			}
+			break
+		}
+		end := p.expect(lexer.TokenRBracket, "expected ']' after type arguments")
+		t.Span = mergeSpan(t.Span, end.Span)
 	}
 	return t
 }
@@ -186,38 +322,146 @@ func (p *Parser) parseConstInt() (int64, source.Span) {
 }
 
 func (p *Parser) parseConstValue() ast.ConstValue {
-	tok := p.peek()
-	switch tok.Kind {
-	case lexer.TokenMinus, lexer.TokenInt:
-		val, span := p.parseConstInt()
-		return ast.ConstValue{Kind: ast.ConstInt, Int: val, Span: span}
-	case lexer.TokenTrue:
-		p.advance()
-		return ast.ConstValue{Kind: ast.ConstBool, Bool: true, Span: tok.Span}
-	case lexer.TokenFalse:
-		p.advance()
-		return ast.ConstValue{Kind: ast.ConstBool, Bool: false, Span: tok.Span}
-	case lexer.TokenString:
-		p.advance()
-		return ast.ConstValue{Kind: ast.ConstString, Str: tok.Lexeme, Span: tok.Span}
-	case lexer.TokenChar:
-		p.advance()
-		return ast.ConstValue{Kind: ast.ConstInt, Int: parseCharLiteral(tok.Lexeme), Span: tok.Span}
+	expr := p.parseExpr(0)
+	val, ok := evalConstExpr(expr)
+	if !ok {
+		p.diag.Add(expr.Span(), "unsupported const expression in stage 0")
+		return ast.ConstValue{Kind: ast.ConstInt, Int: 0, Span: expr.Span()}
+	}
+	return val
+}
+
+func evalConstExpr(expr ast.Expr) (ast.ConstValue, bool) {
+	switch e := expr.(type) {
+	case *ast.IntLit:
+		return ast.ConstValue{Kind: ast.ConstInt, Int: e.Value, Span: e.Span()}, true
+	case *ast.BoolLit:
+		return ast.ConstValue{Kind: ast.ConstBool, Bool: e.Value, Span: e.Span()}, true
+	case *ast.StringLit:
+		return ast.ConstValue{Kind: ast.ConstString, Str: e.Value, Span: e.Span()}, true
+	case *ast.UnaryExpr:
+		val, ok := evalConstExpr(e.Expr)
+		if !ok {
+			return ast.ConstValue{}, false
+		}
+		switch e.Op {
+		case "-":
+			if val.Kind != ast.ConstInt {
+				return ast.ConstValue{}, false
+			}
+			return ast.ConstValue{Kind: ast.ConstInt, Int: -val.Int, Span: e.Span()}, true
+		case "!":
+			if val.Kind != ast.ConstBool {
+				return ast.ConstValue{}, false
+			}
+			return ast.ConstValue{Kind: ast.ConstBool, Bool: !val.Bool, Span: e.Span()}, true
+		default:
+			return ast.ConstValue{}, false
+		}
+	case *ast.BinaryExpr:
+		lhs, ok := evalConstExpr(e.Left)
+		if !ok {
+			return ast.ConstValue{}, false
+		}
+		rhs, ok := evalConstExpr(e.Right)
+		if !ok {
+			return ast.ConstValue{}, false
+		}
+		switch e.Op {
+		case "+":
+			if lhs.Kind == ast.ConstInt && rhs.Kind == ast.ConstInt {
+				return ast.ConstValue{Kind: ast.ConstInt, Int: lhs.Int + rhs.Int, Span: e.Span()}, true
+			}
+			if lhs.Kind == ast.ConstString && rhs.Kind == ast.ConstString {
+				return ast.ConstValue{Kind: ast.ConstString, Str: lhs.Str + rhs.Str, Span: e.Span()}, true
+			}
+			return ast.ConstValue{}, false
+		case "-":
+			if lhs.Kind != ast.ConstInt || rhs.Kind != ast.ConstInt {
+				return ast.ConstValue{}, false
+			}
+			return ast.ConstValue{Kind: ast.ConstInt, Int: lhs.Int - rhs.Int, Span: e.Span()}, true
+		case "*":
+			if lhs.Kind != ast.ConstInt || rhs.Kind != ast.ConstInt {
+				return ast.ConstValue{}, false
+			}
+			return ast.ConstValue{Kind: ast.ConstInt, Int: lhs.Int * rhs.Int, Span: e.Span()}, true
+		case "/":
+			if lhs.Kind != ast.ConstInt || rhs.Kind != ast.ConstInt || rhs.Int == 0 {
+				return ast.ConstValue{}, false
+			}
+			return ast.ConstValue{Kind: ast.ConstInt, Int: lhs.Int / rhs.Int, Span: e.Span()}, true
+		case "%":
+			if lhs.Kind != ast.ConstInt || rhs.Kind != ast.ConstInt || rhs.Int == 0 {
+				return ast.ConstValue{}, false
+			}
+			return ast.ConstValue{Kind: ast.ConstInt, Int: lhs.Int % rhs.Int, Span: e.Span()}, true
+		default:
+			return ast.ConstValue{}, false
+		}
 	default:
-		p.errorCurrent("expected const literal")
-		p.advance()
-		return ast.ConstValue{Kind: ast.ConstInt, Int: 0, Span: tok.Span}
+		return ast.ConstValue{}, false
 	}
 }
 
-func (p *Parser) parseImplDecl() ast.Item {
+func (p *Parser) parseImplDecl(vis ast.Visibility) ast.Item {
 	start := p.prev().Span
-	typeName, typeSpan := p.parseQualifiedName()
-	impl := &ast.ImplDecl{TypeName: typeName, SpanInfo: mergeSpan(start, typeSpan)}
+	var typeParams []ast.TypeParam
+	if p.at(lexer.TokenLBracket) {
+		typeParams = p.parseTypeParams()
+	}
+	baseType := p.parseType()
+	if baseType.IsRef || baseType.IsArray {
+		p.diag.Add(baseType.Span, "impl target must be nominal type")
+	}
+	if p.match(lexer.TokenFor) {
+		traitType := baseType
+		forType := p.parseType()
+		if forType.IsRef || forType.IsArray {
+			p.diag.Add(forType.Span, "impl target must be nominal type")
+		}
+		impl := &ast.ImplTraitDecl{
+			TraitName: traitType.Name,
+			TraitArgs: traitType.Args,
+			ForTypeName: forType.Name,
+			ForTypeArgs: forType.Args,
+			TypeParams: typeParams,
+			Vis:       vis,
+			SpanInfo:  mergeSpan(start, forType.Span),
+		}
+		p.expect(lexer.TokenLBrace, "expected '{' after impl")
+		for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
+			vis := ast.VisPrivate
+			if p.match(lexer.TokenPub) {
+				vis = ast.VisPublic
+			}
+			if p.match(lexer.TokenFn) {
+				fn := p.parseFunction(vis, false)
+				impl.Methods = append(impl.Methods, fn)
+				continue
+			}
+			p.errorCurrent("expected method")
+			p.advance()
+		}
+		rbrace := p.expect(lexer.TokenRBrace, "expected '}'")
+		impl.SpanInfo = mergeSpan(impl.SpanInfo, rbrace.Span)
+		return impl
+	}
+	impl := &ast.ImplDecl{
+		TypeName:  baseType.Name,
+		TypeArgs:  baseType.Args,
+		TypeParams: typeParams,
+		Vis:       vis,
+		SpanInfo:  mergeSpan(start, baseType.Span),
+	}
 	p.expect(lexer.TokenLBrace, "expected '{' after impl type")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
+		vis := ast.VisPrivate
+		if p.match(lexer.TokenPub) {
+			vis = ast.VisPublic
+		}
 		if p.match(lexer.TokenFn) {
-			fn := p.parseFunction().(*ast.Function)
+			fn := p.parseFunction(vis, false)
 			impl.Methods = append(impl.Methods, fn)
 			continue
 		}

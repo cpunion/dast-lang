@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +16,8 @@ import (
 	"dastlang/internal/interp"
 	"dastlang/internal/ir"
 	"dastlang/internal/loader"
+	"dastlang/internal/macroexpand"
+	"dastlang/internal/qbe"
 	"dastlang/internal/source"
 	"dastlang/internal/typecheck"
 )
@@ -39,6 +43,8 @@ func main() {
 		verifyIR(os.Args[2:])
 	case "ir-opt":
 		optIR(os.Args[2:])
+	case "ir-qbe":
+		emitQBE(os.Args[2:])
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -51,13 +57,14 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, "dast - stage0 prototype")
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  dast build <dir|file.dast ...> [-o output.ir]")
+	fmt.Fprintln(os.Stderr, "  dast build [--emit-ir|--emit-qbe] <dir|file.dast ...> [-o output]")
 	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast test [dir|file.dast ...]")
 	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...]")
 	fmt.Fprintln(os.Stderr, "  dast ir-run <file.ir> [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast ir-verify <file.ir>")
 	fmt.Fprintln(os.Stderr, "  dast ir-opt <file.ir>")
+	fmt.Fprintln(os.Stderr, "  dast ir-qbe <file.ir>")
 }
 
 func run(args []string) {
@@ -66,22 +73,18 @@ func run(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	files, progArgs := splitArgs(args)
+	files, progArgs, opts := parseLoadArgs(args)
 	if len(files) == 0 {
 		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
-	irProg := buildProgram(files, loader.LoadNormal, nil)
+	irProg := buildProgram(files, loader.LoadNormal, nil, opts)
 	if irProg == nil {
 		return
 	}
-	rt := interp.New(irProg)
-	if len(progArgs) > 0 {
-		rt.Args = progArgs
-	}
-	if _, err := rt.Run(irProg.Entry); err != nil {
-		exitOnRunErr(err)
+	if err := buildAndRun(irProg, progArgs); err != nil {
+		exitOnExecErr(err)
 	}
 }
 
@@ -91,13 +94,13 @@ func dumpIR(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	files, _ := splitArgs(args)
+	files, _, opts := parseLoadArgs(args)
 	if len(files) == 0 {
 		printStage0Error("", 0, 0, "missing input file")
 		usage()
 		os.Exit(1)
 	}
-	irProg := buildProgram(files, loader.LoadNormal, nil)
+	irProg := buildProgram(files, loader.LoadNormal, nil, opts)
 	if irProg == nil {
 		return
 	}
@@ -106,23 +109,25 @@ func dumpIR(args []string) {
 
 func testCmd(args []string) {
 	files := []string{"."}
+	opts := loader.LoadOptions{}
 	if len(args) > 0 {
-		files, _ = splitArgs(args)
+		var progArgs []string
+		files, progArgs, opts = parseLoadArgs(args)
+		_ = progArgs
 		if len(files) == 0 {
 			files = []string{"."}
 		}
 	}
 	var entry string
-	irProg := buildProgram(files, loader.LoadTest, &entry)
+	irProg := buildProgram(files, loader.LoadTest, &entry, opts)
 	if irProg == nil {
 		return
 	}
 	if entry != "" {
 		irProg.Entry = entry
 	}
-	rt := interp.New(irProg)
-	if _, err := rt.Run(irProg.Entry); err != nil {
-		exitOnRunErr(err)
+	if err := buildAndRun(irProg, nil); err != nil {
+		exitOnExecErr(err)
 	}
 }
 
@@ -134,10 +139,29 @@ func buildCmd(args []string) {
 	}
 	outPath := ""
 	files := []string{}
+	emitIR := false
+	emitQBE := false
+	opts := loader.LoadOptions{AllowMultiDir: true}
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--help" || args[i] == "-h" {
+			usage()
+			return
+		}
 		if args[i] == "-o" && i+1 < len(args) {
 			outPath = args[i+1]
 			i++
+			continue
+		}
+		if args[i] == "--emit-ir" {
+			emitIR = true
+			continue
+		}
+		if args[i] == "--emit-qbe" {
+			emitQBE = true
+			continue
+		}
+		if args[i] == "--bootstrap" {
+			opts.AllowMultiDir = true
 			continue
 		}
 		files = append(files, args[i])
@@ -147,18 +171,45 @@ func buildCmd(args []string) {
 		usage()
 		os.Exit(1)
 	}
-	irProg := buildProgram(files, loader.LoadNormal, nil)
+	if emitIR && emitQBE {
+		printStage0Error("", 0, 0, "cannot use --emit-ir and --emit-qbe together")
+		usage()
+		os.Exit(1)
+	}
+	irProg := buildProgram(files, loader.LoadNormal, nil, opts)
 	if irProg == nil {
 		return
 	}
-	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(irProg.Format()), 0644); err != nil {
-			printStage0Error(outPath, 0, 0, fmt.Sprintf("write failed: %v", err))
-			os.Exit(1)
+	if emitIR {
+		if outPath != "" {
+			if err := os.WriteFile(outPath, []byte(irProg.Format()), 0644); err != nil {
+				printStage0Error(outPath, 0, 0, fmt.Sprintf("write failed: %v", err))
+				os.Exit(1)
+			}
+			return
 		}
+		fmt.Print(irProg.Format())
 		return
 	}
-	fmt.Print(irProg.Format())
+	if emitQBE {
+		out := qbe.EmitProgram(irProg)
+		if outPath != "" {
+			if err := os.WriteFile(outPath, []byte(out), 0644); err != nil {
+				printStage0Error(outPath, 0, 0, fmt.Sprintf("write failed: %v", err))
+				os.Exit(1)
+			}
+			return
+		}
+		fmt.Print(out)
+		return
+	}
+	if outPath == "" {
+		outPath = "a.out"
+	}
+	if err := writeExecutable(outPath, irProg); err != nil {
+		printStage0Error(outPath, 0, 0, fmt.Sprintf("build failed: %v", err))
+		os.Exit(1)
+	}
 }
 
 func runIR(args []string) {
@@ -258,6 +309,30 @@ func optIR(args []string) {
 	fmt.Print(irProg.Format())
 }
 
+func emitQBE(args []string) {
+	if len(args) != 1 {
+		printStage0Error("", 0, 0, "ir-qbe expects exactly one .ir file")
+		usage()
+		os.Exit(1)
+	}
+	text, err := os.ReadFile(args[0])
+	if err != nil {
+		printStage0Error("", 0, 0, err.Error())
+		os.Exit(1)
+	}
+	prog, err := ir.Parse(string(text))
+	if err != nil {
+		printStage0Error("", 0, 0, err.Error())
+		os.Exit(1)
+	}
+	if err := prog.Validate(); err != nil {
+		printStage0Error("", 0, 0, err.Error())
+		os.Exit(1)
+	}
+	out := qbe.EmitProgram(prog)
+	fmt.Print(out)
+}
+
 func splitArgs(args []string) ([]string, []string) {
 	files := []string{}
 	progArgs := []string{}
@@ -271,13 +346,211 @@ func splitArgs(args []string) ([]string, []string) {
 	return files, progArgs
 }
 
+func parseLoadArgs(args []string) ([]string, []string, loader.LoadOptions) {
+	files, progArgs := splitArgs(args)
+	opts := loader.LoadOptions{AllowMultiDir: true}
+	if len(files) == 0 {
+		return files, progArgs, opts
+	}
+	out := []string{}
+	for _, f := range files {
+		if f == "--bootstrap" {
+			opts.AllowMultiDir = true
+			continue
+		}
+		out = append(out, f)
+	}
+	return out, progArgs, opts
+}
+
+func writeExecutable(outPath string, prog *ir.Program) error {
+	moduleRoot, err := findStage0ModuleRoot()
+	if err != nil {
+		return err
+	}
+	tmpDir, err := os.MkdirTemp(moduleRoot, ".dast-build-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	qbePath := filepath.Join(tmpDir, "main.qbe")
+	asmPath := filepath.Join(tmpDir, "main.s")
+	entryPath := filepath.Join(tmpDir, "entry.c")
+
+	qbeText := qbe.EmitProgram(prog)
+	if err := os.WriteFile(qbePath, []byte(qbeText), 0644); err != nil {
+		return err
+	}
+
+	qbeBin, err := exec.LookPath("qbe")
+	if err != nil {
+		return fmt.Errorf("qbe not found in PATH")
+	}
+	cmd := exec.Command(qbeBin, "-o", asmPath, qbePath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	entrySrc, err := buildEntryC(prog)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(entryPath, []byte(entrySrc), 0644); err != nil {
+		return err
+	}
+
+	ccBin, err := exec.LookPath("cc")
+	if err != nil {
+		ccBin, err = exec.LookPath("clang")
+		if err != nil {
+			return fmt.Errorf("cc/clang not found in PATH")
+		}
+	}
+
+	runtimePath := filepath.Join(moduleRoot, "runtime", "c_runtime.c")
+	if !filepath.IsAbs(outPath) {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		outPath = filepath.Join(cwd, outPath)
+	}
+
+	cmd = exec.Command(ccBin, "-O2", "-std=c99", asmPath, runtimePath, entryPath, "-o", outPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func buildAndRun(prog *ir.Program, progArgs []string) error {
+	moduleRoot, err := findStage0ModuleRoot()
+	if err != nil {
+		return err
+	}
+	tmpDir, err := os.MkdirTemp(moduleRoot, ".dast-run-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	binPath := filepath.Join(tmpDir, "dast-run")
+	if err := writeExecutable(binPath, prog); err != nil {
+		return err
+	}
+
+	cmd := exec.Command(binPath, progArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	return cmd.Run()
+}
+
+func buildEntryC(prog *ir.Program) (string, error) {
+	entry := prog.Entry
+	if entry == "" {
+		return "", fmt.Errorf("missing entry function")
+	}
+	fn, ok := prog.Functions[entry]
+	if !ok {
+		return "", fmt.Errorf("entry function not found: %s", entry)
+	}
+	retType := cTypeForIRType(fn.ReturnType)
+	entrySym := "dast_user_" + mangleFuncName(entry)
+	if retType == "void" {
+		return fmt.Sprintf(`#include <stdint.h>
+
+void dast_set_args(int argc, char **argv);
+void %s(void);
+
+int main(int argc, char **argv) {
+	dast_set_args(argc - 1, argv + 1);
+	%s();
+	return 0;
+}
+`, entrySym, entrySym), nil
+	}
+	return fmt.Sprintf(`#include <stdint.h>
+
+void dast_set_args(int argc, char **argv);
+%s %s(void);
+
+int main(int argc, char **argv) {
+	dast_set_args(argc - 1, argv + 1);
+	return (int)%s();
+}
+`, retType, entrySym, entrySym), nil
+}
+
+func cTypeForIRType(t string) string {
+	switch strings.TrimSpace(t) {
+	case "", "unit":
+		return "void"
+	case "bool":
+		return "int32_t"
+	case "i8":
+		return "int8_t"
+	case "i16":
+		return "int16_t"
+	case "i32", "u32", "char":
+		return "int32_t"
+	case "i64", "int", "isize", "usize":
+		return "int64_t"
+	default:
+		return "int64_t"
+	}
+}
+
+func mangleFuncName(name string) string {
+	if name == "" {
+		return "_"
+	}
+	var sb strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteRune('_')
+		}
+	}
+	return sb.String()
+}
+
+func findStage0ModuleRoot() (string, error) {
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	exePath, err = filepath.Abs(exePath)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(exePath); err == nil {
+		exePath = resolved
+	}
+	dir := filepath.Dir(exePath)
+	for {
+		if info, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil && !info.IsDir() {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", fmt.Errorf("go.mod not found near %s", exePath)
+}
+
 type testInfo struct {
 	name string
 	span source.Span
 }
 
-func loadProgram(paths []string, mode loader.LoadMode) *ast.Program {
-	prog, diags, err := loader.LoadProgram(paths, mode)
+func loadProgram(paths []string, mode loader.LoadMode, opts loader.LoadOptions) *ast.Program {
+	prog, diags, err := loader.LoadProgram(paths, mode, opts)
 	if err != nil {
 		printStage0Error("", 0, 0, err.Error())
 		os.Exit(1)
@@ -288,9 +561,12 @@ func loadProgram(paths []string, mode loader.LoadMode) *ast.Program {
 	return prog
 }
 
-func buildProgram(paths []string, mode loader.LoadMode, testEntry *string) *ir.Program {
-	prog := loadProgram(paths, mode)
+func buildProgram(paths []string, mode loader.LoadMode, testEntry *string, opts loader.LoadOptions) *ir.Program {
+	prog := loadProgram(paths, mode, opts)
 	if prog == nil {
+		return nil
+	}
+	if exitOnDiag(macroexpand.Expand(prog)) {
 		return nil
 	}
 	if mode == loader.LoadTest {
@@ -310,8 +586,12 @@ func buildProgram(paths []string, mode loader.LoadMode, testEntry *string) *ir.P
 			*testEntry = testMain.Name
 		}
 	}
-	if exitOnDiag(typecheck.Check(prog)) {
+	monoProg, diags := typecheck.CheckAndMonomorph(prog)
+	if exitOnDiag(diags) {
 		return nil
+	}
+	if monoProg != nil {
+		prog = monoProg
 	}
 	irProg, diags := compile.Compile(prog)
 	if exitOnDiag(diags) {
@@ -402,6 +682,18 @@ func exitOnRunErr(err error) {
 	var exitErr interp.ExitError
 	if errors.As(err, &exitErr) {
 		os.Exit(exitErr.Code)
+	}
+	printStage0Error("<runtime>", 0, 0, err.Error())
+	os.Exit(1)
+}
+
+func exitOnExecErr(err error) {
+	if err == nil {
+		return
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		os.Exit(exitErr.ExitCode())
 	}
 	printStage0Error("<runtime>", 0, 0, err.Error())
 	os.Exit(1)

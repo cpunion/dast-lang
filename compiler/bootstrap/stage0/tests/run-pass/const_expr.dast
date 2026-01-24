@@ -1,0 +1,9 @@
+const A = 1 + 2 * 3
+const B = -(4 + 5)
+const C = !false
+
+fn main() {
+    println("A", A)
+    println("B", B)
+    println("C", C)
+}

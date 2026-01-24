@@ -21,6 +21,10 @@ const (
 	LoadTest
 )
 
+type LoadOptions struct {
+	AllowMultiDir bool
+}
+
 type importSpec struct {
 	path  string
 	alias string
@@ -44,17 +48,26 @@ type pkgInfo struct {
 	codeRoot     string
 	deps         map[string]depRef
 	includeTests bool
+	hasPackage   bool
+	workspace    *workspaceInfo
 }
 
 type depSpec struct {
-	name string
-	path string
-	line int
+	name      string
+	path      string
+	line      int
+	workspace bool
 }
 
 type parseError struct {
 	line int
 	msg  string
+}
+
+type workspaceInfo struct {
+	root    string
+	members []string
+	deps    map[string]depSpec
 }
 
 func normalizeImportPath(path string) string {
@@ -79,16 +92,17 @@ func normalizeImportPath(path string) string {
 }
 
 // LoadProgram loads a program with module imports resolved.
-func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error) {
+func LoadProgram(paths []string, mode LoadMode, opts LoadOptions) (*ast.Program, *diag.Bag, error) {
 	if len(paths) == 0 {
 		return nil, nil, fmt.Errorf("missing input path")
 	}
 	includeTests := mode == LoadTest
 	packages := map[string]*pkgInfo{}
 	loadingPkgs := map[string]bool{}
+	workspaces := map[string]*workspaceInfo{}
 
 	var scanDiags diag.Bag
-	entryPkg, entryDir, entryFiles, err := resolveEntry(paths, includeTests, packages, loadingPkgs, &scanDiags)
+	entryPkg, entryDir, entryFiles, err := resolveEntry(paths, includeTests, packages, loadingPkgs, workspaces, &scanDiags, opts)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -149,7 +163,7 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 				} else {
 					aliases[defaultAlias(normPath)] = struct{}{}
 				}
-				target, targetPkg, err := resolveImport(pkg, absDir, normPath, imp.span, packages, loadingPkgs, &scanDiags)
+				target, targetPkg, err := resolveImport(pkg, absDir, normPath, imp.span, packages, loadingPkgs, workspaces, &scanDiags)
 				if err != nil {
 					scanDiags.Add(imp.span, err.Error())
 					continue
@@ -212,7 +226,7 @@ func LoadProgram(paths []string, mode LoadMode) (*ast.Program, *diag.Bag, error)
 	return prog, diags, nil
 }
 
-func resolveEntry(paths []string, includeTests bool, packages map[string]*pkgInfo, loading map[string]bool, diags *diag.Bag) (entryPkg *pkgInfo, entryDir string, entryFiles []string, err error) {
+func resolveEntry(paths []string, includeTests bool, packages map[string]*pkgInfo, loading map[string]bool, workspaces map[string]*workspaceInfo, diags *diag.Bag, opts LoadOptions) (entryPkg *pkgInfo, entryDir string, entryFiles []string, err error) {
 	if len(paths) == 1 {
 		p := paths[0]
 		info, statErr := os.Stat(p)
@@ -223,7 +237,7 @@ func resolveEntry(paths []string, includeTests bool, packages map[string]*pkgInf
 			}
 			pkgRoot, _ := findPackageRoot(entryDir)
 			if pkgRoot != "" {
-				entryPkg = loadPackage(pkgRoot, includeTests, packages, loading, diags)
+				entryPkg = loadPackage(pkgRoot, includeTests, packages, loading, workspaces, diags)
 				if entryPkg == nil {
 					return nil, "", nil, fmt.Errorf("failed to load package: %s", pkgRoot)
 				}
@@ -235,7 +249,7 @@ func resolveEntry(paths []string, includeTests bool, packages map[string]*pkgInf
 					return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
 				}
 			} else {
-				entryPkg = loadPackage(entryDir, includeTests, packages, loading, diags)
+				entryPkg = loadPackage(entryDir, includeTests, packages, loading, workspaces, diags)
 				if entryPkg == nil {
 					return nil, "", nil, fmt.Errorf("failed to load package: %s", entryDir)
 				}
@@ -248,67 +262,257 @@ func resolveEntry(paths []string, includeTests bool, packages map[string]*pkgInf
 		}
 	}
 
-	// Treat all args as files
+	// Treat remaining args as files or directories
+	var files []string
+	var dirs []string
+	fileSet := map[string]struct{}{}
 	for _, p := range paths {
 		info, statErr := os.Stat(p)
 		if statErr != nil {
 			return nil, "", nil, fmt.Errorf("read failed: %s: %v", p, statErr)
 		}
 		if info.IsDir() {
-			return nil, "", nil, fmt.Errorf("expected file, got dir: %s", p)
+			absDir, err := filepath.Abs(p)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			dirs = append(dirs, absDir)
+			modFiles, err := listDastFiles(absDir, includeTests)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			if len(modFiles) == 0 {
+				return nil, "", nil, fmt.Errorf("no .dast files in %s", absDir)
+			}
+			for _, f := range modFiles {
+				fileSet[f] = struct{}{}
+			}
+			continue
 		}
-	}
-
-	firstDir, err := filepath.Abs(filepath.Dir(paths[0]))
-	if err != nil {
-		return nil, "", nil, err
-	}
-	entryDir = firstDir
-	pkgRoot, _ := findPackageRoot(entryDir)
-	if pkgRoot != "" {
-		entryPkg = loadPackage(pkgRoot, includeTests, packages, loading, diags)
-		if entryPkg == nil {
-			return nil, "", nil, fmt.Errorf("failed to load package: %s", pkgRoot)
-		}
-		if !isWithin(entryDir, entryPkg.codeRoot) {
-			return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
-		}
-	} else {
-		entryPkg = loadPackage(entryDir, includeTests, packages, loading, diags)
-		if entryPkg == nil {
-			return nil, "", nil, fmt.Errorf("failed to load package: %s", entryDir)
-		}
-	}
-
-	var files []string
-	for _, p := range paths {
 		abs, err := filepath.Abs(p)
 		if err != nil {
 			return nil, "", nil, err
 		}
-		if filepath.Dir(abs) != entryDir {
-			return nil, "", nil, fmt.Errorf("all entry files must be in the same directory")
-		}
-		if !isWithin(entryDir, entryPkg.codeRoot) {
-			return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
-		}
-		files = append(files, abs)
+		dirs = append(dirs, filepath.Dir(abs))
+		fileSet[abs] = struct{}{}
 	}
 
-	if includeTests {
-		testFiles, err := listDastFiles(entryDir, true)
-		if err != nil {
-			return nil, "", nil, err
+	if len(dirs) == 0 {
+		return nil, "", nil, fmt.Errorf("missing input path")
+	}
+
+	entryDir = dirs[0]
+	if opts.AllowMultiDir {
+		entryDir = commonDir(dirs)
+		entryPkg = loadPackage(entryDir, includeTests, packages, loading, workspaces, diags)
+		if entryPkg == nil {
+			return nil, "", nil, fmt.Errorf("failed to load package: %s", entryDir)
 		}
-		for _, tf := range testFiles {
-			if strings.HasSuffix(tf, "_test.dast") && !containsFile(files, tf) {
-				files = append(files, tf)
+	} else {
+		pkgRoot, _ := findPackageRoot(entryDir)
+		if pkgRoot != "" {
+			entryPkg = loadPackage(pkgRoot, includeTests, packages, loading, workspaces, diags)
+			if entryPkg == nil {
+				return nil, "", nil, fmt.Errorf("failed to load package: %s", pkgRoot)
+			}
+			if !isWithin(entryDir, entryPkg.codeRoot) {
+				return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+			}
+		} else {
+			entryPkg = loadPackage(entryDir, includeTests, packages, loading, workspaces, diags)
+			if entryPkg == nil {
+				return nil, "", nil, fmt.Errorf("failed to load package: %s", entryDir)
 			}
 		}
 	}
 
+	for f := range fileSet {
+		if !opts.AllowMultiDir && filepath.Dir(f) != entryDir {
+			return nil, "", nil, fmt.Errorf("all entry files must be in the same directory")
+		}
+		if !opts.AllowMultiDir && !isWithin(entryDir, entryPkg.codeRoot) {
+			return nil, "", nil, fmt.Errorf("entry dir outside package source root: %s", entryDir)
+		}
+		files = append(files, f)
+	}
+
 	sort.Strings(files)
 	return entryPkg, entryDir, files, nil
+}
+
+func commonDir(dirs []string) string {
+	if len(dirs) == 0 {
+		return ""
+	}
+	common := dirs[0]
+	for _, d := range dirs[1:] {
+		for !isWithin(d, common) {
+			parent := filepath.Dir(common)
+			if parent == common {
+				return common
+			}
+			common = parent
+		}
+	}
+	return common
+}
+
+type manifestInfo struct {
+	hasPackage    bool
+	hasWorkspace  bool
+	members       []string
+	workspaceDeps []depSpec
+}
+
+func parseManifestInfo(manifestPath string) (manifestInfo, []parseError) {
+	info := manifestInfo{}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return info, []parseError{{line: 1, msg: "failed to read manifest"}}
+	}
+	lines := strings.Split(string(data), "\n")
+	section := ""
+	for i, raw := range lines {
+		lineNo := i + 1
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if idx := strings.Index(line, "#"); idx >= 0 {
+			line = strings.TrimSpace(line[:idx])
+		}
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			switch section {
+			case "package":
+				info.hasPackage = true
+			case "workspace":
+				info.hasWorkspace = true
+			}
+			continue
+		}
+		switch section {
+		case "workspace":
+			if strings.HasPrefix(line, "members") {
+				eq := strings.Index(line, "=")
+				if eq < 0 {
+					continue
+				}
+				val := strings.TrimSpace(line[eq+1:])
+				members, err := parseStringArray(val)
+				if err != "" {
+					return info, []parseError{{line: lineNo, msg: err}}
+				}
+				info.members = members
+			}
+		case "workspace.dependencies":
+			eq := strings.Index(line, "=")
+			if eq < 0 {
+				continue
+			}
+			name := strings.TrimSpace(line[:eq])
+			value := strings.TrimSpace(line[eq+1:])
+			if name == "" {
+				continue
+			}
+			pathVal, workspace, perr := parsePathDep(value)
+			if perr != "" {
+				return info, []parseError{{line: lineNo, msg: perr}}
+			}
+			if workspace {
+				return info, []parseError{{line: lineNo, msg: "workspace dependencies must use path"}}
+			}
+			info.workspaceDeps = append(info.workspaceDeps, depSpec{name: name, path: pathVal, line: lineNo})
+		}
+	}
+	return info, nil
+}
+
+func parseStringArray(value string) ([]string, string) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+		return nil, "expected array literal"
+	}
+	inner := strings.TrimSpace(value[1 : len(value)-1])
+	if inner == "" {
+		return []string{}, ""
+	}
+	parts := strings.Split(inner, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		str, ok := parseStringLiteral(part)
+		if !ok {
+			return nil, "array entries must be strings"
+		}
+		out = append(out, str)
+	}
+	return out, ""
+}
+
+func findWorkspaceRoot(startDir string) (string, error) {
+	dir, err := filepath.Abs(startDir)
+	if err != nil {
+		return "", err
+	}
+	for {
+		path := filepath.Join(dir, "dast.toml")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			mInfo, _ := parseManifestInfo(path)
+			if mInfo.hasWorkspace {
+				return dir, nil
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", nil
+}
+
+func loadWorkspace(root string, workspaces map[string]*workspaceInfo, diags *diag.Bag) *workspaceInfo {
+	if root == "" {
+		return nil
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil
+	}
+	if ws, ok := workspaces[absRoot]; ok {
+		return ws
+	}
+	manifestPath := filepath.Join(absRoot, "dast.toml")
+	info, errs := parseManifestInfo(manifestPath)
+	if !info.hasWorkspace {
+		return nil
+	}
+	for _, e := range errs {
+		if diags != nil {
+			addManifestError(diags, manifestPath, e.line, e.msg)
+		}
+	}
+	depMap := map[string]depSpec{}
+	for _, dep := range info.workspaceDeps {
+		if dep.name == "" {
+			continue
+		}
+		depMap[dep.name] = dep
+	}
+	ws := &workspaceInfo{
+		root:    absRoot,
+		members: info.members,
+		deps:    depMap,
+	}
+	workspaces[absRoot] = ws
+	return ws
 }
 
 func findPackageRoot(startDir string) (string, error) {
@@ -330,9 +534,12 @@ func findPackageRoot(startDir string) (string, error) {
 	return "", nil
 }
 
-func codeRoot(pkgRoot string) string {
+func codeRoot(pkgRoot string, hasPackage bool) string {
 	if pkgRoot == "" {
 		return ""
+	}
+	if !hasPackage {
+		return pkgRoot
 	}
 	srcDir := filepath.Join(pkgRoot, "src")
 	if info, err := os.Stat(srcDir); err == nil && info.IsDir() {
@@ -384,7 +591,7 @@ func resolveWithin(baseDir string, rootDir string, relPath string) (string, erro
 	return target, nil
 }
 
-func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo, loading map[string]bool, diags *diag.Bag) *pkgInfo {
+func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo, loading map[string]bool, workspaces map[string]*workspaceInfo, diags *diag.Bag) *pkgInfo {
 	if pkgRoot == "" {
 		return nil
 	}
@@ -403,16 +610,34 @@ func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo
 	}
 	loading[absRoot] = true
 
-	code := codeRoot(absRoot)
+	info := manifestInfo{}
+	manifestPath := filepath.Join(absRoot, "dast.toml")
+	if _, err := os.Stat(manifestPath); err == nil {
+		var errs []parseError
+		info, errs = parseManifestInfo(manifestPath)
+		for _, e := range errs {
+			if diags != nil {
+				addManifestError(diags, manifestPath, e.line, e.msg)
+			}
+		}
+	} else {
+		info.hasPackage = true
+	}
+
+	code := codeRoot(absRoot, info.hasPackage)
 	pkg := &pkgInfo{
 		pkgRoot:      absRoot,
 		codeRoot:     code,
 		deps:         map[string]depRef{},
 		includeTests: includeTests,
+		hasPackage:   info.hasPackage,
 	}
 	packages[absRoot] = pkg
+	wsRoot, _ := findWorkspaceRoot(absRoot)
+	if wsRoot != "" {
+		pkg.workspace = loadWorkspace(wsRoot, workspaces, diags)
+	}
 
-	manifestPath := filepath.Join(absRoot, "dast.toml")
 	if _, err := os.Stat(manifestPath); err == nil {
 		deps, devDeps, buildDeps, errs := parseManifestDeps(manifestPath)
 		for _, e := range errs {
@@ -435,6 +660,24 @@ func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo
 				}
 				continue
 			}
+			baseRoot := absRoot
+			if spec.workspace {
+				if pkg.workspace == nil {
+					if diags != nil {
+						addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("dependency '%s' requires workspace", spec.name))
+					}
+					continue
+				}
+				wsSpec, ok := pkg.workspace.deps[spec.name]
+				if !ok || wsSpec.path == "" {
+					if diags != nil {
+						addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("workspace dependency '%s' not found", spec.name))
+					}
+					continue
+				}
+				spec.path = wsSpec.path
+				baseRoot = pkg.workspace.root
+			}
 			if spec.path == "" {
 				if diags != nil {
 					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("dependency '%s' missing path", spec.name))
@@ -447,7 +690,7 @@ func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo
 				}
 				continue
 			}
-			depRoot := filepath.Clean(filepath.Join(absRoot, spec.path))
+			depRoot := filepath.Clean(filepath.Join(baseRoot, spec.path))
 			info, err := os.Stat(depRoot)
 			if err != nil {
 				if diags != nil {
@@ -461,7 +704,7 @@ func loadPackage(pkgRoot string, includeTests bool, packages map[string]*pkgInfo
 				}
 				continue
 			}
-			depPkg := loadPackage(depRoot, includeTests, packages, loading, diags)
+			depPkg := loadPackage(depRoot, includeTests, packages, loading, workspaces, diags)
 			if depPkg == nil {
 				if diags != nil {
 					addManifestError(diags, manifestPath, spec.line, fmt.Sprintf("failed to load dependency '%s'", spec.name))
@@ -511,12 +754,12 @@ func parseManifestDeps(manifestPath string) (deps []depSpec, devDeps []depSpec, 
 		if name == "" {
 			continue
 		}
-		pathVal, perr := parsePathDep(value)
+		pathVal, workspace, perr := parsePathDep(value)
 		if perr != "" {
 			errs = append(errs, parseError{line: lineNo, msg: perr})
 			continue
 		}
-		spec := depSpec{name: name, path: pathVal, line: lineNo}
+		spec := depSpec{name: name, path: pathVal, line: lineNo, workspace: workspace}
 		switch section {
 		case "dependencies":
 			deps = append(deps, spec)
@@ -529,18 +772,19 @@ func parseManifestDeps(manifestPath string) (deps []depSpec, devDeps []depSpec, 
 	return deps, devDeps, buildDeps, errs
 }
 
-func parsePathDep(value string) (string, string) {
+func parsePathDep(value string) (string, bool, string) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", "dependency must be inline table with path"
+		return "", false, "dependency must be inline table with path"
 	}
 	if strings.HasPrefix(value, "{") && strings.HasSuffix(value, "}") {
 		inner := strings.TrimSpace(value[1 : len(value)-1])
 		if inner == "" {
-			return "", "dependency must specify path"
+			return "", false, "dependency must specify path or workspace"
 		}
 		parts := strings.Split(inner, ",")
 		pathVal := ""
+		workspace := false
 		for _, part := range parts {
 			part = strings.TrimSpace(part)
 			if part == "" {
@@ -548,26 +792,40 @@ func parsePathDep(value string) (string, string) {
 			}
 			kv := strings.SplitN(part, "=", 2)
 			if len(kv) != 2 {
-				return "", "dependency entry must be key = value"
+				return "", false, "dependency entry must be key = value"
 			}
 			key := strings.TrimSpace(kv[0])
 			val := strings.TrimSpace(kv[1])
 			if key == "path" {
 				str, ok := parseStringLiteral(val)
 				if !ok {
-					return "", "dependency path must be string"
+					return "", false, "dependency path must be string"
 				}
 				pathVal = str
+				continue
 			} else {
-				return "", "only path dependencies are supported"
+				if key == "workspace" {
+					if val == "true" {
+						workspace = true
+						continue
+					}
+					return "", false, "workspace must be true"
+				}
+				return "", false, "only path or workspace dependencies are supported"
 			}
 		}
-		if pathVal == "" {
-			return "", "dependency must specify path"
+		if workspace && pathVal != "" {
+			return "", false, "dependency cannot specify both path and workspace"
 		}
-		return pathVal, ""
+		if workspace {
+			return "", true, ""
+		}
+		if pathVal == "" {
+			return "", false, "dependency must specify path"
+		}
+		return pathVal, false, ""
 	}
-	return "", "only path dependencies are supported"
+	return "", false, "only path dependencies are supported"
 }
 
 func parseStringLiteral(value string) (string, bool) {
@@ -637,7 +895,7 @@ func defaultAlias(path string) string {
 	return base
 }
 
-func resolveImport(pkg *pkgInfo, curDir string, path string, span source.Span, packages map[string]*pkgInfo, loading map[string]bool, diags *diag.Bag) (string, *pkgInfo, error) {
+func resolveImport(pkg *pkgInfo, curDir string, path string, span source.Span, packages map[string]*pkgInfo, loading map[string]bool, workspaces map[string]*workspaceInfo, diags *diag.Bag) (string, *pkgInfo, error) {
 	path = normalizeImportPath(path)
 	if path == "" {
 		return "", nil, fmt.Errorf("empty import path")
@@ -655,7 +913,7 @@ func resolveImport(pkg *pkgInfo, curDir string, path string, span source.Span, p
 	parts := strings.Split(path, "/")
 	if len(parts) > 0 {
 		if dep, ok := pkg.deps[parts[0]]; ok {
-			depPkg := loadPackage(dep.pkgRoot, pkg.includeTests, packages, loading, diags)
+			depPkg := loadPackage(dep.pkgRoot, pkg.includeTests, packages, loading, workspaces, diags)
 			if depPkg == nil {
 				return "", nil, fmt.Errorf("failed to load dependency '%s'", dep.name)
 			}
@@ -796,6 +1054,8 @@ func rewriteItem(item ast.Item, aliases map[string]struct{}) {
 		for i := range v.Methods {
 			rewriteItem(v.Methods[i], aliases)
 		}
+	case *ast.CompileItem:
+		v.Expr = rewriteExpr(v.Expr, aliases)
 	}
 }
 
@@ -818,6 +1078,10 @@ func rewriteStmt(s ast.Stmt, aliases map[string]struct{}) ast.Stmt {
 		}
 		v.Init = rewriteExpr(v.Init, aliases)
 		return v
+	case *ast.LetPatternStmt:
+		v.Pattern = rewritePattern(v.Pattern, aliases)
+		v.Init = rewriteExpr(v.Init, aliases)
+		return v
 	case *ast.AssignStmt:
 		v.Target = rewriteExpr(v.Target, aliases)
 		v.Value = rewriteExpr(v.Value, aliases)
@@ -835,14 +1099,35 @@ func rewriteStmt(s ast.Stmt, aliases map[string]struct{}) ast.Stmt {
 		v.Then = rewriteBlock(v.Then, aliases)
 		v.Else = rewriteBlock(v.Else, aliases)
 		return v
+	case *ast.IfLetStmt:
+		v.Pattern = rewritePattern(v.Pattern, aliases)
+		v.Expr = rewriteExpr(v.Expr, aliases)
+		v.Then = rewriteBlock(v.Then, aliases)
+		v.Else = rewriteBlock(v.Else, aliases)
+		return v
 	case *ast.WhileStmt:
 		v.Cond = rewriteExpr(v.Cond, aliases)
 		v.Body = rewriteBlock(v.Body, aliases)
+		return v
+	case *ast.WhileLetStmt:
+		v.Pattern = rewritePattern(v.Pattern, aliases)
+		v.Expr = rewriteExpr(v.Expr, aliases)
+		v.Body = rewriteBlock(v.Body, aliases)
+		return v
+	case *ast.LoopStmt:
+		v.Body = rewriteBlock(v.Body, aliases)
+		return v
+	case *ast.BreakStmt:
+		return v
+	case *ast.ContinueStmt:
 		return v
 	case *ast.MatchStmt:
 		v.Expr = rewriteExpr(v.Expr, aliases)
 		for i := range v.Arms {
 			v.Arms[i].Pattern = rewritePattern(v.Arms[i].Pattern, aliases)
+			if v.Arms[i].Guard != nil {
+				v.Arms[i].Guard = rewriteExpr(v.Arms[i].Guard, aliases)
+			}
 			v.Arms[i].Body = rewriteBlock(v.Arms[i].Body, aliases)
 		}
 		return v
@@ -856,6 +1141,19 @@ func rewritePattern(p ast.Pattern, aliases map[string]struct{}) ast.Pattern {
 	switch v := p.(type) {
 	case *ast.VariantPattern:
 		v.EnumName = stripPrefix(v.EnumName, aliases)
+		return v
+	case *ast.StructPattern:
+		v.StructName = stripPrefix(v.StructName, aliases)
+		for i := range v.Fields {
+			if v.Fields[i].Pattern != nil {
+				v.Fields[i].Pattern = rewritePattern(v.Fields[i].Pattern, aliases)
+			}
+		}
+		return v
+	case *ast.OrPattern:
+		for i := range v.Alts {
+			v.Alts[i] = rewritePattern(v.Alts[i], aliases)
+		}
 		return v
 	}
 	return p
@@ -928,9 +1226,45 @@ func rewriteExpr(e ast.Expr, aliases map[string]struct{}) ast.Expr {
 	case *ast.DerefExpr:
 		v.Expr = rewriteExpr(v.Expr, aliases)
 		return v
+	case *ast.CompileExpr:
+		v.Expr = rewriteExpr(v.Expr, aliases)
+		return v
+	case *ast.MacroCallExpr:
+		v.Callee = rewriteExpr(v.Callee, aliases)
+		for i := range v.Args {
+			v.Args[i] = rewriteExpr(v.Args[i], aliases)
+		}
+		return v
+	case *ast.QuoteExpr:
+		for i := range v.Parts {
+			if v.Parts[i].Expr != nil {
+				v.Parts[i].Expr = rewriteExpr(v.Parts[i].Expr, aliases)
+			}
+		}
+		return v
 	case *ast.ArrayLit:
 		for i := range v.Elems {
 			v.Elems[i] = rewriteExpr(v.Elems[i], aliases)
+		}
+		return v
+	case *ast.BlockExpr:
+		v.Block = rewriteBlock(v.Block, aliases)
+		return v
+	case *ast.IfExpr:
+		v.Cond = rewriteExpr(v.Cond, aliases)
+		v.Then = rewriteExpr(v.Then, aliases)
+		if v.Else != nil {
+			v.Else = rewriteExpr(v.Else, aliases)
+		}
+		return v
+	case *ast.MatchExpr:
+		v.Expr = rewriteExpr(v.Expr, aliases)
+		for i := range v.Arms {
+			v.Arms[i].Pattern = rewritePattern(v.Arms[i].Pattern, aliases)
+			if v.Arms[i].Guard != nil {
+				v.Arms[i].Guard = rewriteExpr(v.Arms[i].Guard, aliases)
+			}
+			v.Arms[i].Body = rewriteBlock(v.Arms[i].Body, aliases)
 		}
 		return v
 	case *ast.EnumVariantExpr:

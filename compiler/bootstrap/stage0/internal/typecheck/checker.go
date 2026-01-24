@@ -10,56 +10,46 @@ import (
 type Checker struct {
 	diag     *diag.Bag
 	funcs    map[string]*FuncSig
+	funcDecls map[string]*ast.Function
 	methods  map[string]map[string]*MethodSig
 	builtins map[string]struct{}
 	consts   map[string]ConstInfo
 	structs  map[string]*ast.StructDecl
 	enums    map[string]*ast.EnumDecl
+	aliases  map[string]*ast.TypeAlias
+	traits   map[string]*TraitSig
+	implTraits []*ast.ImplTraitDecl
+	traitImpls map[string]map[string]struct{}
+	implTemplates map[string][]*ast.ImplDecl
+	implTraitTemplates map[string][]*ast.ImplTraitDecl
 	env      *env
 	current  *FuncSig
-	selfType string
+	selfType *Type
+	typeParams map[string]ast.TypeParam
 
 	inferReturn   bool
 	inferredType  Type
 	hasReturn     bool
 	hasBareReturn bool
+	loopDepth     int
+
+	funcInsts   map[string]string
+	structInsts map[string]string
+	enumInsts   map[string]string
+	structInstBase map[string]string
+	enumInstBase   map[string]string
+	structInstArgs map[string][]Type
+	enumInstArgs   map[string][]Type
+	pendingFuncs   []funcInst
+	pendingStructs []typeInst
+	pendingEnums   []typeInst
+
+	expectedStack []Type
 }
 
 type ConstInfo struct {
 	Type  Type
 	Value ast.ConstValue
-}
-
-func Check(prog *ast.Program) *diag.Bag {
-	c := &Checker{
-		diag:     &diag.Bag{},
-		funcs:    map[string]*FuncSig{},
-		methods:  map[string]map[string]*MethodSig{},
-		builtins: map[string]struct{}{"print": {}, "println": {}, "eprint": {}, "eprintln": {}, "len": {}, "push": {}, "pop": {}, "exit": {}, "read_file": {}, "read_dir": {}, "write_file": {}, "mkdir": {}, "args": {}, "char_at": {}, "substr": {}, "read_line": {}, "read_bytes": {}, "exec": {}},
-		consts:   map[string]ConstInfo{},
-		structs:  map[string]*ast.StructDecl{},
-		enums:    map[string]*ast.EnumDecl{},
-	}
-	c.collectDecls(prog)
-	c.collectConsts(prog)
-	c.collectSignatures(prog)
-	for _, item := range prog.Items {
-		fn, ok := item.(*ast.Function)
-		if !ok {
-			continue
-		}
-		c.checkFunction(fn)
-	}
-	for _, item := range prog.Items {
-		impl, ok := item.(*ast.ImplDecl)
-		if !ok {
-			continue
-		}
-		for _, method := range impl.Methods {
-			c.checkMethod(impl.TypeName, method)
-		}
-	}
-	return c.diag
 }
 
 func (c *Checker) collectDecls(prog *ast.Program) {
@@ -74,6 +64,14 @@ func (c *Checker) collectDecls(prog *ast.Program) {
 				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by enum", t.Name))
 				continue
 			}
+			if _, exists := c.aliases[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by type alias", t.Name))
+				continue
+			}
+			if _, exists := c.traits[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by trait", t.Name))
+				continue
+			}
 			c.structs[t.Name] = t
 		case *ast.EnumDecl:
 			if _, exists := c.enums[t.Name]; exists {
@@ -82,6 +80,14 @@ func (c *Checker) collectDecls(prog *ast.Program) {
 			}
 			if _, exists := c.structs[t.Name]; exists {
 				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by struct", t.Name))
+				continue
+			}
+			if _, exists := c.aliases[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by type alias", t.Name))
+				continue
+			}
+			if _, exists := c.traits[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by trait", t.Name))
 				continue
 			}
 			if t.Repr != "" && !isValidEnumRepr(t.Repr) {
@@ -94,6 +100,55 @@ func (c *Checker) collectDecls(prog *ast.Program) {
 					c.diag.Add(t.Span(), fmt.Sprintf("unknown type '%s' in impl", t.TypeName))
 				}
 			}
+			if len(t.TypeParams) > 0 {
+				c.implTemplates[t.TypeName] = append(c.implTemplates[t.TypeName], t)
+			}
+		case *ast.ImplTraitDecl:
+			if _, ok := c.structs[t.ForTypeName]; !ok {
+				if _, ok := c.enums[t.ForTypeName]; !ok {
+					c.diag.Add(t.Span(), fmt.Sprintf("unknown type '%s' in impl", t.ForTypeName))
+				}
+			}
+			c.implTraits = append(c.implTraits, t)
+			if len(t.TypeParams) > 0 {
+				c.implTraitTemplates[t.ForTypeName] = append(c.implTraitTemplates[t.ForTypeName], t)
+			}
+		case *ast.TypeAlias:
+			if _, exists := c.structs[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by struct", t.Name))
+				continue
+			}
+			if _, exists := c.enums[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by enum", t.Name))
+				continue
+			}
+			if _, exists := c.traits[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by trait", t.Name))
+				continue
+			}
+			if _, exists := c.aliases[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("duplicate type alias '%s'", t.Name))
+				continue
+			}
+			c.aliases[t.Name] = t
+		case *ast.TraitDecl:
+			if _, exists := c.structs[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by struct", t.Name))
+				continue
+			}
+			if _, exists := c.enums[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by enum", t.Name))
+				continue
+			}
+			if _, exists := c.aliases[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by type alias", t.Name))
+				continue
+			}
+			if _, exists := c.traits[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("duplicate trait '%s'", t.Name))
+				continue
+			}
+			c.traits[t.Name] = &TraitSig{Name: t.Name, Decl: t}
 		case *ast.ConstDecl:
 			if _, exists := c.structs[t.Name]; exists {
 				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by struct", t.Name))
@@ -101,6 +156,18 @@ func (c *Checker) collectDecls(prog *ast.Program) {
 			if _, exists := c.enums[t.Name]; exists {
 				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by enum", t.Name))
 			}
+			if _, exists := c.aliases[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by type alias", t.Name))
+			}
+			if _, exists := c.traits[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by trait", t.Name))
+			}
+		case *ast.Function:
+			if _, exists := c.funcDecls[t.Name]; exists {
+				c.diag.Add(t.Span(), fmt.Sprintf("duplicate function '%s'", t.Name))
+				continue
+			}
+			c.funcDecls[t.Name] = t
 		}
 	}
 }
@@ -147,7 +214,8 @@ func (c *Checker) collectSignatures(prog *ast.Program) {
 			c.diag.Add(fn.Span(), fmt.Sprintf("duplicate function '%s'", fn.Name))
 			continue
 		}
-		sig := &FuncSig{Name: fn.Name}
+		sig := &FuncSig{Name: fn.Name, TypeParams: fn.TypeParams}
+		restore := c.pushTypeParams(fn.TypeParams)
 		for _, param := range fn.Params {
 			t := c.fromAstType(param.Type)
 			sig.Params = append(sig.Params, t)
@@ -159,6 +227,7 @@ func (c *Checker) collectSignatures(prog *ast.Program) {
 			sig.Return = Type{Kind: TypeInvalid}
 			sig.ReturnExplicit = false
 		}
+		c.popTypeParams(restore)
 		c.funcs[fn.Name] = sig
 	}
 	for _, item := range prog.Items {
@@ -166,6 +235,8 @@ func (c *Checker) collectSignatures(prog *ast.Program) {
 		if !ok {
 			continue
 		}
+		restoreImpl := c.pushTypeParams(impl.TypeParams)
+		selfType := c.typeFromNameAndArgs(impl.TypeName, impl.TypeArgs)
 		for _, method := range impl.Methods {
 			if _, exists := c.methods[impl.TypeName]; !exists {
 				c.methods[impl.TypeName] = map[string]*MethodSig{}
@@ -174,8 +245,24 @@ func (c *Checker) collectSignatures(prog *ast.Program) {
 				c.diag.Add(method.Span(), fmt.Sprintf("duplicate method '%s' for '%s'", method.Name, impl.TypeName))
 				continue
 			}
-			sig := &MethodSig{Name: method.Name, FuncName: impl.TypeName + "." + method.Name}
-			c.selfType = impl.TypeName
+			combinedParams := append([]ast.TypeParam{}, impl.TypeParams...)
+			for _, p := range method.TypeParams {
+				dup := false
+				for _, ep := range combinedParams {
+					if ep.Name == p.Name {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					c.diag.Add(method.Span(), fmt.Sprintf("duplicate type parameter '%s' in method '%s'", p.Name, method.Name))
+					continue
+				}
+				combinedParams = append(combinedParams, p)
+			}
+			sig := &MethodSig{Name: method.Name, FuncName: impl.TypeName + "." + method.Name, TypeParams: combinedParams}
+			c.selfType = &selfType
+			restoreMethod := c.pushTypeParams(method.TypeParams)
 			for i, param := range method.Params {
 				if param.Name == "self" && i != 0 {
 					c.diag.Add(param.Span, "self must be first parameter")
@@ -195,8 +282,67 @@ func (c *Checker) collectSignatures(prog *ast.Program) {
 				sig.ReturnExplicit = false
 			}
 			c.methods[impl.TypeName][method.Name] = sig
-			c.selfType = ""
+			c.popTypeParams(restoreMethod)
+			c.selfType = nil
 		}
+		c.popTypeParams(restoreImpl)
+	}
+	for _, item := range prog.Items {
+		impl, ok := item.(*ast.ImplTraitDecl)
+		if !ok {
+			continue
+		}
+		restoreImpl := c.pushTypeParams(impl.TypeParams)
+		selfType := c.typeFromNameAndArgs(impl.ForTypeName, impl.ForTypeArgs)
+		for _, method := range impl.Methods {
+			if _, exists := c.methods[impl.ForTypeName]; !exists {
+				c.methods[impl.ForTypeName] = map[string]*MethodSig{}
+			}
+			if _, exists := c.methods[impl.ForTypeName][method.Name]; exists {
+				c.diag.Add(method.Span(), fmt.Sprintf("duplicate method '%s' for '%s'", method.Name, impl.ForTypeName))
+				continue
+			}
+			combinedParams := append([]ast.TypeParam{}, impl.TypeParams...)
+			for _, p := range method.TypeParams {
+				dup := false
+				for _, ep := range combinedParams {
+					if ep.Name == p.Name {
+						dup = true
+						break
+					}
+				}
+				if dup {
+					c.diag.Add(method.Span(), fmt.Sprintf("duplicate type parameter '%s' in method '%s'", p.Name, method.Name))
+					continue
+				}
+				combinedParams = append(combinedParams, p)
+			}
+			sig := &MethodSig{Name: method.Name, FuncName: impl.ForTypeName + "." + method.Name, TypeParams: combinedParams}
+			c.selfType = &selfType
+			restoreMethod := c.pushTypeParams(method.TypeParams)
+			for i, param := range method.Params {
+				if param.Name == "self" && i != 0 {
+					c.diag.Add(param.Span, "self must be first parameter")
+				}
+				t := c.fromAstType(param.Type)
+				sig.Params = append(sig.Params, t)
+			}
+			if len(method.Params) > 0 && method.Params[0].Name == "self" {
+				sig.HasSelf = true
+				sig.SelfType = sig.Params[0]
+			}
+			if method.ReturnType != nil {
+				sig.Return = c.fromAstType(*method.ReturnType)
+				sig.ReturnExplicit = true
+			} else {
+				sig.Return = Type{Kind: TypeInvalid}
+				sig.ReturnExplicit = false
+			}
+			c.methods[impl.ForTypeName][method.Name] = sig
+			c.popTypeParams(restoreMethod)
+			c.selfType = nil
+		}
+		c.popTypeParams(restoreImpl)
 	}
 }
 
@@ -205,6 +351,7 @@ func (c *Checker) checkFunction(fn *ast.Function) {
 	if !ok {
 		return
 	}
+	restore := c.pushTypeParams(fn.TypeParams)
 	c.current = sig
 	c.env = newEnv()
 	c.env.push()
@@ -233,6 +380,7 @@ func (c *Checker) checkFunction(fn *ast.Function) {
 
 	c.env.pop()
 	c.current = nil
+	c.popTypeParams(restore)
 }
 
 func (c *Checker) lookupMethod(typeName string, method string) *MethodSig {
@@ -250,7 +398,8 @@ func (c *Checker) lookupMethod(typeName string, method string) *MethodSig {
 	return nil
 }
 
-func (c *Checker) checkMethod(typeName string, fn *ast.Function) {
+func (c *Checker) checkMethod(selfType Type, fn *ast.Function) {
+	typeName := selfType.Name
 	sig := c.lookupMethod(typeName, fn.Name)
 	if sig == nil {
 		return
@@ -259,8 +408,7 @@ func (c *Checker) checkMethod(typeName string, fn *ast.Function) {
 		if len(fn.Params) == 0 || fn.Params[0].Name != "self" {
 			c.diag.Add(fn.Span(), "self must be first parameter")
 		} else {
-			selfType := sig.SelfType
-			base := selfType
+			base := sig.SelfType
 			if base.Ref {
 				base = derefType(base)
 			}
@@ -272,7 +420,8 @@ func (c *Checker) checkMethod(typeName string, fn *ast.Function) {
 		}
 	}
 
-	c.current = &FuncSig{Name: sig.FuncName, Params: sig.Params, Return: sig.Return, ReturnExplicit: sig.ReturnExplicit}
+	c.current = &FuncSig{Name: sig.FuncName, Params: sig.Params, Return: sig.Return, ReturnExplicit: sig.ReturnExplicit, TypeParams: sig.TypeParams}
+	restore := c.pushTypeParams(sig.TypeParams)
 	c.env = newEnv()
 	c.env.push()
 	for i, param := range fn.Params {
@@ -283,9 +432,9 @@ func (c *Checker) checkMethod(typeName string, fn *ast.Function) {
 	c.hasReturn = false
 	c.hasBareReturn = false
 
-	c.selfType = typeName
+	c.selfType = &selfType
 	c.checkFunctionBlock(fn.Body)
-	c.selfType = ""
+	c.selfType = nil
 
 	if c.inferReturn {
 		if c.hasReturn {
@@ -302,4 +451,5 @@ func (c *Checker) checkMethod(typeName string, fn *ast.Function) {
 
 	c.env.pop()
 	c.current = nil
+	c.popTypeParams(restore)
 }

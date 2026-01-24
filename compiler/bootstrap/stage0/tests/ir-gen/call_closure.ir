@@ -1,0 +1,31 @@
+ir v0
+type Closure = { func: String, env: $Env }
+
+fn add(a: int, b: int) -> int
+  block entry0:
+    t0: i64 = + a, b
+    return t0
+
+fn main() -> unit
+  block entry0:
+    store count, 0
+    t0: *i64 = load_addr count
+    t1:  = struct $Env { count: t0 }
+    t2: Closure = struct Closure { func: "main$0", env: t1 }
+    store incr, t2
+    t3: Closure = load incr
+    t4: unit = call_closure t3()
+    t5: int = call add(1, 2)
+    store v, t5
+    t6: i64 = load v
+    t7: unit = call println("v", t6)
+    return t7
+
+fn main$0($env: $Env) -> unit
+  block entry0:
+    t0 = .count
+    t1 = load_ref t0
+    t2 = + t1, 1
+    store_ref t0, t2
+    return unit
+

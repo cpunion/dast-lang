@@ -1,0 +1,12 @@
+ir v0
+fn main(a: int) -> int
+  block entry:
+    t0 = == a, 0
+    branch t0, then, else
+  block then:
+    jump done
+  block else:
+    jump done
+  block done:
+    t1 = + 1, 2
+    return t1

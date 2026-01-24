@@ -1,9 +1,12 @@
 package typecheck
 
+import "dastlang/internal/ast"
+
 type Kind int
 
 const (
 	TypeInvalid Kind = iota
+	TypeParam
 	TypeInt
 	TypeBool
 	TypeString
@@ -11,6 +14,11 @@ const (
 	TypeStruct
 	TypeEnum
 	TypeArray
+	TypeClosure
+	TypeAstExpr
+	TypeAstStmt
+	TypeAstItem
+	TypeAstBlock
 )
 
 type Type struct {
@@ -19,6 +27,7 @@ type Type struct {
 	Mut  bool
 	Name string
 	Elem *Type
+	Args []Type
 }
 
 func (t Type) String() string {
@@ -34,7 +43,15 @@ func (t Type) String() string {
 
 func (t Type) baseName() string {
 	switch t.Kind {
+	case TypeParam:
+		if t.Name != "" {
+			return t.Name
+		}
+		return "T"
 	case TypeInt:
+		if t.Name != "" {
+			return t.Name
+		}
 		return "int"
 	case TypeBool:
 		return "bool"
@@ -44,7 +61,7 @@ func (t Type) baseName() string {
 		return "unit"
 	case TypeStruct, TypeEnum:
 		if t.Name != "" {
-			return t.Name
+			return t.Name + formatTypeArgs(t.Args)
 		}
 		return "named"
 	case TypeArray:
@@ -52,16 +69,42 @@ func (t Type) baseName() string {
 			return "[" + t.Elem.String() + "]"
 		}
 		return "[]"
+	case TypeClosure:
+		return "closure"
+	case TypeAstExpr:
+		return "AstExpr"
+	case TypeAstStmt:
+		return "AstStmt"
+	case TypeAstItem:
+		return "AstItem"
+	case TypeAstBlock:
+		return "AstBlock"
 	default:
 		if t.Name != "" {
-			return t.Name
+			return t.Name + formatTypeArgs(t.Args)
 		}
 		return "invalid"
 	}
 }
 
+func formatTypeArgs(args []Type) string {
+	if len(args) == 0 {
+		return ""
+	}
+	out := "["
+	for i, a := range args {
+		if i > 0 {
+			out += ", "
+		}
+		out += a.String()
+	}
+	out += "]"
+	return out
+}
+
 type FuncSig struct {
 	Name           string
+	TypeParams     []ast.TypeParam
 	Params         []Type
 	Return         Type
 	ReturnExplicit bool
@@ -70,6 +113,7 @@ type FuncSig struct {
 type MethodSig struct {
 	Name           string
 	FuncName       string
+	TypeParams     []ast.TypeParam
 	Params         []Type
 	Return         Type
 	ReturnExplicit bool

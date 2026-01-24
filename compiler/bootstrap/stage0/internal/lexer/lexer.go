@@ -68,6 +68,9 @@ func (l *Lexer) Next() Token {
 	case '}':
 		l.advance()
 		return Token{Kind: TokenRBrace, Lexeme: "}", Span: source.Span{Start: start, End: l.position()}}
+	case '$':
+		l.advance()
+		return Token{Kind: TokenDollar, Lexeme: "$", Span: source.Span{Start: start, End: l.position()}}
 	case '[':
 		l.advance()
 		return Token{Kind: TokenLBracket, Lexeme: "[", Span: source.Span{Start: start, End: l.position()}}
@@ -79,12 +82,21 @@ func (l *Lexer) Next() Token {
 		return Token{Kind: TokenComma, Lexeme: ",", Span: source.Span{Start: start, End: l.position()}}
 	case ':':
 		l.advance()
+		if l.match(':') {
+			return Token{Kind: TokenColonColon, Lexeme: "::", Span: source.Span{Start: start, End: l.position()}}
+		}
 		return Token{Kind: TokenColon, Lexeme: ":", Span: source.Span{Start: start, End: l.position()}}
 	case ';':
 		l.advance()
 		return Token{Kind: TokenSemicolon, Lexeme: ";", Span: source.Span{Start: start, End: l.position()}}
 	case '.':
 		l.advance()
+		if l.match('.') {
+			if l.match('=') {
+				return Token{Kind: TokenDotDotEq, Lexeme: "..=", Span: source.Span{Start: start, End: l.position()}}
+			}
+			return Token{Kind: TokenDotDot, Lexeme: "..", Span: source.Span{Start: start, End: l.position()}}
+		}
 		return Token{Kind: TokenDot, Lexeme: ".", Span: source.Span{Start: start, End: l.position()}}
 	case '@':
 		l.advance()
@@ -145,6 +157,7 @@ func (l *Lexer) Next() Token {
 		if l.match('|') {
 			return Token{Kind: TokenOrOr, Lexeme: "||", Span: source.Span{Start: start, End: l.position()}}
 		}
+		return Token{Kind: TokenPipe, Lexeme: "|", Span: source.Span{Start: start, End: l.position()}}
 	}
 
 	l.advance()
@@ -347,12 +360,22 @@ func lookupKeyword(lex string) TokenKind {
 		return TokenEnum
 	case "impl":
 		return TokenImpl
+	case "trait":
+		return TokenTrait
 	case "self":
 		return TokenSelf
 	case "Self":
 		return TokenSelfType
 	case "const":
 		return TokenConst
+	case "type":
+		return TokenType
+	case "pub":
+		return TokenPub
+	case "macro":
+		return TokenMacro
+	case "quote":
+		return TokenQuote
 	case "import":
 		return TokenImport
 	case "as":
@@ -367,6 +390,14 @@ func lookupKeyword(lex string) TokenKind {
 		return TokenElse
 	case "while":
 		return TokenWhile
+	case "loop":
+		return TokenLoop
+	case "for":
+		return TokenFor
+	case "break":
+		return TokenBreak
+	case "continue":
+		return TokenContinue
 	case "match":
 		return TokenMatch
 	case "return":

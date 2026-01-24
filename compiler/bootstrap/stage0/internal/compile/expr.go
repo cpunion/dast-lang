@@ -2,6 +2,7 @@ package compile
 
 import (
 	"fmt"
+	"strings"
 
 	"dastlang/internal/ast"
 	"dastlang/internal/ir"
@@ -17,10 +18,22 @@ func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
 		return ir.BoolOperand(e.Value)
 	case *ast.StringLit:
 		return ir.StringOperand(e.Value)
+	case *ast.BlockExpr:
+		return c.compileBlockExprOperand(e.Block)
+	case *ast.IfExpr:
+		return ir.TempOperand(c.compileIfExpr(e))
+	case *ast.MatchExpr:
+		return ir.TempOperand(c.compileMatchExpr(e))
 	case *ast.IdentExpr:
 		if info, ok := c.consts[e.Name]; ok {
 			return ir.ConstOperand(constValueToIr(info.Value, info.TypeName))
 		}
+	case *ast.CompileExpr:
+		if c.opts.AllowCompile {
+			return c.compileOperand(e.Expr)
+		}
+		c.diag.Add(e.Span(), "compile! must be expanded before compile")
+		return ir.IntOperand(0)
 	}
 	// For everything else, compile to temp and wrap
 	return ir.TempOperand(c.compileExpr(expr))
@@ -37,6 +50,21 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		c.setTempType(dst, "[i64]") // Array type
 		c.emit(&ir.MakeArray{Dst: dst, Elems: elems})
 		return dst
+	case *ast.IntLit:
+		return c.operandToTemp(ir.IntOperand(e.Value), "i64")
+	case *ast.BoolLit:
+		return c.operandToTemp(ir.BoolOperand(e.Value), "bool")
+	case *ast.StringLit:
+		return c.operandToTemp(ir.StringOperand(e.Value), "String")
+	case *ast.BlockExpr:
+		op := c.compileBlockExprOperand(e.Block)
+		return c.operandToTemp(op, c.inferExprType(e))
+	case *ast.IfExpr:
+		return c.compileIfExpr(e)
+	case *ast.MatchExpr:
+		return c.compileMatchExpr(e)
+	case *ast.ClosureExpr:
+		return c.compileClosureExpr(e)
 	case *ast.IdentExpr:
 		varInfo, ok := c.lookupVar(e.Name)
 		if !ok {
@@ -47,6 +75,12 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
 			return c.constZero()
 		}
+		if varInfo.RefTemp >= 0 {
+			t := c.newTemp()
+			c.setTempType(t, "i64")
+			c.emit(&ir.LoadVar{Dst: t, Ref: true, RefTemp: varInfo.RefTemp})
+			return t
+		}
 		if varInfo.Temp >= 0 {
 			// Value parameter: return the temp directly
 			return varInfo.Temp
@@ -56,35 +90,19 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		c.setTempType(t, "i64") // Default type
 		c.emit(&ir.LoadVar{Dst: t, Name: varInfo.Name})
 		return t
+	case *ast.CompileExpr:
+		if c.opts.AllowCompile {
+			return c.compileExpr(e.Expr)
+		}
+		c.diag.Add(e.Span(), "compile! must be expanded before compile")
+		return c.constZero()
+	case *ast.QuoteExpr:
+		return c.compileQuoteExpr(e)
+	case *ast.MacroCallExpr:
+		c.diag.Add(e.Span(), "macro call must be expanded before compile")
+		return c.constZero()
 	case *ast.RefExpr:
-		ident, ok := e.Expr.(*ast.IdentExpr)
-		if !ok {
-			c.diag.Add(e.Span(), "reference target must be identifier in stage 0")
-			return c.constZero()
-		}
-		varInfo, ok := c.lookupVar(ident.Name)
-		if !ok {
-			if _, ok := c.consts[ident.Name]; ok {
-				c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to const '%s'", ident.Name))
-			} else {
-				c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", ident.Name))
-			}
-			return c.constZero()
-		}
-		// Value parameters (Temp >= 0) cannot be referenced - they have no memory address
-		if varInfo.Temp >= 0 {
-			c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to value parameter '%s'", ident.Name))
-			return c.constZero()
-		}
-		// Only &mut requires mutable variable
-		if e.Mutable && !varInfo.Mutable {
-			c.diag.Add(e.Span(), fmt.Sprintf("cannot take &mut reference to immutable variable '%s'", ident.Name))
-			return c.constZero()
-		}
-		t := c.newTemp()
-		c.setTempType(t, "*i64") // Pointer type
-		c.emit(&ir.LoadVar{Dst: t, Name: varInfo.Name, Addr: true})
-		return t
+		return c.compileRefTarget(e.Expr, e.Mutable)
 	case *ast.DerefExpr:
 		src := c.compileExpr(e.Expr)
 		t := c.newTemp()
@@ -120,6 +138,20 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		args := make([]ir.Operand, 0, len(e.Args))
 		for _, arg := range e.Args {
 			args = append(args, c.compileOperand(arg))
+		}
+		if varInfo, ok := c.lookupVar(e.Callee); ok && varInfo.Closure {
+			closureTemp := -1
+			if varInfo.Temp >= 0 {
+				closureTemp = varInfo.Temp
+			} else {
+				closureTemp = c.newTemp()
+				c.setTempType(closureTemp, "Closure")
+				c.emit(&ir.LoadVar{Dst: closureTemp, Name: varInfo.Name})
+			}
+			dst := c.newTemp()
+			c.setTempType(dst, "unit")
+			c.emit(&ir.CallClosure{Dst: dst, Closure: ir.TempOperand(closureTemp), Args: args})
+			return dst
 		}
 		dst := c.newTemp()
 		// Look up function return type
@@ -211,5 +243,122 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 	default:
 		c.diag.Add(expr.Span(), "unsupported expression in stage 0")
 		return c.constZero()
+	}
+}
+
+func (c *Compiler) compileRefTarget(expr ast.Expr, mutable bool) int {
+	switch e := expr.(type) {
+	case *ast.IdentExpr:
+		varInfo, ok := c.lookupVar(e.Name)
+		if !ok {
+			if _, ok := c.consts[e.Name]; ok {
+				c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to const '%s'", e.Name))
+			} else {
+				c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
+			}
+			return c.constZero()
+		}
+		if varInfo.RefTemp >= 0 {
+			return varInfo.RefTemp
+		}
+		// Value parameters (Temp >= 0) cannot be referenced - they have no memory address
+		if varInfo.Temp >= 0 {
+			c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to value parameter '%s'", e.Name))
+			return c.constZero()
+		}
+		if mutable && !varInfo.Mutable {
+			c.diag.Add(e.Span(), fmt.Sprintf("cannot take &mut reference to immutable variable '%s'", e.Name))
+			return c.constZero()
+		}
+		t := c.newTemp()
+		c.setTempType(t, "*i64")
+		c.emit(&ir.LoadVar{Dst: t, Name: varInfo.Name, Addr: true})
+		return t
+	case *ast.AccessExpr:
+		base := c.compileRefTarget(e.Receiver, mutable)
+		dst := c.newTemp()
+		c.setTempType(dst, "*i64")
+		c.emit(&ir.FieldAddr{Dst: dst, Src: base, Field: e.Field})
+		return dst
+	case *ast.IndexExpr:
+		base := c.compileRefTarget(e.Receiver, mutable)
+		index := c.compileOperand(e.Index)
+		dst := c.newTemp()
+		c.setTempType(dst, "*i64")
+		c.emit(&ir.IndexAddr{Dst: dst, Base: base, Index: index})
+		return dst
+	case *ast.DerefExpr:
+		// &*expr reuses the underlying reference
+		return c.compileExpr(e.Expr)
+	default:
+		c.diag.Add(expr.Span(), "reference target must be identifier, field, or index in stage 0")
+		return c.constZero()
+	}
+}
+
+func (c *Compiler) compileQuoteExpr(e *ast.QuoteExpr) int {
+	template, splices := c.quoteTemplate(e)
+	templateOp := ir.StringOperand(template)
+	spliceOp := c.compileQuoteSplices(splices)
+	dst := c.newTemp()
+	retType := quoteReturnType(e.Kind)
+	c.setTempType(dst, retType)
+	c.emit(&ir.Call{Dst: dst, Callee: quoteBuiltin(e.Kind), Args: []ir.Operand{templateOp, spliceOp}})
+	return dst
+}
+
+func (c *Compiler) quoteTemplate(e *ast.QuoteExpr) (string, []ast.Expr) {
+	var sb strings.Builder
+	var splices []ast.Expr
+	for _, part := range e.Parts {
+		if part.Expr == nil {
+			sb.WriteString(part.Text)
+			continue
+		}
+		ph := fmt.Sprintf("__dast_splice_%d__", len(splices))
+		sb.WriteString(ph)
+		splices = append(splices, part.Expr)
+	}
+	return sb.String(), splices
+}
+
+func (c *Compiler) compileQuoteSplices(splices []ast.Expr) ir.Operand {
+	dst := c.newTemp()
+	c.setTempType(dst, "[Ast]")
+	elems := make([]ir.Operand, 0, len(splices))
+	for _, expr := range splices {
+		elems = append(elems, c.compileOperand(expr))
+	}
+	c.emit(&ir.MakeArray{Dst: dst, Elems: elems})
+	return ir.TempOperand(dst)
+}
+
+func quoteBuiltin(kind ast.QuoteKind) string {
+	switch kind {
+	case ast.QuoteExprKind:
+		return "ast_expr"
+	case ast.QuoteStmtKind:
+		return "ast_stmt"
+	case ast.QuoteItemKind:
+		return "ast_item"
+	case ast.QuoteBlockKind:
+		return "ast_block"
+	default:
+		return "ast_expr"
+	}
+}
+
+func quoteReturnType(kind ast.QuoteKind) string {
+	switch kind {
+	case ast.QuoteExprKind:
+		return "AstExpr"
+	case ast.QuoteStmtKind:
+		return "AstStmt"
+	case ast.QuoteItemKind:
+		return "AstItem"
+	case ast.QuoteBlockKind:
+		return "AstBlock"
+	default:
+		return "AstExpr"
 	}
 }

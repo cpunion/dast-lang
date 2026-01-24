@@ -1,0 +1,17 @@
+ir v0
+type Point = { x: int, y: int }
+
+fn main() -> int
+  block entry:
+    t0 = struct Point { x: 1, y: 2 }
+    t1 = t0.x
+    t0.y = 3
+    t2 = addr_field t0.y
+    store_ref t2, 4
+    t3 = array [1, 2, 3]
+    t4 = index t3[1]
+    set_index t3[2] = 5
+    t5 = addr_index t3[0]
+    store_ref t5, 6
+    t6 = + t1, t4
+    return t6

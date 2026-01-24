@@ -80,11 +80,24 @@ func (p *Parser) parseItem() ast.Item {
 			}
 		}
 	}
+	vis := ast.VisPrivate
+	if p.match(lexer.TokenPub) {
+		vis = ast.VisPublic
+	}
+	if p.match(lexer.TokenMacro) {
+		if p.match(lexer.TokenFn) {
+			// allow "macro fn" for readability
+		}
+		if repr != "" {
+			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+		}
+		return p.parseFunction(vis, true)
+	}
 	if p.match(lexer.TokenFn) {
 		if repr != "" {
 			p.diag.Add(p.peek().Span, "@repr only valid on enum")
 		}
-		return p.parseFunction()
+		return p.parseFunction(vis, false)
 	}
 	if p.match(lexer.TokenImport) {
 		if repr != "" {
@@ -96,25 +109,48 @@ func (p *Parser) parseItem() ast.Item {
 		if repr != "" {
 			p.diag.Add(p.peek().Span, "@repr only valid on enum")
 		}
-		return p.parseStructDecl()
+		return p.parseStructDecl(vis)
+	}
+	if p.match(lexer.TokenTrait) {
+		if repr != "" {
+			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+		}
+		return p.parseTraitDecl(vis)
 	}
 	if p.match(lexer.TokenEnum) {
-		return p.parseEnumDecl(repr)
+		return p.parseEnumDecl(repr, vis)
 	}
 	if p.match(lexer.TokenConst) {
 		if repr != "" {
 			p.diag.Add(p.peek().Span, "@repr only valid on enum")
 		}
-		return p.parseConstDecl()
+		return p.parseConstDecl(vis)
+	}
+	if p.match(lexer.TokenType) {
+		if repr != "" {
+			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+		}
+		return p.parseTypeAlias(vis)
 	}
 	if p.match(lexer.TokenImpl) {
 		if repr != "" {
 			p.diag.Add(p.peek().Span, "@repr only valid on enum")
 		}
-		return p.parseImplDecl()
+		return p.parseImplDecl(vis)
 	}
 	if repr != "" {
 		p.diag.Add(p.peek().Span, "@repr only valid on enum")
+	}
+	if p.peek().Kind == lexer.TokenIdent {
+		expr := p.parseExpr(0)
+		p.maybeConsumeSemicolon()
+		switch expr.(type) {
+		case *ast.CompileExpr, *ast.MacroCallExpr:
+			return &ast.CompileItem{Expr: expr, SpanInfo: expr.Span()}
+		default:
+			p.diag.Add(expr.Span(), "expected item")
+			return nil
+		}
 	}
 	p.errorCurrent("expected item")
 	return nil

@@ -1,0 +1,11 @@
+fn add(a: int, b: int) -> int {
+    a + b
+}
+
+fn main() {
+    let mut count = 0
+    let incr = || { count = count + 1 }
+    incr()
+    let v = add(1, 2)
+    println("v", v)
+}

@@ -1,0 +1,12 @@
+compile!(ast_item("const MAGIC: i64 = 7"))
+compile!(ast_item("struct Counter { value: i64 }"))
+compile!(ast_item("impl Counter { fn inc(self: &mut Counter) { self.value = self.value + 1 } }"))
+compile!(ast_item("fn counter_new(v: i64) -> Counter { Counter{ value: v } }"))
+
+fn main() {
+    let mut c = counter_new(MAGIC)
+    let mut r = &mut c
+    compile!(ast_stmt("r.inc()"))
+    let v = compile!(ast_expr("c.value + 1"))
+    println("v", v)
+}

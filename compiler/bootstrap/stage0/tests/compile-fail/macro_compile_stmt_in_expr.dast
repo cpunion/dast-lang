@@ -1,0 +1,4 @@
+fn main() {
+    let x = compile!(ast_stmt("let y = 1;"))
+    println(x)
+}

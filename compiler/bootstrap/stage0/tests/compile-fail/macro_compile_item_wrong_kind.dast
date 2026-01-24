@@ -1,0 +1,9 @@
+macro fn make_expr() -> AstExpr {
+    ast_expr("1 + 2")
+}
+
+compile!(make_expr!())
+
+fn main() {
+    println(1)
+}

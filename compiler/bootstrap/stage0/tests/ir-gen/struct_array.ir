@@ -1,0 +1,35 @@
+ir v0
+type Point = { x: int, y: int }
+
+fn main() -> unit
+  block entry0:
+    t0: Point = struct Point { x: 1, y: 2 }
+    store p, t0
+    t1: i64 = load p
+    t2: i64 = t1.x
+    store a, t2
+    t3: i64 = load p
+    t3.y = 3
+    t4: *i64 = load_addr p
+    t5: *i64 = addr_field t4.y
+    store pr, t5
+    t6: i64 = load pr
+    store_ref t6, 4
+    t7: [i64] = array [1, 2, 3]
+    store arr, t7
+    t8: i64 = load arr
+    t9: i64 = index t8[1]
+    store b, t9
+    t10: i64 = load arr
+    set_index t10[2] = 5
+    t11: *i64 = load_addr arr
+    t12: *i64 = addr_index t11[0]
+    store ar, t12
+    t13: i64 = load ar
+    store_ref t13, 6
+    t14: i64 = load a
+    t15: i64 = load b
+    t16: i64 = + t14, t15
+    t17: unit = call println("sum", t16)
+    return t17
+

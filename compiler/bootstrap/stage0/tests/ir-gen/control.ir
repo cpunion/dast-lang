@@ -1,0 +1,17 @@
+ir v0
+fn main() -> int
+  block entry0:
+    store out, 0
+    t0: i64 = load out
+    t1: bool = == t0, 0
+    branch t1, then1, else2
+  block then1:
+    store out, 1
+    jump merge3
+  block else2:
+    store out, 2
+    jump merge3
+  block merge3:
+    t2: i64 = load out
+    return t2
+

@@ -65,6 +65,47 @@ type RefExpr struct {
 func (e *RefExpr) exprNode()         {}
 func (e *RefExpr) Span() source.Span { return e.SpanInfo }
 
+type CompileExpr struct {
+	ID       int
+	Expr     Expr
+	SpanInfo source.Span
+}
+
+func (e *CompileExpr) exprNode()         {}
+func (e *CompileExpr) Span() source.Span { return e.SpanInfo }
+
+type QuoteKind int
+
+const (
+	QuoteExprKind QuoteKind = iota
+	QuoteStmtKind
+	QuoteItemKind
+	QuoteBlockKind
+)
+
+type QuotePart struct {
+	Text string
+	Expr Expr
+}
+
+type QuoteExpr struct {
+	Kind     QuoteKind
+	Parts    []QuotePart
+	SpanInfo source.Span
+}
+
+func (e *QuoteExpr) exprNode()         {}
+func (e *QuoteExpr) Span() source.Span { return e.SpanInfo }
+
+type MacroCallExpr struct {
+	Callee   Expr
+	Args     []Expr
+	SpanInfo source.Span
+}
+
+func (e *MacroCallExpr) exprNode()         {}
+func (e *MacroCallExpr) Span() source.Span { return e.SpanInfo }
+
 type DerefExpr struct {
 	Expr     Expr
 	SpanInfo source.Span
@@ -85,6 +126,7 @@ func (e *BinaryExpr) Span() source.Span { return e.SpanInfo }
 
 type CallExpr struct {
 	Callee   string
+	TypeArgs []Type
 	Args     []Expr
 	SpanInfo source.Span
 }
@@ -93,20 +135,37 @@ func (e *CallExpr) exprNode()         {}
 func (e *CallExpr) Span() source.Span { return e.SpanInfo }
 
 type MethodCallExpr struct {
-	Receiver      Expr
-	Method        string
-	Args          []Expr
-	ResolvedName  string
-	ResolvedSelf  bool
-	EnumName      string
-	SpanInfo      source.Span
+	Receiver     Expr
+	Method       string
+	Args         []Expr
+	ResolvedName string
+	ResolvedSelf bool
+	EnumName     string
+	SpanInfo     source.Span
 }
 
 func (e *MethodCallExpr) exprNode()         {}
 func (e *MethodCallExpr) Span() source.Span { return e.SpanInfo }
 
+type ClosureParam struct {
+	Name string
+	Type *Type
+	Span source.Span
+}
+
+type ClosureExpr struct {
+	Params     []ClosureParam
+	ReturnType *Type
+	Body       Expr
+	SpanInfo   source.Span
+}
+
+func (e *ClosureExpr) exprNode()         {}
+func (e *ClosureExpr) Span() source.Span { return e.SpanInfo }
+
 type StructLit struct {
 	Name     string
+	TypeArgs []Type
 	Fields   []FieldInit
 	SpanInfo source.Span
 }
@@ -140,6 +199,7 @@ func (e *IndexExpr) Span() source.Span { return e.SpanInfo }
 
 type EnumVariantExpr struct {
 	EnumName string
+	TypeArgs []Type
 	Variant  string
 	Arg      Expr
 	SpanInfo source.Span
@@ -147,3 +207,30 @@ type EnumVariantExpr struct {
 
 func (e *EnumVariantExpr) exprNode()         {}
 func (e *EnumVariantExpr) Span() source.Span { return e.SpanInfo }
+
+type BlockExpr struct {
+	Block    *Block
+	SpanInfo source.Span
+}
+
+func (e *BlockExpr) exprNode()         {}
+func (e *BlockExpr) Span() source.Span { return e.SpanInfo }
+
+type IfExpr struct {
+	Cond     Expr
+	Then     Expr
+	Else     Expr
+	SpanInfo source.Span
+}
+
+func (e *IfExpr) exprNode()         {}
+func (e *IfExpr) Span() source.Span { return e.SpanInfo }
+
+type MatchExpr struct {
+	Expr     Expr
+	Arms     []MatchArm
+	SpanInfo source.Span
+}
+
+func (e *MatchExpr) exprNode()         {}
+func (e *MatchExpr) Span() source.Span { return e.SpanInfo }

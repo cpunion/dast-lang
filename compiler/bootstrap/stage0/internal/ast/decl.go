@@ -4,9 +4,12 @@ import "dastlang/internal/source"
 
 type Function struct {
 	Name       string
+	TypeParams []TypeParam
 	Params     []Param
 	ReturnType *Type
 	Body       *Block
+	Vis        Visibility
+	IsMacro    bool
 	SpanInfo   source.Span
 }
 
@@ -28,7 +31,9 @@ func (i *ImportDecl) Span() source.Span {
 
 type StructDecl struct {
 	Name     string
+	TypeParams []TypeParam
 	Fields   []FieldDef
+	Vis      Visibility
 	SpanInfo source.Span
 }
 
@@ -57,6 +62,7 @@ type ConstDecl struct {
 	Name     string
 	Type     *Type
 	Value    ConstValue
+	Vis      Visibility
 	SpanInfo source.Span
 }
 
@@ -67,8 +73,10 @@ func (c *ConstDecl) Span() source.Span {
 
 type EnumDecl struct {
 	Name     string
+	TypeParams []TypeParam
 	Repr     string
 	Variants []VariantDef
+	Vis      Visibility
 	SpanInfo source.Span
 }
 
@@ -79,7 +87,10 @@ func (e *EnumDecl) Span() source.Span {
 
 type ImplDecl struct {
 	TypeName string
+	TypeArgs []Type
+	TypeParams []TypeParam
 	Methods  []*Function
+	Vis      Visibility
 	SpanInfo source.Span
 }
 

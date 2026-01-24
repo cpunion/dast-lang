@@ -1,0 +1,11 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let v = 1
+    let Point { x, y } = v
+    println("x", x)
+    println("y", y)
+}

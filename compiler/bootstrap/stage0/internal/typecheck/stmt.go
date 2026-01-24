@@ -14,6 +14,32 @@ func (c *Checker) checkBlock(block *ast.Block) {
 	c.env.pop()
 }
 
+func (c *Checker) checkBlockExpr(block *ast.Block) Type {
+	if block == nil {
+		return Type{Kind: TypeUnit}
+	}
+	c.env.push()
+	out := Type{Kind: TypeUnit}
+	for i, stmt := range block.Stmts {
+		if i == len(block.Stmts)-1 {
+			if exprStmt, ok := stmt.(*ast.ExprStmt); ok {
+				out = c.checkExpr(exprStmt.Expr)
+				break
+			}
+		}
+		c.checkStmt(stmt)
+	}
+	c.env.pop()
+	return out
+}
+
+func (c *Checker) checkBlockExprExpected(block *ast.Block, expected Type) Type {
+	c.pushExpected(expected)
+	out := c.checkBlockExpr(block)
+	c.popExpected()
+	return out
+}
+
 func (c *Checker) checkFunctionBlock(block *ast.Block) {
 	allowImplicit := c.inferReturn || (c.current.ReturnExplicit && c.current.Return.Kind != TypeUnit)
 	c.checkTailBlock(block, allowImplicit)
@@ -23,6 +49,8 @@ func (c *Checker) checkStmt(stmt ast.Stmt) {
 	switch s := stmt.(type) {
 	case *ast.LetStmt:
 		c.checkLet(s)
+	case *ast.LetPatternStmt:
+		c.checkLetPattern(s)
 	case *ast.AssignStmt:
 		c.checkAssign(s)
 	case *ast.ExprStmt:
@@ -31,10 +59,20 @@ func (c *Checker) checkStmt(stmt ast.Stmt) {
 		c.checkReturn(s)
 	case *ast.IfStmt:
 		c.checkIf(s)
+	case *ast.IfLetStmt:
+		c.checkIfLet(s)
 	case *ast.WhileStmt:
 		c.checkWhile(s)
+	case *ast.WhileLetStmt:
+		c.checkWhileLet(s)
 	case *ast.MatchStmt:
 		c.checkMatch(s)
+	case *ast.LoopStmt:
+		c.checkLoop(s)
+	case *ast.BreakStmt:
+		c.checkBreak(s)
+	case *ast.ContinueStmt:
+		c.checkContinue(s)
 	case *ast.Block:
 		c.checkBlock(s)
 	default:
@@ -83,6 +121,7 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 	declType := initType
 	if s.Type != nil {
 		declType = c.fromAstType(*s.Type)
+		initType = c.checkExprWithExpected(s.Init, declType)
 		if lit, ok := s.Init.(*ast.ArrayLit); ok && len(lit.Elems) == 0 && declType.Kind == TypeArray {
 			// allow empty array literal with explicit type
 		} else if !typesAssignable(initType, declType) && initType.Kind != TypeInvalid && declType.Kind != TypeInvalid {
@@ -90,6 +129,19 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 		}
 	}
 	c.env.declare(s.Name, VarInfo{Type: declType, Mutable: s.Mutable})
+}
+
+func (c *Checker) checkLetPattern(s *ast.LetPatternStmt) {
+	if s.Init == nil {
+		c.diag.Add(s.Span(), "let requires initializer in stage 0")
+		return
+	}
+	initType := c.checkExpr(s.Init)
+	if initType.Ref {
+		c.diag.Add(s.Span(), "let pattern requires non-reference value")
+		initType = derefType(initType)
+	}
+	c.checkPattern(initType, s.Pattern)
 }
 
 func (c *Checker) checkAssign(s *ast.AssignStmt) {
@@ -107,7 +159,7 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 		if !info.Mutable {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign to immutable variable '%s'", target.Name))
 		}
-		valType := c.checkExpr(s.Value)
+		valType := c.checkExprWithExpected(s.Value, info.Type)
 		if !typesAssignable(valType, info.Type) && valType.Kind != TypeInvalid && info.Type.Kind != TypeInvalid {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", valType.String(), info.Type.String()))
 		}
@@ -120,8 +172,8 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 		if !refType.Mut {
 			c.diag.Add(target.Span(), "assignment through & requires &mut")
 		}
-		valType := c.checkExpr(s.Value)
 		base := derefType(refType)
+		valType := c.checkExprWithExpected(s.Value, base)
 		if !typesAssignable(valType, base) && valType.Kind != TypeInvalid && base.Kind != TypeInvalid {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", valType.String(), base.String()))
 		}
@@ -146,7 +198,7 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 		if !isInt(indexType) && indexType.Kind != TypeInvalid {
 			c.diag.Add(target.Index.Span(), "index requires int")
 		}
-		valType := c.checkExpr(s.Value)
+		valType := c.checkExprWithExpected(s.Value, *recvType.Elem)
 		if !typesAssignable(valType, *recvType.Elem) && valType.Kind != TypeInvalid && recvType.Elem.Kind != TypeInvalid {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", valType.String(), recvType.Elem.String()))
 		}
@@ -180,8 +232,8 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 			c.diag.Add(target.Span(), fmt.Sprintf("unknown field '%s'", target.Field))
 			return
 		}
-		valType := c.checkExpr(s.Value)
 		fieldType := c.fromAstType(field.Type)
+		valType := c.checkExprWithExpected(s.Value, fieldType)
 		if !typesAssignable(valType, fieldType) && valType.Kind != TypeInvalid && fieldType.Kind != TypeInvalid {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", valType.String(), fieldType.String()))
 		}
@@ -202,7 +254,7 @@ func (c *Checker) checkReturn(s *ast.ReturnStmt) {
 			}
 			return
 		}
-		valType := c.checkExpr(s.Value)
+		valType := c.checkExprWithExpected(s.Value, retType)
 		if retType.Kind == TypeUnit {
 			if valType.Kind != TypeUnit && valType.Kind != TypeInvalid {
 				c.diag.Add(s.Span(), "returning value from unit function")
@@ -219,7 +271,7 @@ func (c *Checker) checkReturn(s *ast.ReturnStmt) {
 		c.hasBareReturn = true
 		return
 	}
-	valType := c.checkExpr(s.Value)
+	valType := c.checkExprWithExpected(s.Value, c.inferredType)
 	if valType.Kind == TypeInvalid {
 		return
 	}
@@ -265,58 +317,79 @@ func (c *Checker) checkWhile(s *ast.WhileStmt) {
 	if !isBool(cond) && cond.Kind != TypeInvalid {
 		c.diag.Add(s.Cond.Span(), "while condition must be bool")
 	}
+	c.loopDepth++
 	c.checkBlock(s.Body)
+	c.loopDepth--
+}
+
+func (c *Checker) checkIfLet(s *ast.IfLetStmt) {
+	scrutType := c.checkExpr(s.Expr)
+	if scrutType.Ref {
+		c.diag.Add(s.Expr.Span(), "if let requires non-reference enum expression")
+		scrutType = derefType(scrutType)
+	}
+	if scrutType.Kind != TypeEnum && scrutType.Kind != TypeInvalid {
+		c.diag.Add(s.Expr.Span(), "if let requires enum expression")
+	}
+	c.env.push()
+	c.checkPattern(scrutType, s.Pattern)
+	c.checkBlock(s.Then)
+	c.env.pop()
+	if s.Else != nil {
+		c.checkBlock(s.Else)
+	}
+}
+
+func (c *Checker) checkWhileLet(s *ast.WhileLetStmt) {
+	scrutType := c.checkExpr(s.Expr)
+	if scrutType.Ref {
+		c.diag.Add(s.Expr.Span(), "while let requires non-reference enum expression")
+		scrutType = derefType(scrutType)
+	}
+	if scrutType.Kind != TypeEnum && scrutType.Kind != TypeInvalid {
+		c.diag.Add(s.Expr.Span(), "while let requires enum expression")
+	}
+	c.loopDepth++
+	c.env.push()
+	c.checkPattern(scrutType, s.Pattern)
+	c.checkBlock(s.Body)
+	c.env.pop()
+	c.loopDepth--
+}
+
+func (c *Checker) checkLoop(s *ast.LoopStmt) {
+	c.loopDepth++
+	c.checkBlock(s.Body)
+	c.loopDepth--
+}
+
+func (c *Checker) checkBreak(s *ast.BreakStmt) {
+	if c.loopDepth == 0 {
+		c.diag.Add(s.Span(), "break outside of loop")
+	}
+}
+
+func (c *Checker) checkContinue(s *ast.ContinueStmt) {
+	if c.loopDepth == 0 {
+		c.diag.Add(s.Span(), "continue outside of loop")
+	}
 }
 
 func (c *Checker) checkMatch(s *ast.MatchStmt) {
 	scrutType := c.checkExpr(s.Expr)
-	enumName := ""
-	if scrutType.Kind == TypeEnum {
-		enumName = scrutType.Name
-	} else if scrutType.Kind != TypeInvalid {
-		c.diag.Add(s.Expr.Span(), "match requires enum expression")
+	if scrutType.Ref {
+		c.diag.Add(s.Expr.Span(), "match requires non-reference expression")
+		scrutType = derefType(scrutType)
 	}
 
 	for _, arm := range s.Arms {
 		c.env.push()
-		switch p := arm.Pattern.(type) {
-		case *ast.WildcardPattern:
-			// no bindings
-		case *ast.VariantPattern:
-			patEnum := p.EnumName
-			if patEnum == "" {
-				patEnum = enumName
+		c.checkPattern(scrutType, arm.Pattern)
+		if arm.Guard != nil {
+			guardType := c.checkExpr(arm.Guard)
+			if !isBool(guardType) && guardType.Kind != TypeInvalid {
+				c.diag.Add(arm.Guard.Span(), "match guard must be bool")
 			}
-			if patEnum == "" {
-				c.diag.Add(p.Span(), "cannot resolve enum for pattern")
-				break
-			}
-			if enumName != "" && patEnum != enumName {
-				c.diag.Add(p.Span(), fmt.Sprintf("pattern enum '%s' does not match '%s'", patEnum, enumName))
-			}
-			decl, ok := c.enums[patEnum]
-			if !ok {
-				c.diag.Add(p.Span(), fmt.Sprintf("unknown enum '%s'", patEnum))
-				break
-			}
-			variant := findVariant(decl, p.Variant)
-			if variant == nil {
-				c.diag.Add(p.Span(), fmt.Sprintf("unknown variant '%s'", p.Variant))
-				break
-			}
-			if p.Binding != "" {
-				if variant.Payload == nil {
-					c.diag.Add(p.Span(), "variant has no payload to bind")
-					break
-				}
-				payloadType := c.fromAstType(*variant.Payload)
-				c.env.declare(p.Binding, VarInfo{Type: payloadType, Mutable: false})
-			}
-			if p.Binding == "" && variant.Payload != nil {
-				// allow but no binding
-			}
-		default:
-			c.diag.Add(p.Span(), "unsupported pattern in stage 0")
 		}
 		c.checkBlock(arm.Body)
 		c.env.pop()
@@ -325,51 +398,136 @@ func (c *Checker) checkMatch(s *ast.MatchStmt) {
 
 func (c *Checker) checkTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 	scrutType := c.checkExpr(s.Expr)
-	enumName := ""
-	if scrutType.Kind == TypeEnum {
-		enumName = scrutType.Name
-	} else if scrutType.Kind != TypeInvalid {
-		c.diag.Add(s.Expr.Span(), "match requires enum expression")
+	if scrutType.Ref {
+		c.diag.Add(s.Expr.Span(), "match requires non-reference expression")
+		scrutType = derefType(scrutType)
 	}
 
 	for _, arm := range s.Arms {
 		c.env.push()
-		switch p := arm.Pattern.(type) {
-		case *ast.WildcardPattern:
-		case *ast.VariantPattern:
-			patEnum := p.EnumName
-			if patEnum == "" {
-				patEnum = enumName
+		c.checkPattern(scrutType, arm.Pattern)
+		if arm.Guard != nil {
+			guardType := c.checkExpr(arm.Guard)
+			if !isBool(guardType) && guardType.Kind != TypeInvalid {
+				c.diag.Add(arm.Guard.Span(), "match guard must be bool")
 			}
-			if patEnum == "" {
-				c.diag.Add(p.Span(), "cannot resolve enum for pattern")
-				break
-			}
-			if enumName != "" && patEnum != enumName {
-				c.diag.Add(p.Span(), fmt.Sprintf("pattern enum '%s' does not match '%s'", patEnum, enumName))
-			}
-			decl, ok := c.enums[patEnum]
-			if !ok {
-				c.diag.Add(p.Span(), fmt.Sprintf("unknown enum '%s'", patEnum))
-				break
-			}
-			variant := findVariant(decl, p.Variant)
-			if variant == nil {
-				c.diag.Add(p.Span(), fmt.Sprintf("unknown variant '%s'", p.Variant))
-				break
-			}
-			if p.Binding != "" {
-				if variant.Payload == nil {
-					c.diag.Add(p.Span(), "variant has no payload to bind")
-					break
-				}
-				payloadType := c.fromAstType(*variant.Payload)
-				c.env.declare(p.Binding, VarInfo{Type: payloadType, Mutable: false})
-			}
-		default:
-			c.diag.Add(p.Span(), "unsupported pattern in stage 0")
 		}
 		c.checkTailBlock(arm.Body, allowImplicit)
 		c.env.pop()
+	}
+}
+
+func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
+	switch p := pat.(type) {
+	case *ast.WildcardPattern:
+		// no bindings
+	case *ast.LiteralPattern:
+		litType := constValueType(p.Value)
+		if !typesEqual(litType, scrut) && litType.Kind != TypeInvalid && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), fmt.Sprintf("literal pattern expects %s, got %s", litType.String(), scrut.String()))
+		}
+	case *ast.RangePattern:
+		if !isInt(scrut) && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), "range pattern requires int scrutinee")
+		}
+	case *ast.OrPattern:
+		if c.patternHasBinding(p) {
+			c.diag.Add(p.Span(), "or-patterns with bindings are not supported in stage 0")
+		}
+		for _, alt := range p.Alts {
+			c.checkPattern(scrut, alt)
+		}
+	case *ast.VariantPattern:
+		if scrut.Kind != TypeEnum && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), "variant pattern requires enum scrutinee")
+			return
+		}
+		patEnum := p.EnumName
+		if patEnum == "" {
+			patEnum = scrut.Name
+		}
+		if patEnum == "" {
+			c.diag.Add(p.Span(), "cannot resolve enum for pattern")
+			return
+		}
+		if scrut.Name != "" && patEnum != scrut.Name {
+			c.diag.Add(p.Span(), fmt.Sprintf("pattern enum '%s' does not match '%s'", patEnum, scrut.Name))
+		}
+		decl, ok := c.enums[patEnum]
+		if !ok {
+			c.diag.Add(p.Span(), fmt.Sprintf("unknown enum '%s'", patEnum))
+			return
+		}
+		variant := findVariant(decl, p.Variant)
+		if variant == nil {
+			c.diag.Add(p.Span(), fmt.Sprintf("unknown variant '%s'", p.Variant))
+			return
+		}
+		if p.Binding != "" {
+			if variant.Payload == nil {
+				c.diag.Add(p.Span(), "variant has no payload to bind")
+				return
+			}
+			payloadType := c.fromAstType(*variant.Payload)
+			c.env.declare(p.Binding, VarInfo{Type: payloadType, Mutable: false})
+		}
+	case *ast.StructPattern:
+		if scrut.Kind != TypeStruct && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), "struct pattern requires struct scrutinee")
+			return
+		}
+		if p.StructName != "" && scrut.Name != "" && p.StructName != scrut.Name {
+			c.diag.Add(p.Span(), fmt.Sprintf("pattern struct '%s' does not match '%s'", p.StructName, scrut.Name))
+		}
+		decl, ok := c.structs[p.StructName]
+		if !ok {
+			c.diag.Add(p.Span(), fmt.Sprintf("unknown struct '%s'", p.StructName))
+			return
+		}
+		for _, f := range p.Fields {
+			field := findField(decl, f.Name)
+			if field == nil {
+				c.diag.Add(f.Span, fmt.Sprintf("unknown field '%s'", f.Name))
+				continue
+			}
+			fieldType := c.fromAstType(field.Type)
+			if f.Pattern == nil {
+				binding := f.Binding
+				if binding == "" {
+					binding = f.Name
+				}
+				c.env.declare(binding, VarInfo{Type: fieldType, Mutable: false})
+				continue
+			}
+			c.checkPattern(fieldType, f.Pattern)
+		}
+	default:
+		c.diag.Add(p.Span(), "unsupported pattern in stage 0")
+	}
+}
+
+func (c *Checker) patternHasBinding(pat ast.Pattern) bool {
+	switch p := pat.(type) {
+	case *ast.VariantPattern:
+		return p.Binding != ""
+	case *ast.StructPattern:
+		for _, f := range p.Fields {
+			if f.Pattern == nil {
+				return f.Binding != ""
+			}
+			if c.patternHasBinding(f.Pattern) {
+				return true
+			}
+		}
+		return false
+	case *ast.OrPattern:
+		for _, alt := range p.Alts {
+			if c.patternHasBinding(alt) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
 	}
 }

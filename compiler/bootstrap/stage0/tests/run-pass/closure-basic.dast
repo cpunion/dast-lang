@@ -1,0 +1,8 @@
+fn main() {
+    let mut count = 0
+    let incr = || { count = count + 1 }
+    incr()
+    incr()
+    incr()
+    println("count", count)
+}

@@ -1,0 +1,24 @@
+data $str0 = { b "func", b 0 }
+data $str1 = { b "env", b 0 }
+
+export function l $dast_user_add(l %t0, l %t1) {
+@entry
+
+@entry
+  %t2 =l add %t0, %t1
+  ret %t2
+
+}
+
+export function l $dast_user_main() {
+@entry
+
+@entry
+  %t1 =l call $dast_struct_get_ptr(l 0, l $str0)
+  %t2 =l call $dast_struct_get_ptr(l 0, l $str1)
+  call %t1(l %t2)
+  %t0 =l call $dast_user_add(l 1, l 2)
+  ret %t0
+
+}
+

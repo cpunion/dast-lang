@@ -1,0 +1,15 @@
+macro fn add_expr() -> AstExpr {
+    ast_expr("1 + 2")
+}
+
+macro fn wrap(a: AstExpr) -> AstExpr {
+    let s = ast_to_string(a)
+    ast_expr(s)
+}
+
+fn main() {
+    let v = add_expr!()
+    let w = compile!(wrap!(ast_expr("3 + 4")))
+    println("v", v)
+    println("w", w)
+}

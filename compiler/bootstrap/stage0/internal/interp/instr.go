@@ -89,6 +89,39 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			return rt.setTemp(fr, i.Dst, res)
 		}
 		return nil
+	case *ir.CallClosure:
+		closureVal, err := rt.evalOperand(fr, i.Closure)
+		if err != nil {
+			return err
+		}
+		if closureVal.Kind != ir.KindStruct || closureVal.Struct == nil {
+			return errors.New("call_closure requires closure struct")
+		}
+		funcVal, ok := closureVal.Struct.Fields["func"]
+		if !ok || funcVal.Kind != ir.KindString {
+			return errors.New("closure missing func field")
+		}
+		envVal, ok := closureVal.Struct.Fields["env"]
+		if !ok {
+			return errors.New("closure missing env field")
+		}
+		args := make([]ir.Value, 0, len(i.Args)+1)
+		args = append(args, envVal)
+		for _, arg := range i.Args {
+			val, err := rt.evalOperand(fr, arg)
+			if err != nil {
+				return err
+			}
+			args = append(args, val)
+		}
+		res, err := rt.callFunction(funcVal.Str, args)
+		if err != nil {
+			return err
+		}
+		if i.Dst >= 0 {
+			return rt.setTemp(fr, i.Dst, res)
+		}
+		return nil
 	case *ir.MakeStruct:
 		fields := map[string]ir.Value{}
 		for _, f := range i.Fields {
@@ -157,6 +190,20 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			return err
 		}
 		return rt.setTemp(fr, i.Dst, val)
+	case *ir.FieldAddr:
+		baseRef, err := rt.getTemp(fr, i.Src)
+		if err != nil {
+			return err
+		}
+		if baseRef.Kind != ir.KindRef {
+			return errors.New("addr_field requires ref")
+		}
+		baseTarget, ok := rt.heap[baseRef.Ref]
+		if !ok {
+			return errors.New("invalid reference")
+		}
+		addr := rt.allocRef(fieldRef{base: baseTarget, field: i.Field})
+		return rt.setTemp(fr, i.Dst, ir.Value{Kind: ir.KindRef, Ref: addr})
 	case *ir.SetField:
 		src, err := rt.getTemp(fr, i.Src)
 		if err != nil {
@@ -167,6 +214,27 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 			return err
 		}
 		return rt.setStructField(src, i.Field, val)
+	case *ir.IndexAddr:
+		baseRef, err := rt.getTemp(fr, i.Base)
+		if err != nil {
+			return err
+		}
+		if baseRef.Kind != ir.KindRef {
+			return errors.New("addr_index requires ref")
+		}
+		baseTarget, ok := rt.heap[baseRef.Ref]
+		if !ok {
+			return errors.New("invalid reference")
+		}
+		indexVal, err := rt.evalOperand(fr, i.Index)
+		if err != nil {
+			return err
+		}
+		if indexVal.Kind != ir.KindInt {
+			return errors.New("addr_index requires int")
+		}
+		addr := rt.allocRef(indexRef{base: baseTarget, index: int(indexVal.Int)})
+		return rt.setTemp(fr, i.Dst, ir.Value{Kind: ir.KindRef, Ref: addr})
 	default:
 		return errors.New("unknown instruction")
 	}
@@ -203,23 +271,22 @@ func (rt *Runtime) deref(v ir.Value) (ir.Value, error) {
 	if v.Kind != ir.KindRef {
 		return ir.Value{Kind: ir.KindUnit}, errors.New("deref requires ref")
 	}
-	ptr, ok := rt.heap[v.Ref]
+	target, ok := rt.heap[v.Ref]
 	if !ok {
 		return ir.Value{Kind: ir.KindUnit}, errors.New("invalid reference")
 	}
-	return *ptr, nil
+	return target.load(rt)
 }
 
 func (rt *Runtime) storeRef(ref ir.Value, val ir.Value) error {
 	if ref.Kind != ir.KindRef {
 		return errors.New("store_ref requires ref")
 	}
-	ptr, ok := rt.heap[ref.Ref]
+	target, ok := rt.heap[ref.Ref]
 	if !ok {
 		return errors.New("invalid reference")
 	}
-	*ptr = val
-	return nil
+	return target.store(rt, val)
 }
 
 func (rt *Runtime) getStructField(v ir.Value, field string) (ir.Value, error) {

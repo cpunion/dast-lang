@@ -23,3 +23,45 @@ type VariantPattern struct {
 
 func (p *VariantPattern) patternNode()      {}
 func (p *VariantPattern) Span() source.Span { return p.SpanInfo }
+
+type LiteralPattern struct {
+	Value    ConstValue
+	SpanInfo source.Span
+}
+
+func (p *LiteralPattern) patternNode()      {}
+func (p *LiteralPattern) Span() source.Span { return p.SpanInfo }
+
+type RangePattern struct {
+	Start     int64
+	End       int64
+	Inclusive bool
+	SpanInfo  source.Span
+}
+
+func (p *RangePattern) patternNode()      {}
+func (p *RangePattern) Span() source.Span { return p.SpanInfo }
+
+type OrPattern struct {
+	Alts     []Pattern
+	SpanInfo source.Span
+}
+
+func (p *OrPattern) patternNode()      {}
+func (p *OrPattern) Span() source.Span { return p.SpanInfo }
+
+type StructFieldPattern struct {
+	Name    string
+	Binding string
+	Pattern Pattern
+	Span    source.Span
+}
+
+type StructPattern struct {
+	StructName string
+	Fields     []StructFieldPattern
+	SpanInfo   source.Span
+}
+
+func (p *StructPattern) patternNode()      {}
+func (p *StructPattern) Span() source.Span { return p.SpanInfo }

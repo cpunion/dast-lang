@@ -1,0 +1,13 @@
+enum OptionI32 {
+    Some(i32),
+    None,
+}
+
+fn main() {
+    let opt = OptionI32.Some(1)
+    let x = match opt {
+        .Some(v) => v,
+        .None => false,
+    }
+    println("x", x)
+}

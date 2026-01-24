@@ -182,3 +182,36 @@ func (p *Parser) isStructName(name string) bool {
 	_, ok := p.structNames[name]
 	return ok
 }
+
+func (p *Parser) structLitStart() bool {
+	end, _, last, ok := p.peekQualifiedName()
+	if !ok || !p.isStructName(last) {
+		return false
+	}
+	idx := end
+	if idx < len(p.tokens) && p.tokens[idx].Kind == lexer.TokenLBracket {
+		idx = p.skipBracketList(idx)
+	}
+	return idx < len(p.tokens) && p.tokens[idx].Kind == lexer.TokenLBrace
+}
+
+func (p *Parser) skipBracketList(start int) int {
+	if start >= len(p.tokens) || p.tokens[start].Kind != lexer.TokenLBracket {
+		return start
+	}
+	depth := 0
+	i := start
+	for i < len(p.tokens) {
+		switch p.tokens[i].Kind {
+		case lexer.TokenLBracket:
+			depth++
+		case lexer.TokenRBracket:
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+		i++
+	}
+	return start
+}

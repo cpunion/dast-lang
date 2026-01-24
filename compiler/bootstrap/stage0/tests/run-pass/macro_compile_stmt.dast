@@ -1,0 +1,9 @@
+macro fn make_stmt() -> AstStmt {
+    ast_stmt("let x = 5;")
+}
+
+fn main() {
+    make_stmt!()
+    let y = x + 1
+    println("y", y)
+}

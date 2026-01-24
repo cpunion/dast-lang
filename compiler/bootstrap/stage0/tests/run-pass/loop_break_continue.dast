@@ -1,0 +1,26 @@
+fn main() {
+    let mut i = 0
+    loop {
+        if i == 2 {
+            break
+        }
+        println("i", i)
+        i = i + 1
+        if i == 1 {
+            continue
+        }
+        println("after", i)
+    }
+
+    let mut j = 0
+    while j < 3 {
+        j = j + 1
+        if j == 2 {
+            continue
+        }
+        if j == 3 {
+            break
+        }
+        println("j", j)
+    }
+}

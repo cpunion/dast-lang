@@ -1,0 +1,8 @@
+macro fn add1(x: AstExpr) -> AstExpr {
+    quote expr { $x + 1 }
+}
+
+fn main() {
+    let v = add1!(quote expr { 40 })
+    println("v", v)
+}

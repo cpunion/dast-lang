@@ -129,6 +129,8 @@ func valuesEqual(a, b ir.Value) bool {
 			return a.Enum.Payload == b.Enum.Payload
 		}
 		return valuesEqual(*a.Enum.Payload, *b.Enum.Payload)
+	case ir.KindAst:
+		return a.AstKind == b.AstKind && a.AstSrc == b.AstSrc
 	default:
 		return false
 	}
@@ -178,6 +180,8 @@ func formatValue(v ir.Value) string {
 			return "[]"
 		}
 		return fmt.Sprintf("[len=%d]", len(v.Array.Elems))
+	case ir.KindAst:
+		return v.AstSrc
 	default:
 		return v.String()
 	}
@@ -491,4 +495,84 @@ func (rt *Runtime) builtinExec() Builtin {
 		}
 		return ir.Value{Kind: ir.KindInt, Int: 0}, nil
 	}
+}
+
+func (rt *Runtime) builtinAst(kind ir.AstKind) Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 && len(args) != 2 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_* expects 1 or 2 arguments")
+		}
+		if args[0].Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_* expects string")
+		}
+		if len(args) == 1 {
+			return ir.Value{Kind: ir.KindAst, AstKind: kind, AstSrc: args[0].Str}, nil
+		}
+		if args[1].Kind != ir.KindArray || args[1].Array == nil {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_* expects [Ast] splices")
+		}
+		src, err := rt.buildQuotedAst(kind, args[0].Str, args[1].Array.Elems)
+		if err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		return ir.Value{Kind: ir.KindAst, AstKind: kind, AstSrc: src}, nil
+	}
+}
+
+func (rt *Runtime) builtinAstToString() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_to_string expects 1 argument")
+		}
+		if args[0].Kind != ir.KindAst {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_to_string expects ast")
+		}
+		return ir.Value{Kind: ir.KindString, Str: args[0].AstSrc}, nil
+	}
+}
+
+func (rt *Runtime) builtinGensym() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("gensym expects 1 argument")
+		}
+		if args[0].Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("gensym expects string")
+		}
+		prefix := sanitizeIdent(args[0].Str)
+		if prefix == "" {
+			prefix = "tmp"
+		}
+		name := fmt.Sprintf("__dast_%s_%d", prefix, rt.gensymCount)
+		rt.gensymCount++
+		return ir.Value{Kind: ir.KindAst, AstKind: ir.AstExpr, AstSrc: name}, nil
+	}
+}
+
+func (rt *Runtime) builtinBind() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("bind expects 1 argument")
+		}
+		if args[0].Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("bind expects string")
+		}
+		name := sanitizeIdent(args[0].Str)
+		if name == "" {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("bind expects non-empty name")
+		}
+		return ir.Value{Kind: ir.KindAst, AstKind: ir.AstExpr, AstSrc: name}, nil
+	}
+}
+
+func sanitizeIdent(s string) string {
+	var out []rune
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			out = append(out, r)
+		} else {
+			out = append(out, '_')
+		}
+	}
+	return string(out)
 }

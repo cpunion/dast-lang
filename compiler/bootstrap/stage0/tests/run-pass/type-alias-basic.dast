@@ -1,0 +1,6 @@
+type IntList = [i32]
+
+fn main() {
+    let nums: IntList = [1, 2, 3]
+    println("len", len(nums))
+}

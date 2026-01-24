@@ -18,6 +18,16 @@ const (
 	KindStruct
 	KindEnum
 	KindArray
+	KindAst
+)
+
+type AstKind int
+
+const (
+	AstExpr AstKind = iota
+	AstStmt
+	AstItem
+	AstBlock
 )
 
 // Operand represents either a temp variable or an inline constant
@@ -69,6 +79,8 @@ type Value struct {
 	Struct  *StructValue
 	Enum    *EnumValue
 	Array   *ArrayValue
+	AstKind AstKind
+	AstSrc  string
 }
 
 type StructValue struct {
@@ -113,6 +125,19 @@ func (v Value) String() string {
 			return "[]"
 		}
 		return fmt.Sprintf("[len=%d]", len(v.Array.Elems))
+	case KindAst:
+		switch v.AstKind {
+		case AstExpr:
+			return fmt.Sprintf("<AstExpr %s>", v.AstSrc)
+		case AstStmt:
+			return fmt.Sprintf("<AstStmt %s>", v.AstSrc)
+		case AstItem:
+			return fmt.Sprintf("<AstItem %s>", v.AstSrc)
+		case AstBlock:
+			return fmt.Sprintf("<AstBlock %s>", v.AstSrc)
+		default:
+			return "<Ast>"
+		}
 	default:
 		return "unit"
 	}
@@ -257,6 +282,24 @@ func (i *Call) String() string {
 	return fmt.Sprintf("call %s(%s)", i.Callee, strings.Join(args, ", "))
 }
 
+type CallClosure struct {
+	Dst     int
+	Closure Operand
+	Args    []Operand
+}
+
+func (i *CallClosure) instrNode() {}
+func (i *CallClosure) String() string {
+	args := make([]string, 0, len(i.Args))
+	for _, a := range i.Args {
+		args = append(args, a.String())
+	}
+	if i.Dst >= 0 {
+		return fmt.Sprintf("t%d = call_closure %s(%s)", i.Dst, i.Closure.String(), strings.Join(args, ", "))
+	}
+	return fmt.Sprintf("call_closure %s(%s)", i.Closure.String(), strings.Join(args, ", "))
+}
+
 type MakeArray struct {
 	Dst   int
 	Elems []Operand
@@ -332,6 +375,17 @@ func (i *GetField) String() string {
 	return fmt.Sprintf("t%d = t%d.%s", i.Dst, i.Src, i.Field)
 }
 
+type FieldAddr struct {
+	Dst   int
+	Src   int
+	Field string
+}
+
+func (i *FieldAddr) instrNode() {}
+func (i *FieldAddr) String() string {
+	return fmt.Sprintf("t%d = addr_field t%d.%s", i.Dst, i.Src, i.Field)
+}
+
 type SetField struct {
 	Src   int
 	Field string
@@ -341,6 +395,17 @@ type SetField struct {
 func (i *SetField) instrNode() {}
 func (i *SetField) String() string {
 	return fmt.Sprintf("t%d.%s = %s", i.Src, i.Field, i.Value.String())
+}
+
+type IndexAddr struct {
+	Dst   int
+	Base  int
+	Index Operand
+}
+
+func (i *IndexAddr) instrNode() {}
+func (i *IndexAddr) String() string {
+	return fmt.Sprintf("t%d = addr_index t%d[%s]", i.Dst, i.Base, i.Index.String())
 }
 
 type Term interface {
@@ -697,6 +762,19 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			}
 		}
 		return nil
+	case *CallClosure:
+		if err := validateTemp(i.Dst, tempCount, true); err != nil {
+			return err
+		}
+		if err := validateOperand(i.Closure, tempCount); err != nil {
+			return err
+		}
+		for _, arg := range i.Args {
+			if err := validateOperand(arg, tempCount); err != nil {
+				return err
+			}
+		}
+		return nil
 	case *MakeArray:
 		if err := validateTemp(i.Dst, tempCount, false); err != nil {
 			return err
@@ -752,6 +830,14 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		return validateTemp(i.Src, tempCount, false)
+	case *FieldAddr:
+		if i.Field == "" {
+			return fmt.Errorf("addr_field name is empty")
+		}
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		return validateTemp(i.Src, tempCount, false)
 	case *SetField:
 		if i.Field == "" {
 			return fmt.Errorf("set_field name is empty")
@@ -760,6 +846,14 @@ func validateInstr(inst Instr, tempCount int, declared map[string]struct{}) erro
 			return err
 		}
 		return validateOperand(i.Value, tempCount)
+	case *IndexAddr:
+		if err := validateTemp(i.Dst, tempCount, false); err != nil {
+			return err
+		}
+		if err := validateTemp(i.Base, tempCount, false); err != nil {
+			return err
+		}
+		return validateOperand(i.Index, tempCount)
 	default:
 		return fmt.Errorf("unknown instruction")
 	}

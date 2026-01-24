@@ -316,6 +316,13 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 		max := maxTempIdx(recv, valMax)
 		return lineParse{instr: &SetField{Src: recv, Field: field, Value: val}, maxTemp: max}, nil
 	}
+	if strings.HasPrefix(line, "call_closure ") {
+		call, max, err := parseCallClosureWithCtx(strings.TrimSpace(strings.TrimPrefix(line, "call_closure ")), -1, ctx)
+		if err != nil {
+			return lineParse{}, err
+		}
+		return lineParse{instr: call, maxTemp: max}, nil
+	}
 	if strings.HasPrefix(line, "call ") {
 		call, max, err := parseCallWithCtx(strings.TrimSpace(strings.TrimPrefix(line, "call ")), -1, ctx)
 		if err != nil {
@@ -363,6 +370,12 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			return lineParse{instr: &LoadVar{Dst: dst, Ref: true, RefTemp: src}, maxTemp: maxTempIdx(dst, src)}, nil
 		case strings.HasPrefix(right, "call "):
 			call, max, err := parseCallWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "call ")), dst, ctx)
+			if err != nil {
+				return lineParse{}, err
+			}
+			return lineParse{instr: call, maxTemp: max}, nil
+		case strings.HasPrefix(right, "call_closure "):
+			call, max, err := parseCallClosureWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "call_closure ")), dst, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
@@ -424,6 +437,21 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, err
 			}
 			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
+		case strings.HasPrefix(right, "addr_field "):
+			rest := strings.TrimSpace(strings.TrimPrefix(right, "addr_field "))
+			src, field, err := parseFieldExprWithCtx(rest, ctx)
+			if err != nil {
+				return lineParse{}, err
+			}
+			return lineParse{instr: &FieldAddr{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
+		case strings.HasPrefix(right, "addr_index "):
+			rest := strings.TrimSpace(strings.TrimPrefix(right, "addr_index "))
+			base, index, indexMax, err := parseIndexExprWithCtx(rest, ctx)
+			if err != nil {
+				return lineParse{}, err
+			}
+			max := maxTempIdx(dst, base, indexMax)
+			return lineParse{instr: &IndexAddr{Dst: dst, Base: base, Index: index}, maxTemp: max}, nil
 		case isFieldAccessExpr(right, ctx):
 			// Field access: t0.field or param.field
 			src, field, err := parseFieldExprWithCtx(right, ctx)
@@ -854,7 +882,7 @@ func parseIntTypePrefix(s string) (string, string, bool) {
 
 func isIntTypeName(name string) bool {
 	switch name {
-	case "i8", "i16", "i32", "i64", "i128",
+	case "int", "i8", "i16", "i32", "i64", "i128",
 		"u8", "u16", "u32", "u64", "u128",
 		"isize", "usize", "char":
 		return true
@@ -890,6 +918,35 @@ func parseCallWithCtx(text string, dst int, ctx *parseContext) (*Call, int, erro
 		}
 	}
 	return &Call{Dst: dst, Callee: callee, Args: args}, max, nil
+}
+
+func parseCallClosureWithCtx(text string, dst int, ctx *parseContext) (*CallClosure, int, error) {
+	open := strings.Index(text, "(")
+	close := strings.LastIndex(text, ")")
+	if open < 0 || close < 0 || close < open {
+		return nil, 0, fmt.Errorf("invalid call_closure syntax")
+	}
+	closureText := strings.TrimSpace(text[:open])
+	closureOp, closureMax, err := parseOperandWithCtx(closureText, ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	argsText := strings.TrimSpace(text[open+1 : close])
+	args := []Operand{}
+	max := maxTempIdx(dst, closureMax)
+	if argsText != "" {
+		for _, part := range splitComma(argsText, -1) {
+			op, opMax, err := parseOperandWithCtx(part, ctx)
+			if err != nil {
+				return nil, 0, err
+			}
+			args = append(args, op)
+			if opMax > max {
+				max = opMax
+			}
+		}
+	}
+	return &CallClosure{Dst: dst, Closure: closureOp, Args: args}, max, nil
 }
 
 func splitOp(s string) (string, string, bool) {

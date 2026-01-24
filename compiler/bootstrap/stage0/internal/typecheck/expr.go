@@ -41,25 +41,43 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		}
 		c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
 		return Type{Kind: TypeInvalid}
-	case *ast.RefExpr:
-		ident, ok := e.Expr.(*ast.IdentExpr)
-		if !ok {
-			c.diag.Add(e.Span(), "reference target must be identifier in stage 0")
-			return Type{Kind: TypeInvalid}
-		}
-		info, ok := c.env.lookup(ident.Name)
-		if !ok {
-			if _, ok := c.consts[ident.Name]; ok {
-				c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to const '%s'", ident.Name))
-			} else {
-				c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", ident.Name))
+	case *ast.CompileExpr:
+		c.diag.Add(e.Span(), "compile! must be expanded before typecheck")
+		return Type{Kind: TypeInvalid}
+	case *ast.QuoteExpr:
+		for _, part := range e.Parts {
+			if part.Expr == nil {
+				continue
 			}
+			t := c.checkExpr(part.Expr)
+			if !isAstType(t) && t.Kind != TypeInvalid {
+				c.diag.Add(part.Expr.Span(), "quote splice expects ast")
+			}
+		}
+		switch e.Kind {
+		case ast.QuoteExprKind:
+			return Type{Kind: TypeAstExpr}
+		case ast.QuoteStmtKind:
+			return Type{Kind: TypeAstStmt}
+		case ast.QuoteItemKind:
+			return Type{Kind: TypeAstItem}
+		case ast.QuoteBlockKind:
+			return Type{Kind: TypeAstBlock}
+		default:
 			return Type{Kind: TypeInvalid}
 		}
-		if e.Mutable && !info.Mutable {
-			c.diag.Add(e.Span(), fmt.Sprintf("cannot take &mut of immutable '%s'", ident.Name))
+	case *ast.MacroCallExpr:
+		c.diag.Add(e.Span(), "macro call must be expanded before typecheck")
+		return Type{Kind: TypeInvalid}
+	case *ast.RefExpr:
+		baseType, mutable, ok := c.checkRefTarget(e.Expr)
+		if !ok {
+			return Type{Kind: TypeInvalid}
 		}
-		refType := info.Type
+		if e.Mutable && !mutable {
+			c.diag.Add(e.Span(), "cannot take &mut of immutable value")
+		}
+		refType := baseType
 		refType.Ref = true
 		refType.Mut = e.Mutable
 		return refType
@@ -140,21 +158,78 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		}
 	case *ast.CallExpr:
 		if sig, ok := c.funcs[e.Callee]; ok {
-			if len(e.Args) != len(sig.Params) {
-				c.diag.Add(e.Span(), fmt.Sprintf("function '%s' expects %d args, got %d", e.Callee, len(sig.Params), len(e.Args)))
-				return sig.Return
+			return c.checkCallExpr(e, sig)
+		}
+		if v, ok := c.env.lookup(e.Callee); ok && v.Type.Kind == TypeClosure {
+			for _, arg := range e.Args {
+				c.checkExpr(arg)
 			}
-			for i, arg := range e.Args {
-				argType := c.checkExpr(arg)
-				if !typesAssignable(argType, sig.Params[i]) && argType.Kind != TypeInvalid && sig.Params[i].Kind != TypeInvalid {
-					c.diag.Add(arg.Span(), fmt.Sprintf("argument %d expects %s, got %s", i+1, sig.Params[i].String(), argType.String()))
-					break
-				}
-			}
-			return sig.Return
+			return Type{Kind: TypeUnit}
 		}
 		if _, ok := c.builtins[e.Callee]; ok {
 			switch e.Callee {
+			case "ast_expr":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "ast_expr expects 1 argument")
+					return Type{Kind: TypeAstExpr}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "ast_expr expects string")
+				}
+				return Type{Kind: TypeAstExpr}
+			case "ast_stmt":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "ast_stmt expects 1 argument")
+					return Type{Kind: TypeAstStmt}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "ast_stmt expects string")
+				}
+				return Type{Kind: TypeAstStmt}
+			case "ast_item":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "ast_item expects 1 argument")
+					return Type{Kind: TypeAstItem}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "ast_item expects string")
+				}
+				return Type{Kind: TypeAstItem}
+			case "ast_block":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "ast_block expects 1 argument")
+					return Type{Kind: TypeAstBlock}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "ast_block expects string")
+				}
+				return Type{Kind: TypeAstBlock}
+			case "ast_to_string":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "ast_to_string expects 1 argument")
+					return Type{Kind: TypeString, Name: "string"}
+				}
+				argType := c.checkExpr(e.Args[0])
+				switch argType.Kind {
+				case TypeAstExpr, TypeAstStmt, TypeAstItem, TypeAstBlock, TypeInvalid:
+				default:
+					c.diag.Add(e.Args[0].Span(), "ast_to_string expects ast")
+				}
+				return Type{Kind: TypeString, Name: "string"}
+			case "gensym", "bind":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), e.Callee+" expects 1 argument")
+					return Type{Kind: TypeAstExpr}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), e.Callee+" expects string")
+				}
+				return Type{Kind: TypeAstExpr}
 			case "len":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), "len expects 1 argument")
@@ -326,48 +401,52 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		}
 		c.diag.Add(e.Span(), fmt.Sprintf("undefined function '%s'", e.Callee))
 		return Type{Kind: TypeInvalid}
+	case *ast.ClosureExpr:
+		c.env.push()
+		for _, param := range e.Params {
+			if param.Type == nil {
+				c.diag.Add(param.Span, fmt.Sprintf("closure parameter '%s' requires type annotation", param.Name))
+				c.env.declare(param.Name, VarInfo{Type: Type{Kind: TypeInvalid}, Mutable: false})
+				continue
+			}
+			t := c.fromAstType(*param.Type)
+			c.env.declare(param.Name, VarInfo{Type: t, Mutable: false})
+		}
+		bodyType := c.checkExpr(e.Body)
+		if e.ReturnType != nil {
+			rt := c.fromAstType(*e.ReturnType)
+			if !typesAssignable(bodyType, rt) && bodyType.Kind != TypeInvalid && rt.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), fmt.Sprintf("closure expects return type %s, got %s", rt.String(), bodyType.String()))
+			}
+		}
+		c.env.pop()
+		return Type{Kind: TypeClosure}
 	case *ast.MethodCallExpr:
 		if ident, ok := e.Receiver.(*ast.IdentExpr); ok {
 			if _, ok := c.env.lookup(ident.Name); !ok {
 				if enumDecl, ok := c.enums[ident.Name]; ok {
 					variant := findVariant(enumDecl, e.Method)
 					if variant != nil {
-						if variant.Payload == nil && len(e.Args) > 0 {
-							c.diag.Add(e.Span(), "variant has no payload")
+						if len(e.Args) > 1 {
+							c.diag.Add(e.Span(), "variant expects single payload")
 						}
-						if variant.Payload != nil {
-							if len(e.Args) != 1 {
-								c.diag.Add(e.Span(), "variant expects payload")
-							} else {
-								argType := c.checkExpr(e.Args[0])
-								payloadType := c.fromAstType(*variant.Payload)
-								if !typesAssignable(argType, payloadType) && argType.Kind != TypeInvalid && payloadType.Kind != TypeInvalid {
-									c.diag.Add(e.Span(), fmt.Sprintf("variant expects %s, got %s", payloadType.String(), argType.String()))
-								}
-							}
+						expected, _ := c.currentExpected()
+						var arg ast.Expr
+						if len(e.Args) > 0 {
+							arg = e.Args[0]
 						}
-						e.EnumName = ident.Name
-						return Type{Kind: TypeEnum, Name: ident.Name}
+						typ := c.checkEnumVariantCall(ident.Name, nil, e.Method, arg, e, expected)
+						if typ.Kind == TypeEnum {
+							e.EnumName = typ.Name
+						}
+						return typ
 					}
 				}
 				if sig := c.lookupMethod(ident.Name, e.Method); sig != nil {
-					if sig.HasSelf {
-						c.diag.Add(e.Span(), "static call to method that requires self")
-						return sig.Return
-					}
-					if len(e.Args) != len(sig.Params) {
-						c.diag.Add(e.Span(), fmt.Sprintf("method '%s' expects %d args, got %d", e.Method, len(sig.Params), len(e.Args)))
-					}
-					for i, arg := range e.Args {
-						argType := c.checkExpr(arg)
-						if i < len(sig.Params) && !typesAssignable(argType, sig.Params[i]) && argType.Kind != TypeInvalid && sig.Params[i].Kind != TypeInvalid {
-							c.diag.Add(arg.Span(), fmt.Sprintf("argument %d expects %s, got %s", i+1, sig.Params[i].String(), argType.String()))
-							break
-						}
-					}
-					e.ResolvedName = sig.FuncName
+					ret := c.checkStaticMethodCall(sig, e.Args, e.Span())
+					e.ResolvedName = ident.Name + "." + sig.Name
 					e.ResolvedSelf = false
-					return sig.Return
+					return ret
 				}
 			}
 		}
@@ -384,6 +463,17 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		}
 		sig := c.lookupMethod(base.Name, e.Method)
 		if sig == nil {
+			if base.Kind == TypeStruct {
+				if baseName, ok := c.structInstBase[base.Name]; ok {
+					sig = c.lookupMethod(baseName, e.Method)
+				}
+			} else if base.Kind == TypeEnum {
+				if baseName, ok := c.enumInstBase[base.Name]; ok {
+					sig = c.lookupMethod(baseName, e.Method)
+				}
+			}
+		}
+		if sig == nil {
 			c.diag.Add(e.Span(), fmt.Sprintf("unknown method '%s' on '%s'", e.Method, base.Name))
 			return Type{Kind: TypeInvalid}
 		}
@@ -391,56 +481,27 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			c.diag.Add(e.Span(), "method requires no self; call as Type.method()")
 			return sig.Return
 		}
-		if len(sig.Params) == 0 || !typesAssignable(recvType, sig.Params[0]) {
-			c.diag.Add(e.Span(), "receiver type mismatch")
-		}
-		expectedArgs := len(sig.Params) - 1
-		if len(e.Args) != expectedArgs {
-			c.diag.Add(e.Span(), fmt.Sprintf("method '%s' expects %d args, got %d", e.Method, expectedArgs, len(e.Args)))
-		}
-		for i, arg := range e.Args {
-			if i+1 >= len(sig.Params) {
-				break
+		ret := c.checkMethodCall(sig, recvType, e.Args, e.Span())
+		resolvedType := base.Name
+		switch base.Kind {
+		case TypeStruct:
+			if _, ok := c.structInstBase[resolvedType]; ok {
+				// already an instanced name
+			} else if len(base.Args) > 0 && isConcreteArgs(base.Args) {
+				resolvedType = c.ensureStructInstance(base.Name, base.Args)
 			}
-			argType := c.checkExpr(arg)
-			if !typesAssignable(argType, sig.Params[i+1]) && argType.Kind != TypeInvalid && sig.Params[i+1].Kind != TypeInvalid {
-				c.diag.Add(arg.Span(), fmt.Sprintf("argument %d expects %s, got %s", i+1, sig.Params[i+1].String(), argType.String()))
-				break
+		case TypeEnum:
+			if _, ok := c.enumInstBase[resolvedType]; ok {
+				// already an instanced name
+			} else if len(base.Args) > 0 && isConcreteArgs(base.Args) {
+				resolvedType = c.ensureEnumInstance(base.Name, base.Args)
 			}
 		}
-		e.ResolvedName = sig.FuncName
+		e.ResolvedName = resolvedType + "." + sig.Name
 		e.ResolvedSelf = true
-		return sig.Return
+		return ret
 	case *ast.StructLit:
-		decl, ok := c.structs[e.Name]
-		if !ok {
-			c.diag.Add(e.Span(), fmt.Sprintf("unknown struct '%s'", e.Name))
-			return Type{Kind: TypeInvalid}
-		}
-		seen := map[string]struct{}{}
-		for _, f := range e.Fields {
-			field := findField(decl, f.Name)
-			if field == nil {
-				c.diag.Add(f.Span, fmt.Sprintf("unknown field '%s'", f.Name))
-				continue
-			}
-			if _, exists := seen[f.Name]; exists {
-				c.diag.Add(f.Span, fmt.Sprintf("duplicate field '%s'", f.Name))
-				continue
-			}
-			seen[f.Name] = struct{}{}
-			valType := c.checkExpr(f.Value)
-			fieldType := c.fromAstType(field.Type)
-			if !typesAssignable(valType, fieldType) && valType.Kind != TypeInvalid && fieldType.Kind != TypeInvalid {
-				c.diag.Add(f.Span, fmt.Sprintf("field '%s' expects %s, got %s", f.Name, fieldType.String(), valType.String()))
-			}
-		}
-		for _, field := range decl.Fields {
-			if _, ok := seen[field.Name]; !ok {
-				c.diag.Add(e.Span(), fmt.Sprintf("missing field '%s'", field.Name))
-			}
-		}
-		return Type{Kind: TypeStruct, Name: decl.Name}
+		return c.checkStructLit(e)
 	case *ast.AccessExpr:
 		if ident, ok := e.Receiver.(*ast.IdentExpr); ok {
 			if _, ok := c.env.lookup(ident.Name); !ok {
@@ -452,8 +513,14 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					}
 					if variant.Payload != nil {
 						c.diag.Add(e.Span(), "variant requires payload")
+						return Type{Kind: TypeInvalid}
 					}
-					return Type{Kind: TypeEnum, Name: ident.Name}
+					expected, _ := c.currentExpected()
+					typ := c.checkEnumVariantCall(ident.Name, nil, e.Field, nil, e, expected)
+					if typ.Kind == TypeEnum && ident.Name != typ.Name {
+						ident.Name = typ.Name
+					}
+					return typ
 				}
 			}
 		}
@@ -495,32 +562,141 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		}
 		return *recvType.Elem
 	case *ast.EnumVariantExpr:
-		decl, ok := c.enums[e.EnumName]
-		if !ok {
-			c.diag.Add(e.Span(), fmt.Sprintf("unknown enum '%s'", e.EnumName))
-			return Type{Kind: TypeInvalid}
+		return c.checkEnumVariantExpr(e)
+	case *ast.BlockExpr:
+		return c.checkBlockExpr(e.Block)
+	case *ast.IfExpr:
+		condType := c.checkExpr(e.Cond)
+		if !isBool(condType) && condType.Kind != TypeInvalid {
+			c.diag.Add(e.Cond.Span(), "if condition must be bool")
 		}
-		variant := findVariant(decl, e.Variant)
-		if variant == nil {
-			c.diag.Add(e.Span(), fmt.Sprintf("unknown variant '%s'", e.Variant))
-			return Type{Kind: TypeInvalid}
+		expected, hasExpected := c.currentExpected()
+		var thenType Type
+		if hasExpected {
+			thenType = c.checkExprWithExpected(e.Then, expected)
+		} else {
+			thenType = c.checkExpr(e.Then)
 		}
-		if variant.Payload == nil && e.Arg != nil {
-			c.diag.Add(e.Span(), "variant has no payload")
-		}
-		if variant.Payload != nil && e.Arg == nil {
-			c.diag.Add(e.Span(), "missing payload for enum variant")
-		}
-		if variant.Payload != nil && e.Arg != nil {
-			argType := c.checkExpr(e.Arg)
-			payloadType := c.fromAstType(*variant.Payload)
-			if !typesAssignable(argType, payloadType) && argType.Kind != TypeInvalid && payloadType.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), fmt.Sprintf("payload expects %s, got %s", payloadType.String(), argType.String()))
+		elseType := Type{Kind: TypeUnit}
+		if e.Else != nil {
+			if hasExpected {
+				elseType = c.checkExprWithExpected(e.Else, expected)
+			} else {
+				elseType = c.checkExpr(e.Else)
 			}
 		}
-		return Type{Kind: TypeEnum, Name: decl.Name}
+		if e.Else != nil && !typesEqual(thenType, elseType) && thenType.Kind != TypeInvalid && elseType.Kind != TypeInvalid {
+			c.diag.Add(e.Span(), fmt.Sprintf("if branches must have same type: %s vs %s", thenType.String(), elseType.String()))
+		}
+		if e.Else == nil {
+			return Type{Kind: TypeUnit}
+		}
+		return thenType
+	case *ast.MatchExpr:
+		scrutType := c.checkExpr(e.Expr)
+		if scrutType.Ref {
+			c.diag.Add(e.Expr.Span(), "match requires non-reference expression")
+			scrutType = derefType(scrutType)
+		}
+		out := Type{Kind: TypeUnit}
+		expected, hasExpected := c.currentExpected()
+		for i, arm := range e.Arms {
+			c.env.push()
+			c.checkPattern(scrutType, arm.Pattern)
+			if arm.Guard != nil {
+				guardType := c.checkExpr(arm.Guard)
+				if !isBool(guardType) && guardType.Kind != TypeInvalid {
+					c.diag.Add(arm.Guard.Span(), "match guard must be bool")
+				}
+			}
+			var armType Type
+			if hasExpected {
+				armType = c.checkBlockExprExpected(arm.Body, expected)
+			} else {
+				armType = c.checkBlockExpr(arm.Body)
+			}
+			if i == 0 {
+				out = armType
+			} else if !typesEqual(out, armType) && out.Kind != TypeInvalid && armType.Kind != TypeInvalid {
+				c.diag.Add(arm.SpanInfo, fmt.Sprintf("match arms must have same type: %s vs %s", out.String(), armType.String()))
+			}
+			c.env.pop()
+		}
+		return out
 	default:
 		c.diag.Add(expr.Span(), "unsupported expression in stage 0")
 		return Type{Kind: TypeInvalid}
+	}
+}
+
+func (c *Checker) checkRefTarget(expr ast.Expr) (Type, bool, bool) {
+	switch e := expr.(type) {
+	case *ast.IdentExpr:
+		info, ok := c.env.lookup(e.Name)
+		if !ok {
+			if _, ok := c.consts[e.Name]; ok {
+				c.diag.Add(e.Span(), fmt.Sprintf("cannot take reference to const '%s'", e.Name))
+			} else {
+				c.diag.Add(e.Span(), fmt.Sprintf("undefined variable '%s'", e.Name))
+			}
+			return Type{Kind: TypeInvalid}, false, false
+		}
+		return info.Type, info.Mutable, true
+	case *ast.AccessExpr:
+		recvType, recvMut, ok := c.checkRefTarget(e.Receiver)
+		if !ok {
+			return Type{Kind: TypeInvalid}, false, false
+		}
+		if recvType.Ref {
+			recvMut = recvType.Mut
+			recvType = derefType(recvType)
+		}
+		if recvType.Kind != TypeStruct {
+			if recvType.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), "field access requires struct")
+			}
+			return Type{Kind: TypeInvalid}, recvMut, false
+		}
+		decl, ok := c.structs[recvType.Name]
+		if !ok {
+			c.diag.Add(e.Span(), fmt.Sprintf("unknown struct '%s'", recvType.Name))
+			return Type{Kind: TypeInvalid}, recvMut, false
+		}
+		field := findField(decl, e.Field)
+		if field == nil {
+			c.diag.Add(e.Span(), fmt.Sprintf("unknown field '%s'", e.Field))
+			return Type{Kind: TypeInvalid}, recvMut, false
+		}
+		return c.fromAstType(field.Type), recvMut, true
+	case *ast.IndexExpr:
+		recvType, recvMut, ok := c.checkRefTarget(e.Receiver)
+		if !ok {
+			return Type{Kind: TypeInvalid}, false, false
+		}
+		indexType := c.checkExpr(e.Index)
+		if !isInt(indexType) && indexType.Kind != TypeInvalid {
+			c.diag.Add(e.Index.Span(), "index requires int")
+		}
+		if recvType.Ref {
+			recvMut = recvType.Mut
+			recvType = derefType(recvType)
+		}
+		if recvType.Kind != TypeArray || recvType.Elem == nil {
+			if recvType.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), "indexing requires array")
+			}
+			return Type{Kind: TypeInvalid}, recvMut, false
+		}
+		return *recvType.Elem, recvMut, true
+	case *ast.DerefExpr:
+		operand := c.checkExpr(e.Expr)
+		if !operand.Ref {
+			c.diag.Add(e.Span(), "deref requires reference")
+			return Type{Kind: TypeInvalid}, false, false
+		}
+		return derefType(operand), operand.Mut, true
+	default:
+		c.diag.Add(expr.Span(), "reference target must be identifier, field, or index in stage 0")
+		return Type{Kind: TypeInvalid}, false, false
 	}
 }

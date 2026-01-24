@@ -18,31 +18,102 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 		return arrayType
 	}
 	name := t.Name
-	if name == "Self" && c.selfType != "" {
-		name = c.selfType
+	if name == "Self" {
+		if c.selfType != nil {
+			base := *c.selfType
+			if t.IsRef {
+				base.Ref = true
+				base.Mut = t.IsMut
+			}
+			return base
+		}
+		c.diag.Add(t.Span, "unknown type 'Self'")
+		return Type{Kind: TypeInvalid}
+	}
+	if param, ok := c.typeParams[name]; ok {
+		_ = param
+		if len(t.Args) > 0 {
+			c.diag.Add(t.Span, "type arguments not allowed on type parameter")
+			return Type{Kind: TypeInvalid}
+		}
+		base := Type{Kind: TypeParam, Name: name}
+		if t.IsRef {
+			base.Ref = true
+			base.Mut = t.IsMut
+		}
+		return base
+	}
+	if alias, ok := c.aliases[name]; ok {
+		expanded, ok := c.expandAlias(alias, t)
+		if !ok {
+			return Type{Kind: TypeInvalid}
+		}
+		return c.fromAstType(expanded)
+	}
+	var args []Type
+	if len(t.Args) > 0 {
+		for _, arg := range t.Args {
+			args = append(args, c.fromAstType(arg))
+		}
 	}
 	base := Type{Kind: TypeInvalid, Name: name}
 	switch name {
-	case "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char":
+	case "int", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char":
 		base.Kind = TypeInt
+		base.Name = name
 	case "bool":
 		base.Kind = TypeBool
 	case "String", "str":
 		base.Kind = TypeString
 	case "unit", "()":
 		base.Kind = TypeUnit
+	case "Closure", "closure":
+		base.Kind = TypeClosure
+	case "AstExpr":
+		base.Kind = TypeAstExpr
+	case "AstStmt":
+		base.Kind = TypeAstStmt
+	case "AstItem":
+		base.Kind = TypeAstItem
+	case "AstBlock":
+		base.Kind = TypeAstBlock
 	default:
 		if _, ok := c.structs[name]; ok {
 			base.Kind = TypeStruct
 			base.Name = name
+			base.Args = args
+			if len(t.Args) == 0 && len(c.structs[name].TypeParams) > 0 {
+				c.diag.Add(t.Span, "missing type arguments for '"+name+"'")
+			}
+			if len(t.Args) > 0 && len(c.structs[name].TypeParams) == 0 {
+				c.diag.Add(t.Span, "type arguments not allowed for '"+name+"'")
+			}
+			if len(c.structs[name].TypeParams) > 0 && isConcreteArgs(args) {
+				base.Name = c.ensureStructInstance(name, args)
+				base.Args = nil
+			}
 			break
 		}
 		if _, ok := c.enums[name]; ok {
 			base.Kind = TypeEnum
 			base.Name = name
+			base.Args = args
+			if len(t.Args) == 0 && len(c.enums[name].TypeParams) > 0 {
+				c.diag.Add(t.Span, "missing type arguments for '"+name+"'")
+			}
+			if len(t.Args) > 0 && len(c.enums[name].TypeParams) == 0 {
+				c.diag.Add(t.Span, "type arguments not allowed for '"+name+"'")
+			}
+			if len(c.enums[name].TypeParams) > 0 && isConcreteArgs(args) {
+				base.Name = c.ensureEnumInstance(name, args)
+				base.Args = nil
+			}
 			break
 		}
 		c.diag.Add(t.Span, "unknown type '"+name+"'")
+	}
+	if len(t.Args) > 0 && base.Kind != TypeStruct && base.Kind != TypeEnum && base.Kind != TypeInvalid {
+		c.diag.Add(t.Span, "type arguments not allowed on '"+name+"'")
 	}
 	if t.IsRef {
 		base.Ref = true
@@ -58,6 +129,9 @@ func typesEqual(a, b Type) bool {
 	if a.Kind != b.Kind {
 		return false
 	}
+	if a.Kind == TypeParam {
+		return a.Name == b.Name && a.Ref == b.Ref && a.Mut == b.Mut
+	}
 	if (a.Kind == TypeStruct || a.Kind == TypeEnum) && a.Name != b.Name {
 		return false
 	}
@@ -67,7 +141,24 @@ func typesEqual(a, b Type) bool {
 		}
 		return typesEqual(*a.Elem, *b.Elem) && a.Ref == b.Ref && a.Mut == b.Mut
 	}
+	if len(a.Args) != len(b.Args) {
+		return false
+	}
+	for i := range a.Args {
+		if !typesEqual(a.Args[i], b.Args[i]) {
+			return false
+		}
+	}
 	return a.Ref == b.Ref && a.Mut == b.Mut
+}
+
+func isAstType(t Type) bool {
+	switch t.Kind {
+	case TypeAstExpr, TypeAstStmt, TypeAstItem, TypeAstBlock:
+		return true
+	default:
+		return false
+	}
 }
 
 func typesAssignable(actual, expected Type) bool {
@@ -125,7 +216,7 @@ func isComparable(t Type) bool {
 }
 
 func derefType(t Type) Type {
-	return Type{Kind: t.Kind, Name: t.Name, Elem: t.Elem}
+	return Type{Kind: t.Kind, Name: t.Name, Elem: t.Elem, Args: t.Args}
 }
 
 func findField(decl *ast.StructDecl, name string) *ast.FieldDef {

@@ -1,0 +1,5 @@
+fn test_util() {
+    if util_value() != 42 {
+        exit(1)
+    }
+}

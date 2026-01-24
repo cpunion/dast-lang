@@ -1,0 +1,8 @@
+macro fn bad() -> int {
+    1
+}
+
+fn main() {
+    let x = compile!(bad!())
+    println(x)
+}

@@ -1,0 +1,6 @@
+import "util"
+
+fn main() {
+    let v = util_value()
+    println("v", v)
+}

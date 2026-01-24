@@ -8,5 +8,6 @@ type Type struct {
 	IsMut   bool
 	IsArray bool
 	Elem    *Type
+	Args    []Type
 	Span    source.Span
 }
