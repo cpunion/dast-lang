@@ -1,0 +1,8 @@
+macro fn mk_expr() -> AstExpr {
+    quote expr { 1 }
+}
+
+mk_expr!()
+
+fn main() {
+}
