@@ -1,0 +1,57 @@
+// Minimal testing helpers for Stage2
+
+pub fn fail(msg: String) {
+    eprintln("test failed:", msg)
+    exit(1)
+}
+
+pub macro fn assert(cond: AstExpr) -> AstStmt {
+    quote stmt { {
+        if !($cond) {
+            eprintln("assert failed");
+            exit(1);
+            return;
+        }
+    } }
+}
+
+pub macro fn assert_msg(cond: AstExpr, msg: AstExpr) -> AstStmt {
+    quote stmt { {
+        if !($cond) {
+            eprintln("assert failed:", $msg);
+            exit(1);
+            return;
+        }
+    } }
+}
+
+pub macro fn assert_eq(left: AstExpr, right: AstExpr) -> AstStmt {
+    let l = gensym("left")
+    let r = gensym("right")
+    quote stmt { {
+        let $l = $left;
+        let $r = $right;
+        if !($l == $r) {
+            eprintln("assert_eq failed");
+            eprintln(" left:", $l);
+            eprintln("right:", $r);
+            exit(1);
+            return;
+        }
+    } }
+}
+
+pub macro fn assert_ne(left: AstExpr, right: AstExpr) -> AstStmt {
+    let l = gensym("left")
+    let r = gensym("right")
+    quote stmt { {
+        let $l = $left;
+        let $r = $right;
+        if $l == $r {
+            eprintln("assert_ne failed");
+            eprintln(" value:", $l);
+            exit(1);
+            return;
+        }
+    } }
+}

@@ -303,14 +303,47 @@ func (e *expander) prepareCompileExpr(slot *ast.Expr, allowMacro bool) *ast.Comp
 }
 
 func (e *expander) macroCallToCall(call *ast.MacroCallExpr) ast.Expr {
+	args := make([]ast.Expr, 0, len(call.Args))
+	for _, arg := range call.Args {
+		args = append(args, autoQuoteMacroArg(arg))
+	}
 	switch callee := call.Callee.(type) {
 	case *ast.IdentExpr:
-		return &ast.CallExpr{Callee: callee.Name, Args: call.Args, SpanInfo: call.Span()}
+		return &ast.CallExpr{Callee: callee.Name, Args: args, SpanInfo: call.Span()}
 	case *ast.AccessExpr:
-		return &ast.MethodCallExpr{Receiver: callee.Receiver, Method: callee.Field, Args: call.Args, SpanInfo: call.Span()}
+		return &ast.MethodCallExpr{Receiver: callee.Receiver, Method: callee.Field, Args: args, SpanInfo: call.Span()}
 	default:
 		e.diag.Add(call.Span(), "macro call requires identifier or field access")
 		return &ast.IntLit{Value: 0, SpanInfo: call.Span()}
+	}
+}
+
+func autoQuoteMacroArg(arg ast.Expr) ast.Expr {
+	if arg == nil {
+		return arg
+	}
+	switch v := arg.(type) {
+	case *ast.QuoteExpr, *ast.CompileExpr, *ast.MacroCallExpr:
+		return arg
+	case *ast.CallExpr:
+		if isAstValueCall(v.Callee) {
+			return arg
+		}
+	}
+	text := ast.FormatExpr(arg)
+	return &ast.QuoteExpr{
+		Kind:     ast.QuoteExprKind,
+		Parts:    []ast.QuotePart{{Text: text}},
+		SpanInfo: arg.Span(),
+	}
+}
+
+func isAstValueCall(name string) bool {
+	switch name {
+	case "ast_expr", "ast_stmt", "ast_item", "ast_block", "gensym", "bind":
+		return true
+	default:
+		return false
 	}
 }
 

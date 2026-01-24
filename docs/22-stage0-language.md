@@ -239,6 +239,7 @@ macro fn add_expr() -> AstExpr {
 
 - 返回类型可为：`AstExpr`, `AstStmt`, `AstItem`, `AstBlock`
 - 宏调用：`name!(...)`, `name![...]`, `name!{...}`
+  - 参数默认按表达式语法捕获为 AST（可直接写 `add1!(1)`）
 
 ### 11.2 quote / splice / bind
 
@@ -284,6 +285,7 @@ incr()
 - 测试文件：`*_test.dast`
 - 测试函数：`fn test_*()`（**必须无参数**）
 - `dast test` 会编译并运行测试
+- 使用 `import "std/testing"` 获取断言宏
 - 暂不支持 `@test` 标记（已废弃）
 
 ## 14. IR v0

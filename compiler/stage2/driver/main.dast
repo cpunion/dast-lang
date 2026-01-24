@@ -789,6 +789,24 @@ fn driver_examples_root(pkg_root: String) -> String {
     return ""
 }
 
+fn driver_find_stdlib_root(start_dir: String) -> String {
+    let mut cur = start_dir
+    let mut done = false
+    while !done {
+        let cand = driver_path_join(cur, "compiler/stage2/stdlib")
+        if driver_dir_has_entry(cand, "prelude") {
+            return cand
+        }
+        let parent = driver_path_dir(cur)
+        if parent == cur || parent == "" {
+            done = true
+        } else {
+            cur = parent
+        }
+    }
+    return ""
+}
+
 fn driver_module_root_for_dir(dir: String, code_root: String, examples_root: String) -> String {
     if examples_root != "" && driver_path_is_within(examples_root, dir) {
         return examples_root
@@ -1067,10 +1085,25 @@ fn driver_import_path_to_dir(base_dir: String, path: String, is_string: bool, pk
     let mut from_dir = base_dir
     if is_string {
         if !driver_is_relative_import(path) {
-            if pkg_name != "" && path == pkg_name {
-                return code_root
+            let mut handled = false
+            if driver_string_starts_with(path, "std/") || driver_string_starts_with(path, "std.") || path == "std" {
+                let std_root = driver_find_stdlib_root(code_root)
+                if std_root != "" {
+                    from_dir = std_root
+                    handled = true
+                    if path == "std" {
+                        rel = ""
+                    } else {
+                        rel = substr(path, 4, len(path) - 4)
+                    }
+                }
             }
-            from_dir = code_root
+            if !handled {
+                if pkg_name != "" && path == pkg_name {
+                    return code_root
+                }
+                from_dir = code_root
+            }
         }
         if driver_string_starts_with(rel, "./") {
             rel = substr(rel, 2, len(rel) - 2)

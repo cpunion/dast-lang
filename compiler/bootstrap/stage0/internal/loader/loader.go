@@ -70,6 +70,9 @@ type workspaceInfo struct {
 	deps    map[string]depSpec
 }
 
+var stdlibRootCached string
+var stdlibRootInit bool
+
 func normalizeImportPath(path string) string {
 	p := strings.TrimSpace(path)
 	if p == "" {
@@ -89,6 +92,47 @@ func normalizeImportPath(path string) string {
 		}
 	}
 	return relPrefix + p
+}
+
+func stdlibRoot() string {
+	if stdlibRootInit {
+		return stdlibRootCached
+	}
+	stdlibRootInit = true
+	if v := os.Getenv("DAST_STDLIB"); v != "" {
+		stdlibRootCached = v
+		return v
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	root := findGoModRoot(filepath.Dir(exe))
+	if root == "" {
+		return ""
+	}
+	cand := filepath.Join(root, "stdlib")
+	if info, err := os.Stat(cand); err == nil && info.IsDir() {
+		stdlibRootCached = cand
+		return cand
+	}
+	return ""
+}
+
+func findGoModRoot(dir string) string {
+	cur := dir
+	for {
+		path := filepath.Join(cur, "go.mod")
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return cur
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return ""
 }
 
 // LoadProgram loads a program with module imports resolved.
@@ -908,6 +952,15 @@ func resolveImport(pkg *pkgInfo, curDir string, path string, span source.Span, p
 	}
 	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
 		target, err := resolveWithin(curDir, pkg.codeRoot, path)
+		return target, pkg, err
+	}
+	if path == "std" || strings.HasPrefix(path, "std/") {
+		stdRoot := stdlibRoot()
+		if stdRoot == "" {
+			return "", nil, fmt.Errorf("stdlib not found for import: %s", path)
+		}
+		rel := strings.TrimPrefix(path, "std/")
+		target, err := resolveWithin(stdRoot, stdRoot, rel)
 		return target, pkg, err
 	}
 	parts := strings.Split(path, "/")

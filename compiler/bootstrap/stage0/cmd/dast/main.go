@@ -576,9 +576,6 @@ func buildProgram(paths []string, mode loader.LoadMode, testEntry *string, opts 
 		if exitOnDiag(diags) {
 			return nil
 		}
-		if len(tests) == 0 {
-			return nil
-		}
 		testMain, diagMain := buildTestMain(prog, tests)
 		if exitOnDiag(diagMain) {
 			return nil
@@ -661,6 +658,13 @@ func buildTestMain(prog *ast.Program, tests []testInfo) (*ast.Function, *diag.Ba
 		stmt := &ast.ExprStmt{Expr: call, SpanInfo: t.span}
 		block.Stmts = append(block.Stmts, stmt)
 	}
+	okArgs := []ast.Expr{
+		&ast.StringLit{Value: "ok", SpanInfo: span},
+		&ast.IntLit{Value: int64(len(tests)), SpanInfo: span},
+	}
+	okCall := &ast.CallExpr{Callee: "println", Args: okArgs, SpanInfo: span}
+	okStmt := &ast.ExprStmt{Expr: okCall, SpanInfo: span}
+	block.Stmts = append(block.Stmts, okStmt)
 	fn := &ast.Function{Name: name, Body: block, SpanInfo: span}
 	return fn, nil
 }

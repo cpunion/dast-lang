@@ -25,7 +25,7 @@ macro fn gen_add(a: AstExpr, b: AstExpr) -> AstExpr {
 }
 
 fn main() {
-    let v = gen_add!(quote{1}, quote{2})
+    let v = gen_add!(1, 2)
     println("v", v)
 }
 ```
@@ -55,9 +55,9 @@ macro fn mk_stmt(x: AstExpr) -> AstStmt {
 - 表达式/语句/顶层位置均视作隐式 unquote
 
 ```dast
-let x = add1!(quote{1})
+let x = add1!(1)
 log_stmt!()
-gen_const!(quote{MAGIC}, quote{7})
+gen_const!(MAGIC, 7)
 ```
 
 **显式：`compile!(ast)`**
@@ -116,6 +116,9 @@ quote expr { $(bind("tmp")) + 1 }
 | 顶层 | `AstItem` |
 
 显式插入使用 `compile!(ast)`，用于非宏函数返回的 AST 值。
+
+> **参数默认按表达式语法捕获为 AST**。  
+> 若你已经有 AST 值（例如 `quote` / `ast_expr` / `gensym` / `bind` / 其它宏返回），可直接传入，编译器不会再包一层。
 
 ---
 
@@ -205,7 +208,7 @@ macro fn add1(x: AstExpr) -> AstExpr {
 }
 
 fn main() {
-    let v = add1!(quote{41})
+    let v = add1!(41)
     println("v", v)
 }
 ```
@@ -229,7 +232,7 @@ macro fn gen_counter(name: AstExpr) -> AstItem {
     }
 }
 
-gen_counter!(quote{Counter})
+gen_counter!(Counter)
 ```
 
 ---

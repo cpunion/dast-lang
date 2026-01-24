@@ -12,16 +12,17 @@ src/
 
 ```dast
 // math_test.dast
-// 同包文件，无需 import
+// 同包文件可直接访问私有项
+import "std/testing" as t
 
 // test_ 前缀自动识别为测试函数
 fn test_addition() {
-    assert_eq!(2 + 2, 4)
+    t.assert_eq!(2 + 2, 4)
 }
 
 fn test_string_concat() {
     let s = "hello" + " world"
-    assert_eq!(s, "hello world")
+    t.assert_eq!(s, "hello world")
 }
 ```
 
@@ -33,23 +34,18 @@ fn test_string_concat() {
 ### 断言宏
 
 ```dast
+import "std/testing" as t
+
 // 基础断言
-assert!(condition)
-assert!(x > 0, "x must be positive")
+t.assert!(condition)
+t.assert_msg!(x > 0, "x must be positive")
 
-// 相等断言
-assert_eq!(left, right)
-assert_eq!(result, expected, "calculation failed")
+// 相等 / 不等
+t.assert_eq!(left, right)
+t.assert_ne!(a, b)
 
-// 不等断言
-assert_ne!(a, b)
-
-// 浮点数比较
-assert_approx_eq!(3.14, pi, epsilon: 0.01)
-
-// 错误断言
-assert_err!(result)
-assert_ok!(result)
+// 直接失败
+t.fail("unreachable")
 ```
 
 ### 编译模型

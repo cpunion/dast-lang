@@ -1,20 +1,22 @@
+import "std/testing" as t
+
 fn test_math() {
-    if add(1, 2) != 3 { exit(1) }
-    if mul(2, 3) != 6 { exit(1) }
-    if sub.add10(5) != 15 { exit(1) }
-    if local_value() != 7 { exit(1) }
-    if inc(9) != 10 { exit(1) }
+    t.assert_eq!(add(1, 2), 3)
+    t.assert_eq!(mul(2, 3), 6)
+    t.assert_eq!(sub.add10(5), 15)
+    t.assert_eq!(local_value(), 7)
+    t.assert_eq!(inc(9), 10)
 }
 
 fn test_mutation() {
     let mut c = Counter { value: 1 }
     c.value = c.value + 2
-    if c.value != 3 { exit(1) }
+    t.assert_eq!(c.value, 3)
 
     let mut xs = [1, 2]
     push(&mut xs, 3)
-    if len(xs) != 3 { exit(1) }
+    t.assert_eq!(len(xs), 3)
     let v = pop(&mut xs)
-    if v != 3 { exit(1) }
-    if len(xs) != 2 { exit(1) }
+    t.assert_eq!(v, 3)
+    t.assert_eq!(len(xs), 2)
 }
