@@ -43,7 +43,7 @@ NATIVE_PATH ?= compiler/stage2/tests/examples/native-full
 NATIVE_BUILD_ARGS ?= --example hello
 NATIVE_TARGET_DIR ?=
 
-.PHONY: build-stage0 test-stage0 test-stage2 test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-qbe test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
+.PHONY: build-stage0 test-stage0 test-stage2 test-stage2-parity test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-qbe test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -212,6 +212,9 @@ test-stage2: build-stage0
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
 	done
+
+test-stage2-parity: build-stage0
+	@./scripts/test-stage2-parity.sh
 
 stage2-native: build-stage0
 	@set -e; \
