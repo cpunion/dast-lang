@@ -1,0 +1,9 @@
+macro fn mk_const() -> AstItem {
+    quote item { const ANSWER: int = 42 }
+}
+
+compile!(mk_const!())
+
+fn main() {
+    println("a", ANSWER)
+}

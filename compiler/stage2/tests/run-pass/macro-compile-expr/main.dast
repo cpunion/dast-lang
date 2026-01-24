@@ -1,0 +1,8 @@
+macro fn plus_one(x: AstExpr) -> AstExpr {
+    quote expr { $x + 1 }
+}
+
+fn main() {
+    let v = compile!(plus_one!(quote expr { 40 }))
+    println("v", v)
+}
