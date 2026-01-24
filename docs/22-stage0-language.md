@@ -62,6 +62,9 @@ import "util.sub" as sub  // 路径点号分隔，使用别名访问
 
 - `"a.b.c"` 对应 `src/a/b/c/` 目录
 - `import "path" as alias` 后，通过 `alias.name` 访问导入符号
+- `import "std/xxx"` 从标准库根目录解析
+  - Stage0: 优先 `DAST_STDLIB`，否则自动定位到 `compiler/bootstrap/stage0/stdlib`
+  - 若 stdlib 不存在，导入失败
 
 ### 3.3 依赖（路径依赖）
 

@@ -1,3 +1,5 @@
+import "std/testing" as t
+
 struct Counter { value: int }
 
 impl Counter {
@@ -13,6 +15,6 @@ fn main() {
     let mut c = Counter { value: 1 }
     let v = (&mut c).inc(2)
     let g = (&c).get()
-    println("inc", v)
-    println("get", g)
+    t.assert_eq!(v, 3)
+    t.assert_eq!(g, 3)
 }
