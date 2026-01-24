@@ -209,6 +209,35 @@ struct BlockExpr {
     result: Expr,
 }
 
+fn quote_kind_expr() -> i32 { return 0 }
+fn quote_kind_stmt() -> i32 { return 1 }
+fn quote_kind_item() -> i32 { return 2 }
+fn quote_kind_block() -> i32 { return 3 }
+
+struct QuotePart {
+    text: String,
+    has_expr: bool,
+    expr: Expr,
+}
+
+struct QuoteExpr {
+    pos: i32,
+    kind: i32,
+    parts: [QuotePart],
+}
+
+struct CompileExpr {
+    pos: i32,
+    id: i32,
+    expr: Expr,
+}
+
+struct MacroCallExpr {
+    pos: i32,
+    callee: Expr,
+    args: [Expr],
+}
+
 enum Expr {
     Ident(IdentExpr),
     IntLit(IntLit),
@@ -218,6 +247,7 @@ enum Expr {
     Binary(BinaryExpr),
     Call(CallExpr),
     MethodCall(MethodCallExpr),
+    MacroCall(MacroCallExpr),
     Index(IndexExpr),
     Field(FieldExpr),
     StructLit(StructLit),
@@ -227,6 +257,8 @@ enum Expr {
     IfLet(IfLetExpr),
     Closure(ClosureExpr),
     Block(BlockExpr),
+    Quote(QuoteExpr),
+    Compile(CompileExpr),
 }
 
 struct LetStmt {
@@ -370,6 +402,7 @@ struct FunctionDecl {
     has_return: bool,
     ret: String,
     body: Block,
+    is_macro: bool,
 }
 
 struct ImplDecl {
@@ -470,6 +503,15 @@ struct Program {
     functions: [FunctionDecl],
     impls: [ImplDecl],
     impl_traits: [ImplTrait],
+    compile_items: [CompileItem],
+}
+
+struct CompileItem {
+    pos: i32,
+    id: i32,
+    module: String,
+    file: String,
+    expr: Expr,
 }
 
 fn assoc_type_impl_list_new() -> [AssociatedTypeImpl] {

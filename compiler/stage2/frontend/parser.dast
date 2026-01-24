@@ -137,6 +137,74 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
                 let name = next_lexeme(src, lex)
                 expr = Expr.Field(FieldExpr { pos: dot_pos, recv: expr, name: name })
             }
+        } else if k == TokenKind.Bang {
+            let bang_pos = lexer_pos(lex)
+            lexer_next(lex)
+            let mut args: [Expr] = []
+            if peek_kind(lex) == TokenKind.LParen {
+                lexer_next(lex)
+                if peek_kind(lex) != TokenKind.RParen {
+                    let mut more = true
+                    while more {
+                        let arg = parse_expr(src, lex, errors, 0)
+                        push(&mut args, arg)
+                        if peek_kind(lex) == TokenKind.Comma {
+                            lexer_next(lex)
+                        } else {
+                            more = false
+                        }
+                    }
+                }
+                if peek_kind(lex) == TokenKind.RParen {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ')' after macro args")
+                }
+            } else if peek_kind(lex) == TokenKind.LBracket {
+                lexer_next(lex)
+                if peek_kind(lex) != TokenKind.RBracket {
+                    let mut more = true
+                    while more {
+                        let arg = parse_expr(src, lex, errors, 0)
+                        push(&mut args, arg)
+                        if peek_kind(lex) == TokenKind.Comma {
+                            lexer_next(lex)
+                        } else {
+                            more = false
+                        }
+                    }
+                }
+                if peek_kind(lex) == TokenKind.RBracket {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected ']' after macro args")
+                }
+            } else if peek_kind(lex) == TokenKind.LBrace {
+                let block_expr = parse_block_expr(src, lex, errors)
+                push(&mut args, block_expr)
+            } else {
+                add_error(errors, lexer_pos(lex), "expected '(', '[', or '{' after '!'")
+                done = true
+            }
+            let mut is_compile = false
+            match expr {
+                .Ident(id) => {
+                    if id.name == "compile" {
+                        is_compile = true
+                    }
+                }
+                _ => {}
+            }
+            if is_compile {
+                if len(args) != 1 {
+                    add_error(errors, bang_pos, "compile! expects exactly one argument")
+                    expr = Expr.Compile(CompileExpr { pos: bang_pos, id: -1, expr: dummy_expr() })
+                } else {
+                    expr = Expr.Compile(CompileExpr { pos: bang_pos, id: -1, expr: args[0] })
+                }
+            } else {
+                expr = Expr.MacroCall(MacroCallExpr { pos: bang_pos, callee: expr, args: args })
+            }
         } else if k == TokenKind.LBracket {
             let idx_pos = lexer_pos(lex)
             lexer_next(lex)
@@ -244,11 +312,143 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
     return expr
 }
 
+fn parse_quote_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    let start_pos = lexer_pos(lex)
+    lexer_next(lex) // consume 'quote'
+    let mut kind = quote_kind_expr()
+    if peek_kind(lex) == TokenKind.Ident {
+        let kind_name = next_lexeme(src, lex)
+        if kind_name == "expr" {
+            kind = quote_kind_expr()
+        } else if kind_name == "stmt" {
+            kind = quote_kind_stmt()
+        } else if kind_name == "item" {
+            kind = quote_kind_item()
+        } else if kind_name == "block" {
+            kind = quote_kind_block()
+        } else {
+            add_error(errors, lexer_pos(lex), "unknown quote kind '" + kind_name + "'")
+        }
+    }
+    if peek_kind(lex) != TokenKind.LBrace {
+        add_error(errors, lexer_pos(lex), "expected '{' after quote")
+        return dummy_expr()
+    }
+    lexer_next(lex) // consume '{'
+    let parts = parse_quote_parts(src, lex, errors)
+    return Expr.Quote(QuoteExpr { pos: start_pos, kind: kind, parts: parts })
+}
+
+fn parse_quote_parts(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [QuotePart] {
+    let mut parts: [QuotePart] = []
+    let mut buf: [Token] = []
+    let mut depth = 1
+    while peek_kind(lex) != TokenKind.Eof {
+        let tok = lexer_peek(lex)
+        if tok.kind == TokenKind.Dollar {
+            if len(buf) > 0 {
+                let text = tokens_to_source(src, buf)
+                push(&mut parts, QuotePart { text: text, has_expr: false, expr: dummy_expr() })
+                buf = []
+            }
+            lexer_next(lex) // consume $
+            let splice = parse_quote_splice(src, lex, errors)
+            push(&mut parts, QuotePart { text: "", has_expr: true, expr: splice })
+            continue
+        }
+        if tok.kind == TokenKind.LBrace {
+            depth = depth + 1
+        } else if tok.kind == TokenKind.RBrace {
+            depth = depth - 1
+            if depth == 0 {
+                lexer_next(lex) // consume closing }
+                if len(buf) > 0 {
+                    let text = tokens_to_source(src, buf)
+                    push(&mut parts, QuotePart { text: text, has_expr: false, expr: dummy_expr() })
+                }
+                return parts
+            }
+        }
+        push(&mut buf, tok)
+        lexer_next(lex)
+    }
+    add_error(errors, lexer_pos(lex), "unterminated quote")
+    return parts
+}
+
+fn parse_quote_splice(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+    if peek_kind(lex) == TokenKind.LParen {
+        lexer_next(lex)
+        let mut toks: [Token] = []
+        let mut depth = 1
+        while peek_kind(lex) != TokenKind.Eof && depth > 0 {
+            let tok = lexer_peek(lex)
+            if tok.kind == TokenKind.LParen {
+                depth = depth + 1
+            } else if tok.kind == TokenKind.RParen {
+                depth = depth - 1
+                if depth == 0 {
+                    lexer_next(lex) // consume ')'
+                    break
+                }
+            }
+            push(&mut toks, tok)
+            lexer_next(lex)
+        }
+        if depth != 0 {
+            add_error(errors, lexer_pos(lex), "unterminated splice expression")
+            return dummy_expr()
+        }
+        return parse_expr_from_tokens(src, toks, errors, lexer_pos(lex))
+    }
+    if peek_kind(lex) == TokenKind.Ident || peek_kind(lex) == TokenKind.SelfVal {
+        let pos = lexer_pos(lex)
+        let name = next_lexeme(src, lex)
+        return Expr.Ident(IdentExpr { pos: pos, name: name })
+    }
+    add_error(errors, lexer_pos(lex), "expected identifier or '(...)' after '$'")
+    return dummy_expr()
+}
+
+fn parse_expr_from_tokens(src: String, toks: [Token], errors: &mut [ParseError], err_pos: i32) -> Expr {
+    if len(toks) == 0 {
+        add_error(errors, err_pos, "empty splice expression")
+        return dummy_expr()
+    }
+    let text = tokens_to_source(src, toks)
+    let mut sub = lexer_new(text)
+    let mut local_errs: [ParseError] = []
+    let expr = parse_expr(text, &mut sub, &mut local_errs, 0)
+    if len(local_errs) > 0 {
+        add_error(errors, err_pos, "invalid splice expression")
+    }
+    if peek_kind(&sub) != TokenKind.Eof {
+        add_error(errors, err_pos, "unexpected token after splice expression")
+    }
+    return expr
+}
+
+fn tokens_to_source(src: String, toks: [Token]) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(toks) {
+        let tok = toks[i]
+        let text = substr(src, tok.start, tok.len)
+        if out != "" { out = out + " " }
+        out = out + text
+        i = i + 1
+    }
+    return out
+}
+
 fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let k = peek_kind(lex)
     let start_pos = lexer_pos(lex)
     if k == TokenKind.If && peek_kind_n(lex, 1) == TokenKind.Let {
         return parse_if_let_expr(src, lex, errors)
+    }
+    if k == TokenKind.Quote {
+        return parse_quote_expr(src, lex, errors)
     }
     if k == TokenKind.Ident || k == TokenKind.SelfVal {
         let name = next_lexeme(src, lex)
@@ -497,6 +697,49 @@ fn parse_block_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> 
         has_result: has_result,
         result: result,
     })
+}
+
+fn parse_fn_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, fn_pos: i32, is_macro: bool) -> FunctionDecl {
+    let name = parse_ident(src, lex, errors)
+    let type_params = parse_type_params(src, lex, errors)
+    let mut params: [Param] = []
+    let mut has_return = false
+    let mut ret = ""
+    let mut body = empty_block()
+    if peek_kind(lex) == TokenKind.LParen {
+        lexer_next(lex)
+        params = parse_params(src, lex, errors)
+        if peek_kind(lex) == TokenKind.RParen {
+            lexer_next(lex)
+        } else {
+            add_error(errors, lexer_pos(lex), "expected ')'")
+        }
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '(' after fn name")
+    }
+    if peek_kind(lex) == TokenKind.Arrow {
+        lexer_next(lex)
+        ret = parse_type(src, lex, errors)
+        has_return = true
+    }
+    if peek_kind(lex) == TokenKind.LBrace {
+        body = parse_block(src, lex, errors)
+    } else {
+        add_error(errors, lexer_pos(lex), "expected '{' for function body")
+    }
+    return FunctionDecl {
+        vis: vis,
+        module: "",
+        file: "",
+        pos: fn_pos,
+        name: name,
+        type_params: type_params,
+        params: params,
+        has_return: has_return,
+        ret: ret,
+        body: body,
+        is_macro: is_macro,
+    }
 }
 
 fn visibility_private() -> Visibility {
@@ -1058,36 +1301,8 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                 let mut fn_pos = lexer_pos(lex)
                 if peek_kind(lex) == TokenKind.Fn {
                     lexer_next(lex)
-                    let name = parse_ident(src, lex, errors)
-                    let type_params = parse_type_params(src, lex, errors)
-                    let mut params: [Param] = []
-                    let mut has_return = false
-                    let mut ret = ""
-                    let mut body = empty_block()
-                    if peek_kind(lex) == TokenKind.LParen {
-                        lexer_next(lex)
-                        params = parse_params(src, lex, errors)
-                        if peek_kind(lex) == TokenKind.RParen {
-                            lexer_next(lex)
-                        } else {
-                            add_error(errors, lexer_pos(lex), "expected ')'");
-                        }
-                    }
-                    if peek_kind(lex) == TokenKind.Arrow {
-                        lexer_next(lex)
-                        ret = parse_type(src, lex, errors)
-                        has_return = true
-                    }
-                    if peek_kind(lex) == TokenKind.LBrace {
-                        body = parse_block(src, lex, errors)
-                    } else {
-                        add_error(errors, lexer_pos(lex), "expected '{' for function body");
-                    }
-                    push(&mut methods, FunctionDecl {
-                        vis: mvis, module: "", file: "", pos: fn_pos, name: name,
-                        type_params: type_params, params: params,
-                        has_return: has_return, ret: ret, body: body,
-                    })
+                    let decl = parse_fn_decl(src, lex, errors, mvis, fn_pos, false)
+                    push(&mut methods, decl)
                 } else {
                     add_error(errors, lexer_pos(lex), "expected fn");
                     lexer_next(lex)
@@ -1132,45 +1347,8 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                 ok = false
             }
             if ok {
-                let name = parse_ident(src, lex, errors)
-                let type_params = parse_type_params(src, lex, errors)
-                let mut params: [Param] = []
-                let mut has_return = false
-                let mut ret = ""
-                let mut body = empty_block()
-                if peek_kind(lex) == TokenKind.LParen {
-                    lexer_next(lex)
-                    params = parse_params(src, lex, errors)
-                    if peek_kind(lex) == TokenKind.RParen {
-                        lexer_next(lex)
-                    } else {
-                        add_error(errors, lexer_pos(lex), "expected ')'");
-                    }
-                } else {
-                    add_error(errors, lexer_pos(lex), "expected '(' after fn name");
-                }
-                if peek_kind(lex) == TokenKind.Arrow {
-                    lexer_next(lex)
-                    ret = parse_type(src, lex, errors)
-                    has_return = true
-                }
-                if peek_kind(lex) == TokenKind.LBrace {
-                    body = parse_block(src, lex, errors)
-                } else {
-                    add_error(errors, lexer_pos(lex), "expected '{' for function body");
-                }
-                push(&mut methods, FunctionDecl {
-                    vis: mvis,
-                    module: "",
-                    file: "",
-                    pos: fn_pos,
-                    name: name,
-                    type_params: type_params,
-                    params: params,
-                    has_return: has_return,
-                    ret: ret,
-                    body: body,
-                })
+                let decl = parse_fn_decl(src, lex, errors, mvis, fn_pos, false)
+                push(&mut methods, decl)
             }
         } else {
             add_error(errors, lexer_pos(lex), "expected method");
@@ -1800,6 +1978,7 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
     let mut functions: [FunctionDecl] = []
     let mut impls: [ImplDecl] = []
     let mut impl_traits: [ImplTrait] = []
+    let mut compile_items: [CompileItem] = []
     let mut pending_repr = ""
     while peek_kind(lex) != TokenKind.Eof {
         let k = peek_kind(lex)
@@ -1876,6 +2055,20 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 } else {
                     push(&mut impls, result.impl_decl)
                 }
+            } else if kk == TokenKind.Macro {
+                if pending_repr != "" {
+                    add_error(errors, lexer_pos(lex), "repr only valid on enum");
+                    pending_repr = ""
+                }
+                let macro_pos = lexer_pos(lex)
+                lexer_next(lex)
+                if peek_kind(lex) == TokenKind.Fn {
+                    lexer_next(lex)
+                } else {
+                    add_error(errors, lexer_pos(lex), "expected fn after macro")
+                }
+                let decl = parse_fn_decl(src, lex, errors, vis, macro_pos, true)
+                push(&mut functions, decl)
             } else if kk == TokenKind.Fn {
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
@@ -1883,45 +2076,23 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
                 }
                 let fn_pos = lexer_pos(lex)
                 lexer_next(lex)
-                let name = parse_ident(src, lex, errors)
-                let type_params = parse_type_params(src, lex, errors)
-                let mut params: [Param] = []
-                let mut has_return = false
-                let mut ret = ""
-                let mut body = empty_block()
-                if peek_kind(lex) == TokenKind.LParen {
-                    lexer_next(lex)
-                    params = parse_params(src, lex, errors)
-                    if peek_kind(lex) == TokenKind.RParen {
-                        lexer_next(lex)
-                    } else {
-                        add_error(errors, lexer_pos(lex), "expected ')'");
+                let decl = parse_fn_decl(src, lex, errors, vis, fn_pos, false)
+                push(&mut functions, decl)
+            } else if kk == TokenKind.Ident {
+                let expr_pos = lexer_pos(lex)
+                let expr = parse_expr(src, lex, errors, 0)
+                maybe_consume_semi(lex)
+                match expr {
+                    .Compile(c) => {
+                        push(&mut compile_items, CompileItem { pos: expr_pos, id: c.id, module: "", file: "", expr: Expr.Compile(c) })
                     }
-                } else {
-                    add_error(errors, lexer_pos(lex), "expected '(' after fn name");
+                    .MacroCall(m) => {
+                        push(&mut compile_items, CompileItem { pos: expr_pos, id: -1, module: "", file: "", expr: Expr.MacroCall(m) })
+                    }
+                    _ => {
+                        add_error(errors, expr_pos, "expected top-level declaration")
+                    }
                 }
-                if peek_kind(lex) == TokenKind.Arrow {
-                    lexer_next(lex)
-                    ret = parse_type(src, lex, errors)
-                    has_return = true
-                }
-                if peek_kind(lex) == TokenKind.LBrace {
-                    body = parse_block(src, lex, errors)
-                } else {
-                    add_error(errors, lexer_pos(lex), "expected '{' for function body");
-                }
-                push(&mut functions, FunctionDecl {
-                    vis: vis,
-                    module: "",
-                    file: "",
-                    pos: fn_pos,
-                    name: name,
-                    type_params: type_params,
-                    params: params,
-                    has_return: has_return,
-                    ret: ret,
-                    body: body,
-                })
             } else {
                 if pending_repr != "" {
                     add_error(errors, lexer_pos(lex), "repr only valid on enum");
@@ -1942,5 +2113,6 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
         functions: functions,
         impls: impls,
         impl_traits: impl_traits,
+        compile_items: compile_items,
     }
 }

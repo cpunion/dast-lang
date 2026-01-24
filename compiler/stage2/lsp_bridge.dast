@@ -23,7 +23,7 @@ fn lsp_analyze_source(content: String) -> [String] {
 
     // Run type checker (if parsing succeeded)
     if len(parse_errors) == 0 {
-        let ctx = check_program(prog, false, false)
+        let ctx = check_program(prog, false, false, false)
 
         // Collect type errors
         let type_errors = ctx.errors

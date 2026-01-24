@@ -44,6 +44,8 @@ enum TokenKind {
     For = 73,
     Type = 74,
     Eq = 75,
+    Macro = 76,
+    Quote = 77,
     LParen = 30,
     RParen = 31,
     LBrace = 32,
@@ -75,6 +77,7 @@ enum TokenKind {
     AndAnd = 65,
     OrOr = 66,
     ColonColon = 71,
+    Dollar = 78,
 }
 
 fn single_char_kind(c: i32) -> TokenKind {
@@ -100,6 +103,7 @@ fn single_char_kind(c: i32) -> TokenKind {
     if c == '|' { return TokenKind.Pipe }
     if c == '<' { return TokenKind.Lt }
     if c == '>' { return TokenKind.Gt }
+    if c == '$' { return TokenKind.Dollar }
     return TokenKind.Invalid
 }
 

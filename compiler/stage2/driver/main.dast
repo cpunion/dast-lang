@@ -104,6 +104,7 @@ fn program_empty() -> Program {
         functions: func_list_new(),
         impls: impl_list_new(),
         impl_traits: impl_trait_list_new(),
+        compile_items: [],
     }
 }
 
@@ -366,6 +367,14 @@ fn append_program(dst: &mut Program, src: Program) {
         i = i + 1
     }
     dst.impls = impls
+
+    let mut compile_items = dst.compile_items
+    i = 0
+    while i < len(src.compile_items) {
+        push(&mut compile_items, src.compile_items[i])
+        i = i + 1
+    }
+    dst.compile_items = compile_items
 }
 
 fn driver_list_contains(list: [String], value: String) -> bool {
@@ -1136,6 +1145,7 @@ fn program_set_module(prog: &mut Program, module: String) {
             has_return: f.has_return,
             ret: f.ret,
             body: f.body,
+            is_macro: f.is_macro,
         })
         i = i + 1
     }
@@ -1169,6 +1179,7 @@ fn program_set_module(prog: &mut Program, module: String) {
                 has_return: m.has_return,
                 ret: m.ret,
                 body: m.body,
+                is_macro: m.is_macro,
             })
             j = j + 1
         }
@@ -1176,6 +1187,15 @@ fn program_set_module(prog: &mut Program, module: String) {
         i = i + 1
     }
     prog.impls = impls
+
+    let mut compile_items: [CompileItem] = []
+    i = 0
+    while i < len(prog.compile_items) {
+        let ci = prog.compile_items[i]
+        push(&mut compile_items, CompileItem { pos: ci.pos, id: ci.id, module: module, file: ci.file, expr: ci.expr })
+        i = i + 1
+    }
+    prog.compile_items = compile_items
 }
 
 fn program_set_file(prog: &mut Program, file: String) {
@@ -1241,6 +1261,7 @@ fn program_set_file(prog: &mut Program, file: String) {
             has_return: f.has_return,
             ret: f.ret,
             body: f.body,
+            is_macro: f.is_macro,
         })
         i = i + 1
     }
@@ -1274,6 +1295,7 @@ fn program_set_file(prog: &mut Program, file: String) {
                 has_return: m.has_return,
                 ret: m.ret,
                 body: m.body,
+                is_macro: m.is_macro,
             })
             j = j + 1
         }
@@ -1281,6 +1303,15 @@ fn program_set_file(prog: &mut Program, file: String) {
         i = i + 1
     }
     prog.impls = impls
+
+    let mut compile_items: [CompileItem] = []
+    i = 0
+    while i < len(prog.compile_items) {
+        let ci = prog.compile_items[i]
+        push(&mut compile_items, CompileItem { pos: ci.pos, id: ci.id, module: ci.module, file: file, expr: ci.expr })
+        i = i + 1
+    }
+    prog.compile_items = compile_items
 }
 
 struct LoadState {
@@ -1765,7 +1796,7 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             fi = fi + 1
         }
     }
-    let tctx = check_program(parse_res.prog, debug, false)
+    let tctx = check_program(parse_res.prog, debug, false, false)
     if debug { println("stage2: typecheck errors raw", len(tctx.errors)) }
     let terrs = attach_error_locations(tctx.errors, &state)
     if debug { println("stage2: typecheck errors loc", len(terrs)) }

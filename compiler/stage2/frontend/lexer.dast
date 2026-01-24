@@ -33,6 +33,8 @@ fn keyword_kind(s: String) -> TokenKind {
     if s == "impl" { return TokenKind.Impl }
     if s == "trait" { return TokenKind.Trait }
     if s == "type" { return TokenKind.Type }
+    if s == "macro" { return TokenKind.Macro }
+    if s == "quote" { return TokenKind.Quote }
     if s == "for" { return TokenKind.For }
     if s == "self" { return TokenKind.SelfVal }
     if s == "Self" { return TokenKind.SelfType }

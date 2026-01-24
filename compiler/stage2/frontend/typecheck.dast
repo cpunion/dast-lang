@@ -129,6 +129,7 @@ struct TypeContext {
     reexports: [ReExport],
     current_module: String,
     allow_global: bool,
+    allow_compile: bool,
     builtins: [String],
     errors: [ParseError],
     env: Env,
@@ -880,6 +881,7 @@ fn expr_pos(e: Expr) -> i32 {
         Expr.Binary(x) => { return x.pos }
         Expr.Call(x) => { return x.pos }
         Expr.MethodCall(x) => { return x.pos }
+        Expr.MacroCall(x) => { return x.pos }
         Expr.Index(x) => { return x.pos }
         Expr.Field(x) => { return x.pos }
         Expr.StructLit(x) => { return x.pos }
@@ -888,6 +890,9 @@ fn expr_pos(e: Expr) -> i32 {
         Expr.Deref(x) => { return x.pos }
         Expr.IfLet(x) => { return x.pos }
         Expr.Closure(x) => { return x.pos }
+        Expr.Block(x) => { return x.pos }
+        Expr.Quote(x) => { return x.pos }
+        Expr.Compile(x) => { return x.pos }
     }
     return 0
 }
@@ -1006,6 +1011,11 @@ fn ctx_is_bool(ctx: &mut TypeContext, t: i32) -> bool {
 fn ctx_is_string(ctx: &mut TypeContext, t: i32) -> bool {
     let mut types = ctx.types
     return is_string(&mut types, t)
+}
+
+fn ctx_is_ast(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return is_ast(&mut types, t)
 }
 
 fn ctx_find_struct(ctx: &mut TypeContext, qname: String) -> i32 {
@@ -1243,6 +1253,10 @@ fn type_matches_generic(ctx: &mut TypeContext, arg_type: i32, param_type: i32, t
 fn is_int(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 1 && !type_is_ref(types, t) }
 fn is_bool(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 2 && !type_is_ref(types, t) }
 fn is_string(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 3 && !type_is_ref(types, t) }
+fn is_ast(types: &TypeTable, t: i32) -> bool {
+    let k = type_kind(types, t)
+    return k == 9 || k == 10 || k == 11 || k == 12
+}
 
 fn parse_type_from_text(types: &mut TypeTable, ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
     let mut i = 0
@@ -1318,6 +1332,14 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
         kind = 3
     } else if name == "unit" || name == "()" {
         kind = 4
+    } else if name == "AstExpr" {
+        kind = 9
+    } else if name == "AstStmt" {
+        kind = 10
+    } else if name == "AstItem" {
+        kind = 11
+    } else if name == "AstBlock" {
+        kind = 12
     } else {
         // Check if this is a type alias BEFORE resolving the name
         let mut ai = 0
@@ -2038,6 +2060,13 @@ fn builtin_list() -> [String] {
     push(&mut b, "read_line")
     push(&mut b, "read_bytes")
     push(&mut b, "exec")
+    push(&mut b, "ast_expr")
+    push(&mut b, "ast_stmt")
+    push(&mut b, "ast_item")
+    push(&mut b, "ast_block")
+    push(&mut b, "ast_to_string")
+    push(&mut b, "gensym")
+    push(&mut b, "bind")
     return b
 }
 
@@ -2449,6 +2478,35 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         .IntLit(_) => { return ctx_type_make(ctx, 1, "int", false, false, -1) }
         .StringLit(_) => { return ctx_type_make(ctx, 3, "string", false, false, -1) }
         .BoolLit(_) => { return ctx_type_make(ctx, 2, "bool", false, false, -1) }
+        .Quote(q) => {
+            let mut i = 0
+            while i < len(q.parts) {
+                let part = q.parts[i]
+                if part.has_expr {
+                    let t = check_expr(ctx, part.expr)
+                    if !is_ast(&ctx.types, t) && t != 0 {
+                        add_type_error(ctx, "quote splice expects ast")
+                    }
+                }
+                i = i + 1
+            }
+            if q.kind == quote_kind_expr() { return ctx_type_make(ctx, 9, "AstExpr", false, false, -1) }
+            if q.kind == quote_kind_stmt() { return ctx_type_make(ctx, 10, "AstStmt", false, false, -1) }
+            if q.kind == quote_kind_item() { return ctx_type_make(ctx, 11, "AstItem", false, false, -1) }
+            if q.kind == quote_kind_block() { return ctx_type_make(ctx, 12, "AstBlock", false, false, -1) }
+            return 0
+        }
+        .Compile(c) => {
+            if ctx.allow_compile {
+                return check_expr(ctx, c.expr)
+            }
+            add_type_error(ctx, "compile! must be expanded before typecheck")
+            return 0
+        }
+        .MacroCall(_) => {
+            add_type_error(ctx, "macro call must be expanded before typecheck")
+            return 0
+        }
         .Unary(u) => {
             let t = check_expr(ctx, u.expr)
             if u.op == TokenKind.Minus {
@@ -2948,6 +3006,53 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 return 0
                             }
                             return ctx_type_elem(ctx, base)
+                        }
+                        if id.name == "ast_expr" || id.name == "ast_stmt" || id.name == "ast_item" || id.name == "ast_block" {
+                            if len(c.args) != 1 && len(c.args) != 2 {
+                                add_type_error(ctx, id.name + " expects 1 or 2 arguments")
+                            } else {
+                                let st = check_expr(ctx, c.args[0])
+                                if !ctx_is_string(ctx, st) && st != 0 {
+                                    add_type_error(ctx, id.name + " expects string source")
+                                }
+                                if len(c.args) == 2 {
+                                    let at = check_expr(ctx, c.args[1])
+                                    if ctx_type_kind(ctx, at) != 7 && at != 0 {
+                                        add_type_error(ctx, id.name + " expects [ast] splices")
+                                    } else if ctx_type_kind(ctx, at) == 7 {
+                                        let elem = ctx_type_elem(ctx, at)
+                                        if !ctx_is_ast(ctx, elem) && elem != 0 {
+                                            add_type_error(ctx, id.name + " expects [ast] splices")
+                                        }
+                                    }
+                                }
+                            }
+                            if id.name == "ast_expr" { return ctx_type_make(ctx, 9, "AstExpr", false, false, -1) }
+                            if id.name == "ast_stmt" { return ctx_type_make(ctx, 10, "AstStmt", false, false, -1) }
+                            if id.name == "ast_item" { return ctx_type_make(ctx, 11, "AstItem", false, false, -1) }
+                            return ctx_type_make(ctx, 12, "AstBlock", false, false, -1)
+                        }
+                        if id.name == "ast_to_string" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "ast_to_string expects 1 argument")
+                            } else {
+                                let at = check_expr(ctx, c.args[0])
+                                if !ctx_is_ast(ctx, at) && at != 0 {
+                                    add_type_error(ctx, "ast_to_string expects ast")
+                                }
+                            }
+                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                        }
+                        if id.name == "gensym" || id.name == "bind" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, id.name + " expects 1 argument")
+                            } else {
+                                let st = check_expr(ctx, c.args[0])
+                                if !ctx_is_string(ctx, st) && st != 0 {
+                                    add_type_error(ctx, id.name + " expects string")
+                                }
+                            }
+                            return ctx_type_make(ctx, 9, "AstExpr", false, false, -1)
                         }
                         return ctx_type_make(ctx, 4, "unit", false, false, -1)
                     }
@@ -3834,7 +3939,7 @@ fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
     ctx.self_type = ""
 }
 
-fn check_program(prog: Program, debug: bool, allow_global: bool) -> TypeContext {
+fn check_program(prog: Program, debug: bool, allow_global: bool, allow_compile: bool) -> TypeContext {
     let mut ctx = TypeContext {
         types: type_table_new(),
         funcs: func_sig_list_new(),
@@ -3851,6 +3956,7 @@ fn check_program(prog: Program, debug: bool, allow_global: bool) -> TypeContext 
         reexports: reexport_list_new(),
         current_module: "",
         allow_global: allow_global,
+        allow_compile: allow_compile,
         builtins: builtin_list(),
         errors: parse_error_list_new(),
         env: env_new(),
