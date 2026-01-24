@@ -63,6 +63,11 @@ func Parse(text string) (*Program, error) {
 		} else {
 			curFn.TempCount = maxTemp + 1
 		}
+		if len(curFn.TempTypes) < curFn.TempCount {
+			next := make([]string, curFn.TempCount)
+			copy(next, curFn.TempTypes)
+			curFn.TempTypes = next
+		}
 		if _, exists := prog.Functions[curFn.Name]; exists {
 			return fmt.Errorf("duplicate function '%s'", curFn.Name)
 		}
@@ -161,6 +166,17 @@ func Parse(text string) (*Program, error) {
 		if err != nil {
 			return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
 		}
+		if lp.tempType != "" && curFn != nil {
+			if len(curFn.TempTypes) <= lp.tempIdx {
+				need := lp.tempIdx + 1
+				next := make([]string, need)
+				copy(next, curFn.TempTypes)
+				curFn.TempTypes = next
+			}
+			if curFn.TempTypes[lp.tempIdx] == "" {
+				curFn.TempTypes[lp.tempIdx] = lp.tempType
+			}
+		}
 		if lp.isTerm {
 			curBlk.Term = lp.term
 		} else {
@@ -191,6 +207,8 @@ type lineParse struct {
 	term    Term
 	isTerm  bool
 	maxTemp int
+	tempIdx  int
+	tempType string
 }
 
 func parseIRLine(line string) (lineParse, error) {
@@ -351,35 +369,35 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 			max := maxTempIdx(recv, valMax)
 			return lineParse{instr: &SetField{Src: recv, Field: field, Value: val}, maxTemp: max}, nil
 		}
-		dst, err := parseTempWithCtx(left, ctx)
+		dst, dstType, err := parseTempDefWithCtx(left, ctx)
 		if err != nil {
 			return lineParse{}, err
 		}
 		switch {
 		case strings.HasPrefix(right, "load_addr "):
 			name := strings.TrimSpace(strings.TrimPrefix(right, "load_addr "))
-			return lineParse{instr: &LoadVar{Dst: dst, Name: name, Addr: true}, maxTemp: dst}, nil
+			return lineParse{instr: &LoadVar{Dst: dst, Name: name, Addr: true}, maxTemp: dst, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "load "):
 			name := strings.TrimSpace(strings.TrimPrefix(right, "load "))
-			return lineParse{instr: &LoadVar{Dst: dst, Name: name}, maxTemp: dst}, nil
+			return lineParse{instr: &LoadVar{Dst: dst, Name: name}, maxTemp: dst, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "load_ref "):
 			src, err := parseTempWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "load_ref ")), ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: &LoadVar{Dst: dst, Ref: true, RefTemp: src}, maxTemp: maxTempIdx(dst, src)}, nil
+			return lineParse{instr: &LoadVar{Dst: dst, Ref: true, RefTemp: src}, maxTemp: maxTempIdx(dst, src), tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "call "):
 			call, max, err := parseCallWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "call ")), dst, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: call, maxTemp: max}, nil
+			return lineParse{instr: call, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "call_closure "):
 			call, max, err := parseCallClosureWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "call_closure ")), dst, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: call, maxTemp: max}, nil
+			return lineParse{instr: call, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "array "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "array "))
 			open := strings.Index(rest, "[")
@@ -402,7 +420,7 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 					}
 				}
 			}
-			return lineParse{instr: &MakeArray{Dst: dst, Elems: elems}, maxTemp: max}, nil
+			return lineParse{instr: &MakeArray{Dst: dst, Elems: elems}, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "index_unchecked "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index_unchecked "))
 			array, index, indexMax, err := parseIndexExprWithCtx(rest, ctx)
@@ -410,7 +428,7 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, err
 			}
 			max := maxTempIdx(dst, array, indexMax)
-			return lineParse{instr: &Index{Unchecked: true, Dst: dst, Array: TempOperand(array), Index: index}, maxTemp: max}, nil
+			return lineParse{instr: &Index{Unchecked: true, Dst: dst, Array: TempOperand(array), Index: index}, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "index "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "index "))
 			unchecked := false
@@ -423,27 +441,27 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, err
 			}
 			max := maxTempIdx(dst, array, indexMax)
-			return lineParse{instr: &Index{Unchecked: unchecked, Dst: dst, Array: TempOperand(array), Index: index}, maxTemp: max}, nil
+			return lineParse{instr: &Index{Unchecked: unchecked, Dst: dst, Array: TempOperand(array), Index: index}, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "struct "):
 			name, fields, max, err := parseStructInitWithCtx(strings.TrimSpace(strings.TrimPrefix(right, "struct ")), dst, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: &MakeStruct{Dst: dst, Name: name, Fields: fields}, maxTemp: max}, nil
+			return lineParse{instr: &MakeStruct{Dst: dst, Name: name, Fields: fields}, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "get_field "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "get_field "))
 			src, field, err := parseFieldExprWithCtx(rest, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
+			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src), tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "addr_field "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "addr_field "))
 			src, field, err := parseFieldExprWithCtx(rest, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: &FieldAddr{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
+			return lineParse{instr: &FieldAddr{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src), tempIdx: dst, tempType: dstType}, nil
 		case strings.HasPrefix(right, "addr_index "):
 			rest := strings.TrimSpace(strings.TrimPrefix(right, "addr_index "))
 			base, index, indexMax, err := parseIndexExprWithCtx(rest, ctx)
@@ -451,14 +469,14 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				return lineParse{}, err
 			}
 			max := maxTempIdx(dst, base, indexMax)
-			return lineParse{instr: &IndexAddr{Dst: dst, Base: base, Index: index}, maxTemp: max}, nil
+			return lineParse{instr: &IndexAddr{Dst: dst, Base: base, Index: index}, maxTemp: max, tempIdx: dst, tempType: dstType}, nil
 		case isFieldAccessExpr(right, ctx):
 			// Field access: t0.field or param.field
 			src, field, err := parseFieldExprWithCtx(right, ctx)
 			if err != nil {
 				return lineParse{}, err
 			}
-			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src)}, nil
+			return lineParse{instr: &GetField{Dst: dst, Src: src, Field: field}, maxTemp: maxTempIdx(dst, src), tempIdx: dst, tempType: dstType}, nil
 		default:
 			op, rest, ok := splitOp(right)
 			if !ok {
@@ -474,7 +492,7 @@ func parseIRLineWithCtx(line string, ctx *parseContext) (lineParse, error) {
 				if err != nil {
 					return lineParse{}, err
 				}
-				return lineParse{instr: &BinOp{Dst: dst, Op: op, Lhs: lhsOp, Rhs: rhsOp}, maxTemp: maxTempIdx(dst, lhsMax, rhsMax)}, nil
+				return lineParse{instr: &BinOp{Dst: dst, Op: op, Lhs: lhsOp, Rhs: rhsOp}, maxTemp: maxTempIdx(dst, lhsMax, rhsMax), tempIdx: dst, tempType: dstType}, nil
 			}
 			return lineParse{}, fmt.Errorf("invalid op syntax")
 		}
@@ -573,6 +591,20 @@ func parseTempWithCtx(s string, ctx *parseContext) (int, error) {
 		n += ctx.paramCount
 	}
 	return n, nil
+}
+
+func parseTempDefWithCtx(s string, ctx *parseContext) (int, string, error) {
+	s = strings.TrimSpace(s)
+	typ := ""
+	if colon := strings.Index(s, ":"); colon > 0 {
+		typ = strings.TrimSpace(s[colon+1:])
+		s = strings.TrimSpace(s[:colon])
+	}
+	temp, err := parseTempWithCtx(s, ctx)
+	if err != nil {
+		return 0, "", err
+	}
+	return temp, typ, nil
 }
 
 // parseOperandWithCtx parses an operand which can be either a temp or a constant value

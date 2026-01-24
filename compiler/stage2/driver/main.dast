@@ -227,13 +227,19 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
 }
 
 fn expand_path_to_files(path: String, include_tests: bool) -> [String] {
+    let clean = driver_trim_space(path)
+    if driver_string_ends_with(clean, ".dast") || driver_string_contains(clean, ".dast") {
+        let mut result: [String] = []
+        push(&mut result, clean)
+        return result
+    }
     // Try to read as directory
-    let names = read_dir(path)
+    let names = read_dir(clean)
     if len(names) > 0 {
         // Check if this is a package/workspace directory (has dast.toml)
-        if driver_dir_has_entry(path, "dast.toml") {
+        if driver_dir_has_entry(clean, "dast.toml") {
             // Check for src/ directory (package)
-            let src_path = driver_path_join(path, "src")
+            let src_path = driver_path_join(clean, "src")
             let src_names = read_dir(src_path)
             if len(src_names) > 0 {
                 // It's a package - scan src/ directory recursively
@@ -242,15 +248,15 @@ fn expand_path_to_files(path: String, include_tests: bool) -> [String] {
             // It's a workspace or package without src - return path itself
             // to allow workspace detection in main()
             let mut result: [String] = []
-            push(&mut result, path)
+            push(&mut result, clean)
             return result
         }
         // It's a regular directory - scan for .dast files
-        return driver_list_dast_files(path, include_tests)
+        return driver_list_dast_files(clean, include_tests)
     }
     // It's a file - return as single-item list
     let mut result: [String] = []
-    push(&mut result, path)
+    push(&mut result, clean)
     return result
 }
 
@@ -1627,7 +1633,7 @@ fn driver_make_test_program(prog: IrProgram, tests: [String]) -> IrProgram {
     return out
 }
 
-fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, example: String, emit_ir: bool, bootstrap: bool) {
+fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, example: String, emit_ir: bool, bootstrap: bool, target_root: String) {
     let mut pkg_root = driver_find_package_root(files[0])
     let mut pkg_has_toml = pkg_root != ""
     if !pkg_has_toml {
@@ -1738,7 +1744,7 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             fi = fi + 1
         }
     }
-    let tctx = check_program(parse_res.prog, debug, bootstrap)
+    let tctx = check_program(parse_res.prog, debug, false)
     if debug { println("stage2: typecheck errors raw", len(tctx.errors)) }
     let terrs = attach_error_locations(tctx.errors, &state)
     if debug { println("stage2: typecheck errors loc", len(terrs)) }
@@ -1761,8 +1767,38 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
     }
     if cmd == "build" || cmd == "run" || cmd == "test" {
         let mut name = driver_output_name(pkg_has_toml, pkg_name, example)
-        let target_dir = driver_path_join(pkg_root, "target")
+        let mut out_root = pkg_root
+        if target_root != "" {
+            out_root = target_root
+        }
+        let target_dir = driver_path_join(out_root, "target")
         mkdir(target_dir)
+        if bootstrap {
+            if cmd == "build" {
+                let _ = driver_emit_ir_file(target_dir, name, comp.prog)
+                return
+            }
+            if cmd == "test" {
+                let tests = collect_tests(parse_res.prog)
+                if len(tests) == 0 {
+                    println("ok 0")
+                    return
+                }
+                name = name + "_test"
+                let test_prog = driver_make_test_program(comp.prog, tests)
+                let mut rt = runtime_new(test_prog, driver_string_list_new())
+                if debug { println("stage2: running") }
+                runtime_run(&mut rt, test_prog.entry)
+                handle_runtime_error(rt.error)
+                return
+            }
+            // run
+            let mut rt = runtime_new(comp.prog, rest)
+            if debug { println("stage2: running") }
+            runtime_run(&mut rt, comp.prog.entry)
+            handle_runtime_error(rt.error)
+            return
+        }
         if cmd == "build" {
             if emit_ir {
                 let _ = driver_emit_ir_file(target_dir, name, comp.prog)
@@ -1889,7 +1925,7 @@ fn main() {
         }
         let opt = ir_opt_program_no_inline(parsed.prog)
         if debug { eprintln("ir-c: opt funcs", len(opt.functions), "entry", opt.entry) }
-        ir_program_to_c_emit(opt, true)
+        ir_program_to_c_emit(opt, debug)
         return
     }
     let mut use_workspace = false
@@ -1945,7 +1981,7 @@ fn main() {
             if debug { println("stage2: workspace", member_paths[k]) }
             let mut files: [String] = []
             push(&mut files, member_paths[k])
-            driver_execute(cmd, files, split.rest, debug, split.example, split.emit_ir, split.bootstrap)
+            driver_execute(cmd, files, split.rest, debug, split.example, split.emit_ir, split.bootstrap, ws_root)
             k = k + 1
         }
         return
@@ -1953,5 +1989,5 @@ fn main() {
     if split.package != "" {
         die_error("package flag only valid for workspace root")
     }
-    driver_execute(cmd, split.files, split.rest, debug, split.example, split.emit_ir, split.bootstrap)
+    driver_execute(cmd, split.files, split.rest, debug, split.example, split.emit_ir, split.bootstrap, "")
 }

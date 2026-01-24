@@ -191,14 +191,63 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 	case *ir.BinOp:
 		lt := ti.operandType(i.Lhs)
 		rt := ti.operandType(i.Rhs)
+		if isDefaultIntConst(i.Lhs) && rt != "" {
+			lt = rt
+		}
+		if isDefaultIntConst(i.Rhs) && lt != "" {
+			rt = lt
+		}
 		if isStringType(lt) || isStringType(rt) {
 			if i.Op == "+" {
 				return []string{fmt.Sprintf("%%t%d =l call $dast_string_concat(l %s, l %s)", i.Dst, e.operandExpr(i.Lhs), e.operandExpr(i.Rhs))}
+			}
+			if i.Op == "==" || i.Op == "!=" {
+				lhsExpr, lhsLines := e.castOperand(ti, i.Lhs, "String")
+				rhsExpr, rhsLines := e.castOperand(ti, i.Rhs, "String")
+				lines := append(lhsLines, rhsLines...)
+				tmp := i.Dst
+				if i.Op == "!=" {
+					tmp = e.newTemp()
+				}
+				lines = append(lines, fmt.Sprintf("%%t%d =w call $dast_string_eq(l %s, l %s)", tmp, lhsExpr, rhsExpr))
+				if i.Op == "!=" {
+					lines = append(lines, fmt.Sprintf("%%t%d =w xor %%t%d, 1", i.Dst, tmp))
+				}
+				return lines
 			}
 		}
 		if isCompareOp(i.Op) {
 			typ := unifyType(lt, rt)
 			if typ == "" {
+				typ = "i64"
+			}
+			lq := qbeType(lt)
+			rq := qbeType(rt)
+			if !i.Lhs.IsConst && i.Lhs.Temp >= 0 {
+				if dt := ti.defType(i.Lhs.Temp); dt != "" {
+					lq = qbeType(dt)
+				}
+			}
+			if !i.Rhs.IsConst && i.Rhs.Temp >= 0 {
+				if dt := ti.defType(i.Rhs.Temp); dt != "" {
+					rq = qbeType(dt)
+				}
+			}
+			if isDefaultIntConst(i.Lhs) {
+				lq = rq
+			}
+			if isDefaultIntConst(i.Rhs) {
+				rq = lq
+			}
+			if lq != rq {
+				if lq == "l" || rq == "l" {
+					typ = "i64"
+				} else {
+					typ = "i32"
+				}
+			} else if lq == "w" {
+				typ = "i32"
+			} else if lq == "l" {
 				typ = "i64"
 			}
 			lhsExpr, lhsLines := e.castOperand(ti, i.Lhs, typ)
@@ -220,6 +269,9 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			return lines
 		}
 		typ := unifyType(lt, rt)
+		if dstKnown := ti.tempType(i.Dst); dstKnown != "" {
+			typ = dstKnown
+		}
 		if typ == "" {
 			typ = "i64"
 		}
@@ -251,7 +303,9 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 	case *ir.MakeArray:
 		lines := []string{fmt.Sprintf("%%t%d =l call $dast_array_new(l %d)", i.Dst, len(i.Elems))}
 		for _, elem := range i.Elems {
-			lines = append(lines, fmt.Sprintf("call $dast_array_push(l %%t%d, %s %s)", i.Dst, qbeType(ti.operandType(elem)), e.operandExpr(elem)))
+			expr, castLines := e.castOperand(ti, elem, "i64")
+			lines = append(lines, castLines...)
+			lines = append(lines, fmt.Sprintf("call $dast_array_push(l %%t%d, l %s)", i.Dst, expr))
 		}
 		return lines
 	case *ir.Index:
@@ -259,15 +313,22 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if i.Unchecked {
 			fnName = "dast_array_get_unchecked"
 		}
-		arrayExpr, arrayLines, arrayType := e.derefOperand(ti, i.Array)
-		arrayType = baseType(arrayType)
-		et := elemType(arrayType)
-		if et == "" {
-			et = "i64"
+		arrayExpr, arrayLines, _ := e.derefOperand(ti, i.Array)
+		dstType := ti.tempType(i.Dst)
+		if dstType == "" {
+			dstType = "i64"
+		}
+		dstQ := qbeType(dstType)
+		rawTemp := i.Dst
+		if dstQ != "l" {
+			rawTemp = e.newTemp()
 		}
 		idxExpr, idxLines := e.castOperand(ti, i.Index, "i64")
 		lines := append(arrayLines, idxLines...)
-		lines = append(lines, fmt.Sprintf("%%t%d =%s call $%s(l %s, l %s)", i.Dst, qbeType(et), fnName, arrayExpr, idxExpr))
+		lines = append(lines, fmt.Sprintf("%%t%d =l call $%s(l %s, l %s)", rawTemp, fnName, arrayExpr, idxExpr))
+		if rawTemp != i.Dst {
+			lines = append(lines, fmt.Sprintf("%%t%d =%s copy %%t%d", i.Dst, dstQ, rawTemp))
+		}
 		return lines
 	case *ir.SetIndex:
 		fnName := "dast_array_set"
@@ -370,6 +431,7 @@ func (e *emitter) emitCall(p *ir.Program, ti *typeInfo, dst int, callee string, 
 		retType = builtinReturnType(callee)
 	}
 	var parts []string
+	lines := []string{}
 	for i, arg := range args {
 		pt := ""
 		if fn, ok := p.Functions[callee]; ok && i < len(fn.Params) {
@@ -381,18 +443,21 @@ func (e *emitter) emitCall(p *ir.Program, ti *typeInfo, dst int, callee string, 
 		if pt == "" {
 			pt = "i64"
 		}
-		parts = append(parts, fmt.Sprintf("%s %s", qbeType(pt), e.operandExpr(arg)))
+		expr, castLines := e.castOperand(ti, arg, pt)
+		lines = append(lines, castLines...)
+		parts = append(parts, fmt.Sprintf("%s %s", qbeType(pt), expr))
 	}
 	if dst >= 0 && retType != "" && retType != "unit" {
-		return []string{fmt.Sprintf("%%t%d =%s call %s(%s)", dst, qbeType(retType), calleeName, strings.Join(parts, ", "))}
+		lines = append(lines, fmt.Sprintf("%%t%d =%s call %s(%s)", dst, qbeType(retType), calleeName, strings.Join(parts, ", ")))
+		return lines
 	}
 	if dst >= 0 && retType == "unit" {
-		return []string{
-			fmt.Sprintf("call %s(%s)", calleeName, strings.Join(parts, ", ")),
-			fmt.Sprintf("%%t%d =%s copy 0", dst, qbeType("unit")),
-		}
+		lines = append(lines, fmt.Sprintf("call %s(%s)", calleeName, strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("%%t%d =%s copy 0", dst, qbeType("unit")))
+		return lines
 	}
-	return []string{fmt.Sprintf("call %s(%s)", calleeName, strings.Join(parts, ", "))}
+	lines = append(lines, fmt.Sprintf("call %s(%s)", calleeName, strings.Join(parts, ", ")))
+	return lines
 }
 
 func (e *emitter) emitCallIndirect(ti *typeInfo, dst int, funcTemp int, retType string, args []ir.Operand) []string {
@@ -424,6 +489,43 @@ func (e *emitter) emitCallIndirect(ti *typeInfo, dst int, funcTemp int, retType 
 
 func (e *emitter) emitBuiltinCall(p *ir.Program, ti *typeInfo, dst int, callee string, args []ir.Operand) []string {
 	switch callee {
+	case "push":
+		if len(args) != 2 {
+			return []string{fmt.Sprintf("call $dast_push(l 0, l 0)")}
+		}
+		arrExpr, arrLines := e.castOperand(ti, args[0], "i64")
+		valExpr, valLines := e.castOperand(ti, args[1], "i64")
+		lines := append([]string{}, arrLines...)
+		lines = append(lines, valLines...)
+		lines = append(lines, fmt.Sprintf("call $dast_push(l %s, l %s)", arrExpr, valExpr))
+		if dst >= 0 {
+			lines = append(lines, fmt.Sprintf("%%t%d =%s copy 0", dst, qbeType("unit")))
+		}
+		return lines
+	case "pop":
+		if len(args) != 1 {
+			return []string{fmt.Sprintf("call $dast_pop(l 0)")}
+		}
+		arrExpr, arrLines := e.castOperand(ti, args[0], "i64")
+		lines := append([]string{}, arrLines...)
+		if dst < 0 {
+			lines = append(lines, fmt.Sprintf("call $dast_pop(l %s)", arrExpr))
+			return lines
+		}
+		dstType := ti.tempType(dst)
+		if dstType == "" {
+			dstType = "i64"
+		}
+		dstQ := qbeType(dstType)
+		rawTemp := dst
+		if dstQ != "l" {
+			rawTemp = e.newTemp()
+		}
+		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_pop(l %s)", rawTemp, arrExpr))
+		if rawTemp != dst {
+			lines = append(lines, fmt.Sprintf("%%t%d =%s copy %%t%d", dst, dstQ, rawTemp))
+		}
+		return lines
 	case "print", "println", "eprint", "eprintln":
 		return e.emitPrintCall(ti, dst, callee, args)
 	case "len":
@@ -436,24 +538,36 @@ func (e *emitter) emitBuiltinCall(p *ir.Program, ti *typeInfo, dst int, callee s
 	if retType == "" {
 		retType = "unit"
 	}
+	argTypes := builtinArgTypes(callee)
 	var parts []string
+	lines := []string{}
 	for _, arg := range args {
-		pt := ti.operandType(arg)
+		pt := ""
+		if len(argTypes) > 0 {
+			pt = argTypes[0]
+			argTypes = argTypes[1:]
+		}
+		if pt == "" {
+			pt = ti.operandType(arg)
+		}
 		if pt == "" {
 			pt = "i64"
 		}
-		parts = append(parts, fmt.Sprintf("%s %s", qbeType(pt), e.operandExpr(arg)))
+		expr, castLines := e.castOperand(ti, arg, pt)
+		lines = append(lines, castLines...)
+		parts = append(parts, fmt.Sprintf("%s %s", qbeType(pt), expr))
 	}
 	if dst >= 0 && retType != "unit" {
-		return []string{fmt.Sprintf("%%t%d =%s call $%s(%s)", dst, qbeType(retType), rtName, strings.Join(parts, ", "))}
+		lines = append(lines, fmt.Sprintf("%%t%d =%s call $%s(%s)", dst, qbeType(retType), rtName, strings.Join(parts, ", ")))
+		return lines
 	}
 	if dst >= 0 && retType == "unit" {
-		return []string{
-			fmt.Sprintf("call $%s(%s)", rtName, strings.Join(parts, ", ")),
-			fmt.Sprintf("%%t%d =%s copy 0", dst, qbeType("unit")),
-		}
+		lines = append(lines, fmt.Sprintf("call $%s(%s)", rtName, strings.Join(parts, ", ")))
+		lines = append(lines, fmt.Sprintf("%%t%d =%s copy 0", dst, qbeType("unit")))
+		return lines
 	}
-	return []string{fmt.Sprintf("call $%s(%s)", rtName, strings.Join(parts, ", "))}
+	lines = append(lines, fmt.Sprintf("call $%s(%s)", rtName, strings.Join(parts, ", ")))
+	return lines
 }
 
 func (e *emitter) emitLenCall(ti *typeInfo, dst int, args []ir.Operand) []string {
@@ -755,6 +869,10 @@ func isUserFunction(p *ir.Program, name string) bool {
 	return ok
 }
 
+func isDefaultIntConst(op ir.Operand) bool {
+	return op.IsConst && op.Const.Kind == ir.KindInt && op.Const.IntType == ""
+}
+
 func (e *emitter) operandExpr(op ir.Operand) string {
 	if op.IsConst {
 		return e.constExpr(op.Const)
@@ -770,7 +888,7 @@ func (e *emitter) castOperand(ti *typeInfo, op ir.Operand, targetType string) (s
 	if targetType == "" {
 		return expr, nil
 	}
-	srcType := ti.operandType(op)
+	srcType := ti.operandDefType(op)
 	if srcType == "" {
 		srcType = targetType
 	}
@@ -824,12 +942,14 @@ func (e *emitter) constExpr(v ir.Value) string {
 
 type typeInfo struct {
 	tempTypes []string
+	defTypes  []string
 	varTypes  map[string]string
 }
 
 func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 	ti := &typeInfo{
 		tempTypes: make([]string, fn.TempCount),
+		defTypes:  make([]string, fn.TempCount),
 		varTypes:  map[string]string{},
 	}
 	for i := 0; i < len(fn.TempTypes) && i < len(ti.tempTypes); i++ {
@@ -882,7 +1002,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 				case *ir.StoreVar:
 					if i.Ref {
 						base := baseType(ti.tempType(i.RefTemp))
-						src := ti.operandType(i.Src)
+						src := ti.operandDefType(i.Src)
 						if base == "" {
 							base = src
 						}
@@ -892,7 +1012,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 							}
 						}
 					} else {
-						src := ti.operandType(i.Src)
+						src := ti.operandDefType(i.Src)
 						if src != "" {
 							if ti.setVarType(i.Name, src) {
 								changed = true
@@ -901,6 +1021,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 					}
 				case *ir.BinOp:
 					if isCompareOp(i.Op) || i.Op == "&&" || i.Op == "||" {
+						_ = ti.setDefType(i.Dst, "bool")
 						if ti.setTempType(i.Dst, "bool") {
 							changed = true
 						}
@@ -908,12 +1029,19 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 						lt := ti.operandType(i.Lhs)
 						rt := ti.operandType(i.Rhs)
 						if isStringType(lt) || isStringType(rt) {
+							_ = ti.setDefType(i.Dst, "string")
 							if ti.setTempType(i.Dst, "string") {
 								changed = true
 							}
 						} else {
-							if ti.setTempType(i.Dst, unifyType(lt, rt)) {
-								changed = true
+							dstKnown := ti.tempType(i.Dst)
+							if dstKnown != "" {
+								_ = ti.setDefType(i.Dst, dstKnown)
+							} else {
+								_ = ti.setDefType(i.Dst, unifyType(lt, rt))
+								if ti.setTempType(i.Dst, unifyType(lt, rt)) {
+									changed = true
+								}
 							}
 						}
 					}
@@ -923,11 +1051,17 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 						if fn, ok := p.Functions[i.Callee]; ok {
 							ret = ti.fnReturnType(fn)
 						}
+						if ret != "" {
+							_ = ti.setDefType(i.Dst, ret)
+						}
 						if ret != "" && ti.setTempType(i.Dst, ret) {
 							changed = true
 						}
 					}
 				case *ir.CallClosure:
+					if i.Dst >= 0 {
+						_ = ti.setDefType(i.Dst, "unit")
+					}
 					if i.Dst >= 0 && ti.setTempType(i.Dst, "unit") {
 						changed = true
 					}
@@ -936,16 +1070,26 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 					for _, e := range i.Elems {
 						elem = unifyType(elem, ti.operandType(e))
 					}
-					if elem == "" {
-						elem = "unit"
-					}
-					if ti.setTempType(i.Dst, "["+elem+"]") {
-						changed = true
+					dstKnown := ti.tempType(i.Dst)
+					if elem == "" && dstKnown != "" && isArrayType(dstKnown) {
+						_ = ti.setDefType(i.Dst, dstKnown)
+					} else {
+						if elem == "" {
+							elem = "unit"
+						}
+						_ = ti.setDefType(i.Dst, "["+elem+"]")
+						if ti.setTempType(i.Dst, "["+elem+"]") {
+							changed = true
+						}
 					}
 				case *ir.Index:
 					at := baseType(ti.operandType(i.Array))
 					elem := elemType(at)
+					if elem == "" {
+						elem = ti.tempType(i.Dst)
+					}
 					if elem != "" {
+						_ = ti.setDefType(i.Dst, elem)
 						if ti.setTempType(i.Dst, elem) {
 							changed = true
 						}
@@ -961,6 +1105,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 						}
 					}
 				case *ir.MakeStruct:
+					_ = ti.setDefType(i.Dst, i.Name)
 					if ti.setTempType(i.Dst, i.Name) {
 						changed = true
 					}
@@ -968,6 +1113,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 					st := ti.tempType(i.Src)
 					ft := fieldType(p, ti, st, i.Field)
 					if ft != "" {
+						_ = ti.setDefType(i.Dst, ft)
 						if ti.setTempType(i.Dst, ft) {
 							changed = true
 						}
@@ -976,6 +1122,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 					st := ti.tempType(i.Src)
 					ft := fieldType(p, ti, st, i.Field)
 					if ft != "" {
+						_ = ti.setDefType(i.Dst, "*"+ft)
 						if ti.setTempType(i.Dst, "*"+ft) {
 							changed = true
 						}
@@ -985,6 +1132,7 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 					base = baseType(base)
 					elem := elemType(base)
 					if elem != "" {
+						_ = ti.setDefType(i.Dst, "*"+elem)
 						if ti.setTempType(i.Dst, "*"+elem) {
 							changed = true
 						}
@@ -1012,6 +1160,13 @@ func (t *typeInfo) tempType(idx int) string {
 	return t.tempTypes[idx]
 }
 
+func (t *typeInfo) defType(idx int) string {
+	if idx < 0 || idx >= len(t.defTypes) {
+		return ""
+	}
+	return t.defTypes[idx]
+}
+
 func (t *typeInfo) varType(name string) string {
 	return t.varTypes[name]
 }
@@ -1026,6 +1181,20 @@ func (t *typeInfo) setTempType(idx int, typ string) bool {
 		return false
 	}
 	t.tempTypes[idx] = next
+	return true
+}
+
+func (t *typeInfo) setDefType(idx int, typ string) bool {
+	if idx < 0 || idx >= len(t.defTypes) {
+		return false
+	}
+	if t.defTypes[idx] != "" {
+		return false
+	}
+	if typ == "" {
+		return false
+	}
+	t.defTypes[idx] = typ
 	return true
 }
 
@@ -1072,8 +1241,20 @@ func (t *typeInfo) operandType(op ir.Operand) string {
 	return ""
 }
 
+func (t *typeInfo) operandDefType(op ir.Operand) string {
+	if op.IsConst {
+		return t.operandType(op)
+	}
+	if op.Temp >= 0 && op.Temp < len(t.defTypes) {
+		if dt := t.defTypes[op.Temp]; dt != "" {
+			return dt
+		}
+	}
+	return t.operandType(op)
+}
+
 func (t *typeInfo) fnReturnType(fn *ir.Function) string {
-	if fn.ReturnType != "" && fn.ReturnType != "unit" {
+	if fn.ReturnType != "" {
 		return fn.ReturnType
 	}
 	ret := ""
@@ -1198,6 +1379,9 @@ func unifyType(a, b string) string {
 	}
 	if b == "" {
 		return a
+	}
+	if a == "bool" || b == "bool" {
+		return "bool"
 	}
 	if a == "unit" {
 		return b
@@ -1404,6 +1588,44 @@ func builtinReturnType(name string) string {
 		return "AstBlock"
 	}
 	return ""
+}
+
+func builtinArgTypes(name string) []string {
+	switch name {
+	case "char_at":
+		return []string{"String", "i64"}
+	case "substr":
+		return []string{"String", "i64", "i64"}
+	case "read_file":
+		return []string{"String"}
+	case "read_dir":
+		return []string{"String"}
+	case "write_file":
+		return []string{"String", "String"}
+	case "mkdir":
+		return []string{"String"}
+	case "read_bytes":
+		return []string{"i64"}
+	case "exec":
+		return []string{"String", "[String]"}
+	case "int_to_string":
+		return []string{"i64"}
+	case "parse_int":
+		return []string{"String"}
+	case "string_to_int":
+		return []string{"String"}
+	case "has_prefix":
+		return []string{"String", "String"}
+	case "exit":
+		return []string{"i64"}
+	case "ast_to_string":
+		return []string{"String"}
+	case "gensym":
+		return []string{"String"}
+	case "bind":
+		return []string{"String"}
+	}
+	return nil
 }
 
 func varSlot(name string) string {

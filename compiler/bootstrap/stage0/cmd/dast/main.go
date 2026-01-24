@@ -372,7 +372,9 @@ func writeExecutable(outPath string, prog *ir.Program) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
+	if os.Getenv("DAST_KEEP_TMP") == "" {
+		defer os.RemoveAll(tmpDir)
+	}
 
 	qbePath := filepath.Join(tmpDir, "main.qbe")
 	asmPath := filepath.Join(tmpDir, "main.s")

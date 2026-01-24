@@ -43,7 +43,7 @@ NATIVE_PATH ?= compiler/stage2/tests/examples/native-full
 NATIVE_BUILD_ARGS ?= --example hello
 NATIVE_TARGET_DIR ?=
 
-.PHONY: build-stage0 test-stage0 test-stage2 test-stage2-parity test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-qbe test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
+.PHONY: build-stage0 test-stage0 test-stage2 test-stage2-bootstrap test-stage2-parity test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-qbe test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -212,6 +212,95 @@ test-stage2: build-stage0
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
 	done
+
+test-stage2-bootstrap: build-stage0
+	@tmp=$$(mktemp); \
+	./$(STAGE0_BIN) ir $(STAGE2_FILES) > $$tmp || exit 1; \
+	for f in $(STAGE2_RUN_PASS); do \
+		echo "[stage2-run] $$f"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- run --bootstrap $$f 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+	done; \
+	for f in $(STAGE2_COMPILE_FAIL); do \
+		echo "[stage2-fail] $$f"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- run --bootstrap $$f 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
+		echo "$$out" | grep -q '^stage[0-9]:' || exit 1; \
+	done; \
+	for d in $(STAGE2_TEST_CMD); do \
+		echo "[stage2-test] $$d"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- test --bootstrap $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+	done; \
+	for d in $(STAGE2_BUILD); do \
+		echo "[stage2-build] $$d"; \
+		rm -rf $$d/target; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- build --bootstrap --emit-ir $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
+		for f in $$d/target/*.ir; do \
+			out2=$$(./$(STAGE0_BIN) ir-run $$tmp -- ir-verify $$f 2>&1); \
+			status2=$$?; \
+			echo "$$out2"; \
+			if [ $$status2 -ne 0 ]; then exit $$status2; fi; \
+			if echo "$$out2" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+		done; \
+	done; \
+	for d in $(STAGE2_BUILD_FAIL); do \
+		echo "[stage2-build-fail] $$d"; \
+		rm -rf $$d/target; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- build --bootstrap --emit-ir $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
+		echo "$$out" | grep -q '^stage[0-9]:' || exit 1; \
+	done; \
+	for d in $(STAGE2_WORKSPACE); do \
+		echo "[stage2-workspace-run] $$d"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- run --bootstrap --package app $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+		echo "[stage2-workspace-test] $$d"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- test --bootstrap --package app $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+		echo "[stage2-workspace-build] $$d"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- build --bootstrap --emit-ir --package app $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
+	done; \
+	for d in $(STAGE2_EXAMPLES); do \
+		echo "[stage2-example-run] $$d"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- run --bootstrap --example hello $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
+		echo "[stage2-example-build] $$d"; \
+		rm -rf $$d/target; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- build --bootstrap --emit-ir --example hello $$d 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
+		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
+	done; \
+	rm -f $$tmp
 
 test-stage2-parity: build-stage0
 	@./scripts/test-stage2-parity.sh

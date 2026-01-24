@@ -198,6 +198,8 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	}
 	if fn.ReturnType != nil {
 		irFn.ReturnType = formatType(*fn.ReturnType)
+	} else {
+		irFn.ReturnType = "unit"
 	}
 	entry := c.newBlock("entry")
 	c.setCurrentBlock(entry)

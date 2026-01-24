@@ -249,6 +249,13 @@ dast_int dast_string_len(const char *s) {
 	return (dast_int)strlen(s);
 }
 
+dast_bool dast_string_eq(const char *a, const char *b) {
+	if (!a || !b) {
+		return a == b;
+	}
+	return strcmp(a, b) == 0;
+}
+
 const char *dast_string_concat(const char *a, const char *b) {
 	if (!a) {
 		a = "";
