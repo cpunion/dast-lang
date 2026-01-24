@@ -1,0 +1,3 @@
+fn main() {
+    compile!(quote item { const A: int = 1 })
+}

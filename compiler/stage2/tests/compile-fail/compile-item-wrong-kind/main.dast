@@ -1,0 +1,4 @@
+compile!(quote expr { 1 })
+
+fn main() {
+}

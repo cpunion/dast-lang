@@ -1,0 +1,4 @@
+fn main() {
+    let v = compile!(quote stmt { let x = 1; })
+    println("v", v)
+}
