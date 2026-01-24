@@ -1,0 +1,30 @@
+import "std/testing" as t
+
+enum E {
+    A,
+    B,
+    C,
+}
+
+fn pick(n: int) -> int {
+    match n {
+        1 | 2 => 10,
+        3 => 30,
+        _ => 0,
+    }
+}
+
+fn show(e: E) -> int {
+    match e {
+        .A | .B => 1,
+        _ => 0,
+    }
+}
+
+fn test_main() {
+    t.assert_eq!(pick(2), 10)
+    t.assert_eq!(pick(3), 30)
+    t.assert_eq!(pick(9), 0)
+    t.assert_eq!(show(E.B), 1)
+    t.assert_eq!(show(E.C), 0)
+}

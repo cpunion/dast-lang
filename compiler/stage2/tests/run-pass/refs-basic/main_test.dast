@@ -1,0 +1,8 @@
+import "std/testing" as t
+
+fn test_main() {
+    let mut v = 1
+    let r = &mut v;
+    *r = *r + 2
+    t.assert_eq!(v, 3)
+}

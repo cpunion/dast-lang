@@ -1,0 +1,6 @@
+import "std/testing" as t
+
+fn test_main() {
+    let xs: [int] = []
+    t.assert_eq!(len(xs), 0)
+}

@@ -1,0 +1,6 @@
+import { sum } from "api"
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(sum(3, 4), 7)
+}

@@ -1,6 +1,0 @@
-import "app"
-
-fn main() {
-    let v = app.from_common()
-    println("v", v)
-}

@@ -1,0 +1,7 @@
+import { inc } from "math"
+import "std/testing" as t
+
+fn test_main() {
+    let v = inc!(quote expr { 1 })
+    t.assert_eq!(v, 2)
+}

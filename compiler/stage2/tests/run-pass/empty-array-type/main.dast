@@ -1,4 +1,0 @@
-fn main() {
-    let xs: [int] = []
-    println("len", len(xs))
-}

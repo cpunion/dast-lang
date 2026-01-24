@@ -1,0 +1,6 @@
+import "./util" as u
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(u.add(2, 4), 6)
+}

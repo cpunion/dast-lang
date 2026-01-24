@@ -1,0 +1,126 @@
+// Test generic struct with T as field type
+import "std/testing" as t
+
+struct Box[T] {
+    value: T,
+}
+
+// Test generic enum with T as payload type
+enum Option[T] {
+    Some(T),
+    None,
+}
+
+// ===== Single type param =====
+fn identity[T](x: T) -> T {
+    return x
+}
+
+// ===== Multiple type params =====
+
+// Return first param's type
+fn first[T, U](a: T, b: U) -> T {
+    return a
+}
+
+// Return second param's type
+fn second[T, U](a: T, b: U) -> U {
+    return b
+}
+
+// Three type params - return middle
+fn middle[A, B, C](a: A, b: B, c: C) -> B {
+    return b
+}
+
+// Swap and return first (T appears twice)
+fn swap_take_first[T, U](a: T, b: U, c: T) -> T {
+    return c
+}
+
+fn test_main() {
+    // Test Box with i32
+    let b = Box { value: 42 }
+    t.assert_eq!(b.value, 42)
+
+    // Test Box with String
+    let b2 = Box { value: "hello" }
+    t.assert_eq!(b2.value, "hello")
+
+    // Test Option with i32 payload (T = i32)
+    let opt = Option.Some(10)
+    match opt {
+        Option.Some(x) => { t.assert_eq!(x, 10) }
+        Option.None => { t.assert!(false) }
+    }
+
+    // Test Option with String payload (T = String)
+    let opt2 = Option.Some("world")
+    match opt2 {
+        Option.Some(s) => { t.assert_eq!(s, "world") }
+        Option.None => { t.assert!(false) }
+    }
+
+    // ===== Single type param tests =====
+    let x1 = identity(7)
+    t.assert_eq!(x1, 7)
+
+    let x2 = identity("hello")
+    t.assert_eq!(x2, "hello")
+
+    // ===== Two type param tests =====
+    let y1 = first(100, "ignored")
+    t.assert_eq!(y1, 100)
+
+    let y2 = first("kept", 999)
+    t.assert_eq!(y2, "kept")
+
+    let y3 = second(100, "taken")
+    t.assert_eq!(y3, "taken")
+
+    let y4 = second("ignored", 42)
+    t.assert_eq!(y4, 42)
+
+    // ===== Three type param tests =====
+    let z1 = middle(1, "mid", true)
+    t.assert_eq!(z1, "mid")
+
+    let z2 = middle("a", 999, "c")
+    t.assert_eq!(z2, 999)
+
+    // ===== Same type param multiple times =====
+    let w1 = swap_take_first(1, "x", 99)
+    t.assert_eq!(w1, 99)
+
+    let w2 = swap_take_first("first", 0, "third")
+    t.assert_eq!(w2, "third")
+
+    // ===== Same function, same type, multiple calls =====
+    let r1 = identity(10)
+    let r2 = identity(20)
+    let r3 = identity(30)
+    t.assert_eq!(r1 + r2 + r3, 60)
+
+    let s1 = first(1, "a")
+    let s2 = first(2, "b")
+    let s3 = first(3, "c")
+    t.assert_eq!(s1 + s2 + s3, 6)
+
+    // Different types in sequence
+    let t1 = identity(100)
+    let t2 = identity("str")
+    let t3 = identity(200)
+    t.assert_eq!(t1, 100)
+    t.assert_eq!(t2, "str")
+    t.assert_eq!(t3, 200)
+
+    // ===== Turbofish syntax - explicit type args =====
+    let tf1 = identity::[i32](42)
+    t.assert_eq!(tf1, 42)
+
+    let tf2 = identity::[String]("explicit")
+    t.assert_eq!(tf2, "explicit")
+
+    let tf3 = first::[i32, String](999, "ignored")
+    t.assert_eq!(tf3, 999)
+}

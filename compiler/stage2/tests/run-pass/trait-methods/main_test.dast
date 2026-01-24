@@ -1,0 +1,46 @@
+// Test trait method calling with multiple methods and implementations
+import "std/testing" as t
+
+trait Shape {
+    fn area(&self) -> int;
+    fn perimeter(&self) -> int;
+}
+
+struct Rectangle {
+    width: int,
+    height: int,
+}
+
+impl Shape for Rectangle {
+    fn area(&self) -> int {
+        return self.width * self.height
+    }
+
+    fn perimeter(&self) -> int {
+        return 2 * (self.width + self.height)
+    }
+}
+
+struct Square {
+    side: int,
+}
+
+impl Shape for Square {
+    fn area(&self) -> int {
+        return self.side * self.side
+    }
+
+    fn perimeter(&self) -> int {
+        return 4 * self.side
+    }
+}
+
+fn test_main() {
+    let rect = Rectangle { width: 3, height: 4 }
+    let sq = Square { side: 5 }
+
+    t.assert_eq!((&rect).area(), 12)
+    t.assert_eq!((&rect).perimeter(), 14)
+    t.assert_eq!((&sq).area(), 25)
+    t.assert_eq!((&sq).perimeter(), 20)
+}

@@ -1,0 +1,15 @@
+import { X, Point, Color, add } from "b"
+import "std/testing" as t
+
+fn takes_color(c: Color) -> int {
+    if true { return 0 }
+    return 1
+}
+
+fn test_main() {
+    let p = Point { x: X }
+    let v = add(p.x, 1)
+    let w = takes_color(Color.Red)
+    t.assert_eq!(v, 4)
+    t.assert_eq!(w, 0)
+}

@@ -1,0 +1,11 @@
+macro fn mk_const() -> AstItem {
+    quote item { const ANSWER: int = 42 }
+}
+
+mk_const!()
+
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(ANSWER, 42)
+}

@@ -1,0 +1,16 @@
+import "std/testing" as t
+
+fn test_main() {
+    let mut nums = [1, 2]
+    push(&mut nums, 3)
+    let l = len(nums)
+    let last = pop(&mut nums)
+    t.assert_eq!(l, 3)
+    t.assert_eq!(last, 3)
+
+    let s = "hi!"
+    let c = char_at(s, 1)
+    let sub = substr(s, 0, 2)
+    t.assert_eq!(c, 105) // 'i'
+    t.assert_eq!(sub, "hi")
+}

@@ -1,0 +1,12 @@
+import "std/testing" as t
+
+struct Point { x: int, y: int, z: int }
+
+fn test_main() {
+    let p = Point { x: 1, y: 2, z: 3 }
+    let mut got = 0
+    match p {
+        Point { x, .. } => { got = x },
+    }
+    t.assert_eq!(got, 1)
+}

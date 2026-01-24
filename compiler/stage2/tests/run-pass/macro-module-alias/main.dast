@@ -1,6 +1,0 @@
-import "math" as m
-
-fn main() {
-    let v = m.inc!(quote expr { 40 })
-    println("v", v)
-}

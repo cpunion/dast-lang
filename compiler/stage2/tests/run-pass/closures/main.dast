@@ -1,8 +1,0 @@
-// Test closure with free variable capture
-
-fn main() {
-    let y = 10
-    let f = |x: i32| x + y
-    let result = f(5)
-    println("capture_test", result)
-}

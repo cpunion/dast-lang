@@ -1,0 +1,19 @@
+enum Maybe {
+    None,
+    Some(int),
+}
+
+import "std/testing" as t
+
+fn test_main() {
+    let m = Maybe.Some(3)
+    let mut ok = false
+    match m {
+        .Some(x) if x > 1 => {
+            ok = true
+            t.assert_eq!(x, 3)
+        },
+        _ => { t.assert!(false) },
+    }
+    t.assert!(ok)
+}

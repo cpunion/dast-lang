@@ -1,5 +1,0 @@
-import { add } from "c"
-
-fn main() {
-    println("sum", add(2, 5))
-}

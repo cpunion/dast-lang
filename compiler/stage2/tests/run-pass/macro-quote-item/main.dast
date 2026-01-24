@@ -1,9 +1,0 @@
-macro fn make_const() -> AstItem {
-    quote item { const ANSWER: int = 42 }
-}
-
-make_const!()
-
-fn main() {
-    println("a", ANSWER)
-}

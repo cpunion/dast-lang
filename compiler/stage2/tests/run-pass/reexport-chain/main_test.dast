@@ -1,0 +1,6 @@
+import { add } from "c"
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(add(2, 5), 7)
+}

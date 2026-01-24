@@ -30,7 +30,7 @@ STAGE0_TEST_FAIL_DIR := compiler/bootstrap/stage0/tests/test-fail
 STAGE0_TEST_FAIL_COMPILE_DIR := compiler/bootstrap/stage0/tests/test-fail-compile
 STAGE0_DEPS_APP_DIR := compiler/bootstrap/stage0/tests/deps/app
 STAGE0_WORKSPACE_APP_DIR := compiler/bootstrap/stage0/tests/workspace/app
-STAGE2_RUN_PASS := $(wildcard compiler/stage2/tests/run-pass/*/main.dast)
+STAGE2_RUN_TEST_DIRS := $(wildcard compiler/stage2/tests/run-pass/*)
 STAGE2_COMPILE_FAIL := $(wildcard compiler/stage2/tests/compile-fail/*/main.dast)
 STAGE2_TEST_CMD := $(wildcard compiler/stage2/tests/test-cmd/*)
 STAGE2_BUILD := $(wildcard compiler/stage2/tests/build/*)
@@ -121,9 +121,9 @@ test-ir-qbe: build-stage0
 	done
 
 test-stage2: build-stage0
-	@for f in $(STAGE2_RUN_PASS); do \
-		echo "[stage2-run] $$f"; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- run $$f 2>&1); \
+	@for d in $(STAGE2_RUN_TEST_DIRS); do \
+		echo "[stage2-test] $$d"; \
+		out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- test $$d 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
@@ -216,9 +216,9 @@ test-stage2: build-stage0
 test-stage2-bootstrap: build-stage0
 	@tmp=$$(mktemp); \
 	./$(STAGE0_BIN) ir $(STAGE2_FILES) > $$tmp || exit 1; \
-	for f in $(STAGE2_RUN_PASS); do \
-		echo "[stage2-run] $$f"; \
-		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- run --bootstrap $$f 2>&1); \
+	for d in $(STAGE2_RUN_TEST_DIRS); do \
+		echo "[stage2-test] $$d"; \
+		out=$$(./$(STAGE0_BIN) ir-run $$tmp -- test --bootstrap $$d 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \

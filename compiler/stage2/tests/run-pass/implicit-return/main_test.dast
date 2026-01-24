@@ -1,0 +1,18 @@
+fn add(a: int, b: int) -> int { a + b }
+
+fn abs(x: int) -> int {
+    if x >= 0 { x } else { 0 - x }
+}
+
+fn last_expr(x: int) -> int {
+    let v = x + 1
+    v * 2
+}
+
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(add(2, 3), 5)
+    t.assert_eq!(abs(-5), 5)
+    t.assert_eq!(last_expr(4), 10)
+}

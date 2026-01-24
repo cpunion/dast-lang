@@ -1,0 +1,6 @@
+import "./a/n1" as api
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(api.add(8, 9), 17)
+}

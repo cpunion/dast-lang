@@ -1,0 +1,10 @@
+import { Token } from "parser"
+import "parser" as p
+import "std/testing" as t
+
+fn test_main() {
+    let t = Token { value: 7 }
+    let v = p.make_token(3)
+    t.assert_eq!(t.value, 7)
+    t.assert_eq!(v.value, 3)
+}

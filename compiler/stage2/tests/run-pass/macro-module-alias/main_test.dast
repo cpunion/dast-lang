@@ -1,0 +1,7 @@
+import "math" as m
+import "std/testing" as t
+
+fn test_main() {
+    let v = m.inc!(quote expr { 40 })
+    t.assert_eq!(v, 41)
+}

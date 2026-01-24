@@ -1,7 +1,0 @@
-import "std/testing" as t
-
-fn main() {
-    t.assert!(1 + 1 == 2)
-    t.assert_eq!(2 + 3, 5)
-    t.assert_ne!(2 * 3, 5)
-}

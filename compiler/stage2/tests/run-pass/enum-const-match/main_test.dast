@@ -1,0 +1,23 @@
+const BASE = 7
+
+@repr(u32)
+enum Maybe {
+    None = 1,
+    Some(int) = 2,
+}
+
+import "std/testing" as t
+
+fn score(m: Maybe) -> int {
+    match m {
+        .Some(v) => v + BASE,
+        .None => 0,
+    }
+}
+
+fn test_main() {
+    let a = Maybe.Some(5)
+    let b = Maybe.None
+    t.assert_eq!(score(a), 12)
+    t.assert_eq!(score(b), 0)
+}

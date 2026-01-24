@@ -1,0 +1,21 @@
+import "std/testing" as t
+
+fn test_main() {
+    let n = 4
+    let mut tag = ""
+    match n {
+        0..=3 => { tag = "a" },
+        4..6 => { tag = "b" },
+        _ => { tag = "c" },
+    }
+    t.assert_eq!(tag, "b")
+
+    let ch = 'd'
+    let mut tag2 = ""
+    match ch {
+        'a'..='c' => { tag2 = "x" },
+        'd'..='f' => { tag2 = "y" },
+        _ => { tag2 = "z" },
+    }
+    t.assert_eq!(tag2, "y")
+}

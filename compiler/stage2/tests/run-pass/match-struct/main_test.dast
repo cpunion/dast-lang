@@ -1,0 +1,15 @@
+struct Point { x: int, y: int }
+
+import "std/testing" as t
+
+fn score(p: Point) -> int {
+    match p {
+        Point { x: 0, y: 0 } => 0,
+        Point { x, y } => x + y,
+    }
+}
+
+fn test_main() {
+    t.assert_eq!(score(Point { x: 0, y: 0 }), 0)
+    t.assert_eq!(score(Point { x: 2, y: 3 }), 5)
+}

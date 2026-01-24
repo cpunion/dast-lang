@@ -1,0 +1,12 @@
+enum Maybe {
+    None,
+    Some(int),
+}
+
+import "std/testing" as t
+
+fn test_main() {
+    let m = Maybe.Some(7)
+    let v = if let .Some(x) = m { x + 1 } else { 0 }
+    t.assert_eq!(v, 8)
+}

@@ -1,0 +1,12 @@
+macro fn with_tmp(x: AstExpr) -> AstExpr {
+    let t = gensym("tmp")
+    quote expr { { let $t = $x; $t + 1 } }
+}
+
+import "std/testing" as t
+
+fn test_main() {
+    let tmp = 100
+    let v = with_tmp!(quote expr { tmp })
+    t.assert_eq!(v, 101)
+}

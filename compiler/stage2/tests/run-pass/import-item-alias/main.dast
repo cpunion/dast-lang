@@ -1,6 +1,0 @@
-import { add as sum, mul } from "math"
-
-fn main() {
-    println("sum", sum(2, 3))
-    println("mul", mul(3, 4))
-}

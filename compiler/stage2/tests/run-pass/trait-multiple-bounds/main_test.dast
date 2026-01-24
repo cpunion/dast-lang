@@ -1,0 +1,38 @@
+// Test multiple trait bounds
+import "std/testing" as t
+
+trait Cloneable {
+    fn clone(&self) -> Self;
+}
+
+trait Displayable {
+    fn display(&self);
+}
+
+struct Point {
+    x: int,
+    y: int,
+}
+
+impl Cloneable for Point {
+    fn clone(&self) -> Self {
+        return Point { x: self.x, y: self.y }
+    }
+}
+
+impl Displayable for Point {
+    fn display(&self) {
+        return
+    }
+}
+
+// Function with multiple bounds - just needs to compile
+fn process[T: Cloneable + Displayable](item: &T) -> int {
+    return 42
+}
+
+fn test_main() {
+    let p = Point { x: 10, y: 20 }
+    let result = process::[Point](&p)
+    t.assert_eq!(result, 42)
+}

@@ -1,0 +1,16 @@
+struct Point { x: int }
+
+macro fn add_field(p: AstExpr, body: AstExpr, out: AstExpr) -> AstStmt {
+    quote stmt { match $p { Point { x } => { $out = $body + x; } } }
+}
+
+fn test_main() {
+    let x = 100
+    let p = Point { x: 1 }
+    let mut result = 0
+    add_field!(quote expr { p }, quote expr { x }, quote expr { result })
+    if result == 101 {
+    } else {
+        exit(1)
+    }
+}

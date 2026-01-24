@@ -1,9 +1,0 @@
-macro fn set_v(x: AstExpr) -> AstStmt {
-    quote stmt { v = $x; }
-}
-
-fn main() {
-    let mut v = 0
-    compile!(set_v!(quote expr { 5 }))
-    println("v", v)
-}

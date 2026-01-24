@@ -1,8 +1,0 @@
-macro fn mk_block(x: AstExpr) -> AstBlock {
-    quote block { let t = $x; t + 1 }
-}
-
-fn main() {
-    let v = compile!(mk_block!(quote expr { 5 }))
-    println("v", v)
-}
