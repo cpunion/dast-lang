@@ -4,6 +4,11 @@ struct Token {
     len: i32,
 }
 
+fn token_list_new() -> [Token] {
+    let mut items: [Token] = []
+    return items
+}
+
 struct Tokens {
     items: [Token],
 }

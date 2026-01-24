@@ -104,7 +104,7 @@ fn program_empty() -> Program {
         functions: func_list_new(),
         impls: impl_list_new(),
         impl_traits: impl_trait_list_new(),
-        compile_items: [],
+        compile_items: compile_item_list_new(),
     }
 }
 
@@ -1796,13 +1796,18 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             fi = fi + 1
         }
     }
-    let tctx = check_program(parse_res.prog, debug, false, false)
+    let expand_res = macro_expand(parse_res.prog, debug)
+    if len(expand_res.errors) > 0 {
+        let merrs = attach_error_locations(expand_res.errors, &state)
+        die_errors(merrs)
+    }
+    let tctx = check_program(expand_res.prog, debug, false, false)
     if debug { println("stage2: typecheck errors raw", len(tctx.errors)) }
     let terrs = attach_error_locations(tctx.errors, &state)
     if debug { println("stage2: typecheck errors loc", len(terrs)) }
     if len(terrs) > 0 { die_errors(terrs) }
     if debug { println("stage2: typechecked") }
-    let comp = compile_program(parse_res.prog, tctx, debug)
+    let comp = compile_program(expand_res.prog, tctx, debug)
     let cerrs = attach_error_locations(comp.errors, &state)
     if len(cerrs) > 0 { die_errors(cerrs) }
     if debug { println("stage2: compiled") }

@@ -188,7 +188,7 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
             }
             let mut is_compile = false
             match expr {
-                .Ident(id) => {
+                Expr.Ident(id) => {
                     if id.name == "compile" {
                         is_compile = true
                     }
@@ -341,7 +341,7 @@ fn parse_quote_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> 
 
 fn parse_quote_parts(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [QuotePart] {
     let mut parts: [QuotePart] = []
-    let mut buf: [Token] = []
+    let mut buf: [Token] = token_list_new()
     let mut depth = 1
     while peek_kind(lex) != TokenKind.Eof {
         let tok = lexer_peek(lex)
@@ -349,7 +349,7 @@ fn parse_quote_parts(src: String, lex: &mut Lexer, errors: &mut [ParseError]) ->
             if len(buf) > 0 {
                 let text = tokens_to_source(src, buf)
                 push(&mut parts, QuotePart { text: text, has_expr: false, expr: dummy_expr() })
-                buf = []
+                buf = token_list_new()
             }
             lexer_next(lex) // consume $
             let splice = parse_quote_splice(src, lex, errors)

@@ -1171,6 +1171,13 @@ fn compile_operand(c: &mut Compiler, expr: Expr, self_name: String) -> IrOperand
                 return ir_operand_const(v)
             }
         }
+        Expr.Compile(cmp) => {
+            if c.tctx.allow_compile {
+                return compile_operand(c, cmp.expr, self_name)
+            }
+            compiler_add_type_error(c, "compile! must be expanded before compile")
+            return ir_operand_const(ir_value_int(0))
+        }
         _ => {}
     }
     return ir_operand_temp(compile_expr(c, expr, self_name))
@@ -1188,6 +1195,20 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         }
         .StringLit(_) => {
             compiler_add_type_error(c, "string literal cannot be used where a temp is required")
+            return const_zero(c)
+        }
+        Expr.Compile(cmp) => {
+            if c.tctx.allow_compile {
+                return compile_expr(c, cmp.expr, self_name)
+            }
+            compiler_add_type_error(c, "compile! must be expanded before compile")
+            return const_zero(c)
+        }
+        Expr.Quote(q) => {
+            return compile_quote_expr(c, q, self_name)
+        }
+        Expr.MacroCall(_) => {
+            compiler_add_type_error(c, "macro call must be expanded before compile")
             return const_zero(c)
         }
         .ArrayLit(a) => {
@@ -1596,6 +1617,67 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         }
     }
     return const_zero(c)
+}
+
+struct QuoteTemplate {
+    template: String,
+    splices: [Expr],
+}
+
+fn quote_template(q: QuoteExpr) -> QuoteTemplate {
+    let mut out = ""
+    let mut splices: [Expr] = []
+    let mut i = 0
+    while i < len(q.parts) {
+        let part = q.parts[i]
+        if part.has_expr {
+            let idx = len(splices)
+            out = out + "__dast_splice_" + int_to_string(idx) + "__"
+            push(&mut splices, part.expr)
+        } else {
+            out = out + part.text
+        }
+        i = i + 1
+    }
+    return QuoteTemplate { template: out, splices: splices }
+}
+
+fn quote_builtin(kind: i32) -> String {
+    if kind == quote_kind_expr() { return "ast_expr" }
+    if kind == quote_kind_stmt() { return "ast_stmt" }
+    if kind == quote_kind_item() { return "ast_item" }
+    if kind == quote_kind_block() { return "ast_block" }
+    return "ast_expr"
+}
+
+fn quote_return_type(kind: i32) -> String {
+    if kind == quote_kind_expr() { return "AstExpr" }
+    if kind == quote_kind_stmt() { return "AstStmt" }
+    if kind == quote_kind_item() { return "AstItem" }
+    if kind == quote_kind_block() { return "AstBlock" }
+    return "AstExpr"
+}
+
+fn compile_quote_splices(c: &mut Compiler, splices: [Expr], self_name: String) -> IrOperand {
+    let dst = new_temp(c)
+    let mut elems: [IrOperand] = []
+    let mut i = 0
+    while i < len(splices) {
+        let v = compile_operand(c, splices[i], self_name)
+        push(&mut elems, v)
+        i = i + 1
+    }
+    emit_instr(c, IrInstr.MakeArray(IrMakeArray { dst: dst, elems: elems }))
+    return ir_operand_temp(dst)
+}
+
+fn compile_quote_expr(c: &mut Compiler, q: QuoteExpr, self_name: String) -> i32 {
+    let qt = quote_template(q)
+    let template_op = ir_operand_const(ir_value_string(qt.template))
+    let splices_op = compile_quote_splices(c, qt.splices, self_name)
+    let dst = new_temp(c)
+    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: quote_builtin(q.kind), args: [template_op, splices_op] }))
+    return dst
 }
 
 struct MethodResolution {

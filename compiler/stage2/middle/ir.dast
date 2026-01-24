@@ -6,6 +6,12 @@ fn ir_kind_ref() -> i32 { return 4 }
 fn ir_kind_struct() -> i32 { return 5 }
 fn ir_kind_enum() -> i32 { return 6 }
 fn ir_kind_array() -> i32 { return 7 }
+fn ir_kind_ast() -> i32 { return 8 }
+
+fn ir_ast_kind_expr() -> i32 { return 0 }
+fn ir_ast_kind_stmt() -> i32 { return 1 }
+fn ir_ast_kind_item() -> i32 { return 2 }
+fn ir_ast_kind_block() -> i32 { return 3 }
 
 fn int_to_string(x: i32) -> String {
     if x == 0 {
@@ -46,42 +52,48 @@ struct IrValue {
     str: String,
     ref: i32,
     obj: i32,
+    ast_kind: i32,
+    ast_src: String,
 }
 
 fn ir_value_unit() -> IrValue {
-    return IrValue { kind: ir_kind_unit(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_unit(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: -1, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_int(v: i32) -> IrValue {
-    return IrValue { kind: ir_kind_int(), int: v, int_type: "", bool: false, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_int(), int: v, int_type: "", bool: false, str: "", ref: -1, obj: -1, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_int_t(v: i32, t: String) -> IrValue {
-    return IrValue { kind: ir_kind_int(), int: v, int_type: t, bool: false, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_int(), int: v, int_type: t, bool: false, str: "", ref: -1, obj: -1, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_bool(v: bool) -> IrValue {
-    return IrValue { kind: ir_kind_bool(), int: 0, int_type: "", bool: v, str: "", ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_bool(), int: 0, int_type: "", bool: v, str: "", ref: -1, obj: -1, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_string(v: String) -> IrValue {
-    return IrValue { kind: ir_kind_string(), int: 0, int_type: "", bool: false, str: v, ref: -1, obj: -1 }
+    return IrValue { kind: ir_kind_string(), int: 0, int_type: "", bool: false, str: v, ref: -1, obj: -1, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_ref(addr: i32) -> IrValue {
-    return IrValue { kind: ir_kind_ref(), int: 0, int_type: "", bool: false, str: "", ref: addr, obj: -1 }
+    return IrValue { kind: ir_kind_ref(), int: 0, int_type: "", bool: false, str: "", ref: addr, obj: -1, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_struct(idx: i32) -> IrValue {
-    return IrValue { kind: ir_kind_struct(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
+    return IrValue { kind: ir_kind_struct(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_enum(idx: i32) -> IrValue {
-    return IrValue { kind: ir_kind_enum(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
+    return IrValue { kind: ir_kind_enum(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx, ast_kind: -1, ast_src: "" }
 }
 
 fn ir_value_array(idx: i32) -> IrValue {
-    return IrValue { kind: ir_kind_array(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx }
+    return IrValue { kind: ir_kind_array(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: idx, ast_kind: -1, ast_src: "" }
+}
+
+fn ir_value_ast(kind: i32, src: String) -> IrValue {
+    return IrValue { kind: ir_kind_ast(), int: 0, int_type: "", bool: false, str: "", ref: -1, obj: -1, ast_kind: kind, ast_src: src }
 }
 
 struct IrOperand {
@@ -297,6 +309,13 @@ fn ir_value_stringify(v: IrValue) -> String {
     if v.kind == ir_kind_struct() { return "struct#" + int_to_string(v.obj) }
     if v.kind == ir_kind_enum() { return "enum#" + int_to_string(v.obj) }
     if v.kind == ir_kind_array() { return "array#" + int_to_string(v.obj) }
+    if v.kind == ir_kind_ast() {
+        if v.ast_kind == ir_ast_kind_expr() { return "<AstExpr " + v.ast_src + ">" }
+        if v.ast_kind == ir_ast_kind_stmt() { return "<AstStmt " + v.ast_src + ">" }
+        if v.ast_kind == ir_ast_kind_item() { return "<AstItem " + v.ast_src + ">" }
+        if v.ast_kind == ir_ast_kind_block() { return "<AstBlock " + v.ast_src + ">" }
+        return "<Ast>"
+    }
     return "unit"
 }
 
