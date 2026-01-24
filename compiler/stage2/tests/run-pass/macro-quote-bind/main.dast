@@ -1,0 +1,9 @@
+macro fn use_bind() -> AstExpr {
+    quote expr { $(bind("x")) + 1 }
+}
+
+fn main() {
+    let x = 5
+    let v = use_bind!()
+    println("v", v)
+}

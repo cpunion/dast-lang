@@ -2449,6 +2449,22 @@ fn block_expr_type(ctx: &mut TypeContext, block: Block) -> i32 {
     return t
 }
 
+fn block_expr_type_expr(ctx: &mut TypeContext, block: BlockExpr) -> i32 {
+    let unit = ctx_type_make(ctx, 4, "unit", false, false, -1)
+    ctx_env_push(ctx)
+    let mut i = 0
+    while i < len(block.stmts) {
+        check_stmt(ctx, block.stmts[i])
+        i = i + 1
+    }
+    let mut t = unit
+    if block.has_result {
+        t = check_expr(ctx, block.result)
+    }
+    ctx_env_pop(ctx)
+    return t
+}
+
 fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
     ctx_set_pos(ctx, expr_pos(expr))
     match expr {
@@ -2478,6 +2494,9 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
         .IntLit(_) => { return ctx_type_make(ctx, 1, "int", false, false, -1) }
         .StringLit(_) => { return ctx_type_make(ctx, 3, "string", false, false, -1) }
         .BoolLit(_) => { return ctx_type_make(ctx, 2, "bool", false, false, -1) }
+        Expr.Block(b) => {
+            return block_expr_type_expr(ctx, b)
+        }
         Expr.Quote(q) => {
             let mut i = 0
             while i < len(q.parts) {

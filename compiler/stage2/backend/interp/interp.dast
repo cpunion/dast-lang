@@ -943,7 +943,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         if name == "ast_stmt" { kind = ir_ast_kind_stmt() }
         else if name == "ast_item" { kind = ir_ast_kind_item() }
         else if name == "ast_block" { kind = ir_ast_kind_block() }
-        let result = quote_apply_splices(rt, args[0].str, splices)
+        let result = quote_build_ast(rt, kind, args[0].str, splices)
         if rt.error != "" { return ir_value_unit() }
         return ir_value_ast(kind, result)
     }
@@ -1013,60 +1013,6 @@ fn sanitize_ident(s: String) -> String {
             out = out + "_"
         }
         i = i + 1
-    }
-    return out
-}
-
-fn quote_apply_splices(rt: &mut Runtime, template: String, splices: [IrValue]) -> String {
-    let prefix = "__dast_splice_"
-    let suffix = "__"
-    let mut out = ""
-    let mut i = 0
-    while i < len(template) {
-        let mut is_prefix = false
-        if i + len(prefix) <= len(template) {
-            if substr(template, i, len(prefix)) == prefix {
-                is_prefix = true
-            }
-        }
-        if !is_prefix {
-            out = out + substr(template, i, 1)
-            i = i + 1
-            continue
-        }
-        let mut j = i + len(prefix)
-        let mut num = ""
-        while j < len(template) {
-            let c = char_at(template, j)
-            if c >= 48 && c <= 57 {
-                num = num + substr(template, j, 1)
-                j = j + 1
-                continue
-            }
-            break
-        }
-        if num == "" {
-            out = out + substr(template, i, 1)
-            i = i + 1
-            continue
-        }
-        if j + len(suffix) > len(template) || substr(template, j, len(suffix)) != suffix {
-            out = out + substr(template, i, 1)
-            i = i + 1
-            continue
-        }
-        let idx = parse_int(num)
-        if idx < 0 || idx >= len(splices) {
-            runtime_error(rt, "splice index out of range")
-            return ""
-        }
-        let v = splices[idx]
-        if v.kind != ir_kind_ast() {
-            runtime_error(rt, "splice expects ast")
-            return ""
-        }
-        out = out + v.ast_src
-        i = j + len(suffix)
     }
     return out
 }

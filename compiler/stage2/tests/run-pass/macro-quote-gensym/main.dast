@@ -1,0 +1,10 @@
+macro fn with_tmp(x: AstExpr) -> AstExpr {
+    let t = gensym("tmp")
+    quote expr { { let $t = $x; $t + 1 } }
+}
+
+fn main() {
+    let tmp = 100
+    let v = with_tmp!(quote expr { tmp })
+    println("v", v)
+}

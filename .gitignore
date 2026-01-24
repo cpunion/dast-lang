@@ -19,3 +19,8 @@ node_modules/
 target/
 out/
 *.vsix
+
+# Dast build artifacts
+.dast-build-*/
+*.ir
+*.qbe

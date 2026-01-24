@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 STAGE0_DIR := compiler/bootstrap/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
-STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/codegen-c/codegen-c.dast
+STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/interp/quote.dast compiler/stage2/backend/codegen-c/codegen-c.dast
 STAGE2_COMPILER_DIRS := compiler/stage2 compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/backend compiler/stage2/backend/interp compiler/stage2/backend/codegen-c
 STAGE2_COMPILER_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2_COMPILER_DEBUG ?=

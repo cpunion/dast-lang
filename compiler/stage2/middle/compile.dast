@@ -1211,6 +1211,22 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             compiler_add_type_error(c, "macro call must be expanded before compile")
             return const_zero(c)
         }
+        Expr.Block(b) => {
+            let mut stmts: [Stmt] = []
+            let mut i = 0
+            while i < len(b.stmts) {
+                push(&mut stmts, b.stmts[i])
+                i = i + 1
+            }
+            if b.has_result {
+                push(&mut stmts, Stmt.Expr(ExprStmt { pos: b.pos, expr: b.result }))
+            }
+            let res_name = declare_var(c, "$block", 0, false)
+            compile_block_expr_to(c, Block { stmts: stmts }, self_name, res_name)
+            let out = new_temp(c)
+            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name, addr: false, ref: false, ref_temp: 0 }))
+            return out
+        }
         .ArrayLit(a) => {
             let mut elems: [IrOperand] = []
             let mut i = 0

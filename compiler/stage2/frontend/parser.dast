@@ -434,8 +434,7 @@ fn tokens_to_source(src: String, toks: [Token]) -> String {
     while i < len(toks) {
         let tok = toks[i]
         let text = substr(src, tok.start, tok.len)
-        if out != "" { out = out + " " }
-        out = out + text
+        out = out + text + " "
         i = i + 1
     }
     return out
@@ -518,6 +517,9 @@ fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
             add_error(errors, lexer_pos(lex), "expected ')'");
         }
         return expr
+    }
+    if k == TokenKind.LBrace {
+        return parse_block_expr(src, lex, errors)
     }
     if k == TokenKind.LBracket {
         lexer_next(lex)
