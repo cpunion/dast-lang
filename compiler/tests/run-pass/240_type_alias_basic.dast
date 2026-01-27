@@ -1,0 +1,43 @@
+struct Pair { a: i64, b: i64 }
+
+type PairAlias = Pair
+type PairAlias2 = PairAlias
+type PairList = [PairAlias2]
+
+fn sum(p: PairAlias2) -> i64 {
+    return p.a + p.b
+}
+
+fn total(xs: PairList) -> i64 {
+    let mut i = 0
+    let mut acc = 0
+    while i < len(xs) {
+        acc = acc + sum(xs[i])
+        i = i + 1
+    }
+    return acc
+}
+
+enum Opt tag i32 { None, Some(i64) }
+type OptAlias = Opt
+
+fn get(o: OptAlias) -> i64 {
+    match o {
+        .Some(v) => { return v },
+        .None => { return 0 },
+    }
+    return 0
+}
+
+fn main() {
+    let p = PairAlias { a: 1, b: 2 }
+    println("sum", sum(p))
+
+    let xs = [
+        PairAlias2 { a: 3, b: 4 },
+        PairAlias { a: 5, b: 6 }
+    ]
+    println("total", total(xs))
+
+    println("get", get(OptAlias.Some(7)))
+}

@@ -2,6 +2,11 @@ SHELL := /bin/sh
 
 STAGE0_DIR := compiler/bootstrap/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
+STAGE2V2_DRIVER := compiler/stage2v2-min/driver/main.dast
+STAGE2V2_FILES := $(shell find compiler/stage2v2-min -name '*.dast' -not -path 'compiler/stage2v2-min/stdlib/prelude/*' | sort)
+STAGE2V2_OUT ?= compiler/stage2v2-min/target/dast-stage2v2-min
+STAGE2V2_ALLOC_MAX_MB ?= 128
+STAGE2V2_RUN_ENV := $(if $(STAGE2V2_ALLOC_MAX_MB),DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2V2_ALLOC_MAX_MB),)
 STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/interp/quote.dast
 STAGE2_COMPILER_DIRS := compiler/stage2 compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/backend compiler/stage2/backend/interp compiler/stage2/backend/qbe compiler/stage2/backend/cg
 STAGE2_COMPILER_OUT ?= compiler/stage2/target/dast-stage2
@@ -49,6 +54,32 @@ STAGE0_SIMPLE_RUN_PASS := $(addprefix compiler/tests/run-pass/,$(addsuffix .dast
 STAGE0_COMBO_RUN_PASS := $(filter-out $(STAGE0_SIMPLE_RUN_PASS),$(sort $(STAGE0_RUN_PASS)))
 SHARED_RUN_PASS := $(STAGE0_SIMPLE_RUN_PASS) $(STAGE0_COMBO_RUN_PASS)
 SHARED_RUN_PASS_TOTAL := $(words $(SHARED_RUN_PASS))
+STAGE2V2_RUN_PASS_BASENAMES := \
+	010_char_lit \
+	020_const_expr \
+	030_if_while_let \
+	040_loop_break_continue \
+	050_borrow_basic \
+	060_array_slice_autoborrow \
+	070_array_borrow_reuse \
+	080_string_autoborrow_str \
+	090_string_borrow_reuse \
+	120_return_i64 \
+	130_return_bool \
+	140_enum_basic \
+	150_drop_overwrite_struct \
+	160_drop_return_struct \
+	170_drop_control_flow \
+	180_drop_loop_return_continue \
+	190_drop_array_struct \
+	200_borrow_field_index \
+	210_if_match_expr \
+	220_let_pattern \
+	230_match_patterns \
+	240_type_alias_basic \
+	250_enum_tag_i32
+STAGE2V2_SHARED_SIMPLE := $(addprefix compiler/tests/run-pass/,$(addsuffix .dast,$(STAGE2V2_RUN_PASS_BASENAMES)))
+STAGE2V2_SHARED_TOTAL := $(words $(STAGE2V2_SHARED_SIMPLE))
 STAGE0_MODULE_TEST_DIR := compiler/tests/integration/module-basic
 STAGE0_TEST_FAIL_DIR := compiler/tests/integration/test-fail
 STAGE0_TEST_FAIL_COMPILE_DIR := compiler/tests/integration/test-fail-compile
@@ -109,7 +140,7 @@ NATIVE_PATH ?= compiler/stage2/tests/examples/native-full
 NATIVE_BUILD_ARGS ?= --example hello
 NATIVE_TARGET_DIR ?=
 
-.PHONY: build-stage0 test-stage0 test-stage0-drop test-stage2 test-stage2-bootstrap test-stage2-parity test-shared-stage0 test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-gen-simple test-ir-gen-combo test-ir-qbe test-ir-qbe-simple test-ir-qbe-combo test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
+.PHONY: build-stage0 test-stage0 test-stage0-drop test-stage2 test-stage2v2 test-stage2-bootstrap test-stage2-parity test-shared-stage0 test-ir test-ir-verify test-ir-opt test-ir-gen test-ir-gen-simple test-ir-gen-combo test-ir-qbe test-ir-qbe-simple test-ir-qbe-combo test clean stage2-native stage2-compiler vscode-ext vscode-ext-install vscode-ext-clean
 
 build-stage0:
 	@cd $(STAGE0_DIR) && go build -o dast-stage0 ./cmd/dast
@@ -426,6 +457,38 @@ test-stage2: build-stage0
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
+	done
+
+test-stage2v2: build-stage0
+	@set -e; \
+	stage2v2_bin="$(STAGE2V2_OUT)"; \
+	mkdir -p "$$(dirname "$$stage2v2_bin")"; \
+	echo "[stage2v2-build] $$stage2v2_bin"; \
+	$(STAGE2V2_RUN_ENV) ./$(STAGE0_BIN) build -o "$$stage2v2_bin" $(STAGE2V2_FILES); \
+	echo "[stage2v2-smoke] $$stage2v2_bin"; \
+	out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	echo "[stage2v2-drop] $$stage2v2_bin --drop-self-test"; \
+	out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin --drop-self-test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	echo "[stage2v2-drop-pass] $$stage2v2_bin --drop-pass-self-test"; \
+	out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin --drop-pass-self-test 2>&1); \
+	status=$$?; \
+	echo "$$out"; \
+	if [ $$status -ne 0 ]; then exit $$status; fi; \
+	echo "[stage2v2-phase1] shared simple run-pass"; \
+	i=0; total=$(words $(STAGE2V2_SHARED_SIMPLE)); \
+	for f in $(STAGE2V2_SHARED_SIMPLE); do \
+		i=$$((i+1)); \
+		echo "[stage2v2-shared $$i/$$total] $$f"; \
+		out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin run $$f 2>&1); \
+		status=$$?; \
+		echo "$$out"; \
+		if [ $$status -ne 0 ]; then exit $$status; fi; \
 	done
 
 test-stage2-bootstrap: build-stage0

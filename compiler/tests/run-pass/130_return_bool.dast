@@ -1,0 +1,9 @@
+fn is_lt(a: i64, b: i64) -> bool {
+    return a < b
+}
+
+fn main() {
+    let b = is_lt(1, 2)
+    println("ret_bool", b)
+}
+

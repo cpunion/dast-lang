@@ -1,0 +1,132 @@
+// Minimal IR and drop insertion pass for stage2v2-min.
+// This is a deliberately tiny, linear-scan pass we can trust first.
+
+struct DropInstr {
+    kind: i32,   // 1=store, 2=drop, 3=ret
+    name: String,
+    typ: String,
+}
+
+struct LiveVar {
+    name: String,
+    typ: String,
+}
+
+fn drop_kind_store() -> i32 { return 1 }
+fn drop_kind_drop() -> i32 { return 2 }
+fn drop_kind_ret() -> i32 { return 3 }
+
+fn drop_instr_store(name: String, typ: String) -> DropInstr {
+    return DropInstr { kind: drop_kind_store(), name: name, typ: typ }
+}
+
+fn drop_instr_drop(name: String, typ: String) -> DropInstr {
+    return DropInstr { kind: drop_kind_drop(), name: name, typ: typ }
+}
+
+fn drop_instr_ret() -> DropInstr {
+    return DropInstr { kind: drop_kind_ret(), name: "", typ: "" }
+}
+
+fn live_index(live: & [LiveVar], name: &str) -> i32 {
+    let key = string_clone(name)
+    let mut i = 0
+    while i < len(*live) {
+        if (*live)[i].name == key { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn live_set(live: &mut [LiveVar], name: String, typ: String) {
+    let idx = live_index(live, &name)
+    if idx >= 0 {
+        let mut out: [LiveVar] = []
+        let mut i = 0
+        while i < len(*live) {
+            if i == idx {
+                let v = (*live)[i]
+                push(&mut out, LiveVar { name: v.name, typ: string_clone(&typ) })
+            } else {
+                push(&mut out, (*live)[i])
+            }
+            i = i + 1
+        }
+        *live = out
+        return
+    }
+    push(live, LiveVar { name: name, typ: typ })
+}
+
+fn live_remove(live: &mut [LiveVar], name: &str) {
+    let idx = live_index(live, name)
+    if idx < 0 { return }
+    let mut out: [LiveVar] = []
+    let mut i = 0
+    while i < len(*live) {
+        if i != idx { push(&mut out, (*live)[i]) }
+        i = i + 1
+    }
+    *live = out
+}
+
+fn live_drop_all(live: &mut [LiveVar], out: &mut [DropInstr]) {
+    let mut i = 0
+    while i < len(*live) {
+        let v = (*live)[i]
+        if drop_needs_drop_type(string_clone(&v.typ)) {
+            push(out, drop_instr_drop(v.name, v.typ))
+        }
+        i = i + 1
+    }
+    let empty: [LiveVar] = []
+    *live = empty
+}
+
+fn drop_pass(instrs: [DropInstr]) -> [DropInstr] {
+    let mut live: [LiveVar] = []
+    let mut out: [DropInstr] = []
+    let mut i = 0
+    while i < len(instrs) {
+        let inst = instrs[i]
+        if inst.kind == drop_kind_store() {
+            let idx = live_index(&live, &inst.name)
+            if idx >= 0 {
+                let old_typ = live[idx].typ
+                if drop_needs_drop_type(string_clone(&old_typ)) {
+                    push(&mut out, drop_instr_drop(string_clone(&inst.name), old_typ))
+                }
+                live_remove(&mut live, &inst.name)
+            }
+            live_set(&mut live, string_clone(&inst.name), string_clone(&inst.typ))
+            push(&mut out, inst)
+        } else if inst.kind == drop_kind_ret() {
+            live_drop_all(&mut live, &mut out)
+            push(&mut out, inst)
+        } else {
+            push(&mut out, inst)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn drop_count(instrs: & [DropInstr]) -> i32 {
+    let mut n = 0
+    let mut i = 0
+    while i < len(*instrs) {
+        if (*instrs)[i].kind == drop_kind_drop() { n = n + 1 }
+        i = i + 1
+    }
+    return n
+}
+
+fn drop_pass_self_test() -> i32 {
+    let mut instrs: [DropInstr] = []
+    push(&mut instrs, drop_instr_store("x", "String"))
+    push(&mut instrs, drop_instr_store("y", "i64"))
+    push(&mut instrs, drop_instr_store("x", "String"))
+    push(&mut instrs, drop_instr_ret())
+    let out = drop_pass(instrs)
+    return drop_count(&out)
+}

@@ -1,0 +1,9 @@
+struct S {
+    x: i64
+}
+
+fn main() {
+    let mut s = S { x: 1 }
+    s = S { x: 2 }
+    println("x", s.x)
+}

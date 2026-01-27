@@ -1,0 +1,20 @@
+enum Flag tag i32 { Off, On }
+
+type FlagAlias = Flag
+
+fn is_on(f: FlagAlias) -> bool {
+    match f {
+        .On => { return true },
+        _ => { return false },
+    }
+    return false
+}
+
+fn main() {
+    let f = Flag.On
+    if is_on(f) {
+        println("on", 1)
+    } else {
+        println("on", 0)
+    }
+}

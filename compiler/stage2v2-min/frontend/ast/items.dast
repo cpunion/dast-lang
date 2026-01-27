@@ -1,0 +1,171 @@
+// AST: items (struct/enum/const/function/program) for stage2v2-min.
+
+struct ConstDecl {
+    name: String,
+    expr: Expr,
+}
+
+fn const_decl_clone(c: &ConstDecl) -> ConstDecl {
+    return ConstDecl { name: string_clone(&c.name), expr: expr_clone(&c.expr) }
+}
+
+fn ast_string_list_clone(items: & [String]) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, string_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct StructField {
+    name: String,
+    typ: String,
+}
+
+fn struct_field_clone(f: &StructField) -> StructField {
+    return StructField { name: string_clone(&f.name), typ: string_clone(&f.typ) }
+}
+
+fn struct_field_list_clone(items: & [StructField]) -> [StructField] {
+    let mut out: [StructField] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, struct_field_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct StructDecl {
+    name: String,
+    fields: [StructField],
+}
+
+fn struct_decl_clone(s: &StructDecl) -> StructDecl {
+    return StructDecl { name: string_clone(&s.name), fields: struct_field_list_clone(&s.fields) }
+}
+
+fn struct_decl_list_clone(items: & [StructDecl]) -> [StructDecl] {
+    let mut out: [StructDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, struct_decl_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct EnumVariant {
+    name: String,
+    has_payload: bool,
+    payload_type: String,
+}
+
+fn enum_variant_clone(v: &EnumVariant) -> EnumVariant {
+    return EnumVariant { name: string_clone(&v.name), has_payload: v.has_payload, payload_type: string_clone(&v.payload_type) }
+}
+
+fn enum_variant_list_clone(items: & [EnumVariant]) -> [EnumVariant] {
+    let mut out: [EnumVariant] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, enum_variant_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct EnumDecl {
+    name: String,
+    tag_type: String,
+    variants: [EnumVariant],
+}
+
+fn enum_decl_clone(e: &EnumDecl) -> EnumDecl {
+    return EnumDecl { name: string_clone(&e.name), tag_type: string_clone(&e.tag_type), variants: enum_variant_list_clone(&e.variants) }
+}
+
+fn enum_decl_list_clone(items: & [EnumDecl]) -> [EnumDecl] {
+    let mut out: [EnumDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, enum_decl_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct TypeAlias {
+    name: String,
+    target: String,
+}
+
+fn type_alias_clone(a: &TypeAlias) -> TypeAlias {
+    return TypeAlias { name: string_clone(&a.name), target: string_clone(&a.target) }
+}
+
+fn type_alias_list_clone(items: & [TypeAlias]) -> [TypeAlias] {
+    let mut out: [TypeAlias] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, type_alias_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct Param {
+    name: String,
+    typ: String,
+    has_type: bool,
+}
+
+fn param_clone(p: &Param) -> Param {
+    return Param { name: string_clone(&p.name), typ: string_clone(&p.typ), has_type: p.has_type }
+}
+
+fn param_list_clone(items: & [Param]) -> [Param] {
+    let mut out: [Param] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, param_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct Function {
+    name: String,
+    params: [Param],
+    ret_type: String,
+    body: Block,
+}
+
+fn function_clone(f: &Function) -> Function {
+    return Function {
+        name: string_clone(&f.name),
+        params: param_list_clone(&f.params),
+        ret_type: string_clone(&f.ret_type),
+        body: block_clone(&f.body),
+    }
+}
+
+fn function_list_clone(items: & [Function]) -> [Function] {
+    let mut out: [Function] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, function_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct Program {
+    structs: [StructDecl],
+    enums: [EnumDecl],
+    type_aliases: [TypeAlias],
+    consts: [ConstDecl],
+    functions: [Function],
+}

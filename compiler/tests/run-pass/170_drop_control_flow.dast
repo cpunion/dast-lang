@@ -1,0 +1,33 @@
+struct Box {
+    s: String,
+    n: i64,
+}
+
+enum MaybeBox {
+    Some(Box),
+    None,
+}
+
+fn mk(i: i64) -> Box {
+    return Box { s: "x", n: i }
+}
+
+fn main() {
+    let mut acc = 0
+    let mut i = 0
+    let mut cur = MaybeBox.None
+    while i < 40 {
+        let b = mk(i)
+        if i == 10 {
+            cur = MaybeBox.Some(b)
+        } else {
+            cur = MaybeBox.None
+        }
+        match cur {
+            .Some(v) => { acc = acc + v.n }
+            .None => { acc = acc + 1 }
+        }
+        i = i + 1
+    }
+    println("acc", acc)
+}

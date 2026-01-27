@@ -1,0 +1,224 @@
+// Expression parsing for stage2v2-min.
+
+fn parse_const_expr(p: &mut Parser) -> Expr {
+    let t = parser_peek(p)
+    if t.kind == TK_MINUS {
+        let _ = parser_advance(p)
+        let v = parser_expect(p, TK_INT, "int").int_value
+        return expr_int(-v)
+    }
+    return parse_expr(p)
+}
+
+fn parse_primary(p: &mut Parser) -> Expr {
+    let t = parser_peek(p)
+    match t.kind {
+        TK_IDENT => {
+            let name = parser_advance(p).text
+            if !p.no_struct_lit && parser_peek(p).kind == TK_LBRACE {
+                let fields = parse_struct_lit_fields(p)
+                return expr_struct_lit(name, fields)
+            }
+            return expr_ident(name)
+        }
+        TK_INT => {
+            let v = parser_advance(p).int_value
+            return expr_int(v)
+        }
+        TK_TRUE => {
+            let _ = parser_advance(p)
+            return expr_bool(true)
+        }
+        TK_FALSE => {
+            let _ = parser_advance(p)
+            return expr_bool(false)
+        }
+        TK_CHAR => {
+            let v = parser_advance(p).int_value
+            return expr_char(v)
+        }
+        TK_STRING => {
+            let s = parser_advance(p).text
+            return expr_string(s)
+        }
+        TK_MINUS => {
+            let _ = parser_advance(p)
+            let v = parser_expect(p, TK_INT, "int").int_value
+            return expr_int(-v)
+        }
+        TK_LPAREN => {
+            let _ = parser_advance(p)
+            let inner = parse_expr(p)
+            let _ = parser_expect(p, TK_RPAREN, ")")
+            return inner
+        }
+        TK_LBRACKET => {
+            let _ = parser_advance(p)
+            let mut elems: [Expr] = []
+            if parser_peek(p).kind != TK_RBRACKET {
+                let mut done = false
+                while !done {
+                    push(&mut elems, parse_expr(p))
+                    if parser_peek(p).kind == TK_COMMA {
+                        let _ = parser_advance(p)
+                    } else {
+                        done = true
+                    }
+                }
+            }
+            let _ = parser_expect(p, TK_RBRACKET, "]")
+            return expr_array(elems)
+        }
+        _ => {
+            println("parse error: unexpected token", t.kind, t.text)
+            exit(1)
+            return expr_int(0)
+        }
+    }
+}
+
+fn parse_struct_lit_fields(p: &mut Parser) -> [FieldInit] {
+    let _ = parser_expect(p, TK_LBRACE, "{")
+    let mut fields: [FieldInit] = []
+    if parser_peek(p).kind == TK_RBRACE {
+        let _ = parser_advance(p)
+        return fields
+    }
+    let mut done = false
+    while !done {
+        let fname = parser_expect(p, TK_IDENT, "field").text
+        let _ = parser_expect(p, TK_COLON, ":")
+        let val = parse_expr(p)
+        push(&mut fields, FieldInit { name: fname, value: val })
+        if parser_peek(p).kind == TK_COMMA {
+            let _ = parser_advance(p)
+        } else {
+            done = true
+        }
+    }
+    let _ = parser_expect(p, TK_RBRACE, "}")
+    return fields
+}
+
+fn parse_args(p: &mut Parser) -> [Expr] {
+    let mut args: [Expr] = []
+    if parser_peek(p).kind == TK_RPAREN { return args }
+    let mut done = false
+    while !done {
+        push(&mut args, parse_expr(p))
+        let t = parser_peek(p)
+        if t.kind == TK_COMMA {
+            let _ = parser_advance(p)
+        } else {
+            done = true
+        }
+    }
+    return args
+}
+
+fn parse_unary(p: &mut Parser) -> Expr {
+    let t = parser_peek(p)
+    if t.kind == TK_MINUS {
+        let _ = parser_advance(p)
+        let v = parser_expect(p, TK_INT, "int").int_value
+        return expr_int(-v)
+    }
+    if t.kind == TK_AMP {
+        let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_MUT { let _ = parser_advance(p) }
+        let inner = parse_unary(p)
+        return expr_ref(inner)
+    }
+    if t.kind == TK_STAR {
+        let _ = parser_advance(p)
+        let inner = parse_unary(p)
+        return expr_deref(inner)
+    }
+    return parse_primary(p)
+}
+
+fn parse_postfix(p: &mut Parser) -> Expr {
+    let mut cur = parse_unary(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_LPAREN {
+            let _ = parser_advance(p)
+            let args = parse_args(p)
+            let _ = parser_expect(p, TK_RPAREN, ")")
+            if cur.kind == EXPR_IDENT {
+                cur = expr_call(cur.name, args)
+            } else if cur.kind == EXPR_FIELD && len(cur.args) > 0 && cur.args[0].kind == EXPR_IDENT {
+                let callee = cur.args[0].name + "." + cur.name
+                cur = expr_call(callee, args)
+            } else {
+                println("parse error: call target")
+                exit(1)
+            }
+        } else if t.kind == TK_LBRACKET {
+            let _ = parser_advance(p)
+            let idx = parse_expr(p)
+            let _ = parser_expect(p, TK_RBRACKET, "]")
+            cur = expr_index(cur, idx)
+        } else if t.kind == TK_DOT {
+            let _ = parser_advance(p)
+            let fname = parser_expect(p, TK_IDENT, "field").text
+            cur = expr_field(cur, fname)
+        } else {
+            done = true
+        }
+    }
+    return cur
+}
+
+fn parse_add(p: &mut Parser) -> Expr {
+    let mut left = parse_postfix(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_PLUS || t.kind == TK_MINUS {
+            let op = parser_advance(p).text
+            let rhs = parse_postfix(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_lt(p: &mut Parser) -> Expr {
+    let mut left = parse_add(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_LT || t.kind == TK_GT {
+            let op = parser_advance(p).text
+            let rhs = parse_add(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_eq(p: &mut Parser) -> Expr {
+    let mut left = parse_lt(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_EQEQ {
+            let op = parser_advance(p).text
+            let rhs = parse_lt(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_expr(p: &mut Parser) -> Expr {
+    return parse_eq(p)
+}

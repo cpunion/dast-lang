@@ -14,6 +14,11 @@ func (p *Parser) parseExpr(minPrec int) ast.Expr {
 		if !ok || prec < minPrec {
 			break
 		}
+		// Minimal semicolon insertion: if an infix operator starts on a new
+		// line after a token that can end an expression, treat it as a break.
+		if p.newlineBefore(opTok) && canEndExpr(p.prev().Kind) {
+			break
+		}
 		p.advance()
 		nextMin := prec + 1
 		right := p.parseExpr(nextMin)

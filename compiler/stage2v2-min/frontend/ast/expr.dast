@@ -1,0 +1,138 @@
+// AST: expressions for stage2v2-min.
+
+const EXPR_IDENT = 1
+const EXPR_INT = 2
+const EXPR_BOOL = 3
+const EXPR_CHAR = 4
+const EXPR_STRING = 5
+const EXPR_CALL = 6
+const EXPR_BINARY = 7
+const EXPR_STRUCT_LIT = 8
+const EXPR_FIELD = 9
+const EXPR_REF = 10
+const EXPR_DEREF = 11
+const EXPR_ARRAY = 12
+const EXPR_INDEX = 13
+
+struct FieldInit {
+    name: String,
+    value: Expr,
+}
+
+fn field_init_list_empty() -> [FieldInit] {
+    let mut out: [FieldInit] = []
+    return out
+}
+
+fn field_init_clone(f: &FieldInit) -> FieldInit {
+    return FieldInit { name: string_clone(&f.name), value: expr_clone(&f.value) }
+}
+
+fn field_init_list_clone(items: & [FieldInit]) -> [FieldInit] {
+    let mut out: [FieldInit] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, field_init_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct Expr {
+    kind: i32,
+    name: String,
+    int_value: i64,
+    bool_value: bool,
+    args: [Expr],
+    fields: [FieldInit],
+}
+
+fn expr_list_empty() -> [Expr] {
+    let out: [Expr] = []
+    return out
+}
+
+fn expr_clone(e: &Expr) -> Expr {
+    return Expr {
+        kind: e.kind,
+        name: string_clone(&e.name),
+        int_value: e.int_value,
+        bool_value: e.bool_value,
+        args: expr_list_clone(&e.args),
+        fields: field_init_list_clone(&e.fields),
+    }
+}
+
+fn expr_list_clone(items: & [Expr]) -> [Expr] {
+    let mut out: [Expr] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, expr_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn expr_ident(name: String) -> Expr {
+    return Expr { kind: EXPR_IDENT, name: name, int_value: 0, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+}
+
+fn expr_int(v: i64) -> Expr {
+    return Expr { kind: EXPR_INT, name: "", int_value: v, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+}
+
+fn expr_bool(v: bool) -> Expr {
+    return Expr { kind: EXPR_BOOL, name: "", int_value: 0, bool_value: v, args: expr_list_empty(), fields: field_init_list_empty() }
+}
+
+fn expr_char(v: i64) -> Expr {
+    return Expr { kind: EXPR_CHAR, name: "", int_value: v, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+}
+
+fn expr_string(v: String) -> Expr {
+    return Expr { kind: EXPR_STRING, name: v, int_value: 0, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+}
+
+fn expr_call(name: String, args: [Expr]) -> Expr {
+    return Expr { kind: EXPR_CALL, name: name, int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+}
+
+fn expr_binary(op: String, lhs: Expr, rhs: Expr) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, lhs)
+    push(&mut args, rhs)
+    return Expr { kind: EXPR_BINARY, name: op, int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+}
+
+fn expr_struct_lit(name: String, fields: [FieldInit]) -> Expr {
+    return Expr { kind: EXPR_STRUCT_LIT, name: name, int_value: 0, bool_value: false, args: expr_list_empty(), fields: fields }
+}
+
+fn expr_field(recv: Expr, field: String) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, recv)
+    return Expr { kind: EXPR_FIELD, name: field, int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+}
+
+fn expr_ref(inner: Expr) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, inner)
+    return Expr { kind: EXPR_REF, name: "", int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+}
+
+fn expr_deref(inner: Expr) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, inner)
+    return Expr { kind: EXPR_DEREF, name: "", int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+}
+
+fn expr_array(elems: [Expr]) -> Expr {
+    return Expr { kind: EXPR_ARRAY, name: "", int_value: 0, bool_value: false, args: elems, fields: field_init_list_empty() }
+}
+
+fn expr_index(recv: Expr, idx: Expr) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, recv)
+    push(&mut args, idx)
+    return Expr { kind: EXPR_INDEX, name: "", int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+}

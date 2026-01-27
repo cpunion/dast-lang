@@ -1,0 +1,25 @@
+// IO/process builtins declared in the prelude package.
+
+fn read_file(path: String) -> String {
+    return path
+}
+
+fn write_file(path: String, data: String) -> unit {
+    return
+}
+
+fn mkdir(path: String) -> unit {
+    return
+}
+
+fn read_dir(path: String) -> [String] {
+    return []
+}
+
+fn exec(cmd: String, args: [String]) -> i64 {
+    return 0
+}
+
+fn exit(code: i64) -> unit {
+    return
+}

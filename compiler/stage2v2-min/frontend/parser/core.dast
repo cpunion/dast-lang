@@ -1,0 +1,43 @@
+// Parser core utilities for stage2v2-min.
+
+struct Parser {
+    tokens: [Token],
+    idx: i64,
+    n: i64,
+    no_struct_lit: bool,
+}
+
+fn token_clone(t: &Token) -> Token {
+    return Token { kind: t.kind, text: string_clone(&t.text), int_value: t.int_value, bool_value: t.bool_value }
+}
+
+fn parser_new(tokens: [Token]) -> Parser {
+    let n = len(tokens)
+    return Parser { tokens: tokens, idx: 0, n: n, no_struct_lit: false }
+}
+
+fn parser_peek(p: &Parser) -> Token {
+    if p.idx >= p.n { return Token { kind: TK_EOF, text: "", int_value: 0, bool_value: false } }
+    return token_clone(&p.tokens[p.idx])
+}
+
+fn parser_peek_next(p: &Parser) -> Token {
+    let next = p.idx + 1
+    if next >= p.n { return Token { kind: TK_EOF, text: "", int_value: 0, bool_value: false } }
+    return token_clone(&p.tokens[next])
+}
+
+fn parser_advance(p: &mut Parser) -> Token {
+    let t = parser_peek(p)
+    if p.idx < p.n { p.idx = p.idx + 1 }
+    return t
+}
+
+fn parser_expect(p: &mut Parser, kind: i32, label: String) -> Token {
+    let t = parser_advance(p)
+    if t.kind != kind {
+        println("parse error: expected", label, "got", t.kind, t.text)
+        exit(1)
+    }
+    return t
+}

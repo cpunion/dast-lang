@@ -14,6 +14,43 @@ func (p *Parser) maybeConsumeSemicolon() {
 	}
 }
 
+// newlineBefore reports whether tok starts on a later line than the last
+// consumed token. We use this to implement a minimal semicolon-insertion rule:
+// a new line can terminate the previous expression unless it is clearly
+// continued.
+func (p *Parser) newlineBefore(tok lexer.Token) bool {
+	prev := p.prev()
+	if prev.Kind == lexer.TokenEOF {
+		return false
+	}
+	if prev.Span.End.Line == 0 || tok.Span.Start.Line == 0 {
+		return false
+	}
+	return tok.Span.Start.Line > prev.Span.End.Line
+}
+
+// canEndExpr is a conservative check for tokens that may legally end an
+// expression. If the next operator appears on a new line after such a token,
+// we treat it as a statement break.
+func canEndExpr(kind lexer.TokenKind) bool {
+	switch kind {
+	case lexer.TokenIdent,
+		lexer.TokenInt,
+		lexer.TokenString,
+		lexer.TokenChar,
+		lexer.TokenTrue,
+		lexer.TokenFalse,
+		lexer.TokenSelf,
+		lexer.TokenSelfType,
+		lexer.TokenRParen,
+		lexer.TokenRBracket,
+		lexer.TokenRBrace:
+		return true
+	default:
+		return false
+	}
+}
+
 func lexTokens(filename string, input string) []lexer.Token {
 	lx := lexer.New(filename, input)
 	var toks []lexer.Token

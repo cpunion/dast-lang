@@ -1,0 +1,314 @@
+// Minimal lexer for stage2v2-min.
+
+const TK_EOF = 0
+const TK_IDENT = 1
+const TK_INT = 2
+const TK_STRING = 3
+const TK_CHAR = 4
+const TK_CONST = 5
+const TK_FN = 6
+const TK_LET = 7
+const TK_TRUE = 8
+const TK_FALSE = 9
+const TK_ASSIGN = 10
+const TK_LPAREN = 11
+const TK_RPAREN = 12
+const TK_LBRACE = 13
+const TK_RBRACE = 14
+const TK_COMMA = 15
+const TK_MINUS = 16
+const TK_PLUS = 17
+const TK_LT = 18
+const TK_EQEQ = 19
+const TK_IF = 20
+const TK_ELSE = 21
+const TK_WHILE = 22
+const TK_LOOP = 23
+const TK_BREAK = 24
+const TK_CONTINUE = 25
+const TK_MUT = 26
+const TK_RETURN = 27
+const TK_ARROW = 28
+const TK_COLON = 29
+const TK_STRUCT = 30
+const TK_DOT = 31
+const TK_ENUM = 32
+const TK_AMP = 33
+const TK_STAR = 34
+const TK_LBRACKET = 35
+const TK_RBRACKET = 36
+const TK_MATCH = 37
+const TK_FATARROW = 38
+const TK_GT = 39
+const TK_TYPE = 40
+const TK_TAG = 41
+
+// Character constants used by the lexer.
+const CH_TAB = '\t'
+const CH_LF = '\n'
+const CH_CR = '\r'
+const CH_SPACE = ' '
+const CH_QUOTE = '"'
+const CH_APOSTROPHE = '\''
+const CH_LPAREN = '('
+const CH_RPAREN = ')'
+const CH_COMMA = ','
+const CH_MINUS = '-'
+const CH_PLUS = '+'
+const CH_SLASH = '/'
+const CH_EQ = '='
+const CH_LT = '<'
+const CH_GT = '>'
+const CH_BACKSLASH = '\\'
+const CH_UNDERSCORE = '_'
+const CH_LBRACE = '{'
+const CH_RBRACE = '}'
+const CH_LBRACKET = '['
+const CH_RBRACKET = ']'
+const CH_LOWER_N = 'n'
+const CH_COLON = ':'
+const CH_DOT = '.'
+const CH_AMP = '&'
+const CH_STAR = '*'
+
+struct Token {
+    kind: i32,
+    text: String,
+    int_value: i64,
+    bool_value: bool,
+}
+
+fn tok(kind: i32, text: String) -> Token {
+    return Token { kind: kind, text: text, int_value: 0, bool_value: false }
+}
+
+fn tok_int(v: i64) -> Token {
+    return Token { kind: TK_INT, text: "", int_value: v, bool_value: false }
+}
+
+fn tok_bool(v: bool) -> Token {
+    return Token { kind: if v { TK_TRUE } else { TK_FALSE }, text: "", int_value: 0, bool_value: v }
+}
+
+fn tok_char(v: i64) -> Token {
+    return Token { kind: TK_CHAR, text: "", int_value: v, bool_value: false }
+}
+
+struct Lexer {
+    src: String,
+    idx: i64,
+    n: i64,
+}
+
+fn lexer_new(src: String) -> Lexer {
+    let n = str_len(&src)
+    return Lexer { src: src, idx: 0, n: n }
+}
+
+fn lex_is_space(c: i64) -> bool {
+    return c == CH_SPACE || c == CH_TAB || c == CH_LF || c == CH_CR
+}
+
+fn lex_is_alpha(c: i64) -> bool {
+    if c >= 65 && c <= 90 { return true }
+    if c >= 97 && c <= 122 { return true }
+    return c == CH_UNDERSCORE
+}
+
+fn lex_is_digit(c: i64) -> bool {
+    return c >= 48 && c <= 57
+}
+
+fn lex_peek(l: &Lexer) -> i64 {
+    if l.idx >= l.n { return -1 }
+    return str_char_at(&l.src, l.idx)
+}
+
+fn lex_peek_next(l: &Lexer) -> i64 {
+    if l.idx + 1 >= l.n { return -1 }
+    return str_char_at(&l.src, l.idx + 1)
+}
+
+fn lex_advance(l: &mut Lexer) -> i64 {
+    let c = lex_peek(l)
+    if c >= 0 { l.idx = l.idx + 1 }
+    return c
+}
+
+fn lex_skip_space_and_comments(l: &mut Lexer) {
+    let mut done = false
+    while !done {
+        done = true
+        while lex_is_space(lex_peek(l)) { let _ = lex_advance(l); done = false }
+        // Line comments: // ...
+        if lex_peek(l) == CH_SLASH && lex_peek_next(l) == CH_SLASH {
+            done = false
+            while true {
+                let c = lex_peek(l)
+                if c < 0 || c == CH_LF { break }
+                let _ = lex_advance(l)
+            }
+        }
+    }
+}
+
+fn lex_read_ident(l: &mut Lexer) -> String {
+    let start = l.idx
+    while true {
+        let c = lex_peek(l)
+        if !(lex_is_alpha(c) || lex_is_digit(c)) { break }
+        let _ = lex_advance(l)
+    }
+    return str_substr(&l.src, start, l.idx - start)
+}
+
+fn lex_read_number(l: &mut Lexer) -> i64 {
+    let start = l.idx
+    while lex_is_digit(lex_peek(l)) { let _ = lex_advance(l) }
+    let text = str_substr(&l.src, start, l.idx - start)
+    return parse_int_simple(&text)
+}
+
+fn lex_escape_piece(c: i64) -> String {
+    if c == CH_LOWER_N { return "\n" }
+    if c == CH_BACKSLASH { return "\\" }
+    if c == CH_QUOTE { return "\"" }
+    if c == CH_APOSTROPHE { return "'" }
+    return ""
+}
+
+fn lex_read_string(l: &mut Lexer) -> String {
+    // Opening quote already checked.
+    let _ = lex_advance(l)
+    let mut out = ""
+    let mut seg_start = l.idx
+    while l.idx < l.n {
+        let c = lex_peek(l)
+        if c == CH_QUOTE {
+            if l.idx > seg_start {
+                out = out + str_substr(&l.src, seg_start, l.idx - seg_start)
+            }
+            let _ = lex_advance(l)
+            return out
+        }
+        if c == CH_BACKSLASH {
+            if l.idx > seg_start {
+                out = out + str_substr(&l.src, seg_start, l.idx - seg_start)
+            }
+            let _ = lex_advance(l)
+            let esc = lex_advance(l)
+            let piece = lex_escape_piece(esc)
+            if piece != "" {
+                out = out + piece
+            } else if esc >= 0 {
+                out = out + str_substr(&l.src, l.idx - 1, 1)
+            }
+            seg_start = l.idx
+            continue
+        }
+        let _ = lex_advance(l)
+    }
+    return out
+}
+
+fn lex_read_char(l: &mut Lexer) -> i64 {
+    // Opening quote already checked.
+    let _ = lex_advance(l)
+    let c0 = lex_advance(l)
+    let mut value = c0
+    if c0 == CH_BACKSLASH {
+        let esc = lex_advance(l)
+        if esc == CH_LOWER_N { value = CH_LF }
+        else if esc == CH_BACKSLASH { value = CH_BACKSLASH }
+        else if esc == CH_APOSTROPHE { value = CH_APOSTROPHE }
+        else if esc == CH_QUOTE { value = CH_QUOTE }
+        else { value = esc }
+    }
+    // Consume closing quote if present.
+    if lex_peek(l) == CH_APOSTROPHE { let _ = lex_advance(l) }
+    return value
+}
+
+fn lexer_next(l: &mut Lexer) -> Token {
+    lex_skip_space_and_comments(l)
+    let c = lex_peek(l)
+    if c < 0 { return tok(TK_EOF, "") }
+    if lex_is_alpha(c) {
+        let text = lex_read_ident(l)
+        if text == "const" { return tok(TK_CONST, text) }
+        if text == "fn" { return tok(TK_FN, text) }
+        if text == "let" { return tok(TK_LET, text) }
+        if text == "mut" { return tok(TK_MUT, text) }
+        if text == "if" { return tok(TK_IF, text) }
+        if text == "else" { return tok(TK_ELSE, text) }
+        if text == "while" { return tok(TK_WHILE, text) }
+        if text == "loop" { return tok(TK_LOOP, text) }
+        if text == "break" { return tok(TK_BREAK, text) }
+        if text == "continue" { return tok(TK_CONTINUE, text) }
+        if text == "return" { return tok(TK_RETURN, text) }
+        if text == "struct" { return tok(TK_STRUCT, text) }
+        if text == "enum" { return tok(TK_ENUM, text) }
+        if text == "type" { return tok(TK_TYPE, text) }
+        if text == "tag" { return tok(TK_TAG, text) }
+        if text == "match" { return tok(TK_MATCH, text) }
+        if text == "true" { return tok_bool(true) }
+        if text == "false" { return tok_bool(false) }
+        return tok(TK_IDENT, text)
+    }
+    if lex_is_digit(c) {
+        let v = lex_read_number(l)
+        return tok_int(v)
+    }
+    if c == CH_QUOTE {
+        let s = lex_read_string(l)
+        return tok(TK_STRING, s)
+    }
+    if c == CH_APOSTROPHE {
+        let v = lex_read_char(l)
+        return tok_char(v)
+    }
+    if c == CH_EQ && lex_peek_next(l) == CH_EQ {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_EQEQ, "==")
+    }
+    if c == CH_EQ && lex_peek_next(l) == CH_GT {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_FATARROW, "=>")
+    }
+    if c == CH_MINUS && lex_peek_next(l) == CH_GT {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_ARROW, "->")
+    }
+    let _ = lex_advance(l)
+    if c == CH_EQ { return tok(TK_ASSIGN, "=") }
+    if c == CH_LPAREN { return tok(TK_LPAREN, "(") }
+    if c == CH_RPAREN { return tok(TK_RPAREN, ")") }
+    if c == CH_LBRACE { return tok(TK_LBRACE, "{") }
+    if c == CH_RBRACE { return tok(TK_RBRACE, "}") }
+    if c == CH_COMMA { return tok(TK_COMMA, ",") }
+    if c == CH_COLON { return tok(TK_COLON, ":") }
+    if c == CH_DOT { return tok(TK_DOT, ".") }
+    if c == CH_LBRACKET { return tok(TK_LBRACKET, "[") }
+    if c == CH_RBRACKET { return tok(TK_RBRACKET, "]") }
+    if c == CH_AMP { return tok(TK_AMP, "&") }
+    if c == CH_STAR { return tok(TK_STAR, "*") }
+    if c == CH_MINUS { return tok(TK_MINUS, "-") }
+    if c == CH_PLUS { return tok(TK_PLUS, "+") }
+    if c == CH_LT { return tok(TK_LT, "<") }
+    if c == CH_GT { return tok(TK_GT, ">") }
+    return tok(TK_EOF, "")
+}
+
+fn lexer_all(src: String) -> [Token] {
+    let mut l = lexer_new(src)
+    let mut out: [Token] = []
+    while true {
+        let t = lexer_next(&mut l)
+        push(&mut out, t)
+        if t.kind == TK_EOF { break }
+    }
+    return out
+}

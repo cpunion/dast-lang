@@ -1,0 +1,63 @@
+// Small string helpers that centralize builtins behind borrowed `str`.
+
+fn str_len(s: &str) -> i64 {
+    return len(s)
+}
+
+fn str_char_at(s: &str, i: i64) -> i64 {
+    return char_at(s, i)
+}
+
+fn str_substr(s: &str, start: i64, count: i64) -> String {
+    return substr(s, start, count)
+}
+
+fn str_trim_space(s: &str) -> String {
+    let mut i = 0
+    let n = str_len(s)
+    while i < n {
+        let c = str_char_at(s, i)
+        if !(c == 32 || c == 9 || c == 10 || c == 13) { break }
+        i = i + 1
+    }
+    let mut j = n
+    while j > i {
+        let c = str_char_at(s, j - 1)
+        if !(c == 32 || c == 9 || c == 10 || c == 13) { break }
+        j = j - 1
+    }
+    return str_substr(s, i, j - i)
+}
+
+fn str_has_prefix(s: &str, prefix: &str) -> bool {
+    let plen = str_len(prefix)
+    let slen = str_len(s)
+    if plen > slen { return false }
+    return str_substr(s, 0, plen) == prefix
+}
+
+fn str_has_suffix(s: &str, suffix: &str) -> bool {
+    let plen = str_len(suffix)
+    let slen = str_len(s)
+    if plen > slen { return false }
+    return str_substr(s, slen - plen, plen) == suffix
+}
+
+fn parse_int_simple(text: &str) -> i64 {
+    let n = str_len(text)
+    if n == 0 { return 0 }
+    let mut i = 0
+    let mut sign = 1
+    if str_char_at(text, 0) == '-' {
+        sign = -1
+        i = 1
+    }
+    let mut v: i64 = 0
+    while i < n {
+        let c = str_char_at(text, i)
+        if c < '0' || c > '9' { break }
+        v = v * 10 + (c - '0')
+        i = i + 1
+    }
+    return v * sign
+}

@@ -1,0 +1,15 @@
+struct Item {
+    s: String,
+    n: i64,
+}
+
+fn main() {
+    let mut i = 0
+    let mut total = 0
+    while i < 20 {
+        let arr = [Item { s: "a", n: i }, Item { s: "b", n: i + 1 }]
+        total = total + arr[0].n
+        i = i + 1
+    }
+    println("total", total)
+}

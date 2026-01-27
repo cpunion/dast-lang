@@ -1,0 +1,186 @@
+// Statement parsing for stage2v2-min.
+
+fn parse_variant_pattern(p: &mut Parser) -> MatchArm {
+    let _ = parser_expect(p, TK_DOT, ".")
+    let variant = parser_expect(p, TK_IDENT, "variant").text
+    let mut binding = ""
+    let mut has_binding = false
+    if parser_peek(p).kind == TK_LPAREN {
+        let _ = parser_advance(p)
+        binding = parser_expect(p, TK_IDENT, "binding").text
+        let _ = parser_expect(p, TK_RPAREN, ")")
+        has_binding = true
+    }
+    return MatchArm {
+        pat_kind: PAT_VARIANT,
+        variant: variant,
+        binding: binding,
+        has_binding: has_binding,
+        int_value: 0,
+        block: block_empty(),
+    }
+}
+
+fn parse_match_pattern(p: &mut Parser) -> MatchArm {
+    let t = parser_peek(p)
+    if t.kind == TK_DOT {
+        return parse_variant_pattern(p)
+    }
+    if t.kind == TK_INT {
+        let v = parser_advance(p).int_value
+        return MatchArm {
+            pat_kind: PAT_INT,
+            variant: "",
+            binding: "",
+            has_binding: false,
+            int_value: v,
+            block: block_empty(),
+        }
+    }
+    if t.kind == TK_IDENT && t.text == "_" {
+        let _ = parser_advance(p)
+        return MatchArm {
+            pat_kind: PAT_WILDCARD,
+            variant: "",
+            binding: "",
+            has_binding: false,
+            int_value: 0,
+            block: block_empty(),
+        }
+    }
+    println("parse error: expected pattern got", t.kind, t.text)
+    exit(1)
+    return parse_variant_pattern(p)
+}
+
+fn parse_expr_before_block(p: &mut Parser) -> Expr {
+    let prev = p.no_struct_lit
+    p.no_struct_lit = true
+    let e = parse_expr(p)
+    p.no_struct_lit = prev
+    return e
+}
+
+fn parse_match_arm_body(p: &mut Parser) -> Block {
+    if parser_peek(p).kind == TK_LBRACE {
+        return parse_block(p)
+    }
+    let e = parse_expr(p)
+    let mut stmts = stmt_list_empty()
+    push(&mut stmts, stmt_expr(e))
+    return Block { stmts: stmts }
+}
+
+fn parse_block(p: &mut Parser) -> Block {
+    let _ = parser_expect(p, TK_LBRACE, "{")
+    let mut stmts = stmt_list_empty()
+    while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
+        push(&mut stmts, parse_stmt(p))
+    }
+    let _ = parser_expect(p, TK_RBRACE, "}")
+    return Block { stmts: stmts }
+}
+
+fn parse_stmt(p: &mut Parser) -> Stmt {
+    let t = parser_peek(p)
+    if t.kind == TK_LET {
+        let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_MUT { let _ = parser_advance(p) }
+        let name = parser_expect(p, TK_IDENT, "ident").text
+        let _ = parser_expect(p, TK_ASSIGN, "=")
+        let e = parse_expr(p)
+        return stmt_let(name, e)
+    }
+    if t.kind == TK_IF {
+        let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_LET {
+            let _ = parser_advance(p)
+            let pat = parse_variant_pattern(p)
+            let _ = parser_expect(p, TK_ASSIGN, "=")
+            let scrut = parse_expr_before_block(p)
+            let then_block = parse_block(p)
+            let mut has_else = false
+            let mut else_block = block_empty()
+            if parser_peek(p).kind == TK_ELSE {
+                let _ = parser_advance(p)
+                if parser_peek(p).kind == TK_IF {
+                    let else_if = parse_stmt(p)
+                    let mut stmts = stmt_list_empty()
+                    push(&mut stmts, else_if)
+                    else_block = Block { stmts: stmts }
+                } else {
+                    else_block = parse_block(p)
+                }
+                has_else = true
+            }
+            return stmt_iflet(scrut, pat.variant, pat.binding, pat.has_binding, then_block, else_block, has_else)
+        }
+        let cond = parse_expr_before_block(p)
+        let then_block = parse_block(p)
+        let mut has_else = false
+        let mut else_block = block_empty()
+        if parser_peek(p).kind == TK_ELSE {
+            let _ = parser_advance(p)
+            if parser_peek(p).kind == TK_IF {
+                let else_if = parse_stmt(p)
+                let mut stmts = stmt_list_empty()
+                push(&mut stmts, else_if)
+                else_block = Block { stmts: stmts }
+            } else {
+                else_block = parse_block(p)
+            }
+            has_else = true
+        }
+        return stmt_if(cond, then_block, else_block, has_else)
+    }
+    if t.kind == TK_MATCH {
+        let _ = parser_advance(p)
+        let scrut = parse_expr_before_block(p)
+        let _ = parser_expect(p, TK_LBRACE, "{")
+        let mut arms = match_arm_list_empty()
+        while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
+            let mut arm = parse_match_pattern(p)
+            let _ = parser_expect(p, TK_FATARROW, "=>")
+            arm.block = parse_match_arm_body(p)
+            push(&mut arms, arm)
+            if parser_peek(p).kind == TK_COMMA { let _ = parser_advance(p) }
+        }
+        let _ = parser_expect(p, TK_RBRACE, "}")
+        return stmt_match(scrut, arms)
+    }
+    if t.kind == TK_WHILE {
+        let _ = parser_advance(p)
+        let cond = parse_expr_before_block(p)
+        let body = parse_block(p)
+        return stmt_while(cond, body)
+    }
+    if t.kind == TK_LOOP {
+        let _ = parser_advance(p)
+        let body = parse_block(p)
+        return stmt_loop(body)
+    }
+    if t.kind == TK_BREAK {
+        let _ = parser_advance(p)
+        return stmt_break()
+    }
+    if t.kind == TK_CONTINUE {
+        let _ = parser_advance(p)
+        return stmt_continue()
+    }
+    if t.kind == TK_RETURN {
+        let _ = parser_advance(p)
+        let k = parser_peek(p).kind
+        if k == TK_RBRACE || k == TK_EOF {
+            return stmt_return_unit()
+        }
+        let v = parse_expr(p)
+        return stmt_return(v)
+    }
+    let lhs = parse_expr(p)
+    if parser_peek(p).kind == TK_ASSIGN {
+        let _ = parser_advance(p)
+        let rhs = parse_expr(p)
+        return stmt_assign_expr(lhs, rhs)
+    }
+    return stmt_expr(lhs)
+}

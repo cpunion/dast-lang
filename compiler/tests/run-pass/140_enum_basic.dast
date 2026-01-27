@@ -1,0 +1,17 @@
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+struct Pixel {
+    c: Color
+}
+
+fn main() {
+    let c = Color.Green
+    let p = Pixel { c: c }
+    println("color", p.c)
+    println("eq", p.c == Color.Green)
+}
+

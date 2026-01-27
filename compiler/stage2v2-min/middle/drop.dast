@@ -1,0 +1,69 @@
+// Minimal drop classification utilities for stage2v2-min.
+// This is intentionally small and will be expanded bottom-up.
+
+fn drop_trim_space(s: String) -> String {
+    let mut start = 0
+    let mut end = len(string_clone(&s))
+    while start < end && (char_at(string_clone(&s), start) == 32 || char_at(string_clone(&s), start) == 9) {
+        start = start + 1
+    }
+    while end > start && (char_at(string_clone(&s), end - 1) == 32 || char_at(string_clone(&s), end - 1) == 9) {
+        end = end - 1
+    }
+    if end <= start { return "" }
+    return substr(s, start, end - start)
+}
+
+fn drop_normalize_type_name(t: String) -> String {
+    return drop_trim_space(t)
+}
+
+fn drop_is_ref_type_name(t: String) -> bool {
+    let n = drop_normalize_type_name(t)
+    // Accept both "&T" (surface) and "*T" (legacy IR).
+    if n == "" { return false }
+    let c0 = char_at(string_clone(&n), 0)
+    return c0 == 38 || c0 == 42
+}
+
+fn drop_is_array_type_name(t: String) -> bool {
+    let n = drop_normalize_type_name(t)
+    let nlen = len(string_clone(&n))
+    if nlen < 2 { return false }
+    return char_at(string_clone(&n), 0) == 91 && char_at(string_clone(&n), nlen - 1) == 93
+}
+
+fn drop_array_elem_type_name(t: String) -> String {
+    let n = drop_normalize_type_name(t)
+    let nlen = len(string_clone(&n))
+    if nlen < 2 { return "" }
+    if char_at(string_clone(&n), 0) != 91 || char_at(string_clone(&n), nlen - 1) != 93 { return "" }
+    return drop_trim_space(substr(n, 1, nlen - 2))
+}
+
+fn drop_is_int_type_name(t: String) -> bool {
+    let n = drop_normalize_type_name(t)
+    return n == "int" || n == "i64" || n == "i32" || n == "i16" || n == "i8" ||
+        n == "u64" || n == "u32" || n == "u16" || n == "u8" || n == "isize" || n == "usize" || n == "char"
+}
+
+fn drop_is_copy_type_name(t: String) -> bool {
+    let n = drop_normalize_type_name(t)
+    if n == "" || n == "unit" { return true }
+    if n == "bool" { return true }
+    if n == "str" { return true }
+    if drop_is_int_type_name(string_clone(&n)) { return true }
+    if drop_is_ref_type_name(n) { return true }
+    return false
+}
+
+fn drop_needs_drop_type(t: String) -> bool {
+    let n = drop_normalize_type_name(t)
+    if n == "" { return false }
+    if drop_is_copy_type_name(string_clone(&n)) { return false }
+    // For the minimal scaffold, we conservatively treat String and arrays as drop types.
+    if n == "String" { return true }
+    if drop_is_array_type_name(n) { return true }
+    return false
+}
+

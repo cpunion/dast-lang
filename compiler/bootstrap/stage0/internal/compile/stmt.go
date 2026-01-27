@@ -784,6 +784,9 @@ func (c *Compiler) compileMatchArmExpr(arm *ast.MatchArm, scrut int, nextLabel s
 func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
 	switch p := pat.(type) {
 	case *ast.BindingPattern:
+		if _, _, ok := c.constPatternInfo(p.Name); ok {
+			return
+		}
 		typ := c.tempTypes[scrut]
 		if typ == "" {
 			typ = "i64"
@@ -896,6 +899,9 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
 func (c *Compiler) patternHasBinding(pat ast.Pattern) bool {
 	switch p := pat.(type) {
 	case *ast.BindingPattern:
+		if _, _, ok := c.constPatternInfo(p.Name); ok {
+			return false
+		}
 		return true
 	case *ast.VariantPattern:
 		return p.Binding != ""
@@ -941,6 +947,9 @@ func (c *Compiler) patternBindsDroppable(scrutType string, pat ast.Pattern) bool
 	case *ast.WildcardPattern, *ast.LiteralPattern, *ast.RangePattern:
 		return false
 	case *ast.BindingPattern:
+		if _, _, ok := c.constPatternInfo(p.Name); ok {
+			return false
+		}
 		return c.needsDropType(scrutType)
 	case *ast.VariantPattern:
 		if p.Binding == "" {
@@ -1051,11 +1060,24 @@ func isLvalueExpr(expr ast.Expr) bool {
 	}
 }
 
+func (c *Compiler) constPatternInfo(name string) (ast.ConstValue, string, bool) {
+	if info, ok := c.consts[name]; ok {
+		return info.Value, info.TypeName, true
+	}
+	return ast.ConstValue{}, "", false
+}
+
 func (c *Compiler) compilePatternCond(scrut int, pat ast.Pattern) (ir.Operand, bool) {
 	switch p := pat.(type) {
 	case *ast.WildcardPattern:
 		return ir.Operand{}, true
 	case *ast.BindingPattern:
+		if cv, typ, ok := c.constPatternInfo(p.Name); ok {
+			lit := ir.ConstOperand(constValueToIr(cv, typ))
+			cmp := c.newTemp()
+			c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(scrut), Rhs: lit})
+			return ir.TempOperand(cmp), false
+		}
 		return ir.Operand{}, true
 	case *ast.LiteralPattern:
 		lit := ir.ConstOperand(constValueToIr(p.Value, ""))

@@ -1,0 +1,18 @@
+// Core string/array builtins declared in the prelude package.
+
+fn len(x: String) -> i64 {
+    return 0
+}
+
+fn char_at(x: String, i: i64) -> i64 {
+    return 0
+}
+
+fn substr(x: String, start: i64, count: i64) -> String {
+    return x
+}
+
+fn string_clone(x: String) -> String {
+    return x
+}
+

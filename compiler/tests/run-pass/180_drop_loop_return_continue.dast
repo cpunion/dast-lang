@@ -1,0 +1,29 @@
+struct Temp {
+    s: String
+}
+
+fn mk_temp() -> Temp {
+    return Temp { s: "t" }
+}
+
+fn work(n: i64) -> i64 {
+    let mut i = 0
+    let mut sum = 0
+    loop {
+        let _t = mk_temp()
+        if i == n { return sum }
+        if i == 3 {
+            i = i + 1
+            continue
+        }
+        sum = sum + i
+        i = i + 1
+        if i > n { break }
+    }
+    return sum
+}
+
+fn main() {
+    let v = work(6)
+    println("work", v)
+}

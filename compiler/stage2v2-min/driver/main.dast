@@ -1,0 +1,83 @@
+// stage2v2-min driver: keep simple, but exercise full compile->run.
+
+fn usage() {
+    println("usage", "dast-stage2v2-min <build|run> <file.dast> [-o out] [-- args]")
+}
+
+fn main() {
+    let argv = args()
+    if len(argv) == 0 {
+        println("stage2v2-min", "scaffold")
+        usage()
+        return
+    }
+
+    let cmd = string_clone(&argv[0])
+    if cmd == "--self-test" {
+        println("stage2v2-min", "ok")
+        return
+    }
+    if cmd == "--drop-self-test" {
+        println("drop", drop_needs_drop_type("String"))
+        println("drop", drop_needs_drop_type("[i64]"))
+        println("drop", drop_needs_drop_type("i64"))
+        println("drop", drop_needs_drop_type("&str"))
+        return
+    }
+    if cmd == "--drop-pass-self-test" {
+        let drops = drop_pass_self_test()
+        println("drop-pass", drops)
+        return
+    }
+
+    if cmd != "build" && cmd != "run" {
+        println("error", "unknown command")
+        usage()
+        exit(2)
+        return
+    }
+    if len(argv) < 2 {
+        println("error", "missing input file")
+        usage()
+        exit(2)
+        return
+    }
+
+    let src_path = string_clone(&argv[1])
+    let mut out_bin = "compiler/stage2v2-min/target/min/main"
+    let mut run_args: [String] = []
+    let mut i = 2
+    let mut after_sep = false
+    while i < len(argv) {
+        let a = string_clone(&argv[i])
+        if !after_sep && a == "--" {
+            after_sep = true
+            i = i + 1
+            continue
+        }
+        if !after_sep && a == "-o" && i + 1 < len(argv) {
+            out_bin = string_clone(&argv[i + 1])
+            i = i + 2
+            continue
+        }
+        if after_sep {
+            push(&mut run_args, a)
+        }
+        i = i + 1
+    }
+
+    if cmd == "build" {
+        compile_native_single(src_path, string_clone(&out_bin))
+        println("built", out_bin)
+        return
+    }
+
+    // run
+    compile_native_single(src_path, string_clone(&out_bin))
+    let code = exec(out_bin, run_args)
+    if code != 0 {
+        println("run-exit", code)
+        exit(code)
+        return
+    }
+}

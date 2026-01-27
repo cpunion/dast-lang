@@ -86,6 +86,14 @@ func isCopyTypeName(t string) bool {
 
 func isBorrowedTypeName(t string) bool {
 	t = normalizeTypeName(t)
+	// Arrays of borrowed element types are also borrowed; otherwise we end up
+	// emitting drop calls for element helpers that we intentionally suppress.
+	if isArrayTypeName(t) {
+		elem := arrayElemTypeName(t)
+		if isBorrowedTypeName(elem) {
+			return true
+		}
+	}
 	switch t {
 	// Tokens are borrowed views into lexer storage and must not be auto-dropped
 	// when passed around by value in stage0.
@@ -293,6 +301,8 @@ func (c *Compiler) emitDropHelpers() {
 	}
 	// Ensure drop helpers exist for common arrays of borrowed AST node types that
 	// may not be registered consistently due to type qualification differences.
+	// Only register these when the base type is actually present in the program
+	// (or has already been requested), to avoid exploding IR output for small tests.
 	for _, base := range []string{
 		"ParseError", "Param", "GenericParam", "Field", "StructDecl", "Variant", "EnumDecl",
 		"ImportItemSpec", "ImportDecl", "TraitMethod", "AssociatedType", "AssociatedTypeImpl",
@@ -310,7 +320,17 @@ func (c *Compiler) emitDropHelpers() {
 		"QbeCallArg", "QbeDerefResult", "QbeDispatchHelper", "QbeEmitter", "QbeExprLines", "QbeFuncCtx", "QbeStringConst", "QbeStructField", "QbeStructLayout",
 		"ArgSplit", "ArgSplitPkg", "ImportLoad", "LineCol", "LoadState", "Manifest", "ManifestResult", "ParseResult", "StringArrayParse", "TestCollect",
 	} {
-		c.dropFuncs["["+base+"]"] = struct{}{}
+		_, hasBaseDrop := c.dropFuncs[base]
+		_, hasArrayDrop := c.dropFuncs["["+base+"]"]
+		hasStruct := c.isStructTypeName(base)
+		hasEnum := c.isEnumTypeName(base)
+		hasTypeDecl := false
+		if c.prog.TypeDecls != nil {
+			_, hasTypeDecl = c.prog.TypeDecls[base]
+		}
+		if hasBaseDrop || hasArrayDrop || hasStruct || hasEnum || hasTypeDecl {
+			c.dropFuncs["["+base+"]"] = struct{}{}
+		}
 	}
 	debugDrop := os.Getenv("DAST_DROP_DEBUG") != ""
 	seen := map[string]struct{}{}
@@ -329,20 +349,50 @@ func (c *Compiler) emitDropHelpers() {
 			_, hasTypeDecl := c.prog.TypeDecls[t]
 			fmt.Fprintf(os.Stderr, "stage0: drop classify %s struct=%v enum=%v typedecl=%v\n", t, hasStruct, hasEnum, hasTypeDecl)
 		}
-		if isArrayTypeName(t) {
-			elem := arrayElemTypeName(t)
-			emit(elem)
-			c.prog.Functions[dropFuncNameForType(t)] = buildDropArrayFunc(t, elem, c)
-			return
-		}
-		if c.isStructTypeName(t) {
-			c.prog.Functions[dropFuncNameForType(t)] = buildDropStructFunc(t, c)
-			return
-		}
-		if c.isEnumTypeName(t) {
-			c.prog.Functions[dropFuncNameForType(t)] = buildDropEnumFunc(t, c)
-			return
-		}
+			if isArrayTypeName(t) {
+				elem := arrayElemTypeName(t)
+				emit(elem)
+				c.prog.Functions[dropFuncNameForType(t)] = buildDropArrayFunc(t, elem, c)
+				return
+			}
+			if c.isStructTypeName(t) {
+				// Ensure nested field drop helpers are emitted even when they were
+				// never explicitly requested via ensureDropFunc.
+				if decl, ok := c.structs[t]; ok && decl != nil {
+					for _, f := range decl.Fields {
+						ft := formatType(f.Type)
+						if c.needsDropType(ft) {
+							emit(ft)
+						}
+					}
+				} else if c.prog.TypeDecls != nil {
+					if td, ok := c.prog.TypeDecls[t]; ok && td != nil {
+						for _, f := range td.Fields {
+							ft := normalizeTypeName(f.Type)
+							if c.needsDropType(ft) {
+								emit(ft)
+							}
+						}
+					}
+				}
+				c.prog.Functions[dropFuncNameForType(t)] = buildDropStructFunc(t, c)
+				return
+			}
+			if c.isEnumTypeName(t) {
+				if decl, ok := c.enums[t]; ok && decl != nil {
+					for _, v := range decl.Variants {
+						if v.Payload == nil {
+							continue
+						}
+						pt := formatType(*v.Payload)
+						if c.needsDropType(pt) {
+							emit(pt)
+						}
+					}
+				}
+				c.prog.Functions[dropFuncNameForType(t)] = buildDropEnumFunc(t, c)
+				return
+			}
 		if isStringTypeName(t) {
 			c.prog.Functions[dropFuncNameForType(t)] = buildDropStringFunc(t)
 			return
