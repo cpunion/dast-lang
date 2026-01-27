@@ -1,9 +1,40 @@
 ir v0
 type Closure = { func: String, env: $Env }
 
+fn __drop_Closure(v: Closure) -> unit
+  block entry0:
+    t0: i64 = + 0, 0
+    t1: bool = == v, t0
+    branch t1, done2, drop1
+  block drop1:
+    t2: String = v.func
+    call __drop_String(t2)
+    t3:  = v.env
+    call __drop__Env(t3)
+    call struct_free(v)
+    jump done2
+  block done2:
+    return
+
+fn __drop_String(v: String) -> unit
+  block entry0:
+    call string_free(v)
+    return
+
+fn __drop__Env(v: $Env) -> unit
+  block entry0:
+    t0: i64 = + 0, 0
+    t1: bool = == v, t0
+    branch t1, done2, drop1
+  block drop1:
+    call struct_free(v)
+    jump done2
+  block done2:
+    return
+
 fn add(a: int, b: int) -> int
   block entry0:
-    t0: i64 = + a, b
+    t0: int = + a, b
     return t0
 
 fn main() -> unit
@@ -17,8 +48,10 @@ fn main() -> unit
     t4: unit = call_closure t3()
     t5: int = call add(1, 2)
     store v, t5
-    t6: i64 = load v
+    t6: int = load v
     t7: unit = call println("v", t6)
+    t8: Closure = load incr
+    call __drop_Closure(t8)
     return t7
 
 fn main$0($env: $Env) -> unit

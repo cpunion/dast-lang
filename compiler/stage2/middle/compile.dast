@@ -16,9 +16,12 @@ struct Compiler {
     name_counts: [NameCount],
     scope_names: [String],
     scope_ir: [String],
+    scope_types: [i32],
+    scope_moved: [bool],
     scope_marks: [i32],
     loop_breaks: [String],
     loop_continues: [String],
+    loop_scope_marks: [i32],
     blocks: [IrBlock],
     cur_block: i32,
     block_id: i32,
@@ -28,6 +31,7 @@ struct Compiler {
     closure_id: i32,
     current_func_name: String,
     mutated_captures: [String],  // Names of captured variables that are mutated
+    drop_types: [String],
 }
 
 fn name_count_list_new() -> [NameCount] {
@@ -42,6 +46,11 @@ fn string_list_new() -> [String] {
 
 fn int_list_new() -> [i32] {
     let mut items: [i32] = []
+    return items
+}
+
+fn bool_list_new() -> [bool] {
+    let mut items: [bool] = []
     return items
 }
 
@@ -68,56 +77,56 @@ fn compiler_check_expr(c: &mut Compiler, expr: Expr) -> i32 {
     return t
 }
 
-fn compiler_parse_type(c: &mut Compiler, text: String, self_name: String) -> i32 {
+fn compiler_parse_type(c: &mut Compiler, text: &str, self_name: &str) -> i32 {
     let mut tctx = c.tctx
     let t = ctx_parse_type(&mut tctx, text, self_name)
     c.tctx = tctx
     return t
 }
 
-fn compiler_resolve_struct_name(c: &mut Compiler, name: String) -> String {
+fn compiler_resolve_struct_name(c: &mut Compiler, name: &str) -> String {
     let mut tctx = c.tctx
     let q = resolve_struct_name(&mut tctx, name)
     c.tctx = tctx
     return q
 }
 
-fn compiler_resolve_func_name(c: &mut Compiler, name: String) -> String {
+fn compiler_resolve_func_name(c: &mut Compiler, name: &str) -> String {
     let mut tctx = c.tctx
     let q = resolve_func_name(&mut tctx, name)
     c.tctx = tctx
     return q
 }
 
-fn compiler_resolve_enum_name(c: &mut Compiler, name: String) -> String {
+fn compiler_resolve_enum_name(c: &mut Compiler, name: &str) -> String {
     let mut tctx = c.tctx
     let q = resolve_enum_name(&mut tctx, name)
     c.tctx = tctx
     return q
 }
 
-fn compiler_resolve_const_name(c: &mut Compiler, name: String) -> String {
+fn compiler_resolve_const_name(c: &mut Compiler, name: &str) -> String {
     let mut tctx = c.tctx
     let q = resolve_const_name(&mut tctx, name)
     c.tctx = tctx
     return q
 }
 
-fn compiler_resolve_reexport_func(c: &mut Compiler, module: String, name: String) -> String {
+fn compiler_resolve_reexport_func(c: &mut Compiler, module: &str, name: &str) -> String {
     let mut tctx = c.tctx
     let q = resolve_reexport(&mut tctx, module, name, reexport_kind_func())
     c.tctx = tctx
     return q
 }
 
-fn compiler_resolve_type_name(c: &mut Compiler, name: String, self_name: String) -> String {
+fn compiler_resolve_type_name(c: &mut Compiler, name: &str, self_name: &str) -> String {
     let mut tctx = c.tctx
     let q = ctx_resolve_type_name(&mut tctx, name, self_name)
     c.tctx = tctx
     return q
 }
 
-fn compiler_parse_type_in_module(c: &mut Compiler, text: String, self_name: String, module: String) -> i32 {
+fn compiler_parse_type_in_module(c: &mut Compiler, text: &str, self_name: &str, module: &str) -> i32 {
     let mut tctx = c.tctx
     let t = ctx_parse_type_in_module(&mut tctx, text, self_name, module)
     c.tctx = tctx
@@ -149,14 +158,32 @@ fn compiler_env_declare(c: &mut Compiler, name: String, typ: i32, mutable: bool)
     c.tctx = tctx
 }
 
+fn compiler_env_lookup(c: &mut Compiler, name: String) -> VarEntry {
+    let mut tctx = c.tctx
+    let v = ctx_env_lookup(&mut tctx, name)
+    c.tctx = tctx
+    return v
+}
+
 fn compiler_type_is_ref(c: &mut Compiler, t: i32) -> bool {
     let mut tctx = c.tctx
+    if ctx_type_kind(&mut tctx, t) == 3 { return false }
     return ctx_type_is_ref(&mut tctx, t)
+}
+
+fn compiler_type_is_mut(c: &mut Compiler, t: i32) -> bool {
+    let mut tctx = c.tctx
+    if ctx_type_kind(&mut tctx, t) == 3 { return false }
+    return ctx_type_is_mut(&mut tctx, t)
 }
 
 fn compiler_type_kind(c: &mut Compiler, t: i32) -> i32 {
     let mut tctx = c.tctx
     return ctx_type_kind(&mut tctx, t)
+}
+
+fn compiler_type_is_string_kind(c: &mut Compiler, t: i32) -> bool {
+    return compiler_type_kind(c, t) == 3
 }
 
 fn compiler_type_name(c: &mut Compiler, t: i32) -> String {
@@ -166,7 +193,28 @@ fn compiler_type_name(c: &mut Compiler, t: i32) -> String {
 
 fn compiler_type_string(c: &mut Compiler, t: i32) -> String {
     let mut tctx = c.tctx
+    if ctx_type_kind(&mut tctx, t) == 3 && ctx_type_is_ref(&mut tctx, t) { return "str" }
     return ctx_type_string(&mut tctx, t)
+}
+
+fn compiler_type_elem(c: &mut Compiler, t: i32) -> i32 {
+    let mut tctx = c.tctx
+    return ctx_type_elem(&mut tctx, t)
+}
+
+fn compiler_func_param_type(c: &mut Compiler, qname: &str, idx: i32) -> i32 {
+    let mut tctx = c.tctx
+    let fidx = find_func_qname(&mut tctx, string_clone(qname))
+    let mut out = 0
+    if fidx >= 0 && fidx < len(tctx.funcs) {
+        let sig = tctx.funcs[fidx]
+        if idx >= 0 && idx < len(sig.params) { out = sig.params[idx] }
+    }
+    return out
+}
+
+fn compile_call_arg(c: &mut Compiler, expr: Expr, expected_t: i32, self_name: &str) -> IrOperand {
+    return compile_operand(c, expr, self_name)
 }
 
 fn compiler_deref_type(c: &mut Compiler, t: i32) -> i32 {
@@ -176,7 +224,7 @@ fn compiler_deref_type(c: &mut Compiler, t: i32) -> i32 {
     return base
 }
 
-fn compiler_find_method(c: &mut Compiler, type_name: String, name: String) -> i32 {
+fn compiler_find_method(c: &mut Compiler, type_name: &str, name: &str) -> i32 {
     let mut tctx = c.tctx
     return find_method(&mut tctx, type_name, name)
 }
@@ -191,9 +239,12 @@ fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResu
         name_counts: name_count_list_new(),
         scope_names: string_list_new(),
         scope_ir: string_list_new(),
+        scope_types: int_list_new(),
+        scope_moved: bool_list_new(),
         scope_marks: int_list_new(),
         loop_breaks: string_list_new(),
         loop_continues: string_list_new(),
+        loop_scope_marks: int_list_new(),
         blocks: block_list_new(),
         cur_block: -1,
         block_id: 0,
@@ -202,9 +253,11 @@ fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResu
         closure_id: 0,
         current_func_name: "",
         mutated_captures: string_list_new(),
+        drop_types: string_list_new(),
     }
     let mut funcs: [IrFunction] = []
     let mut entry = ""
+    let empty = ""
     let mut i = 0
     let total_funcs = len(prog.functions)
     if debug { println("stage2: compile funcs", total_funcs) }
@@ -213,12 +266,12 @@ fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResu
             println("stage2: compile func", i, "/", total_funcs)
         }
         let decl = prog.functions[i]
-        let qname = qualify_name(decl.module, decl.name)
-        let f = compile_function(&mut c, decl, qname, "")
-        push(&mut funcs, f)
+        let qname = qualify_name(&decl.module, &decl.name)
         if entry == "" && decl.module == "" && decl.name == "main" {
-            entry = qname
+            entry = string_clone(&qname)
         }
+        let f = compile_function(&mut c, decl, qname, &empty)
+        push(&mut funcs, f)
         i = i + 1
     }
     if debug { println("stage2: compile impls") }
@@ -226,15 +279,16 @@ fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResu
     while j < len(prog.impls) {
         let imp = prog.impls[j]
         let mut tctx = c.tctx
-        ctx_set_current_module(&mut tctx, imp.module)
+        ctx_set_current_module(&mut tctx, &imp.module)
         c.tctx = tctx
-        let type_qname = compiler_resolve_type_name(&mut c, imp.type_name, "")
+        let empty = ""
+        let type_qname = compiler_resolve_type_name(&mut c, &imp.type_name, &empty)
         if type_qname != "" {
             let mut k = 0
             while k < len(imp.methods) {
                 let m = imp.methods[k]
-                let name = type_qname + "." + m.name
-                let f = compile_function(&mut c, m, name, type_qname)
+                let name = string_clone(&type_qname) + "." + string_clone(&m.name)
+                let f = compile_function(&mut c, m, name, &type_qname)
                 push(&mut funcs, f)
                 k = k + 1
             }
@@ -247,15 +301,16 @@ fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResu
     while jt < len(prog.impl_traits) {
         let it = prog.impl_traits[jt]
         let mut tctx2 = c.tctx
-        ctx_set_current_module(&mut tctx2, it.module)
+        ctx_set_current_module(&mut tctx2, &it.module)
         c.tctx = tctx2
-        let type_qname2 = compiler_resolve_type_name(&mut c, it.for_type, "")
+        let empty2 = ""
+        let type_qname2 = compiler_resolve_type_name(&mut c, &it.for_type, &empty2)
         if type_qname2 != "" {
             let mut kt = 0
             while kt < len(it.methods) {
                 let mt = it.methods[kt]
-                let name_t = type_qname2 + "." + mt.name
-                let ft = compile_function(&mut c, mt, name_t, type_qname2)
+                let name_t = string_clone(&type_qname2) + "." + string_clone(&mt.name)
+                let ft = compile_function(&mut c, mt, name_t, &type_qname2)
                 push(&mut funcs, ft)
                 kt = kt + 1
             }
@@ -268,6 +323,7 @@ fn compile_program(prog: Program, tctx: TypeContext, debug: bool) -> CompileResu
         push(&mut funcs, c.pending_closures[ci])
         ci = ci + 1
     }
+    emit_drop_helpers(&mut c, &mut funcs)
     let enum_decls = compile_enum_decls(&mut c)
     let ir_prog = IrProgram { version: "v0", features: string_list_new(), enums: enum_decls, functions: funcs, entry: entry }
     return CompileResult { prog: ir_prog, errors: c.tctx.errors }
@@ -278,20 +334,25 @@ fn compiler_module_alias(c: &mut Compiler, name: String) -> String {
     return module_alias_module(&mut tctx, name)
 }
 
-fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: String) -> IrFunction {
+fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: &str) -> IrFunction {
     c.block_id = 0
     c.temp_id = 0
     c.closure_id = 0
-    c.current_func_name = name
+    c.current_func_name = string_clone(&name)
     c.name_counts = name_count_list_new()
     c.scope_names = string_list_new()
     c.scope_ir = string_list_new()
+    c.scope_types = int_list_new()
+    c.scope_moved = bool_list_new()
     c.scope_marks = int_list_new()
+    c.loop_breaks = string_list_new()
+    c.loop_continues = string_list_new()
+    c.loop_scope_marks = int_list_new()
     c.blocks = block_list_new()
     c.cur_block = -1
     let mut tctx = c.tctx
     ctx_set_file(&mut tctx, f.file)
-    ctx_set_current_module(&mut tctx, f.module)
+    ctx_set_current_module(&mut tctx, &f.module)
     // Set type params for generic function compilation
     ctx_set_type_params(&mut tctx, f.type_params)
     tctx.env = env_new()
@@ -303,7 +364,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     let mut i = 0
     while i < len(f.params) {
         let p = f.params[i]
-        let t = compiler_parse_type(c, p.typ, self_name)
+        let t = compiler_parse_type(c, &p.typ, self_name)
         let ir_name = declare_var(c, p.name, t, false)
         push(&mut params, ir_name)
         push(&mut param_types, compiler_type_string(c, t))
@@ -312,7 +373,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
 
     let mut return_type = ""
     if f.has_return {
-        let rt = compiler_parse_type(c, f.ret, self_name)
+        let rt = compiler_parse_type(c, &f.ret, self_name)
         return_type = compiler_type_string(c, rt)
     }
 
@@ -320,6 +381,7 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     set_current_block(c, entry_block)
     compile_function_body(c, f, self_name)
     if !current_block_has_term(c) {
+        emit_drops_from_depth(c, 0)
         emit_term(c, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
     }
 
@@ -329,24 +391,24 @@ fn compile_function(c: &mut Compiler, f: FunctionDecl, name: String, self_name: 
     return func
 }
 
-fn compile_function_body(c: &mut Compiler, f: FunctionDecl, self_name: String) {
+fn compile_function_body(c: &mut Compiler, f: FunctionDecl, self_name: &str) {
     let mut allow_implicit = true
     if f.has_return {
-        if is_unit_type_text(f.ret) {
+        if is_unit_type_text(&f.ret) {
             allow_implicit = false
         }
     }
     compile_block_with_tail(c, f.body, allow_implicit, self_name)
 }
 
-fn is_unit_type_text(text: String) -> bool {
-    if text == "unit" || text == "()" {
+fn is_unit_type_text(text: &str) -> bool {
+    if *text == "unit" || *text == "()" {
         return true
     }
     return false
 }
 
-fn compile_block_with_tail(c: &mut Compiler, block: Block, allow_implicit: bool, self_name: String) {
+fn compile_block_with_tail(c: &mut Compiler, block: Block, allow_implicit: bool, self_name: &str) {
     if !allow_implicit {
         compile_block(c, block, self_name)
         return
@@ -358,6 +420,7 @@ fn compile_block_with_tail(c: &mut Compiler, block: Block, allow_implicit: bool,
             match block.stmts[i] {
                 .Expr(e) => {
                     let v = compile_operand(c, e.expr, self_name)
+                    emit_drops_from_depth(c, 0)
                     emit_term(c, IrTerm.Return(IrReturn { has_value: true, value: v }))
                     pop_scope(c)
                     return
@@ -382,7 +445,7 @@ fn compile_block_with_tail(c: &mut Compiler, block: Block, allow_implicit: bool,
     pop_scope(c)
 }
 
-fn compile_block(c: &mut Compiler, block: Block, self_name: String) {
+fn compile_block(c: &mut Compiler, block: Block, self_name: &str) {
     push_scope(c)
     let mut i = 0
     while i < len(block.stmts) && !current_block_has_term(c) {
@@ -392,11 +455,17 @@ fn compile_block(c: &mut Compiler, block: Block, self_name: String) {
     pop_scope(c)
 }
 
-fn compile_stmt(c: &mut Compiler, stmt: Stmt, self_name: String) {
+fn compile_stmt(c: &mut Compiler, stmt: Stmt, self_name: &str) {
     match stmt {
         Stmt.Let(s) => { compile_let(c, s, self_name) }
         Stmt.Assign(s) => { compile_assign(c, s, self_name) }
-        .Expr(s) => { compile_expr(c, s.expr, self_name) }
+        .Expr(s) => {
+            let op = compile_operand(c, s.expr, self_name)
+            let t = compiler_check_expr(c, s.expr)
+            if type_needs_drop(c, t) {
+                emit_drop_call(c, op, t)
+            }
+        }
         Stmt.Return(s) => { compile_return(c, s, self_name) }
         Stmt.If(s) => { compile_if(c, s, self_name) }
         Stmt.While(s) => { compile_while(c, s, self_name) }
@@ -406,11 +475,21 @@ fn compile_stmt(c: &mut Compiler, stmt: Stmt, self_name: String) {
     }
 }
 
+fn compile_debug_enabled() -> bool {
+    // Opt-in debug via marker file to avoid spamming normal runs.
+    let flag = read_file("/tmp/dast-compile-debug")
+    return flag != ""
+}
+
 fn compile_break(c: &mut Compiler) {
     let target = current_loop_break(c)
     if target == "" {
         compiler_add_type_error(c, "break outside loop")
         return
+    }
+    let depth = current_loop_scope_depth(c)
+    if depth >= 0 {
+        emit_drops_from_depth(c, depth)
     }
     emit_term(c, IrTerm.Jump(IrJump { target: target }))
 }
@@ -421,10 +500,14 @@ fn compile_continue(c: &mut Compiler) {
         compiler_add_type_error(c, "continue outside loop")
         return
     }
+    let depth = current_loop_scope_depth(c)
+    if depth >= 0 {
+        emit_drops_from_depth(c, depth)
+    }
     emit_term(c, IrTerm.Jump(IrJump { target: target }))
 }
 
-fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
+fn compile_let(c: &mut Compiler, s: LetStmt, self_name: &str) {
     if !s.has_init {
         compiler_add_type_error(c, "let requires initializer")
         return
@@ -432,31 +515,40 @@ fn compile_let(c: &mut Compiler, s: LetStmt, self_name: String) {
     let init_t = compiler_check_expr(c, s.init)
     let mut decl_t = init_t
     if s.has_type {
-        decl_t = compiler_parse_type(c, s.typ, self_name)
+        decl_t = compiler_parse_type(c, &s.typ, self_name)
     }
     let name = declare_var(c, s.name, decl_t, s.mutable)
     let val = compile_operand(c, s.init, self_name)
     emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: val, ref: false, ref_temp: 0 }))
 }
 
-fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
+fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: &str) {
+    if compile_debug_enabled() {
+        println("[compile-assign]", s.pos)
+    }
     match s.target {
         Expr.Ident(id) => {
-            let ir_name = lookup_var(c, id.name)
-            if ir_name == "" {
+            let idx = lookup_var_index(c, &id.name)
+            let ir_name = lookup_var(c, &id.name)
+            if ir_name == "" || idx < 0 {
                 compiler_add_type_error(c, "undefined variable '" + id.name + "'")
                 return
+            }
+            let typ = var_type(c, idx)
+            if !var_moved(c, idx) && type_needs_drop(c, typ) {
+                emit_drop_for_var(c, string_clone(&ir_name), typ)
             }
             let val = compile_operand(c, s.value, self_name)
 
             // Check if this is a mutable captured variable
-            if is_temp_ref(ir_name) && is_mutated_capture(c, id.name) {
+            if is_temp_ref(string_clone(&ir_name)) && is_mutated_capture(c, id.name) {
                 // Mutable capture: ir_name is tN, store through ref temp
-                let temp_val = parse_temp_name(ir_name)
+                let temp_val = parse_temp_name(string_clone(&ir_name))
                 emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: "", src: val, ref: true, ref_temp: temp_val }))
             } else {
                 emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: ir_name, src: val, ref: false, ref_temp: 0 }))
             }
+            set_var_moved(c, idx, false)
         }
         .Deref(d) => {
             let r = compile_expr(c, d.expr, self_name)
@@ -480,16 +572,21 @@ fn compile_assign(c: &mut Compiler, s: AssignStmt, self_name: String) {
     }
 }
 
-fn compile_return(c: &mut Compiler, s: ReturnStmt, self_name: String) {
+fn compile_return(c: &mut Compiler, s: ReturnStmt, self_name: &str) {
+    if compile_debug_enabled() {
+        println("[compile-return]", s.pos, s.has_value)
+    }
     if !s.has_value {
+        emit_drops_from_depth(c, 0)
         emit_term(c, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
         return
     }
     let val = compile_operand(c, s.value, self_name)
+    emit_drops_from_depth(c, 0)
     emit_term(c, IrTerm.Return(IrReturn { has_value: true, value: val }))
 }
 
-fn compile_if(c: &mut Compiler, s: IfStmt, self_name: String) {
+fn compile_if(c: &mut Compiler, s: IfStmt, self_name: &str) {
     let cond = compile_operand(c, s.cond, self_name)
     let then_block = new_block(c, "then")
     let else_block = new_block(c, "else")
@@ -513,7 +610,7 @@ fn compile_if(c: &mut Compiler, s: IfStmt, self_name: String) {
     set_current_block(c, merge_block)
 }
 
-fn compile_tail_if(c: &mut Compiler, s: IfStmt, allow_implicit: bool, self_name: String) {
+fn compile_tail_if(c: &mut Compiler, s: IfStmt, allow_implicit: bool, self_name: &str) {
     if !s.has_else {
         compile_if(c, s, self_name)
         return
@@ -539,7 +636,7 @@ fn compile_tail_if(c: &mut Compiler, s: IfStmt, allow_implicit: bool, self_name:
     set_current_block(c, merge_block)
 }
 
-fn compile_while(c: &mut Compiler, s: WhileStmt, self_name: String) {
+fn compile_while(c: &mut Compiler, s: WhileStmt, self_name: &str) {
     let cond_block = new_block(c, "cond")
     let body_block = new_block(c, "body")
     let after_block = new_block(c, "after")
@@ -561,7 +658,7 @@ fn compile_while(c: &mut Compiler, s: WhileStmt, self_name: String) {
 }
 
 fn resolve_struct_pattern_name(c: &mut Compiler, name: String, scrut_type: i32) -> String {
-    let mut q = compiler_resolve_struct_name(c, name)
+    let mut q = compiler_resolve_struct_name(c, &name)
     if q == "" { q = name }
     if q == "" {
         q = struct_name_for_type(c, scrut_type)
@@ -569,22 +666,22 @@ fn resolve_struct_pattern_name(c: &mut Compiler, name: String, scrut_type: i32) 
     return q
 }
 
-fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i32, self_name: String, next_label: String) {
+fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i32, self_name: &str, next_label: &str) {
     match pat {
         .Wildcard(_) => {}
         .Bind(_) => {}
         .Literal(lp) => {
             let tname = compiler_type_name(c, value_type)
             let cmp = new_temp(c)
-            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(value), rhs: ir_operand_const(const_to_ir(lp.value, tname)) }))
+            emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(value), rhs: ir_operand_const(const_to_ir(lp.value, string_clone(&tname))) }))
             let cont = new_block(c, "match_check")
-            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, cont), else_label: next_label }))
+            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, cont), else_label: string_clone(next_label) }))
             set_current_block(c, cont)
         }
         .Range(rp) => {
             let tname = compiler_type_name(c, value_type)
-            let start = ir_operand_const(const_to_ir(rp.start, tname))
-            let end = ir_operand_const(const_to_ir(rp.end, tname))
+            let start = ir_operand_const(const_to_ir(rp.start, string_clone(&tname)))
+            let end = ir_operand_const(const_to_ir(rp.end, string_clone(&tname)))
             let ge = new_temp(c)
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: ir_operand_temp(value), rhs: start }))
             let le = new_temp(c)
@@ -594,15 +691,15 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
             let both = new_temp(c)
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: both, op: "&&", lhs: ir_operand_temp(ge), rhs: ir_operand_temp(le) }))
             let cont = new_block(c, "match_check")
-            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, cont), else_label: next_label }))
+            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, cont), else_label: string_clone(next_label) }))
             set_current_block(c, cont)
         }
         .Variant(vp) => {
             let mut pat_enum = enum_name_for_type(c, value_type)
             if vp.enum_name != "" {
-                pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                pat_enum = compiler_resolve_enum_name(c, &vp.enum_name)
             }
-            let tag_info = enum_tag_info(c, pat_enum, vp.variant)
+            let tag_info = enum_tag_info(c, &pat_enum, &vp.variant)
             if !tag_info.ok {
                 compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
             }
@@ -611,7 +708,7 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
             let cmp = new_temp(c)
             emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
             let cont = new_block(c, "match_check")
-            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, cont), else_label: next_label }))
+            emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, cont), else_label: string_clone(next_label) }))
             set_current_block(c, cont)
         }
         Pattern.Struct(sp) => {
@@ -620,9 +717,9 @@ fn emit_pattern_check(c: &mut Compiler, pat: Pattern, value: i32, value_type: i3
     }
 }
 
-fn emit_struct_pattern_checks(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_type: i32, self_name: String, next_label: String) {
+fn emit_struct_pattern_checks(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_type: i32, self_name: &str, next_label: &str) {
     let struct_name = resolve_struct_pattern_name(c, sp.name, scrut_type)
-    let sidx = find_struct_decl(c.structs, struct_name)
+    let sidx = find_struct_decl(&c.structs, &struct_name)
     if sidx < 0 {
         compiler_add_type_error(c, "unknown struct '" + struct_name + "'")
         return
@@ -634,16 +731,16 @@ fn emit_struct_pattern_checks(c: &mut Compiler, sp: StructPattern, scrut: i32, s
         if f.has_pattern {
             let field_val = new_temp(c)
             emit_instr(c, IrInstr.GetField(IrGetField { dst: field_val, src: scrut, field: f.name }))
-            let ft = struct_field_type(c, struct_name, f.name, self_name)
+            let ft = struct_field_type(c, &struct_name, &f.name, self_name)
             emit_pattern_check(c, f.pattern, field_val, ft, self_name, next_label)
         }
         i = i + 1
     }
 }
 
-fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_type: i32, self_name: String) {
+fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_type: i32, self_name: &str) {
     let struct_name = resolve_struct_pattern_name(c, sp.name, scrut_type)
-    let sidx = find_struct_decl(c.structs, struct_name)
+    let sidx = find_struct_decl(&c.structs, &struct_name)
     if sidx < 0 {
         compiler_add_type_error(c, "unknown struct '" + struct_name + "'")
         return
@@ -652,11 +749,11 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
     let mut i = 0
     while i < len(sp.fields) {
         let f = sp.fields[i]
-        let fidx = find_field(st, f.name)
+        let fidx = find_field(&st, &f.name)
         if fidx < 0 {
             compiler_add_type_error(c, "unknown field '" + f.name + "'")
         } else {
-            let ft = compiler_parse_type_in_module(c, st.fields[fidx].typ, self_name, st.module)
+            let ft = compiler_parse_type_in_module(c, &st.fields[fidx].typ, self_name, &st.module)
             let field_val = new_temp(c)
             emit_instr(c, IrInstr.GetField(IrGetField { dst: field_val, src: scrut, field: f.name }))
             if f.bind {
@@ -672,9 +769,9 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
                         if vp.has_binding {
                             let mut pat_enum = enum_name_for_type(c, ft)
                             if vp.enum_name != "" {
-                                pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                                pat_enum = compiler_resolve_enum_name(c, &vp.enum_name)
                             }
-                            let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
+                            let payload_type = variant_payload_type(c, &pat_enum, &vp.variant, self_name)
                             let payload = new_temp(c)
                             emit_instr(c, IrInstr.GetField(IrGetField { dst: payload, src: field_val, field: "_payload" }))
                             let name = declare_var(c, vp.binding, payload_type, false)
@@ -692,7 +789,7 @@ fn bind_struct_pattern(c: &mut Compiler, sp: StructPattern, scrut: i32, scrut_ty
     }
 }
 
-fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i32, scrut_name: String, self_name: String) {
+fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i32, scrut_name: &str, self_name: &str) {
     match pat {
         .Bind(bp) => {
             if bp.name != "" {
@@ -702,13 +799,13 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
         }
         .Variant(vp) => {
             if vp.has_binding {
-                let mut pat_enum = scrut_name
+                let mut pat_enum = string_clone(scrut_name)
                 if vp.enum_name != "" {
-                    pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                    pat_enum = compiler_resolve_enum_name(c, &vp.enum_name)
                 }
                 let payload = new_temp(c)
                 emit_instr(c, IrInstr.GetField(IrGetField { dst: payload, src: scrut, field: "_payload" }))
-                let payload_type = variant_payload_type(c, pat_enum, vp.variant, self_name)
+                let payload_type = variant_payload_type(c, &pat_enum, &vp.variant, self_name)
                 let name = declare_var(c, vp.binding, payload_type, false)
                 emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: name, src: ir_operand_temp(payload), ref: false, ref_temp: 0 }))
             }
@@ -720,7 +817,7 @@ fn bind_match_pattern(c: &mut Compiler, pat: Pattern, scrut: i32, scrut_type: i3
     }
 }
 
-fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
+fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: &str) {
     let mut scrut = compile_expr(c, s.expr, self_name)
     let mut scrut_type = compiler_check_expr(c, s.expr)
     if compiler_type_is_ref(c, scrut_type) {
@@ -740,7 +837,8 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
     while i < len(s.arms) {
         let arm = s.arms[i]
         let arm_block = new_block(c, "match_arm")
-        match arm.pattern {
+        let pat = clone_pattern(&arm.pattern)
+        match pat {
             .Wildcard(_) => {
                 emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
                 let mut next_label = block_label(c, after)
@@ -750,7 +848,7 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     next_label = block_label(c, next_block)
                 }
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, next_label)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, false, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -769,7 +867,7 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     next_label = block_label(c, next_block)
                 }
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, next_label)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, false, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -783,11 +881,11 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 if scrut_kind != 6 {
                     compiler_add_type_error(c, "enum pattern requires enum expression")
                 }
-                let mut pat_enum = scrut_name
+                let mut pat_enum = string_clone(&scrut_name)
                 if vp.enum_name != "" {
-                    pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                    pat_enum = compiler_resolve_enum_name(c, &vp.enum_name)
                 }
-                let tag_info = enum_tag_info(c, pat_enum, vp.variant)
+                let tag_info = enum_tag_info(c, &pat_enum, &vp.variant)
                 if !tag_info.ok {
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
@@ -798,7 +896,8 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 let next = new_block(c, "match_next")
                 emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
+                let next_label = block_label(c, next)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, false, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -815,12 +914,13 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 let check_block = new_block(c, "match_check")
                 emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, check_block) }))
                 set_current_block(c, check_block)
-                emit_struct_pattern_checks(c, sp, scrut, scrut_type, self_name, block_label(c, next))
+                let next_label = block_label(c, next)
+                emit_struct_pattern_checks(c, sp, scrut, scrut_type, self_name, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
                 }
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, false, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -834,8 +934,8 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                     compiler_add_type_error(c, "range pattern requires int expression")
                 }
                 let tname = compiler_type_name(c, scrut_type)
-                let start = ir_operand_const(const_to_ir(rp.start, tname))
-                let end = ir_operand_const(const_to_ir(rp.end, tname))
+                let start = ir_operand_const(const_to_ir(rp.start, string_clone(&tname)))
+                let end = ir_operand_const(const_to_ir(rp.end, string_clone(&tname)))
                 let ge = new_temp(c)
                 emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: ir_operand_temp(scrut), rhs: start }))
                 let le = new_temp(c)
@@ -847,7 +947,8 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
                 let next = new_block(c, "match_next")
                 emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
+                let next_label = block_label(c, next)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, false, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -858,15 +959,16 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
             }
             .Literal(lp) => {
                 if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
-                    compiler_add_type_error(c, "literal pattern requires int, bool, or string expression")
+                    compiler_add_type_error(c, "literal pattern requires int, bool, or String expression")
                 }
                 let tname = compiler_type_name(c, scrut_type)
                 let cmp = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(scrut), rhs: ir_operand_const(const_to_ir(lp.value, tname)) }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(scrut), rhs: ir_operand_const(const_to_ir(lp.value, string_clone(&tname))) }))
                 let next = new_block(c, "match_next")
                 emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, false, block_label(c, next))
+                let next_label = block_label(c, next)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, false, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -884,7 +986,7 @@ fn compile_match(c: &mut Compiler, s: MatchStmt, self_name: String) {
     set_current_block(c, after)
 }
 
-fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self_name: String) {
+fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self_name: &str) {
     let mut scrut = compile_expr(c, s.expr, self_name)
     let mut scrut_type = compiler_check_expr(c, s.expr)
     if compiler_type_is_ref(c, scrut_type) {
@@ -904,7 +1006,8 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
     while i < len(s.arms) {
         let arm = s.arms[i]
         let arm_block = new_block(c, "match_arm")
-        match arm.pattern {
+        let pat = clone_pattern(&arm.pattern)
+        match pat {
             .Wildcard(_) => {
                 emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
                 let mut next_label = block_label(c, after)
@@ -914,7 +1017,7 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     next_label = block_label(c, next_block)
                 }
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, next_label)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, allow_implicit, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -933,7 +1036,7 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     next_label = block_label(c, next_block)
                 }
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, next_label)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, allow_implicit, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -947,11 +1050,11 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                 if scrut_kind != 6 {
                     compiler_add_type_error(c, "enum pattern requires enum expression")
                 }
-                let mut pat_enum = scrut_name
+                let mut pat_enum = string_clone(&scrut_name)
                 if vp.enum_name != "" {
-                    pat_enum = compiler_resolve_enum_name(c, vp.enum_name)
+                    pat_enum = compiler_resolve_enum_name(c, &vp.enum_name)
                 }
-                let tag_info = enum_tag_info(c, pat_enum, vp.variant)
+                let tag_info = enum_tag_info(c, &pat_enum, &vp.variant)
                 if !tag_info.ok {
                     compiler_add_type_error(c, "unknown enum variant '" + vp.variant + "'")
                 }
@@ -962,7 +1065,8 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                 let next = new_block(c, "match_next")
                 emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
+                let next_label = block_label(c, next)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, allow_implicit, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -979,12 +1083,13 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                 let check_block = new_block(c, "match_check")
                 emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, check_block) }))
                 set_current_block(c, check_block)
-                emit_struct_pattern_checks(c, sp, scrut, scrut_type, self_name, block_label(c, next))
+                let next_label = block_label(c, next)
+                emit_struct_pattern_checks(c, sp, scrut, scrut_type, self_name, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, arm_block) }))
                 }
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, allow_implicit, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -998,8 +1103,8 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                     compiler_add_type_error(c, "range pattern requires int expression")
                 }
                 let tname = compiler_type_name(c, scrut_type)
-                let start = ir_operand_const(const_to_ir(rp.start, tname))
-                let end = ir_operand_const(const_to_ir(rp.end, tname))
+                let start = ir_operand_const(const_to_ir(rp.start, string_clone(&tname)))
+                let end = ir_operand_const(const_to_ir(rp.end, string_clone(&tname)))
                 let ge = new_temp(c)
                 emit_instr(c, IrInstr.BinOp(IrBinOp { dst: ge, op: ">=", lhs: ir_operand_temp(scrut), rhs: start }))
                 let le = new_temp(c)
@@ -1011,7 +1116,8 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
                 let next = new_block(c, "match_next")
                 emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(both), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
+                let next_label = block_label(c, next)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, allow_implicit, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -1022,15 +1128,16 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
             }
             .Literal(lp) => {
                 if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 {
-                    compiler_add_type_error(c, "literal pattern requires int, bool, or string expression")
+                    compiler_add_type_error(c, "literal pattern requires int, bool, or String expression")
                 }
                 let tname = compiler_type_name(c, scrut_type)
                 let cmp = new_temp(c)
-                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(scrut), rhs: ir_operand_const(const_to_ir(lp.value, tname)) }))
+                emit_instr(c, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(scrut), rhs: ir_operand_const(const_to_ir(lp.value, string_clone(&tname))) }))
                 let next = new_block(c, "match_next")
                 emit_term(c, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: block_label(c, arm_block), else_label: block_label(c, next) }))
                 set_current_block(c, arm_block)
-                compile_match_arm(c, arm, scrut, scrut_type, scrut_name, self_name, allow_implicit, block_label(c, next))
+                let next_label = block_label(c, next)
+                compile_match_arm(c, &arm, scrut, scrut_type, &scrut_name, self_name, allow_implicit, &next_label)
                 if !current_block_has_term(c) {
                     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
                 }
@@ -1048,28 +1155,28 @@ fn compile_tail_match(c: &mut Compiler, s: MatchStmt, allow_implicit: bool, self
     set_current_block(c, after)
 }
 
-fn compile_match_arm(c: &mut Compiler, arm: MatchArm, scrut: i32, scrut_type: i32, scrut_name: String, self_name: String, allow_implicit: bool, next_label: String) {
+fn compile_match_arm(c: &mut Compiler, arm: &MatchArm, scrut: i32, scrut_type: i32, scrut_name: &str, self_name: &str, allow_implicit: bool, next_label: &str) {
     push_scope(c)
-    bind_match_pattern(c, arm.pattern, scrut, scrut_type, scrut_name, self_name)
+    bind_match_pattern(c, clone_pattern(&arm.pattern), scrut, scrut_type, scrut_name, self_name)
     if arm.has_guard {
-        let cond = compile_operand(c, arm.guard, self_name)
+        let cond = compile_operand(c, clone_expr(&arm.guard), self_name)
         let body_block = new_block(c, "match_body")
-        emit_term(c, IrTerm.Branch(IrBranch { cond: cond, then_label: block_label(c, body_block), else_label: next_label }))
+        emit_term(c, IrTerm.Branch(IrBranch { cond: cond, then_label: block_label(c, body_block), else_label: string_clone(next_label) }))
         set_current_block(c, body_block)
     }
     if allow_implicit {
-        compile_block_with_tail(c, arm.body, allow_implicit, self_name)
+        compile_block_with_tail(c, clone_block(&arm.body), allow_implicit, self_name)
     } else {
-        compile_block(c, arm.body, self_name)
+        compile_block(c, clone_block(&arm.body), self_name)
     }
     pop_scope(c)
 }
 
-fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, target: String) {
+fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: &str, target: &str) {
     push_scope(c)
     let unit = ir_operand_const(ir_value_unit())
     if len(block.stmts) == 0 {
-        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit, ref: false, ref_temp: 0 }))
+        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: string_clone(target), src: unit, ref: false, ref_temp: 0 }))
         pop_scope(c)
         return
     }
@@ -1079,12 +1186,12 @@ fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, targ
             match block.stmts[i] {
                 Stmt.Expr(e) => {
                     let v = compile_operand(c, e.expr, self_name)
-                    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: v, ref: false, ref_temp: 0 }))
+                    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: string_clone(target), src: v, ref: false, ref_temp: 0 }))
                 }
                 _ => {
                     compile_stmt(c, block.stmts[i], self_name)
                     if !current_block_has_term(c) {
-                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: target, src: unit, ref: false, ref_temp: 0 }))
+                        emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: string_clone(target), src: unit, ref: false, ref_temp: 0 }))
                     }
                 }
             }
@@ -1096,7 +1203,7 @@ fn compile_block_expr_to(c: &mut Compiler, block: Block, self_name: String, targ
     pop_scope(c)
 }
 
-fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32 {
+fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: &str) -> i32 {
     let mut scrut = compile_expr(c, x.expr, self_name)
     let mut scrut_type = compiler_check_expr(c, x.expr)
     if compiler_type_is_ref(c, scrut_type) {
@@ -1107,7 +1214,7 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
         scrut_type = base
     }
     let res_name = declare_var(c, "$iflet", 0, false)
-    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: res_name, src: ir_operand_const(ir_value_unit()), ref: false, ref_temp: 0 }))
+    emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: string_clone(&res_name), src: ir_operand_const(ir_value_unit()), ref: false, ref_temp: 0 }))
 
     let after = new_block(c, "iflet_after")
     let then_block = new_block(c, "iflet_then")
@@ -1116,7 +1223,8 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
 
     emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, check_block) }))
     set_current_block(c, check_block)
-    emit_pattern_check(c, x.pattern, scrut, scrut_type, self_name, block_label(c, else_block))
+    let else_label = block_label(c, else_block)
+    emit_pattern_check(c, x.pattern, scrut, scrut_type, self_name, &else_label)
     if !current_block_has_term(c) {
         emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, then_block) }))
     }
@@ -1128,15 +1236,15 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
     }
 
     set_current_block(c, then_block)
-    bind_match_pattern(c, x.pattern, scrut, scrut_type, scrut_name, self_name)
-    compile_block_expr_to(c, x.then_block, self_name, res_name)
+    bind_match_pattern(c, x.pattern, scrut, scrut_type, &scrut_name, self_name)
+    compile_block_expr_to(c, x.then_block, self_name, &res_name)
     if !current_block_has_term(c) {
         emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
     }
 
     set_current_block(c, else_block)
     if x.has_else {
-        compile_block_expr_to(c, x.else_block, self_name, res_name)
+        compile_block_expr_to(c, x.else_block, self_name, &res_name)
     }
     if !current_block_has_term(c) {
         emit_term(c, IrTerm.Jump(IrJump { target: block_label(c, after) }))
@@ -1144,11 +1252,11 @@ fn compile_if_let_expr(c: &mut Compiler, x: IfLetExpr, self_name: String) -> i32
 
     set_current_block(c, after)
     let out = new_temp(c)
-    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name, addr: false, ref: false, ref_temp: 0 }))
+    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: string_clone(&res_name), addr: false, ref: false, ref_temp: 0 }))
     return out
 }
 
-fn compile_operand(c: &mut Compiler, expr: Expr, self_name: String) -> IrOperand {
+fn compile_operand(c: &mut Compiler, expr: Expr, self_name: &str) -> IrOperand {
     match expr {
         .IntLit(i) => {
             let v = parse_int(i.value)
@@ -1162,12 +1270,12 @@ fn compile_operand(c: &mut Compiler, expr: Expr, self_name: String) -> IrOperand
             return ir_operand_const(ir_value_string(v))
         }
         Expr.Ident(id) => {
-            let cq = compiler_resolve_const_name(c, id.name)
-            let cidx = find_const_decl(c.consts, cq)
+            let cq = compiler_resolve_const_name(c, &id.name)
+            let cidx = find_const_decl(&c.consts, &cq)
             if cidx >= 0 {
                 let mut tname = ""
                 if c.consts[cidx].has_type { tname = c.consts[cidx].typ }
-                let v = const_to_ir(c.consts[cidx].value, tname)
+                let v = const_to_ir(c.consts[cidx].value, string_clone(&tname))
                 return ir_operand_const(v)
             }
         }
@@ -1183,7 +1291,7 @@ fn compile_operand(c: &mut Compiler, expr: Expr, self_name: String) -> IrOperand
     return ir_operand_temp(compile_expr(c, expr, self_name))
 }
 
-fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
+fn compile_expr(c: &mut Compiler, expr: Expr, self_name: &str) -> i32 {
     match expr {
         .IntLit(_) => {
             compiler_add_type_error(c, "int literal cannot be used where a temp is required")
@@ -1222,7 +1330,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 push(&mut stmts, Stmt.Expr(ExprStmt { pos: b.pos, expr: b.result }))
             }
             let res_name = declare_var(c, "$block", 0, false)
-            compile_block_expr_to(c, Block { stmts: stmts }, self_name, res_name)
+            compile_block_expr_to(c, Block { stmts: stmts }, self_name, &res_name)
             let out = new_temp(c)
             emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: out, name: res_name, addr: false, ref: false, ref_temp: 0 }))
             return out
@@ -1240,22 +1348,32 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return dst
         }
         Expr.Ident(id) => {
-            let ir_name = lookup_var(c, id.name)
-            if ir_name != "" {
+            let idx = lookup_var_index(c, &id.name)
+            let ir_name = lookup_var(c, &id.name)
+            if ir_name != "" && idx >= 0 {
+                let typ = var_type(c, idx)
+                let is_mut_ref = is_temp_ref(string_clone(&ir_name)) && is_mutated_capture(c, id.name)
+                if var_moved(c, idx) && type_needs_drop(c, typ) {
+                    compiler_add_type_error(c, "use of moved value '" + id.name + "'")
+                    return const_zero(c)
+                }
+                if type_needs_drop(c, typ) && !is_mut_ref {
+                    set_var_moved(c, idx, true)
+                }
                 // Check if this is a mutable captured variable
-                if is_temp_ref(ir_name) && is_mutated_capture(c, id.name) {
+                if is_mut_ref {
                     // Mutable capture: ir_name is tN, need to dereference
-                    let temp_val = parse_temp_name(ir_name)
+                    let temp_val = parse_temp_name(string_clone(&ir_name))
                     let t = new_temp(c)
                     emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: "", addr: false, ref: true, ref_temp: temp_val }))
                     return t
                 }
                 let t = new_temp(c)
-                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
+                emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: string_clone(&ir_name), addr: false, ref: false, ref_temp: 0 }))
                 return t
             }
-            let cq = compiler_resolve_const_name(c, id.name)
-            let cidx = find_const_decl(c.consts, cq)
+            let cq = compiler_resolve_const_name(c, &id.name)
+            let cidx = find_const_decl(&c.consts, &cq)
             if cidx >= 0 {
                 compiler_add_type_error(c, "const cannot be used where a temp is required")
                 return const_zero(c)
@@ -1266,10 +1384,21 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .Ref(r) => {
             match r.expr {
                 Expr.Ident(id) => {
-                    let ir_name = lookup_var(c, id.name)
-                    if ir_name == "" {
+                    let idx = lookup_var_index(c, &id.name)
+                    let ir_name = lookup_var(c, &id.name)
+                    if ir_name == "" || idx < 0 {
                         compiler_add_type_error(c, "undefined variable '" + id.name + "'")
                         return const_zero(c)
+                    }
+                    let typ = var_type(c, idx)
+                    if var_moved(c, idx) && type_needs_drop(c, typ) {
+                        compiler_add_type_error(c, "use of moved value '" + id.name + "'")
+                        return const_zero(c)
+                    }
+                    if compiler_type_is_string_kind(c, typ) {
+                        let t = new_temp(c)
+                        emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
+                        return t
                     }
                     let t = new_temp(c)
                     emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: true, ref: false, ref_temp: 0 }))
@@ -1282,6 +1411,24 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             }
         }
         .Deref(d) => {
+            match d.expr {
+                Expr.Ident(id) => {
+                    let idx = lookup_var_index(c, &id.name)
+                    let ir_name = lookup_var(c, &id.name)
+                    if ir_name != "" && idx >= 0 {
+                        let typ = var_type(c, idx)
+                        let mut tctx = c.tctx
+                        let is_ref = ctx_type_is_ref(&mut tctx, typ)
+                        c.tctx = tctx
+                        if is_ref && compiler_type_is_string_kind(c, typ) {
+                            let t = new_temp(c)
+                            emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
+                            return t
+                        }
+                    }
+                }
+                _ => {}
+            }
             let src = compile_expr(c, d.expr, self_name)
             let t = new_temp(c)
             emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: t, name: "", addr: false, ref: true, ref_temp: src }))
@@ -1310,16 +1457,17 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         Expr.Call(call) => {
             match call.callee {
                 Expr.Ident(id) => {
+                    // First try to resolve as a function name
+                    let fq = compiler_resolve_func_name(c, &id.name)
                     let mut args: [IrOperand] = []
                     let mut i = 0
                     while i < len(call.args) {
-                        let v = compile_operand(c, call.args[i], self_name)
+                        let mut expected = 0
+                        if fq != "" { expected = compiler_func_param_type(c, &fq, i) }
+                        let v = compile_call_arg(c, call.args[i], expected, self_name)
                         push(&mut args, v)
                         i = i + 1
                     }
-
-                    // First try to resolve as a function name
-                    let fq = compiler_resolve_func_name(c, id.name)
                     if fq != "" {
                         // Static function call
                         let dst = new_temp(c)
@@ -1328,7 +1476,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                     }
 
                     // Check if it's a closure variable
-                    let ir_name = lookup_var(c, id.name)
+                    let ir_name = lookup_var(c, &id.name)
                     if ir_name != "" {
                         // Closure call - load closure value and call dynamically
                         let closure_temp = new_temp(c)
@@ -1356,7 +1504,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 if len(m.args) > 0 {
                     payload = compile_operand(c, m.args[0], self_name)
                 }
-                let tag_info = enum_tag_info(c, res.enum_name, res.method_name)
+                let tag_info = enum_tag_info(c, &res.enum_name, &res.method_name)
                 if !tag_info.ok {
                     compiler_add_type_error(c, "unknown enum variant '" + res.method_name + "'")
                 }
@@ -1369,12 +1517,30 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             }
             let mut final_args: [IrOperand] = []
             if res.with_self {
-                let recv = compile_operand(c, m.recv, self_name)
+                let mut recv_expr = m.recv
+                if res.self_is_ref {
+                    let recv_t = compiler_check_expr(c, m.recv)
+                    if !compiler_type_is_ref(c, recv_t) {
+                        match m.recv {
+                            Expr.Ident(id) => {
+                                recv_expr = Expr.Ref(RefExpr { pos: m.pos, mutable: res.self_is_mut, expr: Expr.Ident(id) })
+                            }
+                            _ => {
+                                compiler_add_type_error(c, "receiver must be identifier for implicit borrow")
+                            }
+                        }
+                    }
+                }
+                let recv = compile_operand(c, recv_expr, self_name)
                 push(&mut final_args, recv)
             }
             let mut j = 0
             while j < len(m.args) {
-                let v = compile_operand(c, m.args[j], self_name)
+                let mut expected = 0
+                let mut param_idx = j
+                if res.with_self { param_idx = j + 1 }
+                if res.callee != "" { expected = compiler_func_param_type(c, &res.callee, param_idx) }
+                let v = compile_call_arg(c, m.args[j], expected, self_name)
                 push(&mut final_args, v)
                 j = j + 1
             }
@@ -1383,7 +1549,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             return dst
         }
         .StructLit(s) => {
-            let qname = compiler_resolve_struct_name(c, s.name)
+            let qname = compiler_resolve_struct_name(c, &s.name)
             let mut struct_name = s.name
             if qname != "" {
                 struct_name = qname
@@ -1403,12 +1569,12 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
         .Field(f) => {
             match f.recv {
                 Expr.Ident(id) => {
-                    if lookup_var(c, id.name) == "" {
-                        let eq = compiler_resolve_enum_name(c, id.name)
-                        let enum_idx = find_enum_decl(c.enums, eq)
+                    if lookup_var(c, &id.name) == "" {
+                        let eq = compiler_resolve_enum_name(c, &id.name)
+                        let enum_idx = find_enum_decl(&c.enums, &eq)
                         if enum_idx >= 0 {
-                            if enum_has_variant(c.enums[enum_idx], f.name) {
-                                let tag_info = enum_tag_info(c, eq, f.name)
+                            if enum_has_variant(&c.enums[enum_idx], &f.name) {
+                                let tag_info = enum_tag_info(c, &eq, &f.name)
                                 if !tag_info.ok {
                                     compiler_add_type_error(c, "unknown enum variant '" + f.name + "'")
                                 }
@@ -1451,9 +1617,16 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 push(&mut param_names, cl.params[pi].name)
                 pi = pi + 1
             }
-            let free_vars = analyze_free_vars(cl.body, param_names)
-            let mutated_vars = get_mutated_free_vars(cl.body, param_names)
+            let free_vars = analyze_free_vars(cl.body, &param_names)
+            let mutated_vars = get_mutated_free_vars(cl.body, &param_names)
             let has_env = len(free_vars) > 0
+            let mut capture_types: [i32] = []
+            let mut ct = 0
+            while ct < len(free_vars) {
+                let v = compiler_env_lookup(c, free_vars[ct])
+                push(&mut capture_types, v.typ)
+                ct = ct + 1
+            }
 
             // Save current compiler state
             let saved_blocks = c.blocks
@@ -1462,9 +1635,14 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let saved_temp_id = c.temp_id
             let saved_scope_names = c.scope_names
             let saved_scope_ir = c.scope_ir
+            let saved_scope_types = c.scope_types
+            let saved_scope_moved = c.scope_moved
             let saved_scope_marks = c.scope_marks
             let saved_name_counts = c.name_counts
             let saved_mutated_captures = c.mutated_captures
+            let saved_loop_breaks = c.loop_breaks
+            let saved_loop_continues = c.loop_continues
+            let saved_loop_scope_marks = c.loop_scope_marks
 
             // Reset for closure function compilation
             c.blocks = block_list_new()
@@ -1473,9 +1651,14 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             c.temp_id = 0
             c.scope_names = string_list_new()
             c.scope_ir = string_list_new()
+            c.scope_types = int_list_new()
+            c.scope_moved = bool_list_new()
             c.scope_marks = int_list_new()
             c.name_counts = name_count_list_new()
-            c.mutated_captures = mutated_vars
+            c.mutated_captures = string_list_clone(&mutated_vars)
+            c.loop_breaks = string_list_new()
+            c.loop_continues = string_list_new()
+            c.loop_scope_marks = int_list_new()
             compiler_env_push(c)
 
             // Build closure params - ALWAYS add $env as first parameter
@@ -1492,7 +1675,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                 let mut pt = compiler_type_make(c, 1, "i32", false, false, -1)
                 if p.has_type {
                     let mut tctx = c.tctx
-                    pt = ctx_parse_type(&mut tctx, p.typ, self_name)
+                    pt = ctx_parse_type(&mut tctx, &p.typ, &self_name)
                     c.tctx = tctx
                 }
                 let ir_name = declare_var(c, p.name, pt, false)
@@ -1507,20 +1690,32 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
 
             // Unpack captured variables from environment
             if has_env {
-                let env_var = lookup_var(c, "$env")
+                let env_name = "$env"
+                let env_var = lookup_var(c, &env_name)
                 let env_loaded = new_temp(c)
                 emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: env_loaded, name: env_var, addr: false, ref: false, ref_temp: 0 }))
 
+                let mv = &mutated_vars
                 let mut k = 0
                 while k < len(free_vars) {
-                    let var_name = free_vars[k]
+                    let var_name = string_clone(&free_vars[k])
                     let dst = new_temp(c)
                     emit_instr(c, IrInstr.GetField(IrGetField {
                         dst: dst,
                         src: env_loaded,
-                        field: var_name
+                        field: string_clone(&var_name)
                     }))
-                    declare_captured_var(c, var_name, dst)
+                    let mut is_mut = false
+                    let mut mi = 0
+                    while mi < len(*mv) {
+                        if (*mv)[mi] == string_clone(&var_name) { is_mut = true }
+                        mi = mi + 1
+                    }
+                    let mut ctyp = 0
+                    if k >= 0 && k < len(capture_types) {
+                        ctyp = capture_types[k]
+                    }
+                    declare_captured_var(c, string_clone(&var_name), dst, ctyp, is_mut)
                     k = k + 1
                 }
             }
@@ -1539,14 +1734,14 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             let mut return_type = ""
             if cl.has_ret_type {
                 let mut tctx = c.tctx
-                let rt = ctx_parse_type(&mut tctx, cl.ret_type, self_name)
+                let rt = ctx_parse_type(&mut tctx, &cl.ret_type, &self_name)
                 c.tctx = tctx
                 return_type = compiler_type_string(c, rt)
             }
 
             // Build the closure IrFunction
             let closure_func = IrFunction {
-                name: closure_name,
+                name: string_clone(&closure_name),
                 params: params,
                 param_types: param_types,
                 return_type: return_type,
@@ -1566,9 +1761,14 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             c.temp_id = saved_temp_id
             c.scope_names = saved_scope_names
             c.scope_ir = saved_scope_ir
+            c.scope_types = saved_scope_types
+            c.scope_moved = saved_scope_moved
             c.scope_marks = saved_scope_marks
             c.name_counts = saved_name_counts
             c.mutated_captures = saved_mutated_captures
+            c.loop_breaks = saved_loop_breaks
+            c.loop_continues = saved_loop_continues
+            c.loop_scope_marks = saved_loop_scope_marks
 
             // Emit closure value creation in parent function
             let dst = new_temp(c)
@@ -1576,18 +1776,19 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
             if has_env {
                 // Create environment struct
                 let mut env_fields: [IrStructFieldInit] = []
+                let mv = &mutated_vars
                 let mut k = 0
                 while k < len(free_vars) {
-                    let var_name = free_vars[k]
-                    let ir_name = lookup_var(c, var_name)
+                    let var_name = string_clone(&free_vars[k])
+                    let ir_name = lookup_var(c, &var_name)
                     if ir_name == "" {
                         compiler_add_type_error(c, "cannot capture undefined variable '" + var_name + "'")
                     } else {
                         // Check if this variable is mutated
                         let mut is_mut = false
                         let mut mi = 0
-                        while mi < len(mutated_vars) {
-                            if mutated_vars[mi] == var_name {
+                        while mi < len(*mv) {
+                            if (*mv)[mi] == string_clone(&var_name) {
                                 is_mut = true
                             }
                             mi = mi + 1
@@ -1597,12 +1798,12 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: String) -> i32 {
                             // Mutable capture: take address
                             let addr_temp = new_temp(c)
                             emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: addr_temp, name: ir_name, addr: true, ref: false, ref_temp: 0 }))
-                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: ir_operand_temp(addr_temp) })
+                            push(&mut env_fields, IrStructFieldInit { name: string_clone(&var_name), src: ir_operand_temp(addr_temp) })
                         } else {
                             // Immutable capture: load value
                             let loaded = new_temp(c)
                             emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: loaded, name: ir_name, addr: false, ref: false, ref_temp: 0 }))
-                            push(&mut env_fields, IrStructFieldInit { name: var_name, src: ir_operand_temp(loaded) })
+                            push(&mut env_fields, IrStructFieldInit { name: string_clone(&var_name), src: ir_operand_temp(loaded) })
                         }
                     }
                     k = k + 1
@@ -1674,7 +1875,7 @@ fn quote_return_type(kind: i32) -> String {
     return "AstExpr"
 }
 
-fn compile_quote_splices(c: &mut Compiler, splices: [Expr], self_name: String) -> IrOperand {
+fn compile_quote_splices(c: &mut Compiler, splices: [Expr], self_name: &str) -> IrOperand {
     let dst = new_temp(c)
     let mut elems: [IrOperand] = []
     let mut i = 0
@@ -1687,12 +1888,13 @@ fn compile_quote_splices(c: &mut Compiler, splices: [Expr], self_name: String) -
     return ir_operand_temp(dst)
 }
 
-fn compile_quote_expr(c: &mut Compiler, q: QuoteExpr, self_name: String) -> i32 {
+fn compile_quote_expr(c: &mut Compiler, q: QuoteExpr, self_name: &str) -> i32 {
+    let kind = q.kind
     let qt = quote_template(q)
     let template_op = ir_operand_const(ir_value_string(qt.template))
     let splices_op = compile_quote_splices(c, qt.splices, self_name)
     let dst = new_temp(c)
-    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: quote_builtin(q.kind), args: [template_op, splices_op] }))
+    emit_instr(c, IrInstr.Call(IrCall { dst: dst, callee: quote_builtin(kind), args: [template_op, splices_op] }))
     return dst
 }
 
@@ -1702,43 +1904,45 @@ struct MethodResolution {
     is_enum: bool,
     enum_name: String,
     method_name: String,
+    self_is_ref: bool,
+    self_is_mut: bool,
 }
 
-fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: String) -> MethodResolution {
+fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: &str) -> MethodResolution {
     match recv {
         Expr.Ident(id) => {
-            if lookup_var(c, id.name) == "" {
+            if lookup_var(c, &id.name) == "" {
                 let alias_mod = compiler_module_alias(c, id.name)
                 if alias_mod != "" {
                     let mut tctx = c.tctx
-                    let mod_name = module_strip_root(alias_mod)
-                    let fidx = find_func_in_module(&mut tctx, mod_name, method)
+                    let mod_name = module_strip_root(&alias_mod)
+                    let fidx = find_func_in_module(&mut tctx, &mod_name, &method)
                     if fidx >= 0 {
                         let sig = tctx.funcs[fidx]
-                        return MethodResolution { callee: qualify_name(sig.module, sig.name), with_self: false, is_enum: false, enum_name: "", method_name: method }
+                        return MethodResolution { callee: qualify_name(&sig.module, &sig.name), with_self: false, is_enum: false, enum_name: "", method_name: method, self_is_ref: false, self_is_mut: false }
                     }
-                    let rq = compiler_resolve_reexport_func(c, alias_mod, method)
+                    let rq = compiler_resolve_reexport_func(c, &alias_mod, &method)
                     if rq != "" {
-                        return MethodResolution { callee: rq, with_self: false, is_enum: false, enum_name: "", method_name: method }
+                        return MethodResolution { callee: rq, with_self: false, is_enum: false, enum_name: "", method_name: method, self_is_ref: false, self_is_mut: false }
                     }
                 }
-                let eq = compiler_resolve_enum_name(c, id.name)
-                let enum_idx = find_enum_decl(c.enums, eq)
+                let eq = compiler_resolve_enum_name(c, &id.name)
+                let enum_idx = find_enum_decl(&c.enums, &eq)
                 if enum_idx >= 0 {
-                    if enum_has_variant(c.enums[enum_idx], method) {
-                        return MethodResolution { callee: "", with_self: false, is_enum: true, enum_name: eq, method_name: method }
+                    if enum_has_variant(&c.enums[enum_idx], &method) {
+                        return MethodResolution { callee: "", with_self: false, is_enum: true, enum_name: eq, method_name: method, self_is_ref: false, self_is_mut: false }
                     }
                 }
                 let mut type_q = eq
                 if type_q == "" {
-                    type_q = compiler_resolve_struct_name(c, id.name)
+                    type_q = compiler_resolve_struct_name(c, &id.name)
                 }
                 if type_q != "" {
-                    let midx = compiler_find_method(c, type_q, method)
+                    let midx = compiler_find_method(c, &type_q, &method)
                     if midx >= 0 {
                         let sig = c.tctx.methods[midx]
                         if !sig.has_self {
-                            return MethodResolution { callee: sig.func_name, with_self: false, is_enum: false, enum_name: "", method_name: method }
+                            return MethodResolution { callee: sig.func_name, with_self: false, is_enum: false, enum_name: "", method_name: method, self_is_ref: false, self_is_mut: false }
                         }
                     }
                 }
@@ -1752,13 +1956,13 @@ fn resolve_method_call(c: &mut Compiler, recv: Expr, method: String, self_name: 
         base = compiler_deref_type(c, base)
     }
     let type_name = compiler_type_name(c, base)
-    let midx = compiler_find_method(c, type_name, method)
+    let midx = compiler_find_method(c, &type_name, &method)
     if midx >= 0 {
         let sig = c.tctx.methods[midx]
-        return MethodResolution { callee: sig.func_name, with_self: true, is_enum: false, enum_name: "", method_name: method }
+        return MethodResolution { callee: sig.func_name, with_self: true, is_enum: false, enum_name: "", method_name: string_clone(&method), self_is_ref: compiler_type_is_ref(c, sig.params[0]), self_is_mut: compiler_type_is_mut(c, sig.params[0]) }
     }
-    compiler_add_type_error(c, "unknown method '" + method + "'")
-    return MethodResolution { callee: method, with_self: true, is_enum: false, enum_name: "", method_name: method }
+    compiler_add_type_error(c, "unknown method '" + string_clone(&method) + "'")
+    return MethodResolution { callee: string_clone(&method), with_self: true, is_enum: false, enum_name: "", method_name: string_clone(&method), self_is_ref: false, self_is_mut: false }
 }
 
 fn op_string(k: TokenKind) -> String {
@@ -1831,7 +2035,7 @@ fn parse_string_literal(raw: String) -> String {
 
 fn const_to_ir(v: ConstValue, type_name: String) -> IrValue {
     if v.kind == const_kind_int() {
-        if is_int_type_name(type_name) {
+        if compiler_is_int_type_name(&type_name) {
             return ir_value_int_t(parse_int(v.int_value), type_name)
         }
         return ir_value_int(parse_int(v.int_value))
@@ -1851,37 +2055,37 @@ fn const_zero(c: &mut Compiler) -> i32 {
     return t
 }
 
-fn find_enum_decl(enums: [EnumDecl], name: String) -> i32 {
+fn find_enum_decl(enums: & [EnumDecl], name: &str) -> i32 {
     let mut i = 0
-    while i < len(enums) {
-        if enum_qname(enums[i]) == name { return i }
+    while i < len(*enums) {
+        if enum_qname(&(*enums)[i]) == string_clone(name) { return i }
         i = i + 1
     }
     return -1
 }
 
-fn find_struct_decl(structs: [StructDecl], name: String) -> i32 {
+fn find_struct_decl(structs: & [StructDecl], name: &str) -> i32 {
     let mut i = 0
-    while i < len(structs) {
-        if qualify_name(structs[i].module, structs[i].name) == name { return i }
+    while i < len(*structs) {
+        if qualify_name(&(*structs)[i].module, &(*structs)[i].name) == string_clone(name) { return i }
         i = i + 1
     }
     return -1
 }
 
-fn find_const_decl(consts: [ConstDecl], name: String) -> i32 {
+fn find_const_decl(consts: & [ConstDecl], name: &str) -> i32 {
     let mut i = 0
-    while i < len(consts) {
-        if qualify_name(consts[i].module, consts[i].name) == name { return i }
+    while i < len(*consts) {
+        if qualify_name(&(*consts)[i].module, &(*consts)[i].name) == string_clone(name) { return i }
         i = i + 1
     }
     return -1
 }
 
-fn enum_has_variant(e: EnumDecl, name: String) -> bool {
+fn enum_has_variant(e: &EnumDecl, name: &str) -> bool {
     let mut i = 0
     while i < len(e.variants) {
-        if e.variants[i].name == name { return true }
+        if e.variants[i].name == string_clone(name) { return true }
         i = i + 1
     }
     return false
@@ -1892,7 +2096,7 @@ fn compile_enum_decls(c: &mut Compiler) -> [IrEnumDecl] {
     let mut i = 0
     while i < len(c.enums) {
         let e = c.enums[i]
-        let name = enum_qname(e)
+        let name = enum_qname(&e)
         let mut params: [String] = []
         let mut pi = 0
         while pi < len(e.type_params) {
@@ -1912,7 +2116,8 @@ fn compile_enum_decls(c: &mut Compiler) -> [IrEnumDecl] {
             let tag = next
             let mut pt = "unit"
             if v.has_payload {
-                let tid = variant_payload_type(c, name, v.name, "")
+                let empty = ""
+                let tid = variant_payload_type(c, &name, &v.name, &empty)
                 let s = compiler_type_string(c, tid)
                 if s != "" { pt = s }
             }
@@ -1932,8 +2137,8 @@ struct EnumTagInfo {
     tag_type: String,
 }
 
-fn enum_tag_info(c: &mut Compiler, enum_name: String, variant: String) -> EnumTagInfo {
-    let idx = find_enum_decl(c.enums, enum_name)
+fn enum_tag_info(c: &mut Compiler, enum_name: &str, variant: &str) -> EnumTagInfo {
+    let idx = find_enum_decl(&c.enums, enum_name)
     if idx < 0 { return EnumTagInfo { ok: false, tag: 0, tag_type: "" } }
     let e = c.enums[idx]
     let mut tag_type = e.repr
@@ -1945,7 +2150,7 @@ fn enum_tag_info(c: &mut Compiler, enum_name: String, variant: String) -> EnumTa
         if v.has_value {
             next = parse_int(v.value)
         }
-        if v.name == variant {
+        if v.name == string_clone(variant) {
             return EnumTagInfo { ok: true, tag: next, tag_type: tag_type }
         }
         next = next + 1
@@ -1954,7 +2159,7 @@ fn enum_tag_info(c: &mut Compiler, enum_name: String, variant: String) -> EnumTa
     return EnumTagInfo { ok: false, tag: 0, tag_type: tag_type }
 }
 
-fn enum_name_for_scrut(c: &mut Compiler, expr: Expr, self_name: String) -> String {
+fn enum_name_for_scrut(c: &mut Compiler, expr: Expr, self_name: &str) -> String {
     let t = compiler_check_expr(c, expr)
     if compiler_type_kind(c, t) == 6 {
         return compiler_type_name(c, t)
@@ -1976,29 +2181,29 @@ fn enum_name_for_type(c: &mut Compiler, t: i32) -> String {
     return ""
 }
 
-fn struct_field_type(c: &mut Compiler, struct_name: String, field: String, self_name: String) -> i32 {
-    let idx = find_struct_decl(c.structs, struct_name)
+fn struct_field_type(c: &mut Compiler, struct_name: &str, field: &str, self_name: &str) -> i32 {
+    let idx = find_struct_decl(&c.structs, struct_name)
     if idx < 0 { return 0 }
     let st = c.structs[idx]
-    let fidx = find_field(st, field)
+    let fidx = find_field(&st, field)
     if fidx < 0 { return 0 }
-    return compiler_parse_type_in_module(c, st.fields[fidx].typ, self_name, st.module)
+    return compiler_parse_type_in_module(c, &st.fields[fidx].typ, self_name, &st.module)
 }
 
-fn variant_payload_type(c: &mut Compiler, enum_name: String, variant: String, self_name: String) -> i32 {
-    let eidx = find_enum_decl(c.enums, enum_name)
+fn variant_payload_type(c: &mut Compiler, enum_name: &str, variant: &str, self_name: &str) -> i32 {
+    let eidx = find_enum_decl(&c.enums, enum_name)
     if eidx < 0 { return 0 }
     let e = c.enums[eidx]
     let mut i = 0
     while i < len(e.variants) {
         let v = e.variants[i]
-        if v.name == variant {
+        if v.name == string_clone(variant) {
             if v.has_payload {
                 // Set enum's type params for payload type parsing
                 let mut tctx = c.tctx
                 ctx_set_type_params(&mut tctx, e.type_params)
                 c.tctx = tctx
-                let pt = compiler_parse_type_in_module(c, v.payload, self_name, e.module)
+                let pt = compiler_parse_type_in_module(c, &v.payload, self_name, &e.module)
                 tctx = c.tctx
                 ctx_clear_type_params(&mut tctx)
                 c.tctx = tctx
@@ -2023,35 +2228,50 @@ fn pop_scope(c: &mut Compiler) {
     let mut marks = c.scope_marks
     let mut names = c.scope_names
     let mut irs = c.scope_ir
+    let mut types = c.scope_types
+    let mut moved = c.scope_moved
     if len(marks) == 0 { return }
     let idx = marks[len(marks)-1]
+    if !current_block_has_term(c) {
+        emit_scope_drops(c, idx)
+    }
     pop(&mut marks)
     while len(names) > idx {
         pop(&mut names)
         pop(&mut irs)
+        pop(&mut types)
+        pop(&mut moved)
     }
     c.scope_marks = marks
     c.scope_names = names
     c.scope_ir = irs
+    c.scope_types = types
+    c.scope_moved = moved
     compiler_env_pop(c)
 }
 
 fn push_loop(c: &mut Compiler, break_label: String, continue_label: String) {
     let mut breaks = c.loop_breaks
     let mut conts = c.loop_continues
+    let mut scopes = c.loop_scope_marks
     push(&mut breaks, break_label)
     push(&mut conts, continue_label)
+    push(&mut scopes, len(c.scope_marks))
     c.loop_breaks = breaks
     c.loop_continues = conts
+    c.loop_scope_marks = scopes
 }
 
 fn pop_loop(c: &mut Compiler) {
     let mut breaks = c.loop_breaks
     let mut conts = c.loop_continues
+    let mut scopes = c.loop_scope_marks
     if len(breaks) > 0 { pop(&mut breaks) }
     if len(conts) > 0 { pop(&mut conts) }
+    if len(scopes) > 0 { pop(&mut scopes) }
     c.loop_breaks = breaks
     c.loop_continues = conts
+    c.loop_scope_marks = scopes
 }
 
 fn current_loop_break(c: &mut Compiler) -> String {
@@ -2066,47 +2286,697 @@ fn current_loop_continue(c: &mut Compiler) -> String {
     return conts[len(conts) - 1]
 }
 
+fn current_loop_scope_depth(c: &mut Compiler) -> i32 {
+    let scopes = c.loop_scope_marks
+    if len(scopes) == 0 { return -1 }
+    return scopes[len(scopes) - 1]
+}
+
+fn emit_scope_drops(c: &mut Compiler, start_idx: i32) {
+    if current_block_has_term(c) { return }
+    let mut i = len(c.scope_names) - 1
+    while i >= start_idx {
+        if i < 0 { break }
+        let typ = var_type(c, i)
+        if !var_moved(c, i) && type_needs_drop(c, typ) {
+            emit_drop_for_var(c, c.scope_ir[i], typ)
+        }
+        if i == 0 { break }
+        i = i - 1
+    }
+}
+
+fn emit_drops_from_depth(c: &mut Compiler, depth: i32) {
+    if current_block_has_term(c) { return }
+    if depth < 0 { return }
+    let marks = c.scope_marks
+    if len(marks) == 0 { return }
+    let mut end_idx = len(c.scope_names)
+    let mut i = len(marks) - 1
+    while i >= depth {
+        let start_idx = marks[i]
+        let mut j = end_idx - 1
+        while j >= start_idx {
+            if j < 0 { break }
+            let typ = var_type(c, j)
+            if !var_moved(c, j) && type_needs_drop(c, typ) {
+                emit_drop_for_var(c, c.scope_ir[j], typ)
+            }
+            if j == 0 { break }
+            j = j - 1
+        }
+        end_idx = start_idx
+        if i == 0 { break }
+        i = i - 1
+    }
+}
+
+fn emit_drop_for_var(c: &mut Compiler, ir_name: String, typ: i32) {
+    if ir_name == "" { return }
+    if is_temp_ref(string_clone(&ir_name)) { return }
+    if !type_needs_drop(c, typ) { return }
+    let tmp = new_temp(c)
+    emit_instr(c, IrInstr.LoadVar(IrLoadVar { dst: tmp, name: string_clone(&ir_name), addr: false, ref: false, ref_temp: 0 }))
+    emit_drop_call(c, ir_operand_temp(tmp), typ)
+}
+
+fn emit_drop_call(c: &mut Compiler, op: IrOperand, typ: i32) {
+    let fname = ensure_drop_func_for_type(c, typ)
+    if fname == "" { return }
+    emit_instr(c, IrInstr.Call(IrCall { dst: -1, callee: fname, args: [op] }))
+}
+
+fn str_starts_with(s: &str, prefix: &str) -> bool {
+    let s_len = len(string_clone(s))
+    let p_len = len(string_clone(prefix))
+    if s_len < p_len { return false }
+    return substr(string_clone(s), 0, p_len) == string_clone(prefix)
+}
+
+fn str_ends_with(s: &str, suffix: &str) -> bool {
+    let s_len = len(string_clone(s))
+    let p_len = len(string_clone(suffix))
+    if s_len < p_len { return false }
+    return substr(string_clone(s), s_len - p_len, p_len) == string_clone(suffix)
+}
+
+fn string_eq(a: &str, b: &str) -> bool {
+    return string_clone(a) == string_clone(b)
+}
+
+fn compiler_trim_space(s: String) -> String {
+    let mut start = 0
+    let mut end = len(s)
+    let mut done = false
+    while start < end && !done {
+        let c = char_at(s, start)
+        if c == 32 || c == 9 { start = start + 1 } else { done = true }
+    }
+    done = false
+    while end > start && !done {
+        let c = char_at(s, end - 1)
+        if c == 32 || c == 9 { end = end - 1 } else { done = true }
+    }
+    if end <= start { return "" }
+    return substr(s, start, end - start)
+}
+
+fn normalize_type_name(t: &str) -> String {
+    let mut s = compiler_trim_space(string_clone(t))
+    let mut_prefix = "&mut "
+    if str_starts_with(&s, &mut_prefix) {
+        let s_len = len(string_clone(&s))
+        let base = compiler_trim_space(substr(string_clone(&s), 5, s_len - 5))
+        if base == "String" || base == "str" { return "str" }
+        return "&" + normalize_type_name(&base)
+    }
+    let ref_prefix = "&"
+    if str_starts_with(&s, &ref_prefix) {
+        let s_len = len(string_clone(&s))
+        let base = compiler_trim_space(substr(string_clone(&s), 1, s_len - 1))
+        if base == "String" || base == "str" { return "str" }
+        return "&" + normalize_type_name(&base)
+    }
+    return s
+}
+
+fn normalize_type_name_owned(t: String) -> String {
+    return normalize_type_name(&t)
+}
+
+fn is_ref_type_name(t: &str) -> bool {
+    let s = compiler_trim_space(string_clone(t))
+    let prefix = "&"
+    return str_starts_with(&s, &prefix)
+}
+
+fn strip_ref_type_name(t: &str) -> String {
+    let s = compiler_trim_space(string_clone(t))
+    let mut_prefix = "&mut "
+    if str_starts_with(&s, &mut_prefix) {
+        let s_len = len(string_clone(&s))
+        return compiler_trim_space(substr(string_clone(&s), 5, s_len - 5))
+    }
+    let ref_prefix = "&"
+    if str_starts_with(&s, &ref_prefix) {
+        let s_len = len(string_clone(&s))
+        return compiler_trim_space(substr(string_clone(&s), 1, s_len - 1))
+    }
+    return s
+}
+
+fn is_array_type_name(t: &str) -> bool {
+    let s = compiler_trim_space(string_clone(t))
+    let s_len = len(string_clone(&s))
+    if s_len < 2 { return false }
+    if char_at(string_clone(&s), 0) != 91 { return false } // '['
+    return char_at(string_clone(&s), s_len - 1) == 93
+}
+
+fn array_elem_type_name(t: &str) -> String {
+    let s = compiler_trim_space(string_clone(t))
+    if !is_array_type_name(&s) { return "" }
+    let s_len = len(string_clone(&s))
+    return compiler_trim_space(substr(string_clone(&s), 1, s_len - 2))
+}
+
+fn compiler_is_int_type_name(t: &str) -> bool {
+    let s = normalize_type_name(t)
+    if s == "int" { return true }
+    if s == "i8" || s == "i16" || s == "i32" || s == "i64" { return true }
+    if s == "u8" || s == "u16" || s == "u32" || s == "u64" { return true }
+    if s == "isize" || s == "usize" { return true }
+    if s == "char" { return true }
+    return false
+}
+
+fn is_bool_type_name(t: &str) -> bool {
+    return normalize_type_name(t) == "bool"
+}
+
+fn is_unit_type_name(t: &str) -> bool {
+    let s = normalize_type_name(t)
+    return s == "unit" || s == "()"
+}
+
+fn is_string_type_name(t: &str) -> bool {
+    let s = normalize_type_name(t)
+    return s == "String" || s == "str"
+}
+
+fn is_closure_type_name(t: &str) -> bool {
+    let s = normalize_type_name(t)
+    return s == "closure" || s == "Closure"
+}
+
+fn is_env_type_name(t: &str) -> bool {
+    return normalize_type_name(t) == "$Env"
+}
+
+fn is_ast_type_name(t: &str) -> bool {
+    let s = normalize_type_name(t)
+    let prefix = "Ast"
+    return str_starts_with(&s, &prefix)
+}
+
+fn struct_decl_matches(decl: &StructDecl, name: &str) -> bool {
+    if string_clone(name) == decl.name { return true }
+    if decl.module != "" && string_clone(name) == decl.module + "::" + decl.name { return true }
+    return false
+}
+
+fn enum_decl_matches(decl: &EnumDecl, name: &str) -> bool {
+    if string_clone(name) == decl.name { return true }
+    if decl.module != "" && string_clone(name) == decl.module + "::" + decl.name { return true }
+    return false
+}
+
+fn find_struct_decl_index(c: &mut Compiler, name: &str) -> i32 {
+    let mut i = 0
+    while i < len(c.structs) {
+        if struct_decl_matches(&c.structs[i], name) { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn find_enum_decl_index(c: &mut Compiler, name: &str) -> i32 {
+    let mut i = 0
+    while i < len(c.enums) {
+        if enum_decl_matches(&c.enums[i], name) { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn type_name_needs_drop(c: &mut Compiler, tname: &str) -> bool {
+    let stripped = strip_ref_type_name(tname)
+    let base = normalize_type_name_owned(stripped)
+    if string_eq(&base, "") { return false }
+    if is_ref_type_name(tname) { return false }
+    if is_unit_type_name(&base) || compiler_is_int_type_name(&base) || is_bool_type_name(&base) { return false }
+    if string_eq(&base, "str") { return false }
+    if is_string_type_name(&base) { return true }
+    if is_array_type_name(&base) { return true }
+    if is_closure_type_name(&base) { return true }
+    if is_env_type_name(&base) { return true }
+    if is_ast_type_name(&base) { return true }
+    if find_struct_decl_index(c, &base) >= 0 { return true }
+    if find_enum_decl_index(c, &base) >= 0 { return true }
+    return false
+}
+
+fn type_needs_drop(c: &mut Compiler, typ: i32) -> bool {
+    if typ == 0 { return false }
+    if compiler_type_is_ref(c, typ) { return false }
+    let tname = compiler_type_string(c, typ)
+    return type_name_needs_drop(c, &tname)
+}
+
+fn ensure_drop_func_for_type(c: &mut Compiler, typ: i32) -> String {
+    if !type_needs_drop(c, typ) { return "" }
+    let tname = compiler_type_string(c, typ)
+    return ensure_drop_func(c, tname)
+}
+
+fn drop_types_contains(items: & [String], name: &str) -> bool {
+    let mut i = 0
+    while i < len(*items) {
+        if (*items)[i] == string_clone(name) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn mangle_type_name(t: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(t) {
+        let c = char_at(t, i)
+        if (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) {
+            out = out + substr(t, i, 1)
+        } else {
+            out = out + "_"
+        }
+        i = i + 1
+    }
+    if out == "" { return "_" }
+    return out
+}
+
+fn drop_func_name_for_type(tname: &str) -> String {
+    let stripped = strip_ref_type_name(tname)
+    let base = normalize_type_name_owned(stripped)
+    if is_array_type_name(&base) {
+        let elem = array_elem_type_name(&base)
+        return "__drop_array_" + mangle_type_name(elem)
+    }
+    return "__drop_" + mangle_type_name(base)
+}
+
+fn ensure_drop_func(c: &mut Compiler, tname: String) -> String {
+    let stripped = strip_ref_type_name(&tname)
+    let base = normalize_type_name_owned(stripped)
+    if base == "" { return "" }
+    if !type_name_needs_drop(c, &base) { return "" }
+    let cur_types = c.drop_types
+    if drop_types_contains(&cur_types, &base) {
+        c.drop_types = cur_types
+        return drop_func_name_for_type(&base)
+    }
+    let mut types: [String] = cur_types
+    push(&mut types, string_clone(&base))
+    c.drop_types = types
+
+    if is_array_type_name(&base) {
+        let elem = array_elem_type_name(&base)
+        ensure_drop_func(c, elem)
+    }
+    if is_closure_type_name(&base) {
+        ensure_drop_func(c, "String")
+        ensure_drop_func(c, "$Env")
+    }
+    if is_env_type_name(&base) {
+        return drop_func_name_for_type(&base)
+    }
+    let sidx = find_struct_decl_index(c, &base)
+    if sidx >= 0 {
+        let decl = c.structs[sidx]
+        let mut i = 0
+        while i < len(decl.fields) {
+            ensure_drop_func(c, decl.fields[i].typ)
+            i = i + 1
+        }
+    }
+    let eidx = find_enum_decl_index(c, &base)
+    if eidx >= 0 {
+        let decl = c.enums[eidx]
+        let mut i = 0
+        while i < len(decl.variants) {
+            let v = decl.variants[i]
+            if v.has_payload {
+                ensure_drop_func(c, v.payload)
+            }
+            i = i + 1
+        }
+    }
+    if is_ast_type_name(&base) {
+        ensure_drop_func(c, "String")
+    }
+    return drop_func_name_for_type(&base)
+}
+
+struct DropBuilder {
+    func: IrFunction,
+    blocks: [IrBlock],
+    cur: i32,
+    temp_id: i32,
+    block_id: i32,
+}
+
+fn drop_builder_new(name: String, param_type: String) -> DropBuilder {
+    let mut params: [String] = []
+    let mut param_types: [String] = []
+    push(&mut params, "v")
+    push(&mut param_types, param_type)
+    let func = IrFunction { name: name, params: params, param_types: param_types, return_type: "unit", blocks: block_list_new(), temp_count: 0 }
+    return DropBuilder { func: func, blocks: block_list_new(), cur: -1, temp_id: 0, block_id: 0 }
+}
+
+fn drop_builder_new_temp(b: &mut DropBuilder) -> i32 {
+    let t = b.temp_id
+    b.temp_id = b.temp_id + 1
+    return t
+}
+
+fn drop_builder_new_block(b: &mut DropBuilder, prefix: String) -> i32 {
+    let label = prefix + int_to_string(b.block_id)
+    b.block_id = b.block_id + 1
+    let block = IrBlock { label: label, instrs: instr_list_new(), term: ir_term_none() }
+    let mut blocks = b.blocks
+    push(&mut blocks, block)
+    let idx = len(blocks) - 1
+    b.blocks = blocks
+    return idx
+}
+
+fn drop_builder_set_block(b: &mut DropBuilder, idx: i32) {
+    b.cur = idx
+}
+
+fn drop_builder_emit_instr(b: &mut DropBuilder, inst: IrInstr) {
+    if b.cur < 0 { return }
+    let mut blocks = b.blocks
+    let mut blk = blocks[b.cur]
+    let mut instrs = blk.instrs
+    push(&mut instrs, inst)
+    blk.instrs = instrs
+    blocks[b.cur] = blk
+    b.blocks = blocks
+}
+
+fn drop_builder_emit_term(b: &mut DropBuilder, term: IrTerm) {
+    if b.cur < 0 { return }
+    let mut blk = b.blocks[b.cur]
+    blk.term = term
+    b.blocks[b.cur] = blk
+}
+
+fn drop_builder_finish(b: &mut DropBuilder) -> IrFunction {
+    let mut func = b.func
+    func.blocks = b.blocks
+    func.temp_count = b.temp_id
+    return func
+}
+
+fn build_drop_string_func(tname: String) -> IrFunction {
+    let fname = drop_func_name_for_type(&tname)
+    let mut b = drop_builder_new(fname, string_clone(&tname))
+    let entry = drop_builder_new_block(&mut b, "entry")
+    drop_builder_set_block(&mut b, entry)
+    let vtemp = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: vtemp, name: "v", addr: false, ref: false, ref_temp: 0 }))
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "string_free", args: [ir_operand_temp(vtemp)] }))
+    drop_builder_emit_term(&mut b, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
+    return drop_builder_finish(&mut b)
+}
+
+fn build_drop_array_func(c: &mut Compiler, tname: String, elem: String) -> IrFunction {
+    let fname = drop_func_name_for_type(&tname)
+    let mut b = drop_builder_new(fname, string_clone(&tname))
+    let entry = drop_builder_new_block(&mut b, "entry")
+    let loop_block = drop_builder_new_block(&mut b, "loop")
+    let body = drop_builder_new_block(&mut b, "body")
+    let done = drop_builder_new_block(&mut b, "done")
+
+    drop_builder_set_block(&mut b, entry)
+    let arr = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: arr, name: "v", addr: false, ref: false, ref_temp: 0 }))
+    let len_temp = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: len_temp, callee: "len", args: [ir_operand_temp(arr)] }))
+    drop_builder_emit_instr(&mut b, IrInstr.StoreVar(IrStoreVar { name: "len", src: ir_operand_temp(len_temp), ref: false, ref_temp: 0 }))
+    drop_builder_emit_instr(&mut b, IrInstr.StoreVar(IrStoreVar { name: "i", src: ir_operand_const(ir_value_int(0)), ref: false, ref_temp: 0 }))
+    drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[loop_block].label }))
+
+    drop_builder_set_block(&mut b, loop_block)
+    let i_temp = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: i_temp, name: "i", addr: false, ref: false, ref_temp: 0 }))
+    let len_temp2 = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: len_temp2, name: "len", addr: false, ref: false, ref_temp: 0 }))
+    let cond = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.BinOp(IrBinOp { dst: cond, op: "<", lhs: ir_operand_temp(i_temp), rhs: ir_operand_temp(len_temp2) }))
+    drop_builder_emit_term(&mut b, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cond), then_label: b.blocks[body].label, else_label: b.blocks[done].label }))
+
+    drop_builder_set_block(&mut b, body)
+    let elem_temp = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.Index(IrIndex { dst: elem_temp, array: ir_operand_temp(arr), index: ir_operand_temp(i_temp), unchecked: false }))
+    if type_name_needs_drop(c, &elem) {
+        let drop_name = drop_func_name_for_type(&elem)
+        drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: drop_name, args: [ir_operand_temp(elem_temp)] }))
+    }
+    let inc = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.BinOp(IrBinOp { dst: inc, op: "+", lhs: ir_operand_temp(i_temp), rhs: ir_operand_const(ir_value_int(1)) }))
+    drop_builder_emit_instr(&mut b, IrInstr.StoreVar(IrStoreVar { name: "i", src: ir_operand_temp(inc), ref: false, ref_temp: 0 }))
+    drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[loop_block].label }))
+
+    drop_builder_set_block(&mut b, done)
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "array_free", args: [ir_operand_temp(arr)] }))
+    drop_builder_emit_term(&mut b, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
+    return drop_builder_finish(&mut b)
+}
+
+fn build_drop_struct_func(c: &mut Compiler, tname: String) -> IrFunction {
+    let fname = drop_func_name_for_type(&tname)
+    let mut b = drop_builder_new(fname, string_clone(&tname))
+    let entry = drop_builder_new_block(&mut b, "entry")
+    drop_builder_set_block(&mut b, entry)
+    let src = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: src, name: "v", addr: false, ref: false, ref_temp: 0 }))
+    let sidx = find_struct_decl_index(c, &tname)
+    if sidx >= 0 {
+        let decl = c.structs[sidx]
+        let mut i = 0
+        while i < len(decl.fields) {
+            let f = decl.fields[i]
+            if type_name_needs_drop(c, &f.typ) {
+                let ft = drop_builder_new_temp(&mut b)
+                drop_builder_emit_instr(&mut b, IrInstr.GetField(IrGetField { dst: ft, src: src, field: f.name }))
+                let drop_name = drop_func_name_for_type(&f.typ)
+                drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: drop_name, args: [ir_operand_temp(ft)] }))
+            }
+            i = i + 1
+        }
+    }
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "struct_free", args: [ir_operand_temp(src)] }))
+    drop_builder_emit_term(&mut b, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
+    return drop_builder_finish(&mut b)
+}
+
+fn build_drop_enum_func(c: &mut Compiler, tname: String) -> IrFunction {
+    let fname = drop_func_name_for_type(&tname)
+    let mut b = drop_builder_new(fname, string_clone(&tname))
+    let entry = drop_builder_new_block(&mut b, "entry")
+    let check = drop_builder_new_block(&mut b, "check")
+    let done = drop_builder_new_block(&mut b, "done")
+    let free_block = drop_builder_new_block(&mut b, "free")
+
+    drop_builder_set_block(&mut b, entry)
+    let src = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: src, name: "v", addr: false, ref: false, ref_temp: 0 }))
+    drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[check].label }))
+
+    drop_builder_set_block(&mut b, free_block)
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "struct_free", args: [ir_operand_temp(src)] }))
+    drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[done].label }))
+
+    drop_builder_set_block(&mut b, check)
+    let eidx = find_enum_decl_index(c, &tname)
+    if eidx < 0 {
+        drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[free_block].label }))
+    } else {
+        let decl = c.enums[eidx]
+        let qname = enum_qname(&decl)
+        let mut tag_type = decl.repr
+        if tag_type == "" { tag_type = "i32" }
+        let tag_temp = drop_builder_new_temp(&mut b)
+        drop_builder_emit_instr(&mut b, IrInstr.GetField(IrGetField { dst: tag_temp, src: src, field: "_tag" }))
+
+        let mut next_label = b.blocks[free_block].label
+        let mut i = len(decl.variants) - 1
+        while i >= 0 {
+            let v = decl.variants[i]
+            if v.has_payload && type_name_needs_drop(c, &v.payload) {
+                let drop_block = drop_builder_new_block(&mut b, "drop_v")
+                let check_block = drop_builder_new_block(&mut b, "check_v")
+                let tag_info = enum_tag_info(c, &qname, &v.name)
+                drop_builder_set_block(&mut b, check_block)
+                let cmp = drop_builder_new_temp(&mut b)
+                drop_builder_emit_instr(&mut b, IrInstr.BinOp(IrBinOp { dst: cmp, op: "==", lhs: ir_operand_temp(tag_temp), rhs: ir_operand_const(ir_value_int_t(tag_info.tag, tag_info.tag_type)) }))
+                drop_builder_emit_term(&mut b, IrTerm.Branch(IrBranch { cond: ir_operand_temp(cmp), then_label: b.blocks[drop_block].label, else_label: next_label }))
+
+                drop_builder_set_block(&mut b, drop_block)
+                let payload = drop_builder_new_temp(&mut b)
+                drop_builder_emit_instr(&mut b, IrInstr.GetField(IrGetField { dst: payload, src: src, field: "_payload" }))
+                let drop_name = drop_func_name_for_type(&v.payload)
+                drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: drop_name, args: [ir_operand_temp(payload)] }))
+                drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[free_block].label }))
+
+                next_label = b.blocks[check_block].label
+            }
+            if i == 0 { break }
+            i = i - 1
+        }
+        drop_builder_set_block(&mut b, check)
+        if next_label != b.blocks[free_block].label {
+            drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: next_label }))
+        } else {
+            drop_builder_emit_term(&mut b, IrTerm.Jump(IrJump { target: b.blocks[free_block].label }))
+        }
+    }
+
+    drop_builder_set_block(&mut b, done)
+    drop_builder_emit_term(&mut b, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
+    return drop_builder_finish(&mut b)
+}
+
+fn build_drop_closure_func(tname: String) -> IrFunction {
+    let fname = drop_func_name_for_type(&tname)
+    let mut b = drop_builder_new(fname, string_clone(&tname))
+    let entry = drop_builder_new_block(&mut b, "entry")
+    drop_builder_set_block(&mut b, entry)
+    let src = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: src, name: "v", addr: false, ref: false, ref_temp: 0 }))
+    let func_temp = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.GetField(IrGetField { dst: func_temp, src: src, field: "func" }))
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "string_free", args: [ir_operand_temp(func_temp)] }))
+    let env_temp = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.GetField(IrGetField { dst: env_temp, src: src, field: "env" }))
+    let env_type = "$Env"
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: drop_func_name_for_type(&env_type), args: [ir_operand_temp(env_temp)] }))
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "struct_free", args: [ir_operand_temp(src)] }))
+    drop_builder_emit_term(&mut b, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
+    return drop_builder_finish(&mut b)
+}
+
+fn build_drop_env_func(tname: String) -> IrFunction {
+    let fname = drop_func_name_for_type(&tname)
+    let mut b = drop_builder_new(fname, string_clone(&tname))
+    let entry = drop_builder_new_block(&mut b, "entry")
+    drop_builder_set_block(&mut b, entry)
+    let src = drop_builder_new_temp(&mut b)
+    drop_builder_emit_instr(&mut b, IrInstr.LoadVar(IrLoadVar { dst: src, name: "v", addr: false, ref: false, ref_temp: 0 }))
+    drop_builder_emit_instr(&mut b, IrInstr.Call(IrCall { dst: -1, callee: "struct_free", args: [ir_operand_temp(src)] }))
+    drop_builder_emit_term(&mut b, IrTerm.Return(IrReturn { has_value: false, value: ir_operand_const(ir_value_unit()) }))
+    return drop_builder_finish(&mut b)
+}
+
+fn build_drop_func(c: &mut Compiler, tname: String) -> IrFunction {
+    if is_string_type_name(&tname) || is_ast_type_name(&tname) {
+        return build_drop_string_func(tname)
+    }
+    if is_array_type_name(&tname) {
+        let elem = array_elem_type_name(&tname)
+        return build_drop_array_func(c, tname, elem)
+    }
+    if is_closure_type_name(&tname) {
+        return build_drop_closure_func(tname)
+    }
+    if is_env_type_name(&tname) {
+        return build_drop_env_func(tname)
+    }
+    if find_enum_decl_index(c, &tname) >= 0 {
+        return build_drop_enum_func(c, tname)
+    }
+    if find_struct_decl_index(c, &tname) >= 0 {
+        return build_drop_struct_func(c, tname)
+    }
+    return build_drop_string_func(tname)
+}
+
+fn emit_drop_helpers(c: &mut Compiler, funcs: &mut [IrFunction]) {
+    let mut i = 0
+    while i < len(c.drop_types) {
+        let t = c.drop_types[i]
+        let f = build_drop_func(c, t)
+        if f.name != "" {
+            push(funcs, f)
+        }
+        i = i + 1
+    }
+}
+
 fn declare_var(c: &mut Compiler, name: String, typ: i32, mutable: bool) -> String {
-    let ir_name = unique_name(c, name)
+    let ir_name = unique_name(c, &name)
+    let name_clone = string_clone(&name)
+    let ir_name_clone = string_clone(&ir_name)
     let mut names = c.scope_names
     let mut irs = c.scope_ir
+    let mut types = c.scope_types
+    let mut moved = c.scope_moved
     push(&mut names, name)
-    push(&mut irs, ir_name)
+    push(&mut irs, ir_name_clone)
+    push(&mut types, typ)
+    push(&mut moved, false)
     c.scope_names = names
     c.scope_ir = irs
-    compiler_env_declare(c, name, typ, mutable)
+    c.scope_types = types
+    c.scope_moved = moved
+    compiler_env_declare(c, name_clone, typ, mutable)
     return ir_name
 }
 
-fn lookup_var(c: &mut Compiler, name: String) -> String {
-    let mut i = len(c.scope_names) - 1
-    while i >= 0 {
-        if c.scope_names[i] == name {
-            return c.scope_ir[i]
-        }
-        if i == 0 { return "" }
-        i = i - 1
-    }
-    return ""
+fn lookup_var(c: &mut Compiler, name: &str) -> String {
+    let idx = lookup_var_index(c, name)
+    if idx < 0 { return "" }
+    return c.scope_ir[idx]
 }
 
-fn unique_name(c: &mut Compiler, base: String) -> String {
+fn lookup_var_index(c: &mut Compiler, name: &str) -> i32 {
+    let mut i = len(c.scope_names) - 1
+    while i >= 0 {
+        if c.scope_names[i] == string_clone(name) {
+            return i
+        }
+        if i == 0 { return -1 }
+        i = i - 1
+    }
+    return -1
+}
+
+fn var_type(c: &mut Compiler, idx: i32) -> i32 {
+    if idx < 0 || idx >= len(c.scope_types) { return 0 }
+    return c.scope_types[idx]
+}
+
+fn var_moved(c: &mut Compiler, idx: i32) -> bool {
+    if idx < 0 || idx >= len(c.scope_moved) { return false }
+    return c.scope_moved[idx]
+}
+
+fn set_var_moved(c: &mut Compiler, idx: i32, moved: bool) {
+    if idx < 0 || idx >= len(c.scope_moved) { return }
+    let mut moved_list = c.scope_moved
+    moved_list[idx] = moved
+    c.scope_moved = moved_list
+}
+
+fn unique_name(c: &mut Compiler, base: &str) -> String {
     let mut counts = c.name_counts
     let mut i = 0
     while i < len(counts) {
-        if counts[i].name == base {
+        if counts[i].name == string_clone(base) {
             let n = counts[i].count
             let mut entry = counts[i]
             entry.count = n + 1
             counts[i] = entry
             c.name_counts = counts
-            return base + "#" + int_to_string(n)
+            return string_clone(base) + "#" + int_to_string(n)
         }
         i = i + 1
     }
-    push(&mut counts, NameCount { name: base, count: 1 })
+    push(&mut counts, NameCount { name: string_clone(base), count: 1 })
     c.name_counts = counts
-    return base
+    return string_clone(base)
 }
 
 fn new_block(c: &mut Compiler, prefix: String) -> i32 {
@@ -2161,22 +3031,32 @@ fn new_temp(c: &mut Compiler) -> i32 {
     c.temp_id = c.temp_id + 1
     return t
 }
+
+fn string_list_clone(items: & [String]) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, string_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
 // Analyze free variables in an expression
 // Returns list of variable names that are referenced but not defined locally
-fn analyze_free_vars(expr: Expr, local_vars: [String]) -> [String] {
+fn analyze_free_vars(expr: Expr, local_vars: & [String]) -> [String] {
     let mut free: [String] = []
     collect_free_vars(expr, local_vars, &mut free)
     return free
 }
 
-fn collect_free_vars(expr: Expr, local_vars: [String], free: &mut [String]) {
+fn collect_free_vars(expr: Expr, local_vars: & [String], free: &mut [String]) {
     match expr {
         Expr.Ident(id) => {
             // Check if this identifier is a local variable
             let mut is_local = false
             let mut i = 0
-            while i < len(local_vars) {
-                if local_vars[i] == id.name {
+            while i < len(*local_vars) {
+                if (*local_vars)[i] == id.name {
                     is_local = true
                 }
                 i = i + 1
@@ -2260,7 +3140,7 @@ fn collect_free_vars(expr: Expr, local_vars: [String], free: &mut [String]) {
 }
 
 // Get list of mutated free variables in a closure
-fn get_mutated_free_vars(expr: Expr, local_vars: [String]) -> [String] {
+fn get_mutated_free_vars(expr: Expr, local_vars: & [String]) -> [String] {
     let mut mutated: [String] = []
     match expr {
         Expr.Block(b) => {
@@ -2272,7 +3152,7 @@ fn get_mutated_free_vars(expr: Expr, local_vars: [String]) -> [String] {
 }
 
 // Collect variables that are assigned in statements (not local)
-fn collect_mutated_vars(stmts: [Stmt], local_vars: [String], mutated: &mut [String]) {
+fn collect_mutated_vars(stmts: [Stmt], local_vars: & [String], mutated: &mut [String]) {
     let mut i = 0
     while i < len(stmts) {
         match stmts[i] {
@@ -2281,8 +3161,8 @@ fn collect_mutated_vars(stmts: [Stmt], local_vars: [String], mutated: &mut [Stri
                     Expr.Ident(id) => {
                         let mut is_local = false
                         let mut j = 0
-                        while j < len(local_vars) {
-                            if local_vars[j] == id.name {
+                        while j < len(*local_vars) {
+                            if (*local_vars)[j] == id.name {
                                 is_local = true
                             }
                             j = j + 1
@@ -2323,11 +3203,18 @@ fn is_mutated_capture(c: &mut Compiler, name: String) -> bool {
 }
 
 // Declare a captured variable by mapping its name to a temp
-fn declare_captured_var(c: &mut Compiler, name: String, temp: i32) {
-    // Store the temp value into a variable
-    // The temp holds either a value (immutable capture) or a reference (mutable capture)
-    // We need to make this accessible via the variable name
-    let var_name = declare_var(c, name, 0, false)
+fn declare_captured_var(c: &mut Compiler, name: String, temp: i32, typ: i32, is_mut: bool) {
+    // Store the temp value into a variable.
+    // For mutable captures, bind the name directly to the temp ref.
+    let var_name = declare_var(c, name, typ, false)
+    if is_mut {
+        let mut irs = c.scope_ir
+        if len(irs) > 0 {
+            irs[len(irs)-1] = "t" + int_to_string(temp)
+            c.scope_ir = irs
+        }
+        return
+    }
     emit_instr(c, IrInstr.StoreVar(IrStoreVar { name: var_name, src: ir_operand_temp(temp), ref: false, ref_temp: 0 }))
 }
 

@@ -17,6 +17,26 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 		}
 		return arrayType
 	}
+	if t.IsTuple {
+		if len(t.TupleElems) == 0 {
+			unit := Type{Kind: TypeUnit}
+			if t.IsRef {
+				unit.Ref = true
+				unit.Mut = t.IsMut
+			}
+			return unit
+		}
+		var elems []Type
+		for _, e := range t.TupleElems {
+			elems = append(elems, c.fromAstType(e))
+		}
+		tupleType := Type{Kind: TypeTuple, Elems: elems}
+		if t.IsRef {
+			tupleType.Ref = true
+			tupleType.Mut = t.IsMut
+		}
+		return tupleType
+	}
 	name := t.Name
 	if name == "Self" {
 		if c.selfType != nil {
@@ -56,6 +76,10 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 			args = append(args, c.fromAstType(arg))
 		}
 	}
+	if name == "string" {
+		c.diag.Add(t.Span, "use 'String' or 'str' instead of 'string'")
+		return Type{Kind: TypeInvalid}
+	}
 	base := Type{Kind: TypeInvalid, Name: name}
 	switch name {
 	case "int", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char":
@@ -63,8 +87,16 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 		base.Name = name
 	case "bool":
 		base.Kind = TypeBool
-	case "String", "str":
+	case "String":
 		base.Kind = TypeString
+		base.Name = "String"
+	case "str":
+		if !t.IsRef {
+			c.diag.Add(t.Span, "type 'str' must be used as '&str'")
+			return Type{Kind: TypeInvalid}
+		}
+		base.Kind = TypeStr
+		base.Name = "str"
 	case "unit", "()":
 		base.Kind = TypeUnit
 	case "Closure", "closure":
@@ -141,6 +173,17 @@ func typesEqual(a, b Type) bool {
 		}
 		return typesEqual(*a.Elem, *b.Elem) && a.Ref == b.Ref && a.Mut == b.Mut
 	}
+	if a.Kind == TypeTuple {
+		if len(a.Elems) != len(b.Elems) {
+			return false
+		}
+		for i := range a.Elems {
+			if !typesEqual(a.Elems[i], b.Elems[i]) {
+				return false
+			}
+		}
+		return a.Ref == b.Ref && a.Mut == b.Mut
+	}
 	if len(a.Args) != len(b.Args) {
 		return false
 	}
@@ -165,6 +208,26 @@ func typesAssignable(actual, expected Type) bool {
 	if typesEqual(actual, expected) {
 		return true
 	}
+	if isString(actual) && isString(expected) {
+		// Internal helper: allow String -> str for auto-borrow to &str.
+		if !actual.Ref && !expected.Ref && actual.Kind == TypeString && expected.Kind == TypeStr {
+			return true
+		}
+		if !actual.Ref && expected.Ref && !expected.Mut && actual.Kind == TypeString && expected.Kind == TypeStr {
+			return true
+		}
+		if actual.Ref && expected.Ref && !expected.Mut && actual.Kind == TypeString && expected.Kind == TypeStr {
+			return true
+		}
+		return false
+	}
+	if !actual.Ref && expected.Ref && !expected.Mut && actual.Kind == TypeArray && expected.Kind == TypeArray {
+		if actual.Elem != nil && expected.Elem != nil {
+			// Allow [T] -> &[U] only when element types are compatible.
+			return typesAssignable(*actual.Elem, *expected.Elem)
+		}
+		return false
+	}
 	if expected.Ref && !expected.Mut && actual.Ref && actual.Mut {
 		a := actual
 		b := expected
@@ -184,7 +247,7 @@ func isBool(t Type) bool {
 }
 
 func isString(t Type) bool {
-	return t.Kind == TypeString && !t.Ref
+	return t.Kind == TypeString || t.Kind == TypeStr
 }
 
 func constValueType(v ast.ConstValue) Type {
@@ -194,7 +257,7 @@ func constValueType(v ast.ConstValue) Type {
 	case ast.ConstBool:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case ast.ConstString:
-		return Type{Kind: TypeString, Name: "string"}
+		return Type{Kind: TypeString, Name: "String"}
 	default:
 		return Type{Kind: TypeInvalid}
 	}
@@ -217,6 +280,31 @@ func isComparable(t Type) bool {
 
 func derefType(t Type) Type {
 	return Type{Kind: t.Kind, Name: t.Name, Elem: t.Elem, Args: t.Args}
+}
+
+func (c *Checker) resolveStructDecl(t Type) (*ast.StructDecl, map[string]Type, bool) {
+	decl, ok := c.structs[t.Name]
+	args := t.Args
+	if !ok {
+		if base, okBase := c.structInstBase[t.Name]; okBase {
+			decl, ok = c.structs[base]
+			if mapped, okMapped := c.structInstArgs[t.Name]; okMapped {
+				args = mapped
+			} else {
+				args = nil
+			}
+		}
+	}
+	if !ok || decl == nil {
+		return nil, nil, false
+	}
+	subst := map[string]Type{}
+	if len(decl.TypeParams) > 0 && len(args) == len(decl.TypeParams) {
+		for i, p := range decl.TypeParams {
+			subst[p.Name] = args[i]
+		}
+	}
+	return decl, subst, true
 }
 
 func findField(decl *ast.StructDecl, name string) *ast.FieldDef {

@@ -1,0 +1,61 @@
+struct Wrap {
+    s: String,
+}
+
+enum OptionWrap {
+    Some(Wrap),
+    None,
+}
+
+fn make_wrap() -> Wrap {
+    return Wrap { s: string_clone("wrap") }
+}
+
+fn early(cond: bool) -> i32 {
+    let w = make_wrap()
+    if cond {
+        return 1
+    }
+    let w2 = make_wrap()
+    if cond {
+        return 2
+    }
+    return 3
+}
+
+fn main() {
+    early(true)
+    early(false)
+
+    let w = make_wrap()
+    let w2 = w
+
+    let arr = [string_clone("a"), string_clone("b"), string_clone("c")]
+    let nums = [1, 2, 3]
+    let mut count = 0
+    let mut ni = 0
+    while ni < 3 {
+        count = count + nums[ni]
+        ni = ni + 1
+    }
+
+    let arr2 = [make_wrap(), make_wrap()]
+
+    let mut i = 0
+    loop {
+        let t = make_wrap()
+        if i == 2 {
+            break
+        }
+        i = i + 1
+        if i == 1 {
+            continue
+        }
+        let t2 = make_wrap()
+        let _ = t2
+    }
+
+    let opt = OptionWrap.Some(make_wrap())
+
+    println("ok", count)
+}

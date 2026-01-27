@@ -1,0 +1,7 @@
+fn slen(s: String) -> i64 {
+    return len(s)
+}
+
+fn main() {
+    println("a", slen("hello"))
+}

@@ -1,0 +1,10 @@
+// Stage2 currently supports const literals (not full const expressions).
+const A = 7
+const B = -9
+const C = true
+
+fn main() {
+    println("A", A)
+    println("B", B)
+    println("C", C)
+}

@@ -1,34 +1,36 @@
 package typecheck
 
 import (
+	"fmt"
+
 	"dastlang/internal/ast"
 	"dastlang/internal/diag"
 )
 
 func newChecker() *Checker {
 	return &Checker{
-		diag:        &diag.Bag{},
-		funcs:       map[string]*FuncSig{},
-		funcDecls:   map[string]*ast.Function{},
-		methods:     map[string]map[string]*MethodSig{},
-		builtins:    map[string]struct{}{"print": {}, "println": {}, "eprint": {}, "eprintln": {}, "len": {}, "push": {}, "pop": {}, "exit": {}, "read_file": {}, "read_dir": {}, "write_file": {}, "mkdir": {}, "args": {}, "char_at": {}, "substr": {}, "read_line": {}, "read_bytes": {}, "exec": {}, "ast_expr": {}, "ast_stmt": {}, "ast_item": {}, "ast_block": {}, "ast_to_string": {}, "gensym": {}, "bind": {}},
-		consts:      map[string]ConstInfo{},
-		structs:     map[string]*ast.StructDecl{},
-		enums:       map[string]*ast.EnumDecl{},
-		aliases:     map[string]*ast.TypeAlias{},
-		traits:      map[string]*TraitSig{},
-		implTraits:  []*ast.ImplTraitDecl{},
-		typeParams:  map[string]ast.TypeParam{},
-		traitImpls:  map[string]map[string]struct{}{},
-		implTemplates: map[string][]*ast.ImplDecl{},
+		diag:               &diag.Bag{},
+		funcs:              map[string]*FuncSig{},
+		funcDecls:          map[string]*ast.Function{},
+		methods:            map[string]map[string]*MethodSig{},
+		builtins:           map[string]struct{}{"print": {}, "println": {}, "eprint": {}, "eprintln": {}, "len": {}, "push": {}, "pop": {}, "exit": {}, "read_file": {}, "read_dir": {}, "write_file": {}, "mkdir": {}, "args": {}, "char_at": {}, "substr": {}, "string_clone": {}, "read_line": {}, "read_bytes": {}, "exec": {}, "ast_expr": {}, "ast_stmt": {}, "ast_item": {}, "ast_block": {}, "ast_to_string": {}, "gensym": {}, "bind": {}},
+		consts:             map[string]ConstInfo{},
+		structs:            map[string]*ast.StructDecl{},
+		enums:              map[string]*ast.EnumDecl{},
+		aliases:            map[string]*ast.TypeAlias{},
+		traits:             map[string]*TraitSig{},
+		implTraits:         []*ast.ImplTraitDecl{},
+		typeParams:         map[string]ast.TypeParam{},
+		traitImpls:         map[string]map[string]struct{}{},
+		implTemplates:      map[string][]*ast.ImplDecl{},
 		implTraitTemplates: map[string][]*ast.ImplTraitDecl{},
-		funcInsts:   map[string]string{},
-		structInsts: map[string]string{},
-		enumInsts:   map[string]string{},
-		structInstBase: map[string]string{},
-		enumInstBase:   map[string]string{},
-		structInstArgs: map[string][]Type{},
-		enumInstArgs:   map[string][]Type{},
+		funcInsts:          map[string]string{},
+		structInsts:        map[string]string{},
+		enumInsts:          map[string]string{},
+		structInstBase:     map[string]string{},
+		enumInstBase:       map[string]string{},
+		structInstArgs:     map[string][]Type{},
+		enumInstArgs:       map[string][]Type{},
 	}
 }
 
@@ -156,6 +158,7 @@ func (c *Checker) instantiateStruct(prog *ast.Program, inst typeInst) {
 	prog.Items = append(prog.Items, clone)
 	c.structs[instName] = clone
 	c.instantiateImplsForType(prog, inst.name, inst.args, instName)
+	c.instantiateImplTraitsForType(prog, inst.name, inst.args, instName)
 }
 
 func (c *Checker) instantiateEnum(prog *ast.Program, inst typeInst) {
@@ -192,6 +195,7 @@ func (c *Checker) instantiateEnum(prog *ast.Program, inst typeInst) {
 	prog.Items = append(prog.Items, clone)
 	c.enums[instName] = clone
 	c.instantiateImplsForType(prog, inst.name, inst.args, instName)
+	c.instantiateImplTraitsForType(prog, inst.name, inst.args, instName)
 }
 
 func (c *Checker) instantiateImplsForType(prog *ast.Program, base string, args []Type, instName string) {
@@ -225,6 +229,66 @@ func (c *Checker) instantiateImplsForType(prog *ast.Program, base string, args [
 				c.methods[instName] = map[string]*MethodSig{}
 			}
 			c.methods[instName][method.Name] = sig
+			c.checkMethod(selfType, method)
+		}
+	}
+}
+
+func (c *Checker) instantiateImplTraitsForType(prog *ast.Program, base string, args []Type, instName string) {
+	impls := c.implTraitTemplates[base]
+	if len(impls) == 0 {
+		return
+	}
+	selfType := c.typeFromNameAndArgs(instName, nil)
+	for _, impl := range impls {
+		if len(impl.TypeParams) != len(args) {
+			continue
+		}
+		traitSig, ok := c.traits[impl.TraitName]
+		if !ok {
+			c.diag.Add(impl.Span(), fmt.Sprintf("unknown trait '%s'", impl.TraitName))
+			continue
+		}
+		baseSubst := map[string]Type{}
+		for i, p := range impl.TypeParams {
+			baseSubst[p.Name] = args[i]
+		}
+		traitSubst, ok := c.traitSubstForImplTrait(impl, baseSubst, traitSig, impl.Span())
+		if !ok {
+			continue
+		}
+		methodSubst := map[string]Type{}
+		for k, v := range baseSubst {
+			methodSubst[k] = v
+		}
+		for k, v := range traitSubst {
+			methodSubst[k] = v
+		}
+		// Ensure trait method bodies see the concrete Self type.
+		methodSubst["Self"] = selfType
+		clone := &ast.ImplTraitDecl{
+			TraitName:   impl.TraitName,
+			TraitArgs:   nil,
+			ForTypeName: instName,
+			ForTypeArgs: nil,
+			TypeParams:  nil,
+			Methods:     nil,
+			Vis:         impl.Vis,
+			SpanInfo:    impl.SpanInfo,
+		}
+		savedSelf := c.selfType
+		c.selfType = &selfType
+		for _, arg := range impl.TraitArgs {
+			clone.TraitArgs = append(clone.TraitArgs, c.cloneType(arg, baseSubst))
+		}
+		for _, method := range impl.Methods {
+			mc := c.cloneFunction(method, methodSubst)
+			clone.Methods = append(clone.Methods, mc)
+		}
+		c.selfType = savedSelf
+		prog.Items = append(prog.Items, clone)
+		c.applyImplTrait(clone, selfType, traitSig, traitSubst)
+		for _, method := range clone.Methods {
 			c.checkMethod(selfType, method)
 		}
 	}

@@ -1,0 +1,24 @@
+trait Cloneable {
+    fn clone(self: &Self) -> Self;
+}
+
+struct Box[T] {
+    value: T,
+}
+
+impl[T] Cloneable for Box[T] {
+    fn clone(self: &Self) -> Self {
+        Box { value: self.value }
+    }
+}
+
+fn require_cloneable[T: Cloneable](x: &T) -> i32 {
+    return 1
+}
+
+fn main() {
+    let b: Box[int] = Box { value: 7 }
+    let _ = require_cloneable(&b)
+    let c = b.clone()
+    println("dup", c.value)
+}

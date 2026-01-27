@@ -1171,8 +1171,16 @@ func rewriteStmt(s ast.Stmt, aliases map[string]struct{}) ast.Stmt {
 		v.Body = rewriteBlock(v.Body, aliases)
 		return v
 	case *ast.BreakStmt:
+		if v.Value != nil {
+			v.Value = rewriteExpr(v.Value, aliases)
+		}
 		return v
 	case *ast.ContinueStmt:
+		return v
+	case *ast.ForStmt:
+		v.Pattern = rewritePattern(v.Pattern, aliases)
+		v.Expr = rewriteExpr(v.Expr, aliases)
+		v.Body = rewriteBlock(v.Body, aliases)
 		return v
 	case *ast.MatchStmt:
 		v.Expr = rewriteExpr(v.Expr, aliases)
@@ -1192,6 +1200,8 @@ func rewriteStmt(s ast.Stmt, aliases map[string]struct{}) ast.Stmt {
 
 func rewritePattern(p ast.Pattern, aliases map[string]struct{}) ast.Pattern {
 	switch v := p.(type) {
+	case *ast.BindingPattern:
+		return v
 	case *ast.VariantPattern:
 		v.EnumName = stripPrefix(v.EnumName, aliases)
 		return v
@@ -1208,6 +1218,16 @@ func rewritePattern(p ast.Pattern, aliases map[string]struct{}) ast.Pattern {
 			v.Alts[i] = rewritePattern(v.Alts[i], aliases)
 		}
 		return v
+	case *ast.TuplePattern:
+		for i := range v.Elems {
+			v.Elems[i] = rewritePattern(v.Elems[i], aliases)
+		}
+		return v
+	case *ast.ArrayPattern:
+		for i := range v.Elems {
+			v.Elems[i] = rewritePattern(v.Elems[i], aliases)
+		}
+		return v
 	}
 	return p
 }
@@ -1217,6 +1237,13 @@ func rewriteType(t ast.Type, aliases map[string]struct{}) ast.Type {
 	if t.IsArray && t.Elem != nil {
 		elem := rewriteType(*t.Elem, aliases)
 		out.Elem = &elem
+	}
+	if t.IsTuple && len(t.TupleElems) > 0 {
+		elems := make([]ast.Type, 0, len(t.TupleElems))
+		for _, e := range t.TupleElems {
+			elems = append(elems, rewriteType(e, aliases))
+		}
+		out.TupleElems = elems
 	}
 	out.Name = stripPrefix(out.Name, aliases)
 	return out
@@ -1300,8 +1327,16 @@ func rewriteExpr(e ast.Expr, aliases map[string]struct{}) ast.Expr {
 			v.Elems[i] = rewriteExpr(v.Elems[i], aliases)
 		}
 		return v
+	case *ast.TupleLit:
+		for i := range v.Elems {
+			v.Elems[i] = rewriteExpr(v.Elems[i], aliases)
+		}
+		return v
 	case *ast.BlockExpr:
 		v.Block = rewriteBlock(v.Block, aliases)
+		return v
+	case *ast.LoopExpr:
+		v.Body = rewriteBlock(v.Body, aliases)
 		return v
 	case *ast.IfExpr:
 		v.Cond = rewriteExpr(v.Cond, aliases)

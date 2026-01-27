@@ -23,7 +23,7 @@ func (rt *Runtime) execInstr(fr *frame, inst ir.Instr) error {
 		}
 		ptr, ok := fr.vars[i.Name]
 		if !ok {
-			return fmt.Errorf("undefined variable '%s'", i.Name)
+			return fmt.Errorf("undefined variable '%s' in %s", i.Name, fr.fn.Name)
 		}
 		if i.Addr {
 			addr, ok := fr.varAddrs[i.Name]

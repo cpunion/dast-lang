@@ -1,0 +1,26 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+enum OptionI32 {
+    Some(i32),
+    None,
+}
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 }
+    let x = p1.x
+    let p2 = Point { x: 1, y: 2 }
+    let y = p2.y
+    println("x", x)
+    println("y", y)
+
+    let opt = OptionI32.Some(5)
+    let mut v = 0
+    match opt {
+        .Some(n) => { v = n }
+        .None => { v = 0 }
+    }
+    println("v", v)
+}

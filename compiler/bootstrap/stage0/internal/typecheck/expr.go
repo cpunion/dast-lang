@@ -2,6 +2,7 @@ package typecheck
 
 import (
 	"fmt"
+	"strconv"
 
 	"dastlang/internal/ast"
 )
@@ -13,7 +14,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 	case *ast.BoolLit:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case *ast.StringLit:
-		return Type{Kind: TypeString, Name: "string"}
+		return Type{Kind: TypeString, Name: "String"}
 	case *ast.ArrayLit:
 		if len(e.Elems) == 0 {
 			return Type{Kind: TypeArray, Elem: &Type{Kind: TypeInvalid}}
@@ -26,6 +27,15 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			}
 		}
 		return Type{Kind: TypeArray, Elem: &elemType}
+	case *ast.TupleLit:
+		if len(e.Elems) == 0 {
+			return Type{Kind: TypeUnit}
+		}
+		var elems []Type
+		for _, el := range e.Elems {
+			elems = append(elems, c.checkExpr(el))
+		}
+		return Type{Kind: TypeTuple, Elems: elems}
 	case *ast.IdentExpr:
 		if info, ok := c.env.lookup(e.Name); ok {
 			return info.Type
@@ -74,6 +84,12 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		if !ok {
 			return Type{Kind: TypeInvalid}
 		}
+		if baseType.Kind == TypeString || baseType.Kind == TypeStr {
+			if e.Mutable {
+				c.diag.Add(e.Span(), "cannot take &mut of string")
+			}
+			return Type{Kind: TypeStr, Name: "str", Ref: true}
+		}
 		if e.Mutable && !mutable {
 			c.diag.Add(e.Span(), "cannot take &mut of immutable value")
 		}
@@ -114,10 +130,10 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				return Type{Kind: TypeInt, Name: "int"}
 			}
 			if isString(lhs) && isString(rhs) {
-				return Type{Kind: TypeString, Name: "string"}
+				return Type{Kind: TypeString, Name: "String"}
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "'+' requires int or string operands")
+				c.diag.Add(e.Span(), "'+' requires int or String/str operands")
 			}
 			return Type{Kind: TypeInvalid}
 		case "-", "*", "/", "%":
@@ -129,11 +145,11 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			}
 			return Type{Kind: TypeInt, Name: "int"}
 		case "==", "!=":
-			if !typesEqual(lhs, rhs) && lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+			if !typesEqual(lhs, rhs) && !(isString(lhs) && isString(rhs)) && lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
 				c.diag.Add(e.Span(), "equality operands must have same type")
 			}
 			if !isComparable(lhs) && lhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "equality only supports int/bool/string")
+				c.diag.Add(e.Span(), "equality only supports int/bool/String/str")
 			}
 			return Type{Kind: TypeBool, Name: "bool"}
 		case "<", "<=", ">", ">=":
@@ -175,7 +191,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "ast_expr expects string")
+					c.diag.Add(e.Args[0].Span(), "ast_expr expects String/str")
 				}
 				return Type{Kind: TypeAstExpr}
 			case "ast_stmt":
@@ -185,7 +201,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "ast_stmt expects string")
+					c.diag.Add(e.Args[0].Span(), "ast_stmt expects String/str")
 				}
 				return Type{Kind: TypeAstStmt}
 			case "ast_item":
@@ -195,7 +211,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "ast_item expects string")
+					c.diag.Add(e.Args[0].Span(), "ast_item expects String/str")
 				}
 				return Type{Kind: TypeAstItem}
 			case "ast_block":
@@ -205,13 +221,13 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "ast_block expects string")
+					c.diag.Add(e.Args[0].Span(), "ast_block expects String/str")
 				}
 				return Type{Kind: TypeAstBlock}
 			case "ast_to_string":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), "ast_to_string expects 1 argument")
-					return Type{Kind: TypeString, Name: "string"}
+					return Type{Kind: TypeString, Name: "String"}
 				}
 				argType := c.checkExpr(e.Args[0])
 				switch argType.Kind {
@@ -219,7 +235,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				default:
 					c.diag.Add(e.Args[0].Span(), "ast_to_string expects ast")
 				}
-				return Type{Kind: TypeString, Name: "string"}
+				return Type{Kind: TypeString, Name: "String"}
 			case "gensym", "bind":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), e.Callee+" expects 1 argument")
@@ -227,7 +243,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), e.Callee+" expects string")
+					c.diag.Add(e.Args[0].Span(), e.Callee+" expects String/str")
 				}
 				return Type{Kind: TypeAstExpr}
 			case "len":
@@ -239,8 +255,8 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				if argType.Ref {
 					argType = derefType(argType)
 				}
-				if argType.Kind != TypeString && argType.Kind != TypeArray {
-					c.diag.Add(e.Span(), "len expects string or array")
+				if argType.Kind != TypeString && argType.Kind != TypeStr && argType.Kind != TypeArray {
+					c.diag.Add(e.Span(), "len expects String/str or array")
 				}
 				return Type{Kind: TypeInt, Name: "int"}
 			case "push":
@@ -287,7 +303,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				strType := c.checkExpr(e.Args[0])
 				idxType := c.checkExpr(e.Args[1])
 				if !isString(strType) && strType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "char_at expects string")
+					c.diag.Add(e.Args[0].Span(), "char_at expects String/str")
 				}
 				if !isInt(idxType) && idxType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[1].Span(), "char_at expects int index")
@@ -296,13 +312,13 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			case "substr":
 				if len(e.Args) != 3 {
 					c.diag.Add(e.Span(), "substr expects 3 arguments")
-					return Type{Kind: TypeString, Name: "string"}
+					return Type{Kind: TypeString, Name: "String"}
 				}
 				strType := c.checkExpr(e.Args[0])
 				startType := c.checkExpr(e.Args[1])
 				lenType := c.checkExpr(e.Args[2])
 				if !isString(strType) && strType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "substr expects string")
+					c.diag.Add(e.Args[0].Span(), "substr expects String/str")
 				}
 				if !isInt(startType) && startType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[1].Span(), "substr expects int start")
@@ -310,26 +326,36 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				if !isInt(lenType) && lenType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[2].Span(), "substr expects int length")
 				}
-				return Type{Kind: TypeString, Name: "string"}
-			case "read_file":
+				return Type{Kind: TypeString, Name: "String"}
+			case "string_clone":
 				if len(e.Args) != 1 {
-					c.diag.Add(e.Span(), "read_file expects 1 argument")
-					return Type{Kind: TypeString, Name: "string"}
+					c.diag.Add(e.Span(), "string_clone expects 1 argument")
+					return Type{Kind: TypeString, Name: "String"}
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "read_file expects string path")
+					c.diag.Add(e.Args[0].Span(), "string_clone expects String/str or &str")
 				}
-				return Type{Kind: TypeString, Name: "string"}
+				return Type{Kind: TypeString, Name: "String"}
+			case "read_file":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "read_file expects 1 argument")
+					return Type{Kind: TypeString, Name: "String"}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "read_file expects String/str path")
+				}
+				return Type{Kind: TypeString, Name: "String"}
 			case "read_dir":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), "read_dir expects 1 argument")
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "read_dir expects string path")
+					c.diag.Add(e.Args[0].Span(), "read_dir expects String/str path")
 				}
-				elem := Type{Kind: TypeString, Name: "string"}
+				elem := Type{Kind: TypeString, Name: "String"}
 				return Type{Kind: TypeArray, Elem: &elem}
 			case "write_file":
 				if len(e.Args) != 2 {
@@ -339,33 +365,33 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				pathType := c.checkExpr(e.Args[0])
 				dataType := c.checkExpr(e.Args[1])
 				if !isString(pathType) && pathType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "write_file expects string path")
+					c.diag.Add(e.Args[0].Span(), "write_file expects String/str path")
 				}
 				if !isString(dataType) && dataType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[1].Span(), "write_file expects string data")
+					c.diag.Add(e.Args[1].Span(), "write_file expects String/str data")
 				}
 				return Type{Kind: TypeUnit}
 			case "args":
 				if len(e.Args) != 0 {
 					c.diag.Add(e.Span(), "args expects no arguments")
 				}
-				elem := Type{Kind: TypeString, Name: "string"}
+				elem := Type{Kind: TypeString, Name: "String"}
 				return Type{Kind: TypeArray, Elem: &elem}
 			case "read_line":
 				if len(e.Args) != 0 {
 					c.diag.Add(e.Span(), "read_line expects no arguments")
 				}
-				return Type{Kind: TypeString, Name: "string"}
+				return Type{Kind: TypeString, Name: "String"}
 			case "read_bytes":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), "read_bytes expects 1 argument")
-					return Type{Kind: TypeString, Name: "string"}
+					return Type{Kind: TypeString, Name: "String"}
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isInt(argType) && argType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[0].Span(), "read_bytes expects int count")
 				}
-				return Type{Kind: TypeString, Name: "string"}
+				return Type{Kind: TypeString, Name: "String"}
 			case "mkdir":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), "mkdir expects 1 argument")
@@ -373,7 +399,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !isString(argType) && argType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "mkdir expects string path")
+					c.diag.Add(e.Args[0].Span(), "mkdir expects String/str path")
 				}
 				return Type{Kind: TypeUnit}
 			case "exec":
@@ -383,12 +409,12 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				cmdType := c.checkExpr(e.Args[0])
 				if !isString(cmdType) && cmdType.Kind != TypeInvalid {
-					c.diag.Add(e.Args[0].Span(), "exec expects string command")
+					c.diag.Add(e.Args[0].Span(), "exec expects String/str command")
 				}
 				argsType := c.checkExpr(e.Args[1])
 				if argsType.Kind != TypeArray || argsType.Elem == nil || argsType.Elem.Kind != TypeString {
 					if argsType.Kind != TypeInvalid {
-						c.diag.Add(e.Args[1].Span(), "exec expects [string] args")
+						c.diag.Add(e.Args[1].Span(), "exec expects [String] args")
 					}
 				}
 				return Type{Kind: TypeInt, Name: "int"}
@@ -528,13 +554,21 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		if recvType.Ref {
 			recvType = derefType(recvType)
 		}
+		if recvType.Kind == TypeTuple {
+			idx, err := strconv.Atoi(e.Field)
+			if err != nil || idx < 0 || idx >= len(recvType.Elems) {
+				c.diag.Add(e.Span(), "tuple index out of range")
+				return Type{Kind: TypeInvalid}
+			}
+			return recvType.Elems[idx]
+		}
 		if recvType.Kind != TypeStruct {
 			if recvType.Kind != TypeInvalid {
 				c.diag.Add(e.Span(), "field access requires struct")
 			}
 			return Type{Kind: TypeInvalid}
 		}
-		decl, ok := c.structs[recvType.Name]
+		decl, subst, ok := c.resolveStructDecl(recvType)
 		if !ok {
 			c.diag.Add(e.Span(), fmt.Sprintf("unknown struct '%s'", recvType.Name))
 			return Type{Kind: TypeInvalid}
@@ -544,7 +578,11 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			c.diag.Add(e.Span(), fmt.Sprintf("unknown field '%s'", e.Field))
 			return Type{Kind: TypeInvalid}
 		}
-		return c.fromAstType(field.Type)
+		fieldAst := field.Type
+		if len(subst) > 0 {
+			fieldAst = c.cloneType(fieldAst, subst)
+		}
+		return c.fromAstType(fieldAst)
 	case *ast.IndexExpr:
 		recvType := c.checkExpr(e.Receiver)
 		indexType := c.checkExpr(e.Index)
@@ -565,6 +603,8 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		return c.checkEnumVariantExpr(e)
 	case *ast.BlockExpr:
 		return c.checkBlockExpr(e.Block)
+	case *ast.LoopExpr:
+		return c.checkLoopExpr(e)
 	case *ast.IfExpr:
 		condType := c.checkExpr(e.Cond)
 		if !isBool(condType) && condType.Kind != TypeInvalid {
@@ -657,7 +697,7 @@ func (c *Checker) checkRefTarget(expr ast.Expr) (Type, bool, bool) {
 			}
 			return Type{Kind: TypeInvalid}, recvMut, false
 		}
-		decl, ok := c.structs[recvType.Name]
+		decl, subst, ok := c.resolveStructDecl(recvType)
 		if !ok {
 			c.diag.Add(e.Span(), fmt.Sprintf("unknown struct '%s'", recvType.Name))
 			return Type{Kind: TypeInvalid}, recvMut, false
@@ -667,7 +707,11 @@ func (c *Checker) checkRefTarget(expr ast.Expr) (Type, bool, bool) {
 			c.diag.Add(e.Span(), fmt.Sprintf("unknown field '%s'", e.Field))
 			return Type{Kind: TypeInvalid}, recvMut, false
 		}
-		return c.fromAstType(field.Type), recvMut, true
+		fieldAst := field.Type
+		if len(subst) > 0 {
+			fieldAst = c.cloneType(fieldAst, subst)
+		}
+		return c.fromAstType(fieldAst), recvMut, true
 	case *ast.IndexExpr:
 		recvType, recvMut, ok := c.checkRefTarget(e.Receiver)
 		if !ok {

@@ -1,6 +1,10 @@
 package typecheck
 
-import "dastlang/internal/ast"
+import (
+	"strings"
+
+	"dastlang/internal/ast"
+)
 
 type Kind int
 
@@ -10,10 +14,12 @@ const (
 	TypeInt
 	TypeBool
 	TypeString
+	TypeStr
 	TypeUnit
 	TypeStruct
 	TypeEnum
 	TypeArray
+	TypeTuple
 	TypeClosure
 	TypeAstExpr
 	TypeAstStmt
@@ -28,6 +34,7 @@ type Type struct {
 	Name string
 	Elem *Type
 	Args []Type
+	Elems []Type
 }
 
 func (t Type) String() string {
@@ -56,7 +63,12 @@ func (t Type) baseName() string {
 	case TypeBool:
 		return "bool"
 	case TypeString:
-		return "string"
+		if t.Name != "" {
+			return t.Name
+		}
+		return "String"
+	case TypeStr:
+		return "str"
 	case TypeUnit:
 		return "unit"
 	case TypeStruct, TypeEnum:
@@ -69,6 +81,18 @@ func (t Type) baseName() string {
 			return "[" + t.Elem.String() + "]"
 		}
 		return "[]"
+	case TypeTuple:
+		if len(t.Elems) == 0 {
+			return "()"
+		}
+		if len(t.Elems) == 1 {
+			return "(" + t.Elems[0].String() + ",)"
+		}
+		parts := make([]string, 0, len(t.Elems))
+		for _, e := range t.Elems {
+			parts = append(parts, e.String())
+		}
+		return "(" + strings.Join(parts, ", ") + ")"
 	case TypeClosure:
 		return "closure"
 	case TypeAstExpr:

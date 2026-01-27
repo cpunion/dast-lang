@@ -1,0 +1,21 @@
+struct Counter {
+    value: i32,
+}
+
+fn inc(c: Counter) -> Counter {
+    return Counter { value: c.value + 1 }
+}
+
+fn get(c: Counter) -> i32 {
+    return c.value
+}
+
+fn make_counter(value: i32) -> Counter {
+    Counter { value: value }
+}
+
+fn main() {
+    let c = make_counter(1)
+    let c2 = inc(c)
+    println("v", get(c2))
+}

@@ -50,6 +50,11 @@ func (p *Parser) parsePostfix() ast.Expr {
 	expr := p.parsePrimary()
 	for {
 		if p.match(lexer.TokenDot) {
+			if p.at(lexer.TokenInt) {
+				nameTok := p.advance()
+				expr = &ast.AccessExpr{Receiver: expr, Field: nameTok.Lexeme, SpanInfo: mergeSpan(expr.Span(), nameTok.Span)}
+				continue
+			}
 			nameTok := p.expect(lexer.TokenIdent, "expected field or variant name")
 			expr = &ast.AccessExpr{Receiver: expr, Field: nameTok.Lexeme, SpanInfo: mergeSpan(expr.Span(), nameTok.Span)}
 			continue
@@ -195,15 +200,35 @@ func (p *Parser) parsePrimary() ast.Expr {
 		p.advance()
 		return &ast.BoolLit{Value: false, SpanInfo: tok.Span}
 	case lexer.TokenLParen:
-		p.advance()
-		expr := p.parseExpr(0)
+		start := p.advance()
+		if p.at(lexer.TokenRParen) {
+			endTok := p.advance()
+			return &ast.TupleLit{Elems: nil, SpanInfo: mergeSpan(start.Span, endTok.Span)}
+		}
+		first := p.parseExpr(0)
+		if p.match(lexer.TokenComma) {
+			elems := []ast.Expr{first}
+			for !p.at(lexer.TokenRParen) && !p.at(lexer.TokenEOF) {
+				elems = append(elems, p.parseExpr(0))
+				if p.match(lexer.TokenComma) {
+					continue
+				}
+				break
+			}
+			endTok := p.expect(lexer.TokenRParen, "expected ')' after tuple")
+			return &ast.TupleLit{Elems: elems, SpanInfo: mergeSpan(start.Span, endTok.Span)}
+		}
 		p.expect(lexer.TokenRParen, "expected ')' after expression")
-		return expr
+		return first
 	case lexer.TokenLBracket:
 		return p.parseArrayLit()
 	case lexer.TokenLBrace:
 		block := p.parseBlock()
 		return &ast.BlockExpr{Block: block, SpanInfo: block.Span()}
+	case lexer.TokenLoop:
+		startTok := p.advance()
+		body := p.parseBlock()
+		return &ast.LoopExpr{Body: body, SpanInfo: mergeSpan(startTok.Span, body.Span())}
 	case lexer.TokenIf:
 		return p.parseIfExpr()
 	case lexer.TokenMatch:

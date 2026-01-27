@@ -4,6 +4,9 @@ struct Runtime {
     structs: [IrStructValue],
     enums: [IrEnumValue],
     arrays: [IrArrayValue],
+    free_structs: [i32],
+    free_enums: [i32],
+    free_arrays: [i32],
     args: [String],
     error: String,
     gensym_count: i32,
@@ -37,6 +40,11 @@ fn ir_array_list_new() -> [IrArrayValue] {
     return items
 }
 
+fn interp_int_list_new() -> [i32] {
+    let mut items: [i32] = []
+    return items
+}
+
 fn ir_array_empty() -> IrArrayValue {
     return IrArrayValue { elems: ir_value_list_new() }
 }
@@ -48,6 +56,9 @@ fn runtime_new(prog: IrProgram, args: [String]) -> Runtime {
         structs: ir_struct_list_new(),
         enums: ir_enum_list_new(),
         arrays: ir_array_list_new(),
+        free_structs: interp_int_list_new(),
+        free_enums: interp_int_list_new(),
+        free_arrays: interp_int_list_new(),
         args: args,
         error: "",
         gensym_count: 0,
@@ -74,10 +85,10 @@ fn runtime_run(rt: &mut Runtime, entry: String) -> IrValue {
 
 fn runtime_call(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
     if rt.error != "" { return ir_value_unit() }
-    if is_builtin_name(name) {
-        return call_builtin(rt, name, args)
+    if is_builtin_name(&name) {
+        return call_builtin(rt, &name, args)
     }
-    let idx = find_function(rt.prog, name)
+    let idx = find_function(&rt.prog, &name)
     if idx < 0 {
         runtime_error(rt, "undefined function '" + name + "'")
         return ir_value_unit()
@@ -126,7 +137,7 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
         match blk.term {
             .None(_) => { return ir_value_unit() }
             .Jump(t) => {
-                let idx = find_block(fr.func, t.target)
+                let idx = find_block(&fr.func, &t.target)
                 if idx < 0 {
                     runtime_error(rt, "unknown block '" + t.target + "'")
                     return ir_value_unit()
@@ -143,7 +154,7 @@ fn exec_frame(rt: &mut Runtime, fr: &mut Frame) -> IrValue {
                 if cond.bool {
                     target = t.then_label
                 }
-                let idx = find_block(fr.func, target)
+                let idx = find_block(&fr.func, &target)
                 if idx < 0 {
                     runtime_error(rt, "unknown block '" + target + "'")
                     return ir_value_unit()
@@ -169,7 +180,7 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             } else {
                 let addr = find_var_addr(fr, i.name)
                 if addr < 0 {
-                    runtime_error(rt, "undefined variable '" + i.name + "'")
+                    runtime_error(rt, "undefined variable '" + i.name + "' in " + fr.func.name)
                     return
                 }
                 if i.addr {
@@ -181,14 +192,15 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             }
         }
         .StoreVar(i) => {
-            let v = eval_operand(rt, fr, i.src)
             if i.ref {
+                let v = eval_operand(rt, fr, i.src)
                 let r = get_temp(rt, fr, i.ref_temp)
                 store_ref(rt, r, v)
             } else {
+                let v = eval_operand(rt, fr, i.src)
                 let addr = find_var_addr(fr, i.name)
                 if addr < 0 {
-                    let new_addr = heap_alloc(rt, v)
+                    let new_addr = heap_alloc(rt, ir_value_clone(&v))
                     let mut names = fr.var_names
                     let mut addrs = fr.var_addrs
                     push(&mut names, i.name)
@@ -227,11 +239,11 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
 
             // Handle closure struct { func: String, env: Struct }
             if closure_val.kind == ir_kind_struct() {
-                let f = struct_get_field(rt, closure_val, "func")
+                let f = struct_get_field(rt, eval_operand(rt, fr, i.closure), "func")
                 if f.kind == ir_kind_string() {
                     func_name = f.str
                 }
-                env_arg = struct_get_field(rt, closure_val, "env")
+                env_arg = struct_get_field(rt, eval_operand(rt, fr, i.closure), "env")
             } else if closure_val.kind == ir_kind_string() {
                 // Legacy: simple string function name (no capture)
                 func_name = closure_val.str
@@ -269,21 +281,28 @@ fn exec_instr(rt: &mut Runtime, fr: &mut Frame, inst: IrInstr) {
             set_temp(rt, fr, i.dst, ir_value_array(arr_idx))
         }
         IrInstr.Index(i) => {
-            let arr = eval_operand(rt, fr, i.array)
-            let idx = eval_operand(rt, fr, i.index)
-            let mut v = array_index(rt, arr, idx)
             if i.unchecked {
-                v = array_index_unchecked(rt, arr, idx)
+                let arr = eval_operand(rt, fr, i.array)
+                let idx = eval_operand(rt, fr, i.index)
+                let v = array_index_unchecked(rt, arr, idx)
+                set_temp(rt, fr, i.dst, v)
+            } else {
+                let arr = eval_operand(rt, fr, i.array)
+                let idx = eval_operand(rt, fr, i.index)
+                let v = array_index(rt, arr, idx)
+                set_temp(rt, fr, i.dst, v)
             }
-            set_temp(rt, fr, i.dst, v)
         }
         .SetIndex(i) => {
-            let arr = eval_operand(rt, fr, i.array)
-            let idx = eval_operand(rt, fr, i.index)
-            let v = eval_operand(rt, fr, i.src)
             if i.unchecked {
+                let arr = eval_operand(rt, fr, i.array)
+                let idx = eval_operand(rt, fr, i.index)
+                let v = eval_operand(rt, fr, i.src)
                 array_set_unchecked(rt, arr, idx, v)
             } else {
+                let arr = eval_operand(rt, fr, i.array)
+                let idx = eval_operand(rt, fr, i.index)
+                let v = eval_operand(rt, fr, i.src)
                 array_set(rt, arr, idx, v)
             }
         }
@@ -388,6 +407,19 @@ fn store_ref(rt: &mut Runtime, r: IrValue, v: IrValue) {
 }
 
 fn struct_alloc(rt: &mut Runtime, v: IrStructValue) -> i32 {
+    let mut free = rt.free_structs
+    if len(free) > 0 {
+        let idx = free[len(free) - 1]
+        pop(&mut free)
+        let mut structs = rt.structs
+        if idx >= 0 && idx < len(structs) {
+            structs[idx] = v
+            rt.structs = structs
+            rt.free_structs = free
+            return idx
+        }
+        rt.free_structs = free
+    }
     let mut structs = rt.structs
     push(&mut structs, v)
     let idx = len(structs) - 1
@@ -396,6 +428,19 @@ fn struct_alloc(rt: &mut Runtime, v: IrStructValue) -> i32 {
 }
 
 fn enum_alloc(rt: &mut Runtime, v: IrEnumValue) -> i32 {
+    let mut free = rt.free_enums
+    if len(free) > 0 {
+        let idx = free[len(free) - 1]
+        pop(&mut free)
+        let mut enums = rt.enums
+        if idx >= 0 && idx < len(enums) {
+            enums[idx] = v
+            rt.enums = enums
+            rt.free_enums = free
+            return idx
+        }
+        rt.free_enums = free
+    }
     let mut enums = rt.enums
     push(&mut enums, v)
     let idx = len(enums) - 1
@@ -404,11 +449,57 @@ fn enum_alloc(rt: &mut Runtime, v: IrEnumValue) -> i32 {
 }
 
 fn array_alloc(rt: &mut Runtime, v: IrArrayValue) -> i32 {
+    let mut free = rt.free_arrays
+    if len(free) > 0 {
+        let idx = free[len(free) - 1]
+        pop(&mut free)
+        let mut arrays = rt.arrays
+        if idx >= 0 && idx < len(arrays) {
+            arrays[idx] = v
+            rt.arrays = arrays
+            rt.free_arrays = free
+            return idx
+        }
+        rt.free_arrays = free
+    }
     let mut arrays = rt.arrays
     push(&mut arrays, v)
     let idx = len(arrays) - 1
     rt.arrays = arrays
     return idx
+}
+
+fn interp_struct_free(rt: &mut Runtime, v: IrValue) {
+    let mut val = v
+    if val.kind == ir_kind_ref() {
+        val = deref_value(rt, val)
+    }
+    if val.kind != ir_kind_struct() { return }
+    let idx = val.obj
+    if idx < 0 || idx >= len(rt.structs) { return }
+    let mut structs = rt.structs
+    let mut empty_fields: [IrStructFieldValue] = []
+    structs[idx] = IrStructValue { name: "", fields: empty_fields }
+    rt.structs = structs
+    let mut free = rt.free_structs
+    push(&mut free, idx)
+    rt.free_structs = free
+}
+
+fn interp_array_free(rt: &mut Runtime, v: IrValue) {
+    let mut val = v
+    if val.kind == ir_kind_ref() {
+        val = deref_value(rt, val)
+    }
+    if val.kind != ir_kind_array() { return }
+    let idx = val.obj
+    if idx < 0 || idx >= len(rt.arrays) { return }
+    let mut arrays = rt.arrays
+    arrays[idx] = ir_array_empty()
+    rt.arrays = arrays
+    let mut free = rt.free_arrays
+    push(&mut free, idx)
+    rt.free_arrays = free
 }
 
 fn struct_get_field(rt: &mut Runtime, v: IrValue, name: String) -> IrValue {
@@ -433,7 +524,16 @@ fn struct_get_field(rt: &mut Runtime, v: IrValue, name: String) -> IrValue {
         }
         i = i + 1
     }
-    runtime_error(rt, "unknown field '" + name + "'")
+    let mut avail = ""
+    let mut j = 0
+    while j < len(st.fields) {
+        if j > 0 { avail = avail + ", " }
+        avail = avail + st.fields[j].name
+        j = j + 1
+    }
+    let mut st_name = st.name
+    if st_name == "" { st_name = "<struct>" }
+    runtime_error(rt, "unknown field '" + name + "' in " + st_name + " (fields: " + avail + ")")
     return ir_value_unit()
 }
 
@@ -461,7 +561,16 @@ fn struct_set_field(rt: &mut Runtime, v: IrValue, name: String, value: IrValue) 
         }
         i = i + 1
     }
-    runtime_error(rt, "unknown field '" + name + "'")
+    let mut avail = ""
+    let mut j = 0
+    while j < len(st.fields) {
+        if j > 0 { avail = avail + ", " }
+        avail = avail + st.fields[j].name
+        j = j + 1
+    }
+    let mut st_name = st.name
+    if st_name == "" { st_name = "<struct>" }
+    runtime_error(rt, "unknown field '" + name + "' in " + st_name + " (fields: " + avail + ")")
 }
 
 fn enum_tag(rt: &mut Runtime, v: IrValue) -> IrValue {
@@ -622,7 +731,7 @@ fn eval_binary(rt: &mut Runtime, op: String, a: IrValue, b: IrValue) -> IrValue 
             runtime_error(rt, "binary arithmetic requires int")
             return ir_value_unit()
         }
-        let t = pick_int_type(a, b)
+        let t = pick_int_type(&a, &b)
         if op == "+" { return ir_value_int_t(a.int + b.int, t) }
         if op == "-" { return ir_value_int_t(a.int - b.int, t) }
         if op == "*" { return ir_value_int_t(a.int * b.int, t) }
@@ -662,7 +771,7 @@ fn eval_binary(rt: &mut Runtime, op: String, a: IrValue, b: IrValue) -> IrValue 
     return ir_value_unit()
 }
 
-fn pick_int_type(a: IrValue, b: IrValue) -> String {
+fn pick_int_type(a: &IrValue, b: &IrValue) -> String {
     if a.int_type != "" { return a.int_type }
     if b.int_type != "" { return b.int_type }
     return ""
@@ -691,55 +800,63 @@ fn values_equal(rt: &Runtime, a: IrValue, b: IrValue) -> bool {
     return false
 }
 
-fn find_block(f: IrFunction, label: String) -> i32 {
+fn find_block(f: &IrFunction, label: &str) -> i32 {
+    let target = string_clone(label)
     let mut i = 0
     while i < len(f.blocks) {
-        if f.blocks[i].label == label { return i }
+        if f.blocks[i].label == target { return i }
         i = i + 1
     }
     return -1
 }
 
-fn find_function(p: IrProgram, name: String) -> i32 {
+fn find_function(p: &IrProgram, name: &str) -> i32 {
+    let target = string_clone(name)
     let mut i = 0
     while i < len(p.functions) {
-        if p.functions[i].name == name { return i }
+        if p.functions[i].name == target { return i }
         i = i + 1
     }
     return -1
 }
 
-fn is_builtin_name(name: String) -> bool {
-    if name == "print" { return true }
-    if name == "println" { return true }
-    if name == "eprint" { return true }
-    if name == "eprintln" { return true }
-    if name == "len" { return true }
-    if name == "push" { return true }
-    if name == "pop" { return true }
-    if name == "exit" { return true }
-    if name == "read_file" { return true }
-    if name == "read_dir" { return true }
-    if name == "write_file" { return true }
-    if name == "mkdir" { return true }
-    if name == "args" { return true }
-    if name == "char_at" { return true }
-    if name == "substr" { return true }
-    if name == "read_line" { return true }
-    if name == "read_bytes" { return true }
-    if name == "exec" { return true }
-    if name == "ast_expr" { return true }
-    if name == "ast_stmt" { return true }
-    if name == "ast_item" { return true }
-    if name == "ast_block" { return true }
-    if name == "ast_to_string" { return true }
-    if name == "gensym" { return true }
-    if name == "bind" { return true }
+fn is_builtin_name(name: &str) -> bool {
+    let n = string_clone(name)
+    if n == "print" { return true }
+    if n == "println" { return true }
+    if n == "eprint" { return true }
+    if n == "eprintln" { return true }
+    if n == "len" { return true }
+    if n == "push" { return true }
+    if n == "pop" { return true }
+    if n == "exit" { return true }
+    if n == "read_file" { return true }
+    if n == "read_dir" { return true }
+    if n == "write_file" { return true }
+    if n == "mkdir" { return true }
+    if n == "args" { return true }
+    if n == "char_at" { return true }
+    if n == "substr" { return true }
+    if n == "string_clone" { return true }
+    if n == "read_line" { return true }
+    if n == "read_bytes" { return true }
+    if n == "exec" { return true }
+    if n == "ast_expr" { return true }
+    if n == "ast_stmt" { return true }
+    if n == "ast_item" { return true }
+    if n == "ast_block" { return true }
+    if n == "ast_to_string" { return true }
+    if n == "gensym" { return true }
+    if n == "bind" { return true }
+    if n == "string_free" { return true }
+    if n == "array_free" { return true }
+    if n == "struct_free" { return true }
     return false
 }
 
-fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
-    if name == "print" || name == "println" {
+fn call_builtin(rt: &mut Runtime, name: &str, args: [IrValue]) -> IrValue {
+    let n = string_clone(name)
+    if n == "print" || n == "println" {
         let mut i = 0
         while i < len(args) {
             if i > 0 {
@@ -748,12 +865,12 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
             print(format_value(rt, args[i]))
             i = i + 1
         }
-        if name == "println" {
+        if n == "println" {
             println("")
         }
         return ir_value_unit()
     }
-    if name == "eprint" || name == "eprintln" {
+    if n == "eprint" || n == "eprintln" {
         let mut i = 0
         while i < len(args) {
             if i > 0 {
@@ -762,12 +879,12 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
             eprint(format_value(rt, args[i]))
             i = i + 1
         }
-        if name == "eprintln" {
+        if n == "eprintln" {
             eprintln("")
         }
         return ir_value_unit()
     }
-    if name == "len" {
+    if n == "len" {
         if len(args) != 1 { runtime_error(rt, "len expects 1 argument"); return ir_value_unit() }
         let mut v = args[0]
         if v.kind == ir_kind_ref() {
@@ -781,7 +898,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         runtime_error(rt, "len expects string or array")
         return ir_value_unit()
     }
-    if name == "push" {
+    if n == "push" {
         if len(args) != 2 { runtime_error(rt, "push expects 2 arguments"); return ir_value_unit() }
         let target = args[0]
         if target.kind != ir_kind_ref() { runtime_error(rt, "push expects &mut array"); return ir_value_unit() }
@@ -796,7 +913,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         rt.arrays[idx] = arr
         return ir_value_unit()
     }
-    if name == "pop" {
+    if n == "pop" {
         if len(args) != 1 { runtime_error(rt, "pop expects 1 argument"); return ir_value_unit() }
         let target = args[0]
         if target.kind != ir_kind_ref() { runtime_error(rt, "pop expects &mut array"); return ir_value_unit() }
@@ -817,7 +934,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         rt.arrays[idx] = arr
         return last
     }
-    if name == "exit" {
+    if n == "exit" {
         if len(args) > 1 { runtime_error(rt, "exit expects 0 or 1 argument"); return ir_value_unit() }
         let mut code = 0
         if len(args) == 1 {
@@ -827,13 +944,13 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         runtime_error(rt, "exit " + int_to_string(code))
         return ir_value_unit()
     }
-    if name == "read_file" {
+    if n == "read_file" {
         if len(args) != 1 { runtime_error(rt, "read_file expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() { runtime_error(rt, "read_file expects string path"); return ir_value_unit() }
         let data = read_file(args[0].str)
         return ir_value_string(data)
     }
-    if name == "read_dir" {
+    if n == "read_dir" {
         if len(args) != 1 { runtime_error(rt, "read_dir expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() { runtime_error(rt, "read_dir expects string path"); return ir_value_unit() }
         let names = read_dir(args[0].str)
@@ -846,7 +963,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         let arr_idx = array_alloc(rt, IrArrayValue { elems: elems })
         return ir_value_array(arr_idx)
     }
-    if name == "write_file" {
+    if n == "write_file" {
         if len(args) != 2 { runtime_error(rt, "write_file expects 2 arguments"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() || args[1].kind != ir_kind_string() {
             runtime_error(rt, "write_file expects string path and data")
@@ -855,7 +972,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         write_file(args[0].str, args[1].str)
         return ir_value_unit()
     }
-    if name == "mkdir" {
+    if n == "mkdir" {
         if len(args) != 1 { runtime_error(rt, "mkdir expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() {
             runtime_error(rt, "mkdir expects string path")
@@ -864,7 +981,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         mkdir(args[0].str)
         return ir_value_unit()
     }
-    if name == "args" {
+    if n == "args" {
         if len(args) != 0 { runtime_error(rt, "args expects no arguments"); return ir_value_unit() }
         let mut elems: [IrValue] = []
         let mut i = 0
@@ -875,7 +992,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         let arr_idx = array_alloc(rt, IrArrayValue { elems: elems })
         return ir_value_array(arr_idx)
     }
-    if name == "char_at" {
+    if n == "char_at" {
         if len(args) != 2 { runtime_error(rt, "char_at expects 2 arguments"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() || args[1].kind != ir_kind_int() {
             runtime_error(rt, "char_at expects string and int")
@@ -886,7 +1003,7 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         let ch = char_at(args[0].str, idx)
         return ir_value_int(ch)
     }
-    if name == "substr" {
+    if n == "substr" {
         if len(args) != 3 { runtime_error(rt, "substr expects 3 arguments"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() || args[1].kind != ir_kind_int() || args[2].kind != ir_kind_int() {
             runtime_error(rt, "substr expects string, int, int")
@@ -900,19 +1017,28 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         }
         return ir_value_string(substr(args[0].str, start, ln))
     }
-    if name == "read_line" {
+    if n == "string_clone" {
+        if len(args) != 1 { runtime_error(rt, "string_clone expects 1 argument"); return ir_value_unit() }
+        let mut v = args[0]
+        if v.kind == ir_kind_ref() {
+            v = deref_value(rt, v)
+        }
+        if v.kind != ir_kind_string() { runtime_error(rt, "string_clone expects string"); return ir_value_unit() }
+        return ir_value_string(v.str)
+    }
+    if n == "read_line" {
         if len(args) != 0 { runtime_error(rt, "read_line expects no arguments"); return ir_value_unit() }
         let line = read_line()
         return ir_value_string(line)
     }
-    if name == "read_bytes" {
+    if n == "read_bytes" {
         if len(args) != 1 { runtime_error(rt, "read_bytes expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_int() { runtime_error(rt, "read_bytes expects int count"); return ir_value_unit() }
         let n = args[0].int
         let data = read_bytes(n)
         return ir_value_string(data)
     }
-    if name == "exec" {
+    if n == "exec" {
         if len(args) != 2 { runtime_error(rt, "exec expects 2 arguments"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() { runtime_error(rt, "exec expects string command"); return ir_value_unit() }
         if args[1].kind != ir_kind_array() { runtime_error(rt, "exec expects [string] args"); return ir_value_unit() }
@@ -928,10 +1054,10 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         let code = exec(args[0].str, argv)
         return ir_value_int(code)
     }
-    if name == "ast_expr" || name == "ast_stmt" || name == "ast_item" || name == "ast_block" {
-        if len(args) != 2 { runtime_error(rt, name + " expects 2 arguments"); return ir_value_unit() }
-        if args[0].kind != ir_kind_string() { runtime_error(rt, name + " expects template string"); return ir_value_unit() }
-        if args[1].kind != ir_kind_array() { runtime_error(rt, name + " expects splice array"); return ir_value_unit() }
+    if n == "ast_expr" || n == "ast_stmt" || n == "ast_item" || n == "ast_block" {
+        if len(args) != 2 { runtime_error(rt, n + " expects 2 arguments"); return ir_value_unit() }
+        if args[0].kind != ir_kind_string() { runtime_error(rt, n + " expects template string"); return ir_value_unit() }
+        if args[1].kind != ir_kind_array() { runtime_error(rt, n + " expects splice array"); return ir_value_unit() }
         let arr = array_value(rt, args[1])
         let mut splices: [IrValue] = []
         let mut i = 0
@@ -940,19 +1066,19 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
             i = i + 1
         }
         let mut kind = ir_ast_kind_expr()
-        if name == "ast_stmt" { kind = ir_ast_kind_stmt() }
-        else if name == "ast_item" { kind = ir_ast_kind_item() }
-        else if name == "ast_block" { kind = ir_ast_kind_block() }
+        if n == "ast_stmt" { kind = ir_ast_kind_stmt() }
+        else if n == "ast_item" { kind = ir_ast_kind_item() }
+        else if n == "ast_block" { kind = ir_ast_kind_block() }
         let result = quote_build_ast(rt, kind, args[0].str, splices)
         if rt.error != "" { return ir_value_unit() }
         return ir_value_ast(kind, result)
     }
-    if name == "ast_to_string" {
+    if n == "ast_to_string" {
         if len(args) != 1 { runtime_error(rt, "ast_to_string expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_ast() { runtime_error(rt, "ast_to_string expects ast"); return ir_value_unit() }
         return ir_value_string(args[0].ast_src)
     }
-    if name == "gensym" {
+    if n == "gensym" {
         if len(args) != 1 { runtime_error(rt, "gensym expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() { runtime_error(rt, "gensym expects string"); return ir_value_unit() }
         let mut prefix = sanitize_ident(args[0].str)
@@ -961,14 +1087,32 @@ fn call_builtin(rt: &mut Runtime, name: String, args: [IrValue]) -> IrValue {
         rt.gensym_count = rt.gensym_count + 1
         return ir_value_ast(ir_ast_kind_expr(), name)
     }
-    if name == "bind" {
+    if n == "bind" {
         if len(args) != 1 { runtime_error(rt, "bind expects 1 argument"); return ir_value_unit() }
         if args[0].kind != ir_kind_string() { runtime_error(rt, "bind expects string"); return ir_value_unit() }
         let name = sanitize_ident(args[0].str)
-        if name == "" { runtime_error(rt, "bind expects non-empty name"); return ir_value_unit() }
+        if n == "" { runtime_error(rt, "bind expects non-empty name"); return ir_value_unit() }
         return ir_value_ast(ir_ast_kind_expr(), name)
     }
-    runtime_error(rt, "unknown builtin")
+    if n == "string_free" {
+        if len(args) != 1 { runtime_error(rt, "string_free expects 1 argument"); return ir_value_unit() }
+        if args[0].kind == ir_kind_string() {
+            // No-op in interpreter.
+            let _ = args[0].str
+        }
+        return ir_value_unit()
+    }
+    if n == "array_free" {
+        if len(args) != 1 { runtime_error(rt, "array_free expects 1 argument"); return ir_value_unit() }
+        interp_array_free(rt, args[0])
+        return ir_value_unit()
+    }
+    if n == "struct_free" {
+        if len(args) != 1 { runtime_error(rt, "struct_free expects 1 argument"); return ir_value_unit() }
+        interp_struct_free(rt, args[0])
+        return ir_value_unit()
+    }
+    runtime_error(rt, "unknown builtin '" + n + "'")
     return ir_value_unit()
 }
 

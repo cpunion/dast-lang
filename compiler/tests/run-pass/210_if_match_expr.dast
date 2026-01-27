@@ -1,0 +1,26 @@
+enum OptionI32 {
+    Some(i32),
+    None,
+}
+
+fn main() {
+    let mut x = 0
+    if true { x = 1 } else { x = 2 }
+    println("x", x)
+
+    let mut y = 0
+    if false { y = 1 } else if true { y = 2 } else { y = 3 }
+    println("y", y)
+
+    let a = 3
+    let z = a + 4
+    println("z", z)
+
+    let opt = OptionI32.Some(10)
+    let mut v = 0
+    match opt {
+        .Some(n) => { v = n + 1 }
+        .None => { v = 0 }
+    }
+    println("v", v)
+}

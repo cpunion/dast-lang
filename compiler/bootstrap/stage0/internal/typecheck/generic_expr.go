@@ -7,6 +7,34 @@ import (
 	"dastlang/internal/source"
 )
 
+func isBorrowableExpr(expr ast.Expr) bool {
+	switch expr.(type) {
+	case *ast.IdentExpr, *ast.AccessExpr, *ast.IndexExpr:
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Checker) tryAutoBorrow(arg ast.Expr, argType Type, expect Type) (ast.Expr, Type) {
+	if argType.Kind == TypeInvalid || expect.Kind == TypeInvalid {
+		return arg, argType
+	}
+	if argType.Ref || !expect.Ref || expect.Mut || !isBorrowableExpr(arg) {
+		return arg, argType
+	}
+	baseExpect := derefType(expect)
+	if !typesAssignable(argType, baseExpect) {
+		return arg, argType
+	}
+	borrow := &ast.RefExpr{Mutable: false, Expr: arg, SpanInfo: arg.Span()}
+	borrowType := c.checkExprWithExpected(borrow, expect)
+	if typesAssignable(borrowType, expect) {
+		return borrow, borrowType
+	}
+	return arg, argType
+}
+
 func (c *Checker) checkCallExpr(e *ast.CallExpr, sig *FuncSig) Type {
 	if len(sig.TypeParams) == 0 {
 		if len(e.Args) != len(sig.Params) {
@@ -14,7 +42,13 @@ func (c *Checker) checkCallExpr(e *ast.CallExpr, sig *FuncSig) Type {
 			return sig.Return
 		}
 		for i, arg := range e.Args {
-			argType := c.checkExprWithExpected(arg, sig.Params[i])
+			expect := sig.Params[i]
+			argType := c.checkExprWithExpected(arg, expect)
+			argExpr, borrowedType := c.tryAutoBorrow(arg, argType, expect)
+			if argExpr != arg {
+				e.Args[i] = argExpr
+				argType = borrowedType
+			}
 			if !typesAssignable(argType, sig.Params[i]) && argType.Kind != TypeInvalid && sig.Params[i].Kind != TypeInvalid {
 				c.diag.Add(arg.Span(), fmt.Sprintf("argument %d expects %s, got %s", i+1, sig.Params[i].String(), argType.String()))
 				break
@@ -67,6 +101,11 @@ func (c *Checker) checkCallExpr(e *ast.CallExpr, sig *FuncSig) Type {
 	for i, arg := range e.Args {
 		expect := c.applySubst(sig.Params[i], subst)
 		argType := c.checkExprWithExpected(arg, expect)
+		argExpr, borrowedType := c.tryAutoBorrow(arg, argType, expect)
+		if argExpr != arg {
+			e.Args[i] = argExpr
+			argType = borrowedType
+		}
 		if !typesAssignable(argType, expect) && argType.Kind != TypeInvalid && expect.Kind != TypeInvalid {
 			c.diag.Add(arg.Span(), fmt.Sprintf("argument %d expects %s, got %s", i+1, expect.String(), argType.String()))
 			break
@@ -125,11 +164,12 @@ func (c *Checker) checkStructLit(e *ast.StructLit) Type {
 		}
 	}
 	if len(decl.TypeParams) > 0 && len(e.TypeArgs) == 0 {
-		if expected, ok := c.currentExpected(); ok && expected.Kind == TypeStruct && expected.Name == e.Name {
-			if len(expected.Args) == len(decl.TypeParams) {
+		if expected, ok := c.currentExpected(); ok && expected.Kind == TypeStruct {
+			exp := c.expandInstType(expected)
+			if exp.Kind == TypeStruct && exp.Name == e.Name && len(exp.Args) == len(decl.TypeParams) {
 				for i, p := range decl.TypeParams {
 					if _, ok := subst[p.Name]; !ok {
-						subst[p.Name] = expected.Args[i]
+						subst[p.Name] = exp.Args[i]
 					}
 				}
 			}
@@ -288,8 +328,13 @@ func (c *Checker) checkMethodCall(sig *MethodSig, recvType Type, args []ast.Expr
 	if len(args) != expectedArgs {
 		c.diag.Add(span, fmt.Sprintf("method '%s' expects %d args, got %d", sig.Name, expectedArgs, len(args)))
 	}
+	recvForUnify := recvType
+	if sig.Params[0].Ref && !recvForUnify.Ref {
+		recvForUnify.Ref = true
+		recvForUnify.Mut = sig.Params[0].Mut
+	}
 	if len(sig.TypeParams) == 0 {
-		if !typesAssignable(recvType, sig.Params[0]) {
+		if !typesAssignable(recvForUnify, sig.Params[0]) {
 			c.diag.Add(span, "receiver type mismatch")
 		}
 		for i, arg := range args {
@@ -305,7 +350,7 @@ func (c *Checker) checkMethodCall(sig *MethodSig, recvType Type, args []ast.Expr
 		return sig.Return
 	}
 	subst := map[string]Type{}
-	_ = c.unifyType(sig.Params[0], recvType, subst)
+	_ = c.unifyType(sig.Params[0], recvForUnify, subst)
 	for i, arg := range args {
 		if i+1 >= len(sig.Params) {
 			break
@@ -330,7 +375,7 @@ func (c *Checker) checkMethodCall(sig *MethodSig, recvType Type, args []ast.Expr
 	c.checkTypeParamBounds(sig.TypeParams, subst, span)
 	instRet := c.applySubst(sig.Return, subst)
 	expectedSelf := c.applySubst(sig.Params[0], subst)
-	if !typesAssignable(recvType, expectedSelf) && recvType.Kind != TypeInvalid && expectedSelf.Kind != TypeInvalid {
+	if !typesAssignable(recvForUnify, expectedSelf) && recvForUnify.Kind != TypeInvalid && expectedSelf.Kind != TypeInvalid {
 		c.diag.Add(span, "receiver type mismatch")
 	}
 	for i, arg := range args {

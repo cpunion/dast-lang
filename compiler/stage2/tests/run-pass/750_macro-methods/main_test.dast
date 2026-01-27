@@ -1,0 +1,26 @@
+import "std/testing" as t
+
+struct Maker { v: int }
+
+impl Maker {
+    macro fn forty_two() -> AstExpr {
+        quote expr { 42 }
+    }
+}
+
+trait Tagger {
+    macro fn tag() -> AstExpr;
+}
+
+impl Tagger for Maker {
+    macro fn tag() -> AstExpr {
+        quote expr { 7 }
+    }
+}
+
+fn test_main() {
+    let a = Maker.forty_two!()
+    let b = Maker.tag!()
+    t.assert_eq!(a, 42)
+    t.assert_eq!(b, 7)
+}

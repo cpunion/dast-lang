@@ -20,6 +20,14 @@ func FormatExpr(e Expr) string {
 		return `"` + escapeString(v.Value) + `"`
 	case *ArrayLit:
 		return "[" + formatExprList(v.Elems) + "]"
+	case *TupleLit:
+		if len(v.Elems) == 0 {
+			return "()"
+		}
+		if len(v.Elems) == 1 {
+			return "(" + FormatExpr(v.Elems[0]) + ",)"
+		}
+		return "(" + formatExprList(v.Elems) + ")"
 	case *UnaryExpr:
 		return v.Op + formatExprNested(v.Expr)
 	case *RefExpr:
@@ -78,6 +86,8 @@ func FormatExpr(e Expr) string {
 		return name + "." + v.Variant + "(" + FormatExpr(v.Arg) + ")"
 	case *BlockExpr:
 		return FormatBlock(v.Block)
+	case *LoopExpr:
+		return "loop " + FormatBlock(v.Body)
 	case *IfExpr:
 		return "if " + FormatExpr(v.Cond) + " " + formatBlockExpr(v.Then) + " else " + formatBlockExpr(v.Else)
 	case *MatchExpr:
@@ -136,15 +146,47 @@ func FormatStmt(s Stmt) string {
 		}
 		return out
 	case *WhileStmt:
-		return "while " + FormatExpr(v.Cond) + " " + FormatBlock(v.Body)
+		prefix := ""
+		if v.Label != "" {
+			prefix = v.Label + ": "
+		}
+		return prefix + "while " + FormatExpr(v.Cond) + " " + FormatBlock(v.Body)
 	case *WhileLetStmt:
-		return "while let " + FormatPattern(v.Pattern) + " = " + FormatExpr(v.Expr) + " " + FormatBlock(v.Body)
+		prefix := ""
+		if v.Label != "" {
+			prefix = v.Label + ": "
+		}
+		return prefix + "while let " + FormatPattern(v.Pattern) + " = " + FormatExpr(v.Expr) + " " + FormatBlock(v.Body)
 	case *LoopStmt:
-		return "loop " + FormatBlock(v.Body)
+		prefix := ""
+		if v.Label != "" {
+			prefix = v.Label + ": "
+		}
+		return prefix + "loop " + FormatBlock(v.Body)
 	case *BreakStmt:
-		return "break;"
+		out := "break"
+		if v.Label != "" {
+			out += " " + v.Label
+		}
+		if v.Value != nil {
+			if v.Label != "" {
+				out += ": " + FormatExpr(v.Value)
+			} else {
+				out += " " + FormatExpr(v.Value)
+			}
+		}
+		return out + ";"
 	case *ContinueStmt:
+		if v.Label != "" {
+			return "continue " + v.Label + ";"
+		}
 		return "continue;"
+	case *ForStmt:
+		prefix := ""
+		if v.Label != "" {
+			prefix = v.Label + ": "
+		}
+		return prefix + "for " + FormatPattern(v.Pattern) + " in " + FormatExpr(v.Expr) + " " + FormatBlock(v.Body)
 	case *MatchStmt:
 		var parts []string
 		for _, arm := range v.Arms {
@@ -289,6 +331,15 @@ func FormatItem(i Item) string {
 
 func FormatType(t Type) string {
 	base := t.Name
+	if t.IsTuple {
+		if len(t.TupleElems) == 0 {
+			base = "()"
+		} else if len(t.TupleElems) == 1 {
+			base = "(" + FormatType(t.TupleElems[0]) + ",)"
+		} else {
+			base = "(" + formatTypeArgs(t.TupleElems) + ")"
+		}
+	}
 	if t.IsArray {
 		if t.Elem != nil {
 			base = "[" + FormatType(*t.Elem) + "]"
@@ -312,6 +363,8 @@ func FormatPattern(p Pattern) string {
 	switch v := p.(type) {
 	case *WildcardPattern:
 		return "_"
+	case *BindingPattern:
+		return v.Name
 	case *VariantPattern:
 		name := v.Variant
 		if v.EnumName != "" {
@@ -351,6 +404,24 @@ func FormatPattern(p Pattern) string {
 			fields = append(fields, f.Name+": "+FormatPattern(f.Pattern))
 		}
 		return v.StructName + " { " + strings.Join(fields, ", ") + " }"
+	case *TuplePattern:
+		if len(v.Elems) == 0 {
+			return "()"
+		}
+		if len(v.Elems) == 1 {
+			return "(" + FormatPattern(v.Elems[0]) + ",)"
+		}
+		var parts []string
+		for _, e := range v.Elems {
+			parts = append(parts, FormatPattern(e))
+		}
+		return "(" + strings.Join(parts, ", ") + ")"
+	case *ArrayPattern:
+		var parts []string
+		for _, e := range v.Elems {
+			parts = append(parts, FormatPattern(e))
+		}
+		return "[" + strings.Join(parts, ", ") + "]"
 	default:
 		return "_"
 	}

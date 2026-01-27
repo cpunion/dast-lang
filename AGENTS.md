@@ -3,7 +3,7 @@
 > This document provides guidelines for AI coding assistants (Claude, GPT, etc.) working on the Dast language project.
 
 See also: [CLAUDE.md](CLAUDE.md) for Claude-specific instructions.
-Key docs: [Overview](docs/00-overview.md) • [Implementation Roadmap](docs/implementation-roadmap.md)
+Key docs: [Overview](docs/00-overview.md) • [Implementation Roadmap](docs/implementation-roadmap.md) • [Correctness Testing Standard](docs/23-correctness-testing.md)
 
 ---
 

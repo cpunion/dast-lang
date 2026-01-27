@@ -9,15 +9,14 @@ import (
 )
 
 type emitter struct {
-	strIDs    map[string]string
+	strIDs    map[string]int
 	strOrder  []string
-	nameCount int
 	tempID    int
 }
 
 func newEmitter() *emitter {
 	return &emitter{
-		strIDs:   map[string]string{},
+		strIDs:   map[string]int{},
 		strOrder: []string{},
 	}
 }
@@ -29,12 +28,22 @@ func EmitProgram(p *ir.Program) string {
 	var sb strings.Builder
 	if len(e.strOrder) > 0 {
 		for _, s := range e.strOrder {
-			label := e.strIDs[s]
+			dataLabel := e.stringDataLabel(s)
+			structLabel := e.stringStructLabel(s)
 			sb.WriteString("data $")
-			sb.WriteString(label)
+			sb.WriteString(dataLabel)
 			sb.WriteString(" = { b \"")
 			sb.WriteString(escapeQBEString(s))
 			sb.WriteString("\", b 0 }\n")
+			sb.WriteString("data $")
+			sb.WriteString(structLabel)
+			sb.WriteString(" = { l $")
+			sb.WriteString(dataLabel)
+			sb.WriteString(", l ")
+			sb.WriteString(fmt.Sprintf("%d", len(s)))
+			sb.WriteString(", l ")
+			sb.WriteString(fmt.Sprintf("%d", len(s)+1))
+			sb.WriteString(" }\n")
 		}
 		sb.WriteString("\n")
 	}
@@ -285,8 +294,8 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 	case *ir.CallClosure:
 		funcTemp := e.newTemp()
 		envTemp := e.newTemp()
-		funcLabel := e.stringLabel("func")
-		envLabel := e.stringLabel("env")
+		funcLabel := e.stringDataRef("func")
+		envLabel := e.stringDataRef("env")
 		lines := []string{
 			fmt.Sprintf("%%t%d =l call $dast_struct_get_ptr(l %s, l %s)", funcTemp, e.operandExpr(i.Closure), funcLabel),
 			fmt.Sprintf("%%t%d =l call $dast_struct_get_ptr(l %s, l %s)", envTemp, e.operandExpr(i.Closure), envLabel),
@@ -343,11 +352,11 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		lines = append(lines, fmt.Sprintf("call $%s(l %s, l %s, l %s)", fnName, arrayExpr, idxExpr, valExpr))
 		return lines
 	case *ir.MakeStruct:
-		lines := []string{fmt.Sprintf("%%t%d =l call $dast_struct_new(l %s, l %d)", i.Dst, e.stringLabel(i.Name), len(i.Fields))}
+		lines := []string{fmt.Sprintf("%%t%d =l call $dast_struct_new(l %s, l %d)", i.Dst, e.stringDataRef(i.Name), len(i.Fields))}
 		for _, f := range i.Fields {
 			if i.Name == "Closure" && f.Name == "func" && f.Src.IsConst && f.Src.Const.Kind == ir.KindString {
 				fnName := f.Src.Const.Str
-				lines = append(lines, fmt.Sprintf("call $dast_struct_set_ptr(l %%t%d, l %s, l $%s)", i.Dst, e.stringLabel(f.Name), mangleFunc(fnName)))
+				lines = append(lines, fmt.Sprintf("call $dast_struct_set_ptr(l %%t%d, l %s, l $%s)", i.Dst, e.stringDataRef(f.Name), mangleFunc(fnName)))
 				continue
 			}
 			ft := ti.operandType(f.Src)
@@ -364,7 +373,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			}
 			valExpr, valLines := e.castOperand(ti, f.Src, argType)
 			lines = append(lines, valLines...)
-			lines = append(lines, fmt.Sprintf("call $%s(l %%t%d, l %s, %s %s)", setFn, i.Dst, e.stringLabel(f.Name), qbeType(argType), valExpr))
+			lines = append(lines, fmt.Sprintf("call $%s(l %%t%d, l %s, %s %s)", setFn, i.Dst, e.stringDataRef(f.Name), qbeType(argType), valExpr))
 		}
 		return lines
 	case *ir.GetField:
@@ -382,7 +391,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			retType = "i64"
 		}
 		lines := append([]string{}, srcLines...)
-		lines = append(lines, fmt.Sprintf("%%t%d =%s call $%s(l %s, l %s)", i.Dst, qbeType(retType), getFn, srcExpr, e.stringLabel(i.Field)))
+		lines = append(lines, fmt.Sprintf("%%t%d =%s call $%s(l %s, l %s)", i.Dst, qbeType(retType), getFn, srcExpr, e.stringDataRef(i.Field)))
 		return lines
 	case *ir.SetField:
 		srcExpr, srcLines, srcType := e.derefOperand(ti, ir.TempOperand(i.Src))
@@ -401,12 +410,12 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		valExpr, valLines := e.castOperand(ti, i.Value, argType)
 		lines := append([]string{}, srcLines...)
 		lines = append(lines, valLines...)
-		lines = append(lines, fmt.Sprintf("call $%s(l %s, l %s, %s %s)", setFn, srcExpr, e.stringLabel(i.Field), qbeType(argType), valExpr))
+		lines = append(lines, fmt.Sprintf("call $%s(l %s, l %s, %s %s)", setFn, srcExpr, e.stringDataRef(i.Field), qbeType(argType), valExpr))
 		return lines
 	case *ir.FieldAddr:
 		srcExpr, srcLines, _ := e.derefOperand(ti, ir.TempOperand(i.Src))
 		lines := append([]string{}, srcLines...)
-		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_struct_field_addr(l %s, l %s)", i.Dst, srcExpr, e.stringLabel(i.Field)))
+	lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_struct_field_addr(l %s, l %s)", i.Dst, srcExpr, e.stringDataRef(i.Field)))
 		return lines
 	case *ir.IndexAddr:
 		baseExpr, baseLines, _ := e.derefOperand(ti, ir.TempOperand(i.Base))
@@ -530,6 +539,21 @@ func (e *emitter) emitBuiltinCall(p *ir.Program, ti *typeInfo, dst int, callee s
 		return e.emitPrintCall(ti, dst, callee, args)
 	case "len":
 		return e.emitLenCall(ti, dst, args)
+	case "string_clone":
+		if len(args) != 1 {
+			if dst >= 0 {
+				return []string{fmt.Sprintf("%%t%d =l call $dast_string_clone(l 0)", dst)}
+			}
+			return []string{fmt.Sprintf("call $dast_string_clone(l 0)")}
+		}
+		argExpr, argLines, _ := e.derefOperand(ti, args[0])
+		lines := append([]string{}, argLines...)
+		if dst >= 0 {
+			lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_string_clone(l %s)", dst, argExpr))
+			return lines
+		}
+		lines = append(lines, fmt.Sprintf("call $dast_string_clone(l %s)", argExpr))
+		return lines
 	case "ast_expr", "ast_stmt", "ast_item", "ast_block":
 		return e.emitAstCall(ti, dst, callee, args)
 	}
@@ -671,7 +695,7 @@ func printFnForType(t string, isErr bool) string {
 	switch normalizeType(t) {
 	case "bool":
 		return prefix + "bool"
-	case "string", "String":
+	case "String", "str":
 		return prefix + "string"
 	default:
 		if isArrayType(t) {
@@ -717,6 +741,8 @@ func builtinRuntimeName(name string) string {
 		return "dast_string_to_int"
 	case "has_prefix":
 		return "dast_has_prefix"
+	case "string_clone":
+		return "dast_string_clone"
 	case "push":
 		return "dast_push"
 	case "pop":
@@ -789,8 +815,8 @@ func (e *emitter) collectStringsFromInstr(inst ir.Instr) {
 			e.collectStringsFromOperand(a)
 		}
 	case *ir.CallClosure:
-		e.stringLabel("func")
-		e.stringLabel("env")
+		e.stringDataRef("func")
+		e.stringDataRef("env")
 		e.collectStringsFromOperand(i.Closure)
 		for _, a := range i.Args {
 			e.collectStringsFromOperand(a)
@@ -807,18 +833,18 @@ func (e *emitter) collectStringsFromInstr(inst ir.Instr) {
 		e.collectStringsFromOperand(i.Index)
 		e.collectStringsFromOperand(i.Src)
 	case *ir.MakeStruct:
-		e.stringLabel(i.Name)
+		e.stringDataRef(i.Name)
 		for _, f := range i.Fields {
-			e.stringLabel(f.Name)
+			e.stringDataRef(f.Name)
 			e.collectStringsFromOperand(f.Src)
 		}
 	case *ir.GetField:
-		e.stringLabel(i.Field)
+		e.stringDataRef(i.Field)
 	case *ir.SetField:
-		e.stringLabel(i.Field)
+		e.stringDataRef(i.Field)
 		e.collectStringsFromOperand(i.Value)
 	case *ir.FieldAddr:
-		e.stringLabel(i.Field)
+		e.stringDataRef(i.Field)
 	case *ir.IndexAddr:
 		e.collectStringsFromOperand(i.Index)
 	}
@@ -840,19 +866,34 @@ func (e *emitter) collectStringsFromOperand(op ir.Operand) {
 		return
 	}
 	if op.Const.Kind == ir.KindString {
-		e.stringLabel(op.Const.Str)
+		_ = e.stringStructRef(op.Const.Str)
 	}
 }
 
-func (e *emitter) stringLabel(s string) string {
+func (e *emitter) stringID(s string) int {
 	if id, ok := e.strIDs[s]; ok {
-		return "$" + id
+		return id
 	}
-	name := fmt.Sprintf("str%d", e.nameCount)
-	e.nameCount++
-	e.strIDs[s] = name
+	id := len(e.strOrder)
+	e.strIDs[s] = id
 	e.strOrder = append(e.strOrder, s)
-	return "$" + name
+	return id
+}
+
+func (e *emitter) stringDataLabel(s string) string {
+	return fmt.Sprintf("str_data_%d", e.stringID(s))
+}
+
+func (e *emitter) stringStructLabel(s string) string {
+	return fmt.Sprintf("str_%d", e.stringID(s))
+}
+
+func (e *emitter) stringDataRef(s string) string {
+	return "$" + e.stringDataLabel(s)
+}
+
+func (e *emitter) stringStructRef(s string) string {
+	return "$" + e.stringStructLabel(s)
 }
 
 func (e *emitter) newTemp() int {
@@ -934,7 +975,7 @@ func (e *emitter) constExpr(v ir.Value) string {
 		}
 		return "0"
 	case ir.KindString:
-		return e.stringLabel(v.Str)
+		return e.stringStructRef(v.Str)
 	default:
 		return "0"
 	}
@@ -1029,8 +1070,8 @@ func inferTypes(p *ir.Program, fn *ir.Function) *typeInfo {
 						lt := ti.operandType(i.Lhs)
 						rt := ti.operandType(i.Rhs)
 						if isStringType(lt) || isStringType(rt) {
-							_ = ti.setDefType(i.Dst, "string")
-							if ti.setTempType(i.Dst, "string") {
+							_ = ti.setDefType(i.Dst, "String")
+							if ti.setTempType(i.Dst, "String") {
 								changed = true
 							}
 						} else {
@@ -1219,7 +1260,7 @@ func (t *typeInfo) operandType(op ir.Operand) string {
 		case ir.KindBool:
 			return "bool"
 		case ir.KindString:
-			return "string"
+			return "String"
 		case ir.KindStruct:
 			if op.Const.Struct != nil {
 				return op.Const.Struct.Name
@@ -1402,7 +1443,7 @@ func unifyType(a, b string) string {
 		return widerInt(a, b)
 	}
 	if isStringType(a) || isStringType(b) {
-		return "string"
+		return "String"
 	}
 	return a
 }
@@ -1460,7 +1501,7 @@ func elemType(t string) string {
 }
 
 func isStringType(t string) bool {
-	return t == "string" || t == "String"
+	return t == "String" || t == "str"
 }
 
 func isStructType(t string) bool {
@@ -1528,7 +1569,7 @@ func structSetFn(t string) string {
 	switch normalizeType(t) {
 	case "bool":
 		return "dast_struct_set_bool"
-	case "string", "String":
+	case "String", "str":
 		return "dast_struct_set_string"
 	default:
 		if isIntType(t) {
@@ -1545,7 +1586,7 @@ func structGetFn(t string) string {
 	switch normalizeType(t) {
 	case "bool":
 		return "dast_struct_get_bool"
-	case "string", "String":
+	case "String", "str":
 		return "dast_struct_get_string"
 	default:
 		if isIntType(t) {
@@ -1563,6 +1604,8 @@ func builtinReturnType(name string) string {
 	case "len", "char_at":
 		return "int"
 	case "substr", "read_file", "read_line", "read_bytes", "ast_to_string", "gensym", "bind", "int_to_string":
+		return "String"
+	case "string_clone":
 		return "String"
 	case "args", "read_dir":
 		return "[String]"
@@ -1596,6 +1639,8 @@ func builtinArgTypes(name string) []string {
 		return []string{"String", "i64"}
 	case "substr":
 		return []string{"String", "i64", "i64"}
+	case "string_clone":
+		return []string{"String"}
 	case "read_file":
 		return []string{"String"}
 	case "read_dir":

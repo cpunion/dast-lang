@@ -14,6 +14,14 @@ type WildcardPattern struct {
 func (p *WildcardPattern) patternNode()      {}
 func (p *WildcardPattern) Span() source.Span { return p.SpanInfo }
 
+type BindingPattern struct {
+	Name     string
+	SpanInfo source.Span
+}
+
+func (p *BindingPattern) patternNode()      {}
+func (p *BindingPattern) Span() source.Span { return p.SpanInfo }
+
 type VariantPattern struct {
 	EnumName string
 	Variant  string
@@ -65,3 +73,19 @@ type StructPattern struct {
 
 func (p *StructPattern) patternNode()      {}
 func (p *StructPattern) Span() source.Span { return p.SpanInfo }
+
+type TuplePattern struct {
+	Elems    []Pattern
+	SpanInfo source.Span
+}
+
+func (p *TuplePattern) patternNode()      {}
+func (p *TuplePattern) Span() source.Span { return p.SpanInfo }
+
+type ArrayPattern struct {
+	Elems    []Pattern
+	SpanInfo source.Span
+}
+
+func (p *ArrayPattern) patternNode()      {}
+func (p *ArrayPattern) Span() source.Span { return p.SpanInfo }

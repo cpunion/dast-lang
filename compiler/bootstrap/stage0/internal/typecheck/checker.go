@@ -31,7 +31,7 @@ type Checker struct {
 	inferredType  Type
 	hasReturn     bool
 	hasBareReturn bool
-	loopDepth     int
+	loopStack     []loopContext
 
 	funcInsts   map[string]string
 	structInsts map[string]string
@@ -45,6 +45,14 @@ type Checker struct {
 	pendingEnums   []typeInst
 
 	expectedStack []Type
+}
+
+type loopContext struct {
+	label      string
+	allowValue bool
+	expected   Type
+	valueType  Type
+	hasValue   bool
 }
 
 type ConstInfo struct {

@@ -26,15 +26,13 @@ pub macro fn assert_msg(cond: AstExpr, msg: AstExpr) -> AstStmt {
 }
 
 pub macro fn assert_eq(left: AstExpr, right: AstExpr) -> AstStmt {
-    let l = gensym("left")
-    let r = gensym("right")
     quote stmt { {
-        let $l = $left;
-        let $r = $right;
-        if !($l == $r) {
+        let __dast_left = $left;
+        let __dast_right = $right;
+        if !(__dast_left == __dast_right) {
             eprintln("assert_eq failed");
-            eprintln(" left:", $l);
-            eprintln("right:", $r);
+            eprintln(" left:", __dast_left);
+            eprintln("right:", __dast_right);
             exit(1);
             return;
         }
@@ -42,14 +40,12 @@ pub macro fn assert_eq(left: AstExpr, right: AstExpr) -> AstStmt {
 }
 
 pub macro fn assert_ne(left: AstExpr, right: AstExpr) -> AstStmt {
-    let l = gensym("left")
-    let r = gensym("right")
     quote stmt { {
-        let $l = $left;
-        let $r = $right;
-        if $l == $r {
+        let __dast_left = $left;
+        let __dast_right = $right;
+        if __dast_left == __dast_right {
             eprintln("assert_ne failed");
-            eprintln(" value:", $l);
+            eprintln(" value:", __dast_left);
             exit(1);
             return;
         }

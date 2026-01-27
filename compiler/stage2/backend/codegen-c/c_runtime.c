@@ -9,11 +9,189 @@
 // Global state
 static int g_argc = 0;
 static char **g_argv = NULL;
+static const char **g_string_allocs = NULL;
+static size_t g_string_allocs_len = 0;
+static size_t g_string_allocs_cap = 0;
+static void **g_array_allocs = NULL;
+static size_t g_array_allocs_len = 0;
+static size_t g_array_allocs_cap = 0;
+static void **g_struct_allocs = NULL;
+static size_t g_struct_allocs_len = 0;
+static size_t g_struct_allocs_cap = 0;
+static size_t g_mem_used = 0;
+static size_t g_mem_limit = 0;
+
+static void dast_rt_oom(void) {
+  fprintf(stderr, "out of memory\n");
+  exit(1);
+}
+
+void dast_set_mem_limit(size_t bytes) { g_mem_limit = bytes; }
+
+static void *dast_rt_alloc_raw(size_t n) {
+  size_t total = n + sizeof(size_t);
+  if (g_mem_limit && g_mem_used + total > g_mem_limit) {
+    dast_rt_oom();
+  }
+  void *raw = malloc(total);
+  if (!raw && total != 0) {
+    dast_rt_oom();
+  }
+  if (raw) {
+    *(size_t *)raw = total;
+    g_mem_used += total;
+  }
+  return raw;
+}
+
+static void *dast_rt_realloc_raw(void *raw, size_t n) {
+  size_t old = raw ? *(size_t *)raw : 0;
+  size_t total = n + sizeof(size_t);
+  if (g_mem_limit && g_mem_used - old + total > g_mem_limit) {
+    dast_rt_oom();
+  }
+  void *next = realloc(raw, total);
+  if (!next && total != 0) {
+    dast_rt_oom();
+  }
+  if (next) {
+    *(size_t *)next = total;
+    g_mem_used = g_mem_used - old + total;
+  }
+  return next;
+}
+
+void *dast_rt_malloc(size_t n) {
+  void *raw = dast_rt_alloc_raw(n == 0 ? 1 : n);
+  return raw ? (char *)raw + sizeof(size_t) : NULL;
+}
+
+void *dast_rt_realloc(void *p, size_t n) {
+  if (!p) {
+    return dast_rt_malloc(n);
+  }
+  void *raw = (char *)p - sizeof(size_t);
+  void *next = dast_rt_realloc_raw(raw, n == 0 ? 1 : n);
+  return next ? (char *)next + sizeof(size_t) : NULL;
+}
+
+void dast_rt_free(void *p) {
+  if (!p) return;
+  void *raw = (char *)p - sizeof(size_t);
+  size_t total = *(size_t *)raw;
+  if (g_mem_used >= total) {
+    g_mem_used -= total;
+  } else {
+    g_mem_used = 0;
+  }
+  free(raw);
+}
+
+char *dast_rt_strdup(const char *s) {
+  if (!s) return NULL;
+  size_t n = strlen(s);
+  char *out = (char *)dast_rt_malloc(n + 1);
+  if (!out) return NULL;
+  memcpy(out, s, n);
+  out[n] = '\0';
+  return out;
+}
+
+static void dast_track_string(const char *s) {
+  if (!s) return;
+  for (size_t i = 0; i < g_string_allocs_len; i++) {
+    if (g_string_allocs[i] == s) return;
+  }
+  if (g_string_allocs_len >= g_string_allocs_cap) {
+    size_t next = g_string_allocs_cap == 0 ? 64 : g_string_allocs_cap * 2;
+    g_string_allocs = (const char **)dast_rt_realloc(g_string_allocs, sizeof(char *) * next);
+    g_string_allocs_cap = next;
+  }
+  g_string_allocs[g_string_allocs_len++] = s;
+}
+
+static int dast_untrack_string(const char *s) {
+  if (!s) return 0;
+  for (size_t i = 0; i < g_string_allocs_len; i++) {
+    if (g_string_allocs[i] == s) {
+      g_string_allocs[i] = g_string_allocs[g_string_allocs_len - 1];
+      g_string_allocs_len--;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void dast_track_array(void *p) {
+  if (!p) return;
+  for (size_t i = 0; i < g_array_allocs_len; i++) {
+    if (g_array_allocs[i] == p) return;
+  }
+  if (g_array_allocs_len >= g_array_allocs_cap) {
+    size_t next = g_array_allocs_cap == 0 ? 64 : g_array_allocs_cap * 2;
+    g_array_allocs = (void **)dast_rt_realloc(g_array_allocs, sizeof(void *) * next);
+    g_array_allocs_cap = next;
+  }
+  g_array_allocs[g_array_allocs_len++] = p;
+}
+
+static int dast_untrack_array(void *p) {
+  if (!p) return 0;
+  for (size_t i = 0; i < g_array_allocs_len; i++) {
+    if (g_array_allocs[i] == p) {
+      g_array_allocs[i] = g_array_allocs[g_array_allocs_len - 1];
+      g_array_allocs_len--;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void dast_track_struct(void *p) {
+  if (!p) return;
+  for (size_t i = 0; i < g_struct_allocs_len; i++) {
+    if (g_struct_allocs[i] == p) return;
+  }
+  if (g_struct_allocs_len >= g_struct_allocs_cap) {
+    size_t next = g_struct_allocs_cap == 0 ? 64 : g_struct_allocs_cap * 2;
+    g_struct_allocs = (void **)dast_rt_realloc(g_struct_allocs, sizeof(void *) * next);
+    g_struct_allocs_cap = next;
+  }
+  g_struct_allocs[g_struct_allocs_len++] = p;
+}
+
+static int dast_untrack_struct(void *p) {
+  if (!p) return 0;
+  for (size_t i = 0; i < g_struct_allocs_len; i++) {
+    if (g_struct_allocs[i] == p) {
+      g_struct_allocs[i] = g_struct_allocs[g_struct_allocs_len - 1];
+      g_struct_allocs_len--;
+      return 1;
+    }
+  }
+  return 0;
+}
 
 // Runtime initialization
 void dast_runtime_init(int argc, char **argv) {
   g_argc = argc;
   g_argv = argv;
+  const char *limit_bytes = getenv("DAST_MEM_LIMIT_BYTES");
+  const char *limit_mb = getenv("DAST_MEM_LIMIT_MB");
+  if (limit_bytes && *limit_bytes) {
+    size_t n = (size_t)strtoull(limit_bytes, NULL, 10);
+    if (n > 0) {
+      g_mem_limit = n;
+      return;
+    }
+  }
+  if (limit_mb && *limit_mb) {
+    size_t n = (size_t)strtoull(limit_mb, NULL, 10);
+    if (n > 0) {
+      g_mem_limit = n * 1024 * 1024;
+      return;
+    }
+  }
 }
 
 void dast_runtime_cleanup(void) {
@@ -29,7 +207,8 @@ dast_string_t dast_string_from_cstr(const char *s) {
   dast_string_t str;
   str.len = strlen(s);
   str.cap = str.len + 1;
-  str.data = (char *)malloc(str.cap);
+  str.data = (char *)dast_rt_malloc(str.cap);
+  dast_track_string(str.data);
   memcpy(str.data, s, str.len);
   str.data[str.len] = '\0';
   return str;
@@ -41,10 +220,30 @@ dast_string_t dast_string_concat(dast_string_t a, dast_string_t b) {
   dast_string_t out;
   out.len = a.len + b.len;
   out.cap = out.len + 1;
-  out.data = (char *)malloc(out.cap);
+  out.data = (char *)dast_rt_malloc(out.cap);
+  dast_track_string(out.data);
   memcpy(out.data, a.data, a.len);
   memcpy(out.data + a.len, b.data, b.len);
   out.data[out.len] = '\0';
+  return out;
+}
+
+dast_string_t dast_string_clone(dast_string_t s) {
+  dast_string_t out;
+  if (!s.data || s.len == 0) {
+    out.len = 0;
+    out.cap = 1;
+    out.data = (char *)dast_rt_malloc(out.cap);
+    dast_track_string(out.data);
+    out.data[0] = '\0';
+    return out;
+  }
+  out.len = s.len;
+  out.cap = s.len + 1;
+  out.data = (char *)dast_rt_malloc(out.cap);
+  dast_track_string(out.data);
+  memcpy(out.data, s.data, s.len);
+  out.data[s.len] = '\0';
   return out;
 }
 
@@ -73,7 +272,8 @@ dast_string_t dast_string_substr(dast_string_t s, dast_int start,
   if (start < 0)
     start = 0;
   if ((size_t)start >= s.len) {
-    result.data = (char *)malloc(1);
+    result.data = (char *)dast_rt_malloc(1);
+    dast_track_string(result.data);
     result.data[0] = '\0';
     result.len = 0;
     result.cap = 1;
@@ -84,10 +284,17 @@ dast_string_t dast_string_substr(dast_string_t s, dast_int start,
   }
   result.len = length;
   result.cap = length + 1;
-  result.data = (char *)malloc(result.cap);
+  result.data = (char *)dast_rt_malloc(result.cap);
+  dast_track_string(result.data);
   memcpy(result.data, s.data + start, length);
   result.data[length] = '\0';
   return result;
+}
+
+void dast_string_free(dast_string_t s) {
+  if (!s.data) return;
+  if (!dast_untrack_string(s.data)) return;
+  dast_rt_free(s.data);
 }
 
 // Array operations
@@ -105,8 +312,19 @@ dast_int dast_array_len(dast_array_t *arr) { return (dast_int)arr->len; }
 void dast_array_push(dast_array_t *arr, void *elem) {
   if (arr->len >= arr->cap) {
     size_t new_cap = arr->cap == 0 ? 4 : arr->cap * 2;
-    arr->data = realloc(arr->data, new_cap * arr->elem_size);
+    void *old = arr->data;
+    arr->data = dast_rt_realloc(arr->data, new_cap * arr->elem_size);
     arr->cap = new_cap;
+    if (arr->data != old) {
+      if (old) {
+        (void)dast_untrack_array(old);
+      }
+      if (arr->data) {
+        dast_track_array(arr->data);
+      }
+    } else if (!old && arr->data) {
+      dast_track_array(arr->data);
+    }
   }
   memcpy((char *)arr->data + arr->len * arr->elem_size, elem, arr->elem_size);
   arr->len++;
@@ -136,6 +354,12 @@ void dast_array_set(dast_array_t *arr, dast_int i, void *elem) {
     exit(1);
   }
   memcpy((char *)arr->data + i * arr->elem_size, elem, arr->elem_size);
+}
+
+void dast_array_free(dast_array_t arr) {
+  if (!arr.data) return;
+  if (!dast_untrack_array(arr.data)) return;
+  dast_rt_free(arr.data);
 }
 
 // I/O operations
@@ -196,7 +420,8 @@ dast_string_t dast_int_to_string(dast_int n) {
   dast_string_t result;
   result.len = len;
   result.cap = len + 1;
-  result.data = (char *)malloc(result.cap);
+  result.data = (char *)dast_rt_malloc(result.cap);
+  dast_track_string(result.data);
   memcpy(result.data, buf, len);
   result.data[len] = '\0';
   return result;
@@ -216,7 +441,7 @@ void dast_panic(dast_string_t msg) {
 extern char **environ;
 
 static char *dast_string_to_cstr(dast_string_t s) {
-  char *buf = (char *)malloc(s.len + 1);
+  char *buf = (char *)dast_rt_malloc(s.len + 1);
   memcpy(buf, s.data, s.len);
   buf[s.len] = '\0';
   return buf;
@@ -224,7 +449,7 @@ static char *dast_string_to_cstr(dast_string_t s) {
 
 int64_t dast_exec(dast_string_t cmd, dast_array_t args) {
   size_t argc = args.len;
-  char **argv = (char **)malloc(sizeof(char *) * (argc + 2));
+  char **argv = (char **)dast_rt_malloc(sizeof(char *) * (argc + 2));
   argv[0] = dast_string_to_cstr(cmd);
   for (size_t i = 0; i < argc; i++) {
     dast_string_t *s = (dast_string_t *)dast_array_get(&args, (dast_int)i);
@@ -238,23 +463,23 @@ int64_t dast_exec(dast_string_t cmd, dast_array_t args) {
   if (rc != 0) {
     fprintf(stderr, "exec failed: %s\n", strerror(rc));
     for (size_t i = 0; i < argc + 1; i++) {
-      free(argv[i]);
+      dast_rt_free(argv[i]);
     }
-    free(argv);
+    dast_rt_free(argv);
     return 127;
   }
   if (waitpid(pid, &status, 0) < 0) {
     fprintf(stderr, "exec wait failed\n");
     for (size_t i = 0; i < argc + 1; i++) {
-      free(argv[i]);
+      dast_rt_free(argv[i]);
     }
-    free(argv);
+    dast_rt_free(argv);
     return 127;
   }
   for (size_t i = 0; i < argc + 1; i++) {
-    free(argv[i]);
+    dast_rt_free(argv[i]);
   }
-  free(argv);
+  dast_rt_free(argv);
 
   if (WIFEXITED(status)) {
     return (int64_t)WEXITSTATUS(status);
@@ -289,11 +514,19 @@ static int dast_struct_insert(dast_struct_t *st, const char *field) {
 }
 
 dast_struct_t *dast_struct_new(const char *name, size_t field_count) {
-  dast_struct_t *st = (dast_struct_t *)calloc(1, sizeof(dast_struct_t));
+  dast_struct_t *st = (dast_struct_t *)dast_rt_malloc(sizeof(dast_struct_t));
+  if (!st) return NULL;
+  memset(st, 0, sizeof(dast_struct_t));
   st->name = name;
   st->len = field_count;
-  st->field_names = (const char **)calloc(field_count, sizeof(char *));
-  st->field_values = (dast_value_t *)calloc(field_count, sizeof(dast_value_t));
+  st->field_names = (const char **)dast_rt_malloc(field_count * sizeof(char *));
+  st->field_values = (dast_value_t *)dast_rt_malloc(field_count * sizeof(dast_value_t));
+  if (st->field_names) {
+    memset((void *)st->field_names, 0, field_count * sizeof(char *));
+  }
+  if (st->field_values) {
+    memset(st->field_values, 0, field_count * sizeof(dast_value_t));
+  }
   return st;
 }
 
@@ -418,7 +651,8 @@ dast_string_t dast_read_file(dast_string_t path) {
   dast_string_t out;
   out.len = (size_t)size;
   out.cap = out.len + 1;
-  out.data = (char *)malloc(out.cap);
+  out.data = (char *)dast_rt_malloc(out.cap);
+  dast_track_string(out.data);
   size_t n = fread(out.data, 1, out.len, f);
   fclose(f);
   out.len = n;
@@ -471,7 +705,7 @@ void dast_mkdir(dast_string_t path) {
 
 dast_string_t dast_read_line(void) {
   size_t cap = 256;
-  char *buf = (char *)malloc(cap);
+  char *buf = (char *)dast_rt_malloc(cap);
   if (!fgets(buf, (int)cap, stdin)) {
     buf[0] = '\0';
   }
@@ -483,10 +717,11 @@ dast_string_t dast_read_line(void) {
   dast_string_t out;
   out.len = len;
   out.cap = len + 1;
-  out.data = (char *)malloc(out.cap);
+  out.data = (char *)dast_rt_malloc(out.cap);
+  dast_track_string(out.data);
   memcpy(out.data, buf, len);
   out.data[len] = '\0';
-  free(buf);
+  dast_rt_free(buf);
   return out;
 }
 
@@ -495,7 +730,8 @@ dast_string_t dast_read_bytes(dast_int n) {
   dast_string_t out;
   out.len = (size_t)n;
   out.cap = out.len + 1;
-  out.data = (char *)malloc(out.cap);
+  out.data = (char *)dast_rt_malloc(out.cap);
+  dast_track_string(out.data);
   size_t readn = fread(out.data, 1, out.len, stdin);
   out.len = readn;
   out.data[out.len] = '\0';
@@ -503,3 +739,20 @@ dast_string_t dast_read_bytes(dast_int n) {
 }
 
 void dast_exit(dast_int code) { exit((int)code); }
+
+void *dast_struct_alloc(size_t size) {
+  void *ptr = dast_rt_malloc(size == 0 ? 1 : size);
+  if (!ptr && size != 0) {
+    fprintf(stderr, "out of memory\n");
+    exit(1);
+  }
+  memset(ptr, 0, size);
+  dast_track_struct(ptr);
+  return ptr;
+}
+
+void dast_struct_free(void *ptr) {
+  if (!ptr) return;
+  if (!dast_untrack_struct(ptr)) return;
+  dast_rt_free(ptr);
+}

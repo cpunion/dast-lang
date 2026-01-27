@@ -1,0 +1,28 @@
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 }
+    let mut px = p1.x
+    let rx = &px
+    println("rx", *rx)
+    let p2 = Point { x: 1, y: 2 }
+    let mut py = p2.y
+    let ry = &mut py
+    let pyv = *ry
+    py = pyv + 3
+    println("py", py)
+
+    let nums1 = [10, 20, 30]
+    let mut n0 = nums1[0]
+    let r0 = &n0
+    println("r0", *r0)
+    let nums2 = [10, 20, 30]
+    let mut n1 = nums2[1]
+    let r1 = &mut n1
+    let n1v = *r1
+    n1 = n1v + 5
+    println("n1", n1)
+}

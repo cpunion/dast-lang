@@ -264,19 +264,66 @@ func (p *Parser) parseReprAttr() string {
 
 func (p *Parser) parseType() ast.Type {
 	start := p.peek().Span
-	t := ast.Type{}
+	ref := false
+	mut := false
 	if p.match(lexer.TokenAmp) {
-		t.IsRef = true
+		ref = true
 		if p.match(lexer.TokenMut) {
-			t.IsMut = true
+			mut = true
 		}
 	}
+	t := ast.Type{}
 	if p.match(lexer.TokenLBracket) {
 		elem := p.parseType()
-		p.expect(lexer.TokenRBracket, "expected ']' in array type")
+		endTok := p.expect(lexer.TokenRBracket, "expected ']' in array type")
 		t.IsArray = true
 		t.Elem = &elem
-		t.Span = mergeSpan(start, elem.Span)
+		t.Span = mergeSpan(start, endTok.Span)
+		if ref {
+			t.IsRef = true
+			t.IsMut = mut
+		}
+		return t
+	}
+	if p.match(lexer.TokenLParen) {
+		if p.at(lexer.TokenRParen) {
+			endTok := p.advance()
+			t.IsTuple = true
+			t.TupleElems = nil
+			t.Span = mergeSpan(start, endTok.Span)
+			if ref {
+				t.IsRef = true
+				t.IsMut = mut
+			}
+			return t
+		}
+		first := p.parseType()
+		if p.match(lexer.TokenComma) {
+			elems := []ast.Type{first}
+			for !p.at(lexer.TokenRParen) && !p.at(lexer.TokenEOF) {
+				elems = append(elems, p.parseType())
+				if p.match(lexer.TokenComma) {
+					continue
+				}
+				break
+			}
+			endTok := p.expect(lexer.TokenRParen, "expected ')' in tuple type")
+			t.IsTuple = true
+			t.TupleElems = elems
+			t.Span = mergeSpan(start, endTok.Span)
+			if ref {
+				t.IsRef = true
+				t.IsMut = mut
+			}
+			return t
+		}
+		endTok := p.expect(lexer.TokenRParen, "expected ')' in type")
+		t = first
+		t.Span = mergeSpan(start, endTok.Span)
+		if ref {
+			t.IsRef = true
+			t.IsMut = mut
+		}
 		return t
 	}
 	if p.peek().Kind == lexer.TokenSelfType {
@@ -287,6 +334,10 @@ func (p *Parser) parseType() ast.Type {
 		}
 		if p.at(lexer.TokenLBracket) {
 			p.diag.Add(p.peek().Span, "type arguments not allowed on Self")
+		}
+		if ref {
+			t.IsRef = true
+			t.IsMut = mut
 		}
 		return t
 	}
@@ -306,6 +357,10 @@ func (p *Parser) parseType() ast.Type {
 		}
 		end := p.expect(lexer.TokenRBracket, "expected ']' after type arguments")
 		t.Span = mergeSpan(t.Span, end.Span)
+	}
+	if ref {
+		t.IsRef = true
+		t.IsMut = mut
 	}
 	return t
 }

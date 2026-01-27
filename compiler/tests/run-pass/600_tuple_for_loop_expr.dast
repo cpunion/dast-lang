@@ -1,0 +1,55 @@
+fn main() {
+    let t = (1, 2, 3)
+    println("t0", t.0)
+    println("t2", t.2)
+
+    let (a, b) = (4, 5)
+    println("sum", a + b)
+
+    let pair = (7, 8)
+    let (x, y) = pair
+    println("pair", x + y)
+
+    let nums = [1, 2, 3, 4]
+    let mut sum = 0
+    for n in nums {
+        if n == 2 {
+            continue
+        }
+        sum = sum + n
+    }
+    println("sum2", sum)
+
+    let pairs = [(1, 2), (3, 4)]
+    let mut sum2 = 0
+    for (m, k) in pairs {
+        sum2 = sum2 + m + k
+    }
+    println("sum3", sum2)
+
+    let mut i = 0
+    let v = loop {
+        if i == 3 {
+            break i
+        }
+        i = i + 1
+    }
+    println("v", v)
+
+    let mut j = 0
+    let mut w = 0
+    outer: loop {
+        j = j + 1
+        if j == 2 {
+            continue outer
+        }
+        if j == 4 {
+            w = j
+            break outer:
+        }
+    }
+    println("w", w)
+
+    let [u, v2] = [10, 20]
+    println("arr", u + v2)
+}

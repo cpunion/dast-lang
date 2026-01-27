@@ -1,0 +1,40 @@
+fn classify(n: int) -> String {
+    match n {
+        -1 => "neg",
+        0 => "zero",
+        1 => "one",
+        _ => "other",
+    }
+}
+
+fn bool_code(b: bool) -> int {
+    match b {
+        true => 1,
+        false => 0,
+    }
+}
+
+fn string_code(s: String) -> int {
+    match s {
+        "hi" => 1,
+        "bye" => 2,
+        _ => 0,
+    }
+}
+
+fn char_code(c: char) -> int {
+    match c {
+        'a' => 1,
+        '\n' => 2,
+        _ => 0,
+    }
+}
+
+import "std/testing" as t
+
+fn test_main() {
+    t.assert_eq!(classify(-1), "neg")
+    t.assert_eq!(bool_code(true), 1)
+    t.assert_eq!(string_code("bye"), 2)
+    t.assert_eq!(char_code('a'), 1)
+}

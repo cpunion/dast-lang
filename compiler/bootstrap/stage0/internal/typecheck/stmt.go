@@ -69,6 +69,8 @@ func (c *Checker) checkStmt(stmt ast.Stmt) {
 		c.checkMatch(s)
 	case *ast.LoopStmt:
 		c.checkLoop(s)
+	case *ast.ForStmt:
+		c.checkFor(s)
 	case *ast.BreakStmt:
 		c.checkBreak(s)
 	case *ast.ContinueStmt:
@@ -117,11 +119,22 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 		c.diag.Add(s.Span(), "let requires initializer in stage 0")
 		return
 	}
-	initType := c.checkExpr(s.Init)
-	declType := initType
+	declType := Type{}
+	initType := Type{}
 	if s.Type != nil {
 		declType = c.fromAstType(*s.Type)
+		// Rewrite explicit generic annotations to the instantiated name so
+		// later compile stages see the concrete type.
+		if (declType.Kind == TypeStruct || declType.Kind == TypeEnum) && declType.Name != s.Type.Name {
+			s.Type.Name = declType.Name
+			s.Type.Args = nil
+		}
 		initType = c.checkExprWithExpected(s.Init, declType)
+	} else {
+		initType = c.checkExpr(s.Init)
+		declType = initType
+	}
+	if s.Type != nil {
 		if lit, ok := s.Init.(*ast.ArrayLit); ok && len(lit.Elems) == 0 && declType.Kind == TypeArray {
 			// allow empty array literal with explicit type
 		} else if !typesAssignable(initType, declType) && initType.Kind != TypeInvalid && declType.Kind != TypeInvalid {
@@ -222,7 +235,7 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 			}
 			return
 		}
-		decl, ok := c.structs[recvType.Name]
+		decl, subst, ok := c.resolveStructDecl(recvType)
 		if !ok {
 			c.diag.Add(target.Span(), fmt.Sprintf("unknown struct '%s'", recvType.Name))
 			return
@@ -232,7 +245,11 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 			c.diag.Add(target.Span(), fmt.Sprintf("unknown field '%s'", target.Field))
 			return
 		}
-		fieldType := c.fromAstType(field.Type)
+		fieldAst := field.Type
+		if len(subst) > 0 {
+			fieldAst = c.cloneType(fieldAst, subst)
+		}
+		fieldType := c.fromAstType(fieldAst)
 		valType := c.checkExprWithExpected(s.Value, fieldType)
 		if !typesAssignable(valType, fieldType) && valType.Kind != TypeInvalid && fieldType.Kind != TypeInvalid {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", valType.String(), fieldType.String()))
@@ -317,9 +334,9 @@ func (c *Checker) checkWhile(s *ast.WhileStmt) {
 	if !isBool(cond) && cond.Kind != TypeInvalid {
 		c.diag.Add(s.Cond.Span(), "while condition must be bool")
 	}
-	c.loopDepth++
+	c.pushLoop(s.Label, false, Type{Kind: TypeInvalid})
 	c.checkBlock(s.Body)
-	c.loopDepth--
+	c.popLoop()
 }
 
 func (c *Checker) checkIfLet(s *ast.IfLetStmt) {
@@ -349,30 +366,80 @@ func (c *Checker) checkWhileLet(s *ast.WhileLetStmt) {
 	if scrutType.Kind != TypeEnum && scrutType.Kind != TypeInvalid {
 		c.diag.Add(s.Expr.Span(), "while let requires enum expression")
 	}
-	c.loopDepth++
+	c.pushLoop(s.Label, false, Type{Kind: TypeInvalid})
 	c.env.push()
 	c.checkPattern(scrutType, s.Pattern)
 	c.checkBlock(s.Body)
 	c.env.pop()
-	c.loopDepth--
+	c.popLoop()
 }
 
 func (c *Checker) checkLoop(s *ast.LoopStmt) {
-	c.loopDepth++
+	c.pushLoop(s.Label, false, Type{Kind: TypeInvalid})
 	c.checkBlock(s.Body)
-	c.loopDepth--
+	c.popLoop()
 }
 
 func (c *Checker) checkBreak(s *ast.BreakStmt) {
-	if c.loopDepth == 0 {
+	idx, loop, ok := c.findLoop(s.Label)
+	if !ok {
 		c.diag.Add(s.Span(), "break outside of loop")
+		return
+	}
+	if s.Value != nil {
+		if !loop.allowValue {
+			c.diag.Add(s.Span(), "break value not allowed in this loop")
+			c.checkExpr(s.Value)
+			return
+		}
+		valType := c.checkExpr(s.Value)
+		if loop.expected.Kind != TypeInvalid {
+			if !typesAssignable(valType, loop.expected) && valType.Kind != TypeInvalid && loop.expected.Kind != TypeInvalid {
+				c.diag.Add(s.Span(), fmt.Sprintf("break expects %s, got %s", loop.expected.String(), valType.String()))
+			}
+			loop.valueType = loop.expected
+			loop.hasValue = true
+		} else if !loop.hasValue {
+			loop.valueType = valType
+			loop.hasValue = true
+		} else if !typesEqual(valType, loop.valueType) && valType.Kind != TypeInvalid && loop.valueType.Kind != TypeInvalid {
+			c.diag.Add(s.Span(), fmt.Sprintf("break type mismatch: expected %s, got %s", loop.valueType.String(), valType.String()))
+		}
+		c.loopStack[idx] = loop
+		return
+	}
+	if loop.allowValue && loop.expected.Kind != TypeInvalid && loop.expected.Kind != TypeUnit {
+		c.diag.Add(s.Span(), "break requires value for this loop")
 	}
 }
 
 func (c *Checker) checkContinue(s *ast.ContinueStmt) {
-	if c.loopDepth == 0 {
+	if _, _, ok := c.findLoop(s.Label); !ok {
 		c.diag.Add(s.Span(), "continue outside of loop")
 	}
+}
+
+func (c *Checker) checkFor(s *ast.ForStmt) {
+	iterType := c.checkExpr(s.Expr)
+	if iterType.Ref {
+		iterType = derefType(iterType)
+	}
+	if iterType.Kind != TypeArray {
+		if iterType.Kind != TypeInvalid {
+			c.diag.Add(s.Expr.Span(), "for loop requires array expression")
+		}
+		iterType = Type{Kind: TypeArray, Elem: &Type{Kind: TypeInvalid}}
+	}
+	elemType := Type{Kind: TypeInvalid}
+	if iterType.Elem != nil {
+		elemType = *iterType.Elem
+	}
+	c.pushLoop(s.Label, false, Type{Kind: TypeInvalid})
+	c.env.push()
+	c.checkPattern(elemType, s.Pattern)
+	c.checkBlock(s.Body)
+	c.env.pop()
+	c.popLoop()
 }
 
 func (c *Checker) checkMatch(s *ast.MatchStmt) {
@@ -421,6 +488,8 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 	switch p := pat.(type) {
 	case *ast.WildcardPattern:
 		// no bindings
+	case *ast.BindingPattern:
+		c.env.declare(p.Name, VarInfo{Type: scrut, Mutable: false})
 	case *ast.LiteralPattern:
 		litType := constValueType(p.Value)
 		if !typesEqual(litType, scrut) && litType.Kind != TypeInvalid && scrut.Kind != TypeInvalid {
@@ -472,16 +541,22 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 			c.env.declare(p.Binding, VarInfo{Type: payloadType, Mutable: false})
 		}
 	case *ast.StructPattern:
-		if scrut.Kind != TypeStruct && scrut.Kind != TypeInvalid {
-			c.diag.Add(p.Span(), "struct pattern requires struct scrutinee")
+		if scrut.Kind != TypeStruct {
+			if scrut.Kind != TypeInvalid {
+				c.diag.Add(p.Span(), "struct pattern requires struct scrutinee")
+			}
 			return
 		}
-		if p.StructName != "" && scrut.Name != "" && p.StructName != scrut.Name {
-			c.diag.Add(p.Span(), fmt.Sprintf("pattern struct '%s' does not match '%s'", p.StructName, scrut.Name))
+		scrutName := scrut.Name
+		if base, ok := c.structInstBase[scrutName]; ok {
+			scrutName = base
 		}
-		decl, ok := c.structs[p.StructName]
+		if p.StructName != "" && scrutName != "" && p.StructName != scrutName {
+			c.diag.Add(p.Span(), fmt.Sprintf("pattern struct '%s' does not match '%s'", p.StructName, scrutName))
+		}
+		decl, subst, ok := c.resolveStructDecl(scrut)
 		if !ok {
-			c.diag.Add(p.Span(), fmt.Sprintf("unknown struct '%s'", p.StructName))
+			c.diag.Add(p.Span(), fmt.Sprintf("unknown struct '%s'", scrut.Name))
 			return
 		}
 		for _, f := range p.Fields {
@@ -490,7 +565,11 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 				c.diag.Add(f.Span, fmt.Sprintf("unknown field '%s'", f.Name))
 				continue
 			}
-			fieldType := c.fromAstType(field.Type)
+			fieldAst := field.Type
+			if len(subst) > 0 {
+				fieldAst = c.cloneType(fieldAst, subst)
+			}
+			fieldType := c.fromAstType(fieldAst)
 			if f.Pattern == nil {
 				binding := f.Binding
 				if binding == "" {
@@ -501,6 +580,35 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 			}
 			c.checkPattern(fieldType, f.Pattern)
 		}
+	case *ast.TuplePattern:
+		if scrut.Kind == TypeUnit && len(p.Elems) == 0 {
+			return
+		}
+		if scrut.Kind != TypeTuple && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), "tuple pattern requires tuple scrutinee")
+			return
+		}
+		if scrut.Kind == TypeTuple {
+			if len(p.Elems) != len(scrut.Elems) {
+				c.diag.Add(p.Span(), "tuple pattern length mismatch")
+				return
+			}
+			for i := range p.Elems {
+				c.checkPattern(scrut.Elems[i], p.Elems[i])
+			}
+		}
+	case *ast.ArrayPattern:
+		if scrut.Kind != TypeArray && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), "array pattern requires array scrutinee")
+			return
+		}
+		elemType := Type{Kind: TypeInvalid}
+		if scrut.Elem != nil {
+			elemType = *scrut.Elem
+		}
+		for _, el := range p.Elems {
+			c.checkPattern(elemType, el)
+		}
 	default:
 		c.diag.Add(p.Span(), "unsupported pattern in stage 0")
 	}
@@ -508,6 +616,8 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 
 func (c *Checker) patternHasBinding(pat ast.Pattern) bool {
 	switch p := pat.(type) {
+	case *ast.BindingPattern:
+		return true
 	case *ast.VariantPattern:
 		return p.Binding != ""
 	case *ast.StructPattern:
@@ -516,6 +626,20 @@ func (c *Checker) patternHasBinding(pat ast.Pattern) bool {
 				return f.Binding != ""
 			}
 			if c.patternHasBinding(f.Pattern) {
+				return true
+			}
+		}
+		return false
+	case *ast.TuplePattern:
+		for _, e := range p.Elems {
+			if c.patternHasBinding(e) {
+				return true
+			}
+		}
+		return false
+	case *ast.ArrayPattern:
+		for _, e := range p.Elems {
+			if c.patternHasBinding(e) {
 				return true
 			}
 		}
@@ -530,4 +654,54 @@ func (c *Checker) patternHasBinding(pat ast.Pattern) bool {
 	default:
 		return false
 	}
+}
+
+func (c *Checker) checkLoopExpr(e *ast.LoopExpr) Type {
+	expected, ok := c.currentExpected()
+	if !ok {
+		expected = Type{Kind: TypeInvalid}
+	}
+	c.pushLoop("", true, expected)
+	c.checkBlock(e.Body)
+	ctx := c.popLoop()
+	if ctx.hasValue {
+		if ctx.expected.Kind != TypeInvalid {
+			return ctx.expected
+		}
+		return ctx.valueType
+	}
+	if ctx.expected.Kind != TypeInvalid && ctx.expected.Kind != TypeUnit {
+		c.diag.Add(e.Span(), "loop expression requires break value")
+	}
+	return Type{Kind: TypeUnit}
+}
+
+func (c *Checker) pushLoop(label string, allowValue bool, expected Type) {
+	ctx := loopContext{label: label, allowValue: allowValue, expected: expected, valueType: Type{Kind: TypeInvalid}, hasValue: false}
+	c.loopStack = append(c.loopStack, ctx)
+}
+
+func (c *Checker) popLoop() loopContext {
+	if len(c.loopStack) == 0 {
+		return loopContext{}
+	}
+	ctx := c.loopStack[len(c.loopStack)-1]
+	c.loopStack = c.loopStack[:len(c.loopStack)-1]
+	return ctx
+}
+
+func (c *Checker) findLoop(label string) (int, loopContext, bool) {
+	if len(c.loopStack) == 0 {
+		return 0, loopContext{}, false
+	}
+	if label == "" {
+		idx := len(c.loopStack) - 1
+		return idx, c.loopStack[idx], true
+	}
+	for i := len(c.loopStack) - 1; i >= 0; i-- {
+		if c.loopStack[i].label == label {
+			return i, c.loopStack[i], true
+		}
+	}
+	return 0, loopContext{}, false
 }

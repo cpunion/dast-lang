@@ -47,6 +47,7 @@ struct TraitMethodSig {
     ret: i32,
     has_self: bool,
     has_default: bool,
+    is_macro: bool,
 }
 
 struct TraitSig {
@@ -177,10 +178,10 @@ fn name_list_new() -> [String] {
     return items
 }
 
-fn name_list_contains(items: [String], name: String) -> bool {
+fn name_list_contains(items: & [String], name: &str) -> bool {
     let mut i = 0
-    while i < len(items) {
-        if items[i] == name {
+    while i < len(*items) {
+        if (*items)[i] == string_clone(name) {
             return true
         }
         i = i + 1
@@ -188,25 +189,25 @@ fn name_list_contains(items: [String], name: String) -> bool {
     return false
 }
 
-fn module_list_push_unique(list: &mut [String], module: String) {
-    if !name_list_contains(*list, module) {
-        push(list, module)
+fn module_list_push_unique(list: &mut [String], module: &str) {
+    if !name_list_contains(list, module) {
+        push(list, string_clone(module))
     }
 }
 
-fn module_strip_root(path: String) -> String {
+fn module_strip_root(path: &str) -> String {
     // Use nested if to avoid Stage0's lack of short-circuit evaluation
-    if len(path) >= 2 {
-        if char_at(path, 0) == 58 {
-            if char_at(path, 1) == 58 {
-                return substr(path, 2, len(path) - 2)
+    if len(string_clone(path)) >= 2 {
+        if char_at(string_clone(path), 0) == 58 {
+            if char_at(string_clone(path), 1) == 58 {
+                return substr(string_clone(path), 2, len(string_clone(path)) - 2)
             }
         }
     }
-    return path
+    return string_clone(path)
 }
 
-fn path_last_segment(path: String) -> String {
+fn path_last_segment(path: &str) -> String {
     let clean = module_strip_root(path)
     let mut last = 0
     let mut i = 0
@@ -222,18 +223,18 @@ fn path_last_segment(path: String) -> String {
     return substr(clean, last, len(clean) - last)
 }
 
-fn qualify_name(module: String, name: String) -> String {
-    if module == "" {
-        return name
+fn qualify_name(module: &str, name: &str) -> String {
+    if *module == "" {
+        return string_clone(name)
     }
-    return module + "::" + name
+    return string_clone(module) + "::" + string_clone(name)
 }
 
-fn module_parent(path: String) -> String {
+fn module_parent(path: &str) -> String {
     let mut last = -1
     let mut i = 0
-    while i < len(path) {
-        if char_at(path, i) == 46 {
+    while i < len(string_clone(path)) {
+        if char_at(string_clone(path), i) == 46 {
             last = i
         }
         i = i + 1
@@ -241,35 +242,35 @@ fn module_parent(path: String) -> String {
     if last < 0 {
         return ""
     }
-    return substr(path, 0, last)
+    return substr(string_clone(path), 0, last)
 }
 
-fn module_join(base: String, rel: String) -> String {
+fn module_join(base: &str, rel: &str) -> String {
     let clean = module_strip_root(rel)
-    if clean != rel {
+    if clean != string_clone(rel) {
         return clean
     }
-    if base == "" { return rel }
-    if rel == "" { return base }
-    return base + "." + rel
+    if *base == "" { return string_clone(rel) }
+    if *rel == "" { return string_clone(base) }
+    return string_clone(base) + "." + string_clone(rel)
 }
 
-fn module_is_prefix(prefix: String, path: String) -> bool {
-    if prefix == "" {
+fn module_is_prefix(prefix: &str, path: &str) -> bool {
+    if *prefix == "" {
         return true
     }
-    if path == prefix {
+    if *path == *prefix {
         return true
     }
-    let want = prefix + "."
-    if len(path) < len(want) {
+    let want = string_clone(prefix) + "."
+    if len(string_clone(path)) < len(want) {
         return false
     }
-    return substr(path, 0, len(want)) == want
+    return substr(string_clone(path), 0, len(want)) == want
 }
 
-fn visibility_allows(vis: Visibility, def_module: String, use_module: String) -> bool {
-    if def_module == use_module {
+fn visibility_allows(vis: Visibility, def_module: &str, use_module: &str) -> bool {
+    if *def_module == *use_module {
         return true
     }
     if vis.kind == vis_pub() {
@@ -280,60 +281,61 @@ fn visibility_allows(vis: Visibility, def_module: String, use_module: String) ->
     }
     if vis.kind == vis_pub_super() {
         let parent = module_parent(def_module)
-        return module_is_prefix(parent, use_module)
+        return module_is_prefix(&parent, use_module)
     }
     return false
 }
 
-fn module_list_from_program(prog: Program) -> [String] {
+fn module_list_from_program(prog: &Program) -> [String] {
     let mut modules = name_list_new()
     let mut i = 0
     while i < len(prog.imports) {
-        module_list_push_unique(&mut modules, prog.imports[i].module)
+        module_list_push_unique(&mut modules, &prog.imports[i].module)
         i = i + 1
     }
     let mut j = 0
     while j < len(prog.structs) {
-        module_list_push_unique(&mut modules, prog.structs[j].module)
+        module_list_push_unique(&mut modules, &prog.structs[j].module)
         j = j + 1
     }
     let mut k = 0
     while k < len(prog.enums) {
-        module_list_push_unique(&mut modules, prog.enums[k].module)
+        module_list_push_unique(&mut modules, &prog.enums[k].module)
         k = k + 1
     }
     let mut c = 0
     while c < len(prog.consts) {
-        module_list_push_unique(&mut modules, prog.consts[c].module)
+        module_list_push_unique(&mut modules, &prog.consts[c].module)
         c = c + 1
     }
     let mut f = 0
     while f < len(prog.functions) {
-        module_list_push_unique(&mut modules, prog.functions[f].module)
+        module_list_push_unique(&mut modules, &prog.functions[f].module)
         f = f + 1
     }
     let mut imp = 0
     while imp < len(prog.impls) {
-        module_list_push_unique(&mut modules, prog.impls[imp].module)
+        module_list_push_unique(&mut modules, &prog.impls[imp].module)
         imp = imp + 1
     }
     return modules
 }
 
-fn module_aliases_from_imports(imports: [ImportDecl], module: String) -> [ModuleAlias] {
+fn module_aliases_from_imports(imports: & [ImportDecl], module: &str) -> [ModuleAlias] {
     let mut aliases = alias_list_new()
     let mut i = 0
-    while i < len(imports) {
-        let imp = imports[i]
-        if imp.module == module && !imp.has_items {
+    while i < len(*imports) {
+        let imp = (*imports)[i]
+        let imp_mod = string_clone(&imp.module)
+        if imp_mod == string_clone(module) && !imp.has_items {
             let mut name = ""
             if imp.has_alias {
-                name = imp.alias
+                name = string_clone(&imp.alias)
             } else {
-                name = path_last_segment(imp.path)
+                name = path_last_segment(&imp.path)
             }
             if name != "" {
-                let mut full = module_join(module, imp.path)
+                let mut full = module_join(module, &imp.path)
                 if full == "" && imp.path == "::" {
                     full = "::"
                 }
@@ -345,22 +347,24 @@ fn module_aliases_from_imports(imports: [ImportDecl], module: String) -> [Module
     return aliases
 }
 
-fn import_items_from_imports(imports: [ImportDecl], module: String) -> [ImportItem] {
+fn import_items_from_imports(imports: & [ImportDecl], module: &str) -> [ImportItem] {
     let mut items = import_entry_list_new()
     let mut i = 0
-    while i < len(imports) {
-        let imp = imports[i]
-        if imp.module == module && imp.has_items {
-            let full = module_join(module, imp.path)
+    while i < len(*imports) {
+        let imp = (*imports)[i]
+        let imp_mod = string_clone(&imp.module)
+        if imp_mod == string_clone(module) && imp.has_items {
+            let full = module_join(module, &imp.path)
             let mut j = 0
             while j < len(imp.items) {
                 let spec = imp.items[j]
-                let mut local = spec.name
+                let spec_name = string_clone(&spec.name)
+                let mut local = string_clone(&spec_name)
                 if spec.has_alias {
-                    local = spec.alias
+                    local = string_clone(&spec.alias)
                 }
-                if local != "" && spec.name != "" {
-                    push(&mut items, ImportItem { local: local, module: full, name: spec.name })
+                if local != "" && spec_name != "" {
+                    push(&mut items, ImportItem { local: local, module: string_clone(&full), name: spec_name })
                 }
                 j = j + 1
             }
@@ -370,32 +374,32 @@ fn import_items_from_imports(imports: [ImportDecl], module: String) -> [ImportIt
     return items
 }
 
-fn local_decl_exists(ctx: &mut TypeContext, module: String, name: String) -> bool {
-    let mut structs = ctx.structs
-    let mut enums = ctx.enums
-    let mut consts = ctx.consts
-    if find_struct_in_module(&mut structs, module, name) >= 0 { return true }
-    if find_enum_in_module(&mut enums, module, name) >= 0 { return true }
-    if find_const_in_module(&mut consts, module, name) >= 0 { return true }
+fn local_decl_exists(ctx: &mut TypeContext, module: &str, name: &str) -> bool {
+    let structs = &ctx.structs
+    let enums = &ctx.enums
+    let consts = &ctx.consts
+    if find_struct_in_module(structs, module, name) >= 0 { return true }
+    if find_enum_in_module(enums, module, name) >= 0 { return true }
+    if find_const_in_module(consts, module, name) >= 0 { return true }
     if find_func_in_module(ctx, module, name) >= 0 { return true }
     return false
 }
 
-fn check_import_name(ctx: &mut TypeContext, module: String, name: String, seen: &mut [String]) {
-    if name == "" {
+fn check_import_name(ctx: &mut TypeContext, module: &str, name: &str, seen: &mut [String]) {
+    if *name == "" {
         return
     }
-    if name_list_contains(*seen, name) {
-        add_type_error(ctx, "duplicate import '" + name + "'")
+    if name_list_contains(seen, name) {
+        add_type_error(ctx, "duplicate import '" + string_clone(name) + "'")
         return
     }
     if local_decl_exists(ctx, module, name) {
-        add_type_error(ctx, "import '" + name + "' conflicts with local declaration")
+        add_type_error(ctx, "import '" + string_clone(name) + "' conflicts with local declaration")
     }
-    push(seen, name)
+    push(seen, string_clone(name))
 }
 
-fn check_import_conflicts(ctx: &mut TypeContext, prog: Program) {
+fn check_import_conflicts(ctx: &mut TypeContext, prog: &Program) {
     let modules = module_list_from_program(prog)
     let mut mi = 0
     while mi < len(modules) {
@@ -416,7 +420,7 @@ fn check_import_conflicts(ctx: &mut TypeContext, prog: Program) {
                         if spec.has_alias {
                             local = spec.alias
                         }
-                        check_import_name(ctx, module, local, &mut seen)
+                        check_import_name(ctx, &module, &local, &mut seen)
                         j = j + 1
                     }
                 } else {
@@ -424,9 +428,9 @@ fn check_import_conflicts(ctx: &mut TypeContext, prog: Program) {
                     if imp.has_alias {
                         alias = imp.alias
                     } else {
-                        alias = path_last_segment(imp.path)
+                        alias = path_last_segment(&imp.path)
                     }
-                    check_import_name(ctx, module, alias, &mut seen)
+                    check_import_name(ctx, &module, &alias, &mut seen)
                 }
             }
             i = i + 1
@@ -450,17 +454,17 @@ fn module_alias_module(ctx: &mut TypeContext, name: String) -> String {
     return ""
 }
 
-fn ctx_set_current_module(ctx: &mut TypeContext, module: String) {
-    ctx.current_module = module
-    ctx.module_aliases = module_aliases_from_imports(ctx.imports, module)
-    ctx.import_items = import_items_from_imports(ctx.imports, module)
+fn ctx_set_current_module(ctx: &mut TypeContext, module: &str) {
+    ctx.current_module = string_clone(module)
+    ctx.module_aliases = module_aliases_from_imports(&ctx.imports, module)
+    ctx.import_items = import_items_from_imports(&ctx.imports, module)
 }
 
-fn find_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32) -> i32 {
+fn find_reexport(ctx: &mut TypeContext, module: &str, name: &str, kind: i32) -> i32 {
     let mut i = 0
     while i < len(ctx.reexports) {
         let r = ctx.reexports[i]
-        if r.module == module && r.name == name && r.kind == kind {
+        if r.module == string_clone(module) && r.name == string_clone(name) && r.kind == kind {
             return i
         }
         i = i + 1
@@ -468,11 +472,11 @@ fn find_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32)
     return -1
 }
 
-fn reexport_list_has_name(list: [ReExport], module: String, name: String) -> bool {
+fn reexport_list_has_name(list: & [ReExport], module: &str, name: &str) -> bool {
     let mut i = 0
-    while i < len(list) {
-        let r = list[i]
-        if r.module == module && r.name == name {
+    while i < len(*list) {
+        let r = (*list)[i]
+        if r.module == string_clone(module) && r.name == string_clone(name) {
             return true
         }
         i = i + 1
@@ -480,11 +484,11 @@ fn reexport_list_has_name(list: [ReExport], module: String, name: String) -> boo
     return false
 }
 
-fn find_reexport_in_list(list: [ReExport], module: String, name: String) -> i32 {
+fn find_reexport_in_list(list: & [ReExport], module: &str, name: &str) -> i32 {
     let mut i = 0
-    while i < len(list) {
-        let r = list[i]
-        if r.module == module && r.name == name {
+    while i < len(*list) {
+        let r = (*list)[i]
+        if r.module == string_clone(module) && r.name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -492,12 +496,12 @@ fn find_reexport_in_list(list: [ReExport], module: String, name: String) -> i32 
     return -1
 }
 
-fn resolve_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i32) -> String {
+fn resolve_reexport(ctx: &mut TypeContext, module: &str, name: &str, kind: i32) -> String {
     let idx = find_reexport(ctx, module, name, kind)
     if idx < 0 { return "" }
     let r = ctx.reexports[idx]
-    if !ctx.allow_global && !visibility_allows(r.vis, r.module, ctx.current_module) {
-        let label = name
+    if !ctx.allow_global && !visibility_allows(r.vis, &r.module, &ctx.current_module) {
+        let label = string_clone(name)
         if kind == reexport_kind_struct() { add_type_error(ctx, "struct '" + label + "' is private") }
         if kind == reexport_kind_enum() { add_type_error(ctx, "enum '" + label + "' is private") }
         if kind == reexport_kind_const() { add_type_error(ctx, "const '" + label + "' is private") }
@@ -507,7 +511,7 @@ fn resolve_reexport(ctx: &mut TypeContext, module: String, name: String, kind: i
     return r.target
 }
 
-fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
+fn collect_reexports(ctx: &mut TypeContext, prog: &Program) {
     let mut out = reexport_list_new()
     let mut pending: [PendingReExport] = []
     let mut i = 0
@@ -521,75 +525,75 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
             ctx_set_file(ctx, imp.file)
             ctx_set_pos(ctx, imp.pos)
             let module = imp.module
-            let target_mod = module_join(module, imp.path)
-            let mut structs = ctx.structs
-            let mut enums = ctx.enums
-            let mut consts = ctx.consts
-            let mut funcs = prog.functions
+            let target_mod = module_join(&module, &imp.path)
+            let structs = &ctx.structs
+            let enums = &ctx.enums
+            let consts = &ctx.consts
+            let funcs = &prog.functions
             if imp.has_items {
                 let mut j = 0
                 while j < len(imp.items) {
                     let spec = imp.items[j]
                     ctx_set_pos(ctx, spec.pos)
-                    let target_name = spec.name
-                    let mut name = spec.name
+                    let target_name = string_clone(&spec.name)
+                    let mut name = string_clone(&spec.name)
                     if spec.has_alias {
-                        name = spec.alias
+                        name = string_clone(&spec.alias)
                     }
                     let mut do_item = true
                     if name == "" || target_name == "" {
                         do_item = false
                     }
-                    if do_item && reexport_list_has_name(out, module, name) {
-                        add_type_error(ctx, "duplicate reexport '" + name + "'")
+                    if do_item && reexport_list_has_name(&out, &module, &name) {
+                        add_type_error(ctx, "duplicate reexport '" + string_clone(&name) + "'")
                         do_item = false
                     }
                     if do_item {
                         let mut found = false
-                        let sidx = find_struct_in_module(&mut structs, target_mod, target_name)
+                        let sidx = find_struct_in_module(structs, &target_mod, &target_name)
                         if sidx >= 0 {
                             let decl = structs[sidx]
-                            if !ctx.allow_global && !visibility_allows(decl.vis, decl.module, module) {
-                                add_type_error(ctx, "cannot reexport private struct '" + target_name + "'")
+                            if !ctx.allow_global && !visibility_allows(decl.vis, &decl.module, &module) {
+                                add_type_error(ctx, "cannot reexport private struct '" + string_clone(&target_name) + "'")
                             } else {
-                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_struct(), vis: imp.vis })
+                                push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: qualify_name(&decl.module, &decl.name), kind: reexport_kind_struct(), vis: imp.vis })
                             }
                             found = true
                         }
-                        let eidx = find_enum_in_module(&mut enums, target_mod, target_name)
+                        let eidx = find_enum_in_module(enums, &target_mod, &target_name)
                         if !found && eidx >= 0 {
                             let decl = enums[eidx]
-                            if !ctx.allow_global && !visibility_allows(decl.vis, decl.module, module) {
-                                add_type_error(ctx, "cannot reexport private enum '" + target_name + "'")
+                            if !ctx.allow_global && !visibility_allows(decl.vis, &decl.module, &module) {
+                                add_type_error(ctx, "cannot reexport private enum '" + string_clone(&target_name) + "'")
                             } else {
-                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_enum(), vis: imp.vis })
+                                push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: qualify_name(&decl.module, &decl.name), kind: reexport_kind_enum(), vis: imp.vis })
                             }
                             found = true
                         }
-                        let cidx = find_const_in_module(&mut consts, target_mod, target_name)
+                        let cidx = find_const_in_module(consts, &target_mod, &target_name)
                         if !found && cidx >= 0 {
                             let decl = consts[cidx]
-                            if !ctx.allow_global && !visibility_allows(decl.vis, decl.module, module) {
-                                add_type_error(ctx, "cannot reexport private const '" + target_name + "'")
+                            if !ctx.allow_global && !visibility_allows(decl.vis, &decl.module, &module) {
+                                add_type_error(ctx, "cannot reexport private const '" + string_clone(&target_name) + "'")
                             } else {
-                                push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_const(), vis: imp.vis })
+                                push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: qualify_name(&decl.module, &decl.name), kind: reexport_kind_const(), vis: imp.vis })
                             }
                             found = true
                         }
                         if !found {
-                            let fidx = find_func_decl_in_module(&mut funcs, target_mod, target_name)
+                            let fidx = find_func_decl_in_module(funcs, &target_mod, &target_name)
                             if fidx >= 0 {
                                 let decl = funcs[fidx]
-                                if !ctx.allow_global && !visibility_allows(decl.vis, decl.module, module) {
-                                    add_type_error(ctx, "cannot reexport private function '" + target_name + "'")
+                                if !ctx.allow_global && !visibility_allows(decl.vis, &decl.module, &module) {
+                                    add_type_error(ctx, "cannot reexport private function '" + string_clone(&target_name) + "'")
                                 } else {
-                                    push(&mut out, ReExport { module: module, name: name, target: qualify_name(decl.module, decl.name), kind: reexport_kind_func(), vis: imp.vis })
+                                    push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: qualify_name(&decl.module, &decl.name), kind: reexport_kind_func(), vis: imp.vis })
                                 }
                                 found = true
                             }
                         }
                         if !found {
-                            push(&mut pending, PendingReExport { module: module, name: name, target_name: target_name, target_mod: target_mod, vis: imp.vis, file: imp.file, pos: spec.pos })
+                            push(&mut pending, PendingReExport { module: string_clone(&module), name: string_clone(&name), target_name: string_clone(&target_name), target_mod: string_clone(&target_mod), vis: imp.vis, file: imp.file, pos: spec.pos })
                         }
                     }
                     j = j + 1
@@ -598,13 +602,13 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                 let mut s = 0
                 while s < len(structs) {
                     let decl = structs[s]
-                    if decl.module == target_mod && (ctx.allow_global || visibility_allows(decl.vis, decl.module, module)) {
+                    if decl.module == string_clone(&target_mod) && (ctx.allow_global || visibility_allows(decl.vis, &decl.module, &module)) {
                         let name = decl.name
-                        if reexport_list_has_name(out, module, name) {
-                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        if reexport_list_has_name(&out, &module, &name) {
+                            add_type_error(ctx, "duplicate reexport '" + string_clone(&name) + "'")
                         } else {
-                            let target = qualify_name(decl.module, name)
-                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_struct(), vis: imp.vis })
+                            let target = qualify_name(&decl.module, &name)
+                            push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: target, kind: reexport_kind_struct(), vis: imp.vis })
                         }
                     }
                     s = s + 1
@@ -612,13 +616,13 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                 let mut e = 0
                 while e < len(enums) {
                     let decl = enums[e]
-                    if decl.module == target_mod && (ctx.allow_global || visibility_allows(decl.vis, decl.module, module)) {
+                    if decl.module == string_clone(&target_mod) && (ctx.allow_global || visibility_allows(decl.vis, &decl.module, &module)) {
                         let name = decl.name
-                        if reexport_list_has_name(out, module, name) {
-                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        if reexport_list_has_name(&out, &module, &name) {
+                            add_type_error(ctx, "duplicate reexport '" + string_clone(&name) + "'")
                         } else {
-                            let target = qualify_name(decl.module, name)
-                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_enum(), vis: imp.vis })
+                            let target = qualify_name(&decl.module, &name)
+                            push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: target, kind: reexport_kind_enum(), vis: imp.vis })
                         }
                     }
                     e = e + 1
@@ -626,13 +630,13 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                 let mut c = 0
                 while c < len(consts) {
                     let decl = consts[c]
-                    if decl.module == target_mod && (ctx.allow_global || visibility_allows(decl.vis, decl.module, module)) {
+                    if decl.module == string_clone(&target_mod) && (ctx.allow_global || visibility_allows(decl.vis, &decl.module, &module)) {
                         let name = decl.name
-                        if reexport_list_has_name(out, module, name) {
-                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        if reexport_list_has_name(&out, &module, &name) {
+                            add_type_error(ctx, "duplicate reexport '" + string_clone(&name) + "'")
                         } else {
-                            let target = qualify_name(decl.module, name)
-                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_const(), vis: imp.vis })
+                            let target = qualify_name(&decl.module, &name)
+                            push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: target, kind: reexport_kind_const(), vis: imp.vis })
                         }
                     }
                     c = c + 1
@@ -640,13 +644,13 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
                 let mut f = 0
                 while f < len(funcs) {
                     let decl = funcs[f]
-                    if decl.module == target_mod && (ctx.allow_global || visibility_allows(decl.vis, decl.module, module)) {
+                    if decl.module == string_clone(&target_mod) && (ctx.allow_global || visibility_allows(decl.vis, &decl.module, &module)) {
                         let name = decl.name
-                        if reexport_list_has_name(out, module, name) {
-                            add_type_error(ctx, "duplicate reexport '" + name + "'")
+                        if reexport_list_has_name(&out, &module, &name) {
+                            add_type_error(ctx, "duplicate reexport '" + string_clone(&name) + "'")
                         } else {
-                            let target = qualify_name(decl.module, name)
-                            push(&mut out, ReExport { module: module, name: name, target: target, kind: reexport_kind_func(), vis: imp.vis })
+                            let target = qualify_name(&decl.module, &name)
+                            push(&mut out, ReExport { module: string_clone(&module), name: string_clone(&name), target: target, kind: reexport_kind_func(), vis: imp.vis })
                         }
                     }
                     f = f + 1
@@ -658,24 +662,28 @@ fn collect_reexports(ctx: &mut TypeContext, prog: Program) {
     let mut p = 0
     while p < len(pending) {
         let pend = pending[p]
+        let pend_module = string_clone(&pend.module)
+        let pend_name = string_clone(&pend.name)
+        let pend_target_mod = string_clone(&pend.target_mod)
+        let pend_target_name = string_clone(&pend.target_name)
         ctx_set_file(ctx, pend.file)
         ctx_set_pos(ctx, pend.pos)
-        if reexport_list_has_name(out, pend.module, pend.name) {
-            add_type_error(ctx, "duplicate reexport '" + pend.name + "'")
+        if reexport_list_has_name(&out, &pend_module, &pend_name) {
+            add_type_error(ctx, "duplicate reexport '" + string_clone(&pend_name) + "'")
         } else {
-            let idx = find_reexport_in_list(out, pend.target_mod, pend.target_name)
+            let idx = find_reexport_in_list(&out, &pend_target_mod, &pend_target_name)
             if idx >= 0 {
                 let base = out[idx]
-                if !ctx.allow_global && !visibility_allows(base.vis, base.module, pend.module) {
-                    if base.kind == reexport_kind_struct() { add_type_error(ctx, "cannot reexport private struct '" + pend.target_name + "'") }
-                    if base.kind == reexport_kind_enum() { add_type_error(ctx, "cannot reexport private enum '" + pend.target_name + "'") }
-                    if base.kind == reexport_kind_const() { add_type_error(ctx, "cannot reexport private const '" + pend.target_name + "'") }
-                    if base.kind == reexport_kind_func() { add_type_error(ctx, "cannot reexport private function '" + pend.target_name + "'") }
+                if !ctx.allow_global && !visibility_allows(base.vis, &base.module, &pend_module) {
+                    if base.kind == reexport_kind_struct() { add_type_error(ctx, "cannot reexport private struct '" + string_clone(&pend_target_name) + "'") }
+                    if base.kind == reexport_kind_enum() { add_type_error(ctx, "cannot reexport private enum '" + string_clone(&pend_target_name) + "'") }
+                    if base.kind == reexport_kind_const() { add_type_error(ctx, "cannot reexport private const '" + string_clone(&pend_target_name) + "'") }
+                    if base.kind == reexport_kind_func() { add_type_error(ctx, "cannot reexport private function '" + string_clone(&pend_target_name) + "'") }
                 } else {
-                    push(&mut out, ReExport { module: pend.module, name: pend.name, target: base.target, kind: base.kind, vis: pend.vis })
+                    push(&mut out, ReExport { module: string_clone(&pend_module), name: string_clone(&pend_name), target: base.target, kind: base.kind, vis: pend.vis })
                 }
             } else {
-                add_type_error(ctx, "reexport '" + pend.target_name + "' not found in module '" + pend.target_mod + "'")
+                add_type_error(ctx, "reexport '" + string_clone(&pend_target_name) + "' not found in module '" + string_clone(&pend_target_mod) + "'")
             }
         }
         p = p + 1
@@ -708,6 +716,13 @@ fn type_is_ref(types: &TypeTable, t: i32) -> bool {
         return false
     }
     return types.refs[t]
+}
+
+fn type_is_mut(types: &TypeTable, t: i32) -> bool {
+    if t < 0 || t >= len(types.muts) {
+        return false
+    }
+    return types.muts[t]
 }
 
 fn type_kind(types: &TypeTable, t: i32) -> i32 {
@@ -767,6 +782,17 @@ fn type_assignable(types: &TypeTable, actual: i32, expected: i32) -> bool {
     if type_is_ref(types, actual) && type_is_ref(types, expected) && !types.muts[expected] && types.muts[actual] {
         return type_base_equal(types, actual, expected)
     }
+    if !type_is_ref(types, actual) && type_is_ref(types, expected) && !types.muts[expected] {
+        if type_kind(types, actual) == 3 && type_kind(types, expected) == 3 {
+            return true
+        }
+        if type_kind(types, actual) == 7 && type_kind(types, expected) == 7 {
+            // Allow [T] -> &[U] only when element types are compatible.
+            let aelem = type_elem(types, actual)
+            let belem = type_elem(types, expected)
+            return type_assignable(types, aelem, belem)
+        }
+    }
     return false
 }
 
@@ -778,7 +804,9 @@ fn type_string(types: &TypeTable, t: i32) -> String {
     let kind = type_kind(types, t)
     if kind == 1 { base = "int" }
     else if kind == 2 { base = "bool" }
-    else if kind == 3 { base = "string" }
+    else if kind == 3 {
+        if types.refs[t] { base = "str" } else { base = "String" }
+    }
     else if kind == 4 { base = "unit" }
     else if kind == 7 {
         let elem = type_elem(types, t)
@@ -871,8 +899,8 @@ fn ctx_set_file(ctx: &mut TypeContext, file: String) {
     ctx.current_file = file
 }
 
-fn expr_pos(e: Expr) -> i32 {
-    match e {
+fn expr_pos(e: &Expr) -> i32 {
+    match *e {
         Expr.Ident(x) => { return x.pos }
         Expr.IntLit(x) => { return x.pos }
         Expr.StringLit(x) => { return x.pos }
@@ -897,8 +925,8 @@ fn expr_pos(e: Expr) -> i32 {
     return 0
 }
 
-fn stmt_pos(s: Stmt) -> i32 {
-    match s {
+fn stmt_pos(s: &Stmt) -> i32 {
+    match *s {
         Stmt.Let(x) => { return x.pos }
         Stmt.Return(x) => { return x.pos }
         Stmt.Expr(x) => { return x.pos }
@@ -937,14 +965,19 @@ fn ctx_type_for_const_value(ctx: &mut TypeContext, v: ConstValue) -> i32 {
     return t
 }
 
-fn ctx_parse_type(ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
+fn ctx_parse_type(ctx: &mut TypeContext, text: &str, self_name: &str) -> i32 {
     let mut types = ctx.types
     let t = parse_type_from_text(&mut types, ctx, text, self_name)
     ctx.types = types
     return t
 }
 
-fn ctx_parse_type_in_module(ctx: &mut TypeContext, text: String, self_name: String, module: String) -> i32 {
+fn ctx_parse_type_empty(ctx: &mut TypeContext, text: &str) -> i32 {
+    let empty = ""
+    return ctx_parse_type(ctx, text, &empty)
+}
+
+fn ctx_parse_type_in_module(ctx: &mut TypeContext, text: &str, self_name: &str, module: &str) -> i32 {
     let saved_module = ctx.current_module
     let saved_aliases = ctx.module_aliases
     let saved_items = ctx.import_items
@@ -956,9 +989,19 @@ fn ctx_parse_type_in_module(ctx: &mut TypeContext, text: String, self_name: Stri
     return t
 }
 
+fn ctx_parse_type_in_module_empty(ctx: &mut TypeContext, text: &str, module: &str) -> i32 {
+    let empty = ""
+    return ctx_parse_type_in_module(ctx, text, &empty, module)
+}
+
 fn ctx_type_is_ref(ctx: &mut TypeContext, t: i32) -> bool {
     let mut types = ctx.types
     return type_is_ref(&mut types, t)
+}
+
+fn ctx_type_is_mut(ctx: &mut TypeContext, t: i32) -> bool {
+    let mut types = ctx.types
+    return type_is_mut(&mut types, t)
 }
 
 fn ctx_type_kind(ctx: &mut TypeContext, t: i32) -> i32 {
@@ -1018,19 +1061,19 @@ fn ctx_is_ast(ctx: &mut TypeContext, t: i32) -> bool {
     return is_ast(&mut types, t)
 }
 
-fn ctx_find_struct(ctx: &mut TypeContext, qname: String) -> i32 {
+fn ctx_find_struct(ctx: &mut TypeContext, qname: &str) -> i32 {
     let mut structs = ctx.structs
-    return find_struct_qname(&mut structs, qname)
+    return find_struct_qname(&structs, qname)
 }
 
-fn ctx_find_enum(ctx: &mut TypeContext, qname: String) -> i32 {
+fn ctx_find_enum(ctx: &mut TypeContext, qname: &str) -> i32 {
     let mut enums = ctx.enums
-    return find_enum_qname(&mut enums, qname)
+    return find_enum_qname(&enums, qname)
 }
 
 fn ctx_find_const(ctx: &mut TypeContext, qname: String) -> i32 {
     let mut consts = ctx.consts
-    return find_const_qname(&mut consts, qname)
+    return find_const_qname(&consts, qname)
 }
 
 fn ctx_env_lookup(ctx: &mut TypeContext, name: String) -> VarEntry {
@@ -1131,10 +1174,10 @@ fn parse_error_list_new() -> [ParseError] {
     return items
 }
 
-fn is_type_param(ctx: &mut TypeContext, name: String) -> bool {
+fn is_type_param(ctx: &mut TypeContext, name: &str) -> bool {
     let mut i = 0
     while i < len(ctx.type_params) {
-        if ctx.type_params[i] == name {
+        if ctx.type_params[i] == string_clone(name) {
             return true
         }
         i = i + 1
@@ -1157,10 +1200,10 @@ fn ctx_clear_type_params(ctx: &mut TypeContext) {
 }
 
 // Check if a type name is in the type_params list
-fn find_type_param_idx(type_params: [String], name: String) -> i32 {
+fn find_type_param_idx(type_params: & [String], name: &str) -> i32 {
     let mut i = 0
-    while i < len(type_params) {
-        if type_params[i] == name {
+    while i < len(*type_params) {
+        if (*type_params)[i] == string_clone(name) {
             return i
         }
         i = i + 1
@@ -1170,7 +1213,7 @@ fn find_type_param_idx(type_params: [String], name: String) -> i32 {
 
 // Infer type params from argument types
 // Returns array of inferred types, one per type param in sig.type_params
-fn infer_type_params_from_args(ctx: &mut TypeContext, sig: FuncSig, arg_types: [i32]) -> [String] {
+fn infer_type_params_from_args(ctx: &mut TypeContext, sig: &FuncSig, arg_types: & [i32]) -> [String] {
     let mut inferred: [String] = []
     let mut ti = 0
     while ti < len(sig.type_params) {
@@ -1181,8 +1224,8 @@ fn infer_type_params_from_args(ctx: &mut TypeContext, sig: FuncSig, arg_types: [
         while pi < len(sig.params) && found_type == "" {
             let param_name = ctx_type_name(ctx, sig.params[pi])
             if param_name == type_param {
-                if pi < len(arg_types) && arg_types[pi] != 0 {
-                    found_type = ctx_type_name(ctx, arg_types[pi])
+                if pi < len(*arg_types) && (*arg_types)[pi] != 0 {
+                    found_type = ctx_type_name(ctx, (*arg_types)[pi])
                 }
             }
             pi = pi + 1
@@ -1197,9 +1240,9 @@ fn infer_type_params_from_args(ctx: &mut TypeContext, sig: FuncSig, arg_types: [
 // sig.params and arg_types have same length
 // sig.type_params contains type param names like ["T", "U"]
 // If sig.ret is a type param, find which param position uses it and return that arg's type
-fn infer_generic_return(ctx: &mut TypeContext, sig: FuncSig, arg_types: [i32]) -> i32 {
+fn infer_generic_return(ctx: &mut TypeContext, sig: &FuncSig, arg_types: & [i32]) -> i32 {
     let ret_name = ctx_type_name(ctx, sig.ret)
-    let ret_idx = find_type_param_idx(sig.type_params, ret_name)
+    let ret_idx = find_type_param_idx(&sig.type_params, &ret_name)
     if ret_idx < 0 {
         // Return type is not a type param, use as-is
         return sig.ret
@@ -1210,8 +1253,8 @@ fn infer_generic_return(ctx: &mut TypeContext, sig: FuncSig, arg_types: [i32]) -
         let param_name = ctx_type_name(ctx, sig.params[i])
         if param_name == ret_name {
             // This param uses the same type param as return
-            if i < len(arg_types) {
-                return arg_types[i]
+            if i < len(*arg_types) {
+                return (*arg_types)[i]
             }
         }
         i = i + 1
@@ -1223,18 +1266,18 @@ fn infer_generic_return(ctx: &mut TypeContext, sig: FuncSig, arg_types: [i32]) -
 // Resolve return type from explicit turbofish type args
 // type_args contains explicit type names like ["i32", "String"]
 // If sig.ret is a type param, find its position and return the corresponding type
-fn resolve_explicit_return(ctx: &mut TypeContext, sig: FuncSig, type_args: [String]) -> i32 {
+fn resolve_explicit_return(ctx: &mut TypeContext, sig: &FuncSig, type_args: & [String]) -> i32 {
     let ret_name = ctx_type_name(ctx, sig.ret)
-    let ret_idx = find_type_param_idx(sig.type_params, ret_name)
+    let ret_idx = find_type_param_idx(&sig.type_params, &ret_name)
     if ret_idx < 0 {
         // Return type is not a type param, use as-is
         return sig.ret
     }
     // Get the explicit type from type_args
-    if ret_idx < len(type_args) {
+    if ret_idx < len(*type_args) {
         // Parse the explicit type
         let mut tctx = *ctx
-        return ctx_parse_type(&mut tctx, type_args[ret_idx], "")
+        return ctx_parse_type_empty(&mut tctx, &(*type_args)[ret_idx])
     }
     // Not enough type args provided
     return sig.ret
@@ -1246,28 +1289,28 @@ fn type_matches_generic(ctx: &mut TypeContext, arg_type: i32, param_type: i32, t
     }
     // If param is a type param, it matches any type
     let param_name = ctx_type_name(ctx, param_type)
-    let idx = find_type_param_idx(type_params, param_name)
+    let idx = find_type_param_idx(&type_params, &param_name)
     return idx >= 0
 }
 
 fn is_int(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 1 && !type_is_ref(types, t) }
 fn is_bool(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 2 && !type_is_ref(types, t) }
-fn is_string(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 3 && !type_is_ref(types, t) }
+fn is_string(types: &TypeTable, t: i32) -> bool { return type_kind(types, t) == 3 }
 fn is_ast(types: &TypeTable, t: i32) -> bool {
     let k = type_kind(types, t)
     return k == 9 || k == 10 || k == 11 || k == 12
 }
 
-fn parse_type_from_text(types: &mut TypeTable, ctx: &mut TypeContext, text: String, self_name: String) -> i32 {
+fn parse_type_from_text(types: &mut TypeTable, ctx: &mut TypeContext, text: &str, self_name: &str) -> i32 {
     let mut i = 0
     return parse_type_text_inner(types, ctx, text, self_name, &mut i)
 }
 
-fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: String, self_name: String, idx: &mut i32) -> i32 {
+fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: &str, self_name: &str, idx: &mut i32) -> i32 {
     // skip spaces
     let mut scanning = true
-    while *idx < len(text) && scanning {
-        if char_at(text, *idx) == 32 {
+    while *idx < len(string_clone(text)) && scanning {
+        if char_at(string_clone(text), *idx) == 32 {
             *idx = *idx + 1
         } else {
             scanning = false
@@ -1275,17 +1318,17 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
     }
     let mut is_ref = false
     let mut is_mut = false
-    if *idx < len(text) {
-        let c = char_at(text, *idx)
+    if *idx < len(string_clone(text)) {
+        let c = char_at(string_clone(text), *idx)
         if c == 38 {
             is_ref = true;
             *idx = *idx + 1
-            if *idx + 3 < len(text) {
-                if substr(text, *idx, 3) == "mut" {
+            if *idx + 3 < len(string_clone(text)) {
+                if substr(string_clone(text), *idx, 3) == "mut" {
                     is_mut = true;
                     *idx = *idx + 3
-                    if *idx < len(text) {
-                        if char_at(text, *idx) == 32 {
+                    if *idx < len(string_clone(text)) {
+                        if char_at(string_clone(text), *idx) == 32 {
                             *idx = *idx + 1
                         }
                     }
@@ -1293,13 +1336,13 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
             }
         }
     }
-    if *idx < len(text) {
-        let c = char_at(text, *idx)
+    if *idx < len(string_clone(text)) {
+        let c = char_at(string_clone(text), *idx)
         if c == 91 {
             *idx = *idx + 1
             let elem = parse_type_text_inner(types, ctx, text, self_name, idx)
-            if *idx < len(text) {
-                if char_at(text, *idx) == 93 {
+            if *idx < len(string_clone(text)) {
+                if char_at(string_clone(text), *idx) == 93 {
                     *idx = *idx + 1
                 }
             }
@@ -1309,17 +1352,17 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
     }
     let mut start = *idx
     scanning = true
-    while *idx < len(text) && scanning {
-        let c = char_at(text, *idx)
+    while *idx < len(string_clone(text)) && scanning {
+        let c = char_at(string_clone(text), *idx)
         if c == 32 || c == 93 {
             scanning = false
         } else {
             *idx = *idx + 1
         }
     }
-    let mut name = substr(text, start, *idx - start)
-    if name == "Self" && self_name != "" {
-        name = self_name
+    let mut name = substr(string_clone(text), start, *idx - start)
+    if name == "Self" && *self_name != "" {
+        name = string_clone(self_name)
     }
     let mut kind = 0
     if name == "i8" || name == "i16" || name == "i32" || name == "i64" || name == "i128" ||
@@ -1328,7 +1371,15 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
         kind = 1
     } else if name == "bool" {
         kind = 2
-    } else if name == "String" || name == "str" || name == "string" {
+    } else if name == "String" || name == "str" {
+        if name == "str" && !is_ref {
+            add_type_error(ctx, "type 'str' must be used as a reference: '&str'")
+            name = "String"
+        }
+        kind = 3
+    } else if name == "string" {
+        add_type_error(ctx, "type name 'string' is not allowed; use 'String' or '&str'")
+        name = "String"
         kind = 3
     } else if name == "unit" || name == "()" {
         kind = 4
@@ -1347,54 +1398,54 @@ fn parse_type_text_inner(types: &mut TypeTable, ctx: &mut TypeContext, text: Str
             let alias = ctx.type_aliases[ai]
             // Check both simple name and qualified name
             if alias.name == name {
-                let alias_qname = qualify_name(alias.module, ctx.current_module)
-                let current_qname = qualify_name(ctx.current_module, name)
+                let alias_qname = qualify_name(&alias.module, &ctx.current_module)
+                let current_qname = qualify_name(&ctx.current_module, &name)
                 if alias.module == ctx.current_module || alias.module == "" {
                     // Found alias in current module - recursively parse the target type
-                    return parse_type_from_text(types, ctx, alias.target, self_name)
+                    return parse_type_from_text(types, ctx, &alias.target, self_name)
                 }
             }
             ai = ai + 1
         }
 
-        let resolved = ctx_resolve_type_name(ctx, name, self_name)
+        let resolved = ctx_resolve_type_name(ctx, &name, self_name)
         name = resolved
 
         // Check again with resolved name
         ai = 0
         while ai < len(ctx.type_aliases) {
             let alias = ctx.type_aliases[ai]
-            let alias_qname = qualify_name(alias.module, alias.name)
+            let alias_qname = qualify_name(&alias.module, &alias.name)
             if alias_qname == name {
                 // Found alias - recursively parse the target type
-                return parse_type_from_text(types, ctx, alias.target, self_name)
+                return parse_type_from_text(types, ctx, &alias.target, self_name)
             }
             ai = ai + 1
         }
 
         let mut structs = ctx.structs
         let mut enums = ctx.enums
-        if find_struct_qname(&mut structs, name) >= 0 {
+        if find_struct_qname(&structs, &name) >= 0 {
             kind = 5
-        } else if find_enum_qname(&mut enums, name) >= 0 {
+        } else if find_enum_qname(&enums, &name) >= 0 {
             kind = 6
         }
     }
     return type_make(types, kind, name, is_ref, is_mut, -1)
 }
 
-fn struct_qname(st: StructDecl) -> String {
-    return qualify_name(st.module, st.name)
+fn struct_qname(st: &StructDecl) -> String {
+    return qualify_name(&st.module, &st.name)
 }
 
-fn enum_qname(en: EnumDecl) -> String {
-    return qualify_name(en.module, en.name)
+fn enum_qname(en: &EnumDecl) -> String {
+    return qualify_name(&en.module, &en.name)
 }
 
-fn find_struct_qname(structs: & [StructDecl], qname: String) -> i32 {
+fn find_struct_qname(structs: & [StructDecl], qname: &str) -> i32 {
     let mut i = 0
-    while i < len(structs) {
-        if struct_qname(structs[i]) == qname {
+    while i < len(*structs) {
+        if struct_qname(&(*structs)[i]) == string_clone(qname) {
             return i
         }
         i = i + 1
@@ -1402,10 +1453,10 @@ fn find_struct_qname(structs: & [StructDecl], qname: String) -> i32 {
     return -1
 }
 
-fn find_struct_in_module(structs: & [StructDecl], module: String, name: String) -> i32 {
+fn find_struct_in_module(structs: & [StructDecl], module: &str, name: &str) -> i32 {
     let mut i = 0
-    while i < len(structs) {
-        if structs[i].module == module && structs[i].name == name {
+    while i < len(*structs) {
+        if (*structs)[i].module == string_clone(module) && (*structs)[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -1413,10 +1464,10 @@ fn find_struct_in_module(structs: & [StructDecl], module: String, name: String) 
     return -1
 }
 
-fn find_enum_qname(enums: & [EnumDecl], qname: String) -> i32 {
+fn find_enum_qname(enums: & [EnumDecl], qname: &str) -> i32 {
     let mut i = 0
-    while i < len(enums) {
-        if enum_qname(enums[i]) == qname {
+    while i < len(*enums) {
+        if enum_qname(&(*enums)[i]) == string_clone(qname) {
             return i
         }
         i = i + 1
@@ -1424,10 +1475,10 @@ fn find_enum_qname(enums: & [EnumDecl], qname: String) -> i32 {
     return -1
 }
 
-fn find_enum_in_module(enums: & [EnumDecl], module: String, name: String) -> i32 {
+fn find_enum_in_module(enums: & [EnumDecl], module: &str, name: &str) -> i32 {
     let mut i = 0
-    while i < len(enums) {
-        if enums[i].module == module && enums[i].name == name {
+    while i < len(*enums) {
+        if (*enums)[i].module == string_clone(module) && (*enums)[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -1435,14 +1486,14 @@ fn find_enum_in_module(enums: & [EnumDecl], module: String, name: String) -> i32
     return -1
 }
 
-fn const_qname(c: ConstSig) -> String {
-    return qualify_name(c.module, c.name)
+fn const_qname(c: &ConstSig) -> String {
+    return qualify_name(&c.module, &c.name)
 }
 
 fn find_const_qname(consts: & [ConstSig], qname: String) -> i32 {
     let mut i = 0
-    while i < len(consts) {
-        if const_qname(consts[i]) == qname {
+    while i < len(*consts) {
+        if const_qname(&(*consts)[i]) == string_clone(&qname) {
             return i
         }
         i = i + 1
@@ -1450,10 +1501,10 @@ fn find_const_qname(consts: & [ConstSig], qname: String) -> i32 {
     return -1
 }
 
-fn find_const_in_module(consts: & [ConstSig], module: String, name: String) -> i32 {
+fn find_const_in_module(consts: & [ConstSig], module: &str, name: &str) -> i32 {
     let mut i = 0
-    while i < len(consts) {
-        if consts[i].module == module && consts[i].name == name {
+    while i < len(*consts) {
+        if (*consts)[i].module == string_clone(module) && (*consts)[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -1461,10 +1512,10 @@ fn find_const_in_module(consts: & [ConstSig], module: String, name: String) -> i
     return -1
 }
 
-fn find_variant(en: EnumDecl, name: String) -> i32 {
+fn find_variant(en: &EnumDecl, name: &str) -> i32 {
     let mut i = 0
     while i < len(en.variants) {
-        if en.variants[i].name == name {
+        if en.variants[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -1472,10 +1523,10 @@ fn find_variant(en: EnumDecl, name: String) -> i32 {
     return -1
 }
 
-fn find_field(st: StructDecl, name: String) -> i32 {
+fn find_field(st: &StructDecl, name: &str) -> i32 {
     let mut i = 0
     while i < len(st.fields) {
-        if st.fields[i].name == name {
+        if st.fields[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -1491,7 +1542,7 @@ fn type_for_const_value(types: &mut TypeTable, v: ConstValue) -> i32 {
         return type_make(types, 2, "bool", false, false, -1)
     }
     if v.kind == const_kind_string() {
-        return type_make(types, 3, "string", false, false, -1)
+        return type_make(types, 3, "String", false, false, -1)
     }
     return 0
 }
@@ -1509,23 +1560,23 @@ fn is_valid_enum_repr(name: String) -> bool {
     return false
 }
 
-fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
+fn collect_func_sigs(ctx: &mut TypeContext, prog: &Program) {
     let mut i = 0
     while i < len(prog.functions) {
         let f = prog.functions[i]
         ctx_set_file(ctx, f.file)
         ctx_set_pos(ctx, f.pos)
-        ctx_set_current_module(ctx, f.module)
+        ctx_set_current_module(ctx, &f.module)
         let mut consts = ctx.consts
         let mut structs = ctx.structs
         let mut enums = ctx.enums
-        if find_func_in_module(ctx, f.module, f.name) >= 0 {
+        if find_func_in_module(ctx, &f.module, &f.name) >= 0 {
             add_type_error(ctx, "duplicate function '" + f.name + "'")
-        } else if find_const_in_module(&mut consts, f.module, f.name) >= 0 {
+        } else if find_const_in_module(&consts, &f.module, &f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by const")
-        } else if find_struct_in_module(&mut structs, f.module, f.name) >= 0 {
+        } else if find_struct_in_module(&structs, &f.module, &f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by struct")
-        } else if find_enum_in_module(&mut enums, f.module, f.name) >= 0 {
+        } else if find_enum_in_module(&enums, &f.module, &f.name) >= 0 {
             add_type_error(ctx, "name '" + f.name + "' already used by enum")
         } else {
             // Set type params for generic function signature
@@ -1551,7 +1602,7 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
             while j < len(f.params) {
                 let p = f.params[j]
                 ctx_set_pos(ctx, p.pos)
-                let t = ctx_parse_type(ctx, p.typ, "")
+                let t = ctx_parse_type_empty(ctx, &p.typ)
                 push(&mut params, t)
                 j = j + 1
             }
@@ -1559,7 +1610,7 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
             let mut explicit = false
             if f.has_return {
                 ctx_set_pos(ctx, f.pos)
-                ret = ctx_parse_type(ctx, f.ret, "")
+                ret = ctx_parse_type_empty(ctx, &f.ret)
                 explicit = true
             }
             ctx_push_func(ctx, FuncSig {
@@ -1577,33 +1628,33 @@ fn collect_func_sigs(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
-fn collect_consts(ctx: &mut TypeContext, prog: Program) {
+fn collect_consts(ctx: &mut TypeContext, prog: &Program) {
     let mut i = 0
     while i < len(prog.consts) {
         let c = prog.consts[i]
         ctx_set_file(ctx, c.file)
         ctx_set_pos(ctx, c.pos)
-        ctx_set_current_module(ctx, c.module)
+        ctx_set_current_module(ctx, &c.module)
         let mut consts = ctx.consts
         let mut structs = ctx.structs
         let mut enums = ctx.enums
-        if find_const_in_module(&mut consts, c.module, c.name) >= 0 {
+        if find_const_in_module(&consts, &c.module, &c.name) >= 0 {
             add_type_error(ctx, "duplicate const '" + c.name + "'")
         } else {
-            if find_struct_in_module(&mut structs, c.module, c.name) >= 0 {
+            if find_struct_in_module(&structs, &c.module, &c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by struct")
             }
-            if find_enum_in_module(&mut enums, c.module, c.name) >= 0 {
+            if find_enum_in_module(&enums, &c.module, &c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by enum")
             }
-            if find_func_in_module(ctx, c.module, c.name) >= 0 {
+            if find_func_in_module(ctx, &c.module, &c.name) >= 0 {
                 add_type_error(ctx, "name '" + c.name + "' already used by function")
             }
             let val_t = ctx_type_for_const_value(ctx, c.value)
             let mut decl_t = val_t
             if c.has_type {
                 ctx_set_pos(ctx, c.pos)
-                decl_t = ctx_parse_type(ctx, c.typ, "")
+                decl_t = ctx_parse_type_empty(ctx, &c.typ)
                 if !ctx_type_equal(ctx, decl_t, val_t) && decl_t != 0 && val_t != 0 {
                     add_type_error(ctx, "const '" + c.name + "' type mismatch")
                 }
@@ -1619,13 +1670,17 @@ fn trait_method_sig_list_new() -> [TraitMethodSig] {
     return items
 }
 
-fn collect_traits(ctx: &mut TypeContext, prog: Program) {
+fn collect_traits(ctx: &mut TypeContext, prog: &Program) {
+    let dbg = read_file("/tmp/dast-typecheck-debug") != ""
     let mut i = 0
     while i < len(prog.traits) {
         let t = prog.traits[i]
         ctx_set_file(ctx, t.file)
         ctx_set_pos(ctx, t.pos)
-        ctx_set_current_module(ctx, t.module)
+        ctx_set_current_module(ctx, &t.module)
+        if dbg {
+            println("stage2: collect trait", t.name, "methods", len(t.methods))
+        }
 
         // Check for duplicate trait name
         let mut duplicate = false
@@ -1644,8 +1699,14 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
             let mut mi = 0
             while mi < len(t.methods) {
                 let m = t.methods[mi]
+                if dbg {
+                    println("stage2: collect trait method", t.name, m.name, "params", len(m.params))
+                }
                 // Check if method has self parameter
-                let has_self = len(m.params) > 0 && m.params[0].name == "self"
+                let mut has_self = false
+                if len(m.params) > 0 {
+                    has_self = m.params[0].name == "self"
+                }
 
                 // Parse parameter types (skip self parameter as Self type not available in trait context)
                 let mut params: [i32] = []
@@ -1656,7 +1717,7 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
                         // Use -1 as marker for self parameter
                         push(&mut params, -1)
                     } else {
-                        let pt = ctx_parse_type(ctx, p.typ, "")
+                        let pt = ctx_parse_type_empty(ctx, &p.typ)
                         push(&mut params, pt)
                     }
                     pi = pi + 1
@@ -1668,7 +1729,7 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
                     if m.ret == "Self" {
                         ret = -2  // Marker for Self type
                     } else {
-                        ret = ctx_parse_type(ctx, m.ret, "")
+                        ret = ctx_parse_type_empty(ctx, &m.ret)
                     }
                 }
 
@@ -1678,6 +1739,7 @@ fn collect_traits(ctx: &mut TypeContext, prog: Program) {
                     ret: ret,
                     has_self: has_self,
                     has_default: m.has_default,
+                    is_macro: m.is_macro,
                 })
                 mi = mi + 1
             }
@@ -1725,11 +1787,11 @@ fn find_trait_in_module(ctx: &mut TypeContext, module: String, name: String) -> 
 }
 
 // Check if a type implements a trait by searching impl_traits
-fn type_implements_trait(ctx: &mut TypeContext, type_name: String, trait_name: String) -> bool {
+fn type_implements_trait(ctx: &mut TypeContext, type_name: &str, trait_name: &str) -> bool {
     let mut i = 0
     while i < len(ctx.impl_traits) {
         let it = ctx.impl_traits[i]
-        if it.for_type == type_name && it.trait_name == trait_name {
+        if it.for_type == string_clone(type_name) && it.trait_name == string_clone(trait_name) {
             return true
         }
         i = i + 1
@@ -1737,13 +1799,14 @@ fn type_implements_trait(ctx: &mut TypeContext, type_name: String, trait_name: S
     return false
 }
 
-fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
+fn collect_impl_traits(ctx: &mut TypeContext, prog: &Program) {
     let mut i = 0
     while i < len(prog.impl_traits) {
         let it = prog.impl_traits[i]
         ctx_set_file(ctx, it.file)
         ctx_set_pos(ctx, it.pos)
-        ctx_set_current_module(ctx, it.module)
+        ctx_set_current_module(ctx, &it.module)
+        let empty = ""
 
         // Check that the trait exists
         let trait_idx = find_trait_in_module(ctx, it.module, it.trait_name)
@@ -1753,7 +1816,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
         }
 
         // Resolve the for_type to get qualified name
-        let type_qname = ctx_resolve_type_name(ctx, it.for_type, "")
+        let type_qname = ctx_resolve_type_name(ctx, &it.for_type, &empty)
 
         // Register each method from the impl Trait for Type
         let mut mi = 0
@@ -1763,7 +1826,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
             ctx_set_pos(ctx, f.pos)
 
             if type_qname != "" {
-                if find_method(ctx, type_qname, f.name) >= 0 {
+                if find_method(ctx, &type_qname, &f.name) >= 0 {
                     add_type_error(ctx, "duplicate method '" + f.name + "' for '" + it.for_type + "'")
                 } else {
                     // Parse parameter types
@@ -1776,7 +1839,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                             add_type_error(ctx, "self must be first parameter")
                         }
                         ctx_set_pos(ctx, p.pos)
-                        let t = ctx_parse_type(ctx, p.typ, type_qname)
+                        let t = ctx_parse_type(ctx, &p.typ, &type_qname)
                         push(&mut params, t)
                         k = k + 1
                     }
@@ -1786,7 +1849,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                     let mut explicit = false
                     if f.has_return {
                         ctx_set_pos(ctx, f.pos)
-                        ret = ctx_parse_type(ctx, f.ret, type_qname)
+                        ret = ctx_parse_type(ctx, &f.ret, &type_qname)
                         explicit = true
                     }
 
@@ -1797,12 +1860,14 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                     }
 
                     // Register the method so it can be called
+                    let method_name = f.name
+                    let func_name = string_clone(&type_qname) + "." + string_clone(&method_name)
                     ctx_push_method(ctx, MethodSig {
-                        module: it.module,
+                        module: string_clone(&it.module),
                         vis: f.vis,
-                        type_name: type_qname,
-                        name: f.name,
-                        func_name: type_qname + "." + f.name,
+                        type_name: string_clone(&type_qname),
+                        name: method_name,
+                        func_name: func_name,
                         params: params,
                         ret: ret,
                         ret_explicit: explicit,
@@ -1846,6 +1911,10 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                     } else {
                         // Verify signature matches
                         let impl_method = it.methods[found_idx]
+                        if required.is_macro != impl_method.is_macro {
+                            ctx_set_pos(ctx, impl_method.pos)
+                            add_type_error(ctx, "method '" + required.name + "' macro-ness mismatch")
+                        }
 
                         // Check parameter count
                         if len(impl_method.params) != len(required.params) {
@@ -1858,7 +1927,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                                 let trait_param_type = required.params[pi]
                                 // Skip self parameter check (marked as -1)
                                 if trait_param_type != -1 {
-                                    let impl_param_type = ctx_parse_type(ctx, impl_method.params[pi].typ, type_qname)
+                                    let impl_param_type = ctx_parse_type(ctx, &impl_method.params[pi].typ, &type_qname)
                                     if !ctx_type_assignable(ctx, impl_param_type, trait_param_type) && impl_param_type != 0 && trait_param_type != 0 {
                                         ctx_set_pos(ctx, impl_method.params[pi].pos)
                                         add_type_error(ctx, "parameter " + int_to_string(pi + 1) + " of '" + required.name + "' has wrong type")
@@ -1873,7 +1942,7 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
                             let impl_ret = 0
                             let mut impl_ret_check = impl_ret
                             if impl_method.has_return {
-                                impl_ret_check = ctx_parse_type(ctx, impl_method.ret, type_qname)
+                                impl_ret_check = ctx_parse_type(ctx, &impl_method.ret, &type_qname)
                             }
                             if !ctx_type_assignable(ctx, impl_ret_check, required.ret) && impl_ret_check != 0 && required.ret != 0 {
                                 ctx_set_pos(ctx, impl_method.pos)
@@ -1931,21 +2000,22 @@ fn collect_impl_traits(ctx: &mut TypeContext, prog: Program) {
     }
 }
 
-fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
+fn collect_method_sigs(ctx: &mut TypeContext, prog: &Program) {
     let mut i = 0
     while i < len(prog.impls) {
         let imp = prog.impls[i]
         ctx_set_file(ctx, imp.file)
         ctx_set_pos(ctx, imp.pos)
-        ctx_set_current_module(ctx, imp.module)
-        let type_qname = ctx_resolve_type_name(ctx, imp.type_name, "")
+        ctx_set_current_module(ctx, &imp.module)
+        let empty = ""
+        let type_qname = ctx_resolve_type_name(ctx, &imp.type_name, &empty)
         let mut j = 0
         while j < len(imp.methods) {
             let f = imp.methods[j]
             ctx_set_file(ctx, f.file)
             ctx_set_pos(ctx, f.pos)
             if type_qname != "" {
-                if find_method(ctx, type_qname, f.name) >= 0 {
+                if find_method(ctx, &type_qname, &f.name) >= 0 {
                     add_type_error(ctx, "duplicate method '" + f.name + "' for '" + imp.type_name + "'")
                 } else {
                     let mut params: [i32] = []
@@ -1957,7 +2027,7 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
                             add_type_error(ctx, "self must be first parameter")
                         }
                         ctx_set_pos(ctx, p.pos)
-                        let t = ctx_parse_type(ctx, p.typ, type_qname)
+                        let t = ctx_parse_type(ctx, &p.typ, &type_qname)
                         push(&mut params, t)
                         k = k + 1
                     }
@@ -1965,19 +2035,21 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
                     let mut explicit = false
                     if f.has_return {
                         ctx_set_pos(ctx, f.pos)
-                        ret = ctx_parse_type(ctx, f.ret, type_qname)
+                        ret = ctx_parse_type(ctx, &f.ret, &type_qname)
                         explicit = true
                     }
                     let mut has_self = false
                     if len(f.params) > 0 && f.params[0].name == "self" {
                         has_self = true
                     }
+                    let method_name = f.name
+                    let func_name = string_clone(&type_qname) + "." + string_clone(&method_name)
                     ctx_push_method(ctx, MethodSig {
-                        module: imp.module,
+                        module: string_clone(&imp.module),
                         vis: f.vis,
-                        type_name: type_qname,
-                        name: f.name,
-                        func_name: type_qname + "." + f.name,
+                        type_name: string_clone(&type_qname),
+                        name: method_name,
+                        func_name: func_name,
                         params: params,
                         ret: ret,
                         ret_explicit: explicit,
@@ -1992,7 +2064,7 @@ fn collect_method_sigs(ctx: &mut TypeContext, prog: Program) {
 }
 
 fn func_qname(f: FuncSig) -> String {
-    return qualify_name(f.module, f.name)
+    return qualify_name(&f.module, &f.name)
 }
 
 fn find_func_qname(ctx: &mut TypeContext, qname: String) -> i32 {
@@ -2006,10 +2078,10 @@ fn find_func_qname(ctx: &mut TypeContext, qname: String) -> i32 {
     return -1
 }
 
-fn find_func_in_module(ctx: &mut TypeContext, module: String, name: String) -> i32 {
+fn find_func_in_module(ctx: &mut TypeContext, module: &str, name: &str) -> i32 {
     let mut i = 0
     while i < len(ctx.funcs) {
-        if ctx.funcs[i].module == module && ctx.funcs[i].name == name {
+        if ctx.funcs[i].module == string_clone(module) && ctx.funcs[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -2017,10 +2089,10 @@ fn find_func_in_module(ctx: &mut TypeContext, module: String, name: String) -> i
     return -1
 }
 
-fn find_func_decl_in_module(funcs: & [FunctionDecl], module: String, name: String) -> i32 {
+fn find_func_decl_in_module(funcs: & [FunctionDecl], module: &str, name: &str) -> i32 {
     let mut i = 0
     while i < len(funcs) {
-        if funcs[i].module == module && funcs[i].name == name {
+        if funcs[i].module == string_clone(module) && funcs[i].name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -2028,11 +2100,11 @@ fn find_func_decl_in_module(funcs: & [FunctionDecl], module: String, name: Strin
     return -1
 }
 
-fn find_method(ctx: &mut TypeContext, type_name: String, name: String) -> i32 {
+fn find_method(ctx: &mut TypeContext, type_name: &str, name: &str) -> i32 {
     let mut i = 0
     while i < len(ctx.methods) {
         let m = ctx.methods[i]
-        if m.type_name == type_name && m.name == name {
+        if m.type_name == string_clone(type_name) && m.name == string_clone(name) {
             return i
         }
         i = i + 1
@@ -2057,6 +2129,7 @@ fn builtin_list() -> [String] {
     push(&mut b, "args")
     push(&mut b, "char_at")
     push(&mut b, "substr")
+    push(&mut b, "string_clone")
     push(&mut b, "read_line")
     push(&mut b, "read_bytes")
     push(&mut b, "exec")
@@ -2078,6 +2151,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
         ret: 0,
         has_self: true,
         has_default: false,
+        is_macro: false,
     }
     let mut fn_methods = trait_method_sig_list_new()
     push(&mut fn_methods, fn_call)
@@ -2098,6 +2172,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
         ret: 0,
         has_self: true,
         has_default: false,
+        is_macro: false,
     }
     let mut fn_mut_methods = trait_method_sig_list_new()
     push(&mut fn_mut_methods, fn_mut_call)
@@ -2118,6 +2193,7 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
         ret: 0,
         has_self: true,
         has_default: false,
+        is_macro: false,
     }
     let mut fn_once_methods = trait_method_sig_list_new()
     push(&mut fn_once_methods, fn_once_call)
@@ -2139,10 +2215,10 @@ fn register_builtin_traits(ctx: &mut TypeContext) {
     ctx.traits = traits_list
 }
 
-fn is_builtin(ctx: &mut TypeContext, name: String) -> bool {
+fn is_builtin(ctx: &mut TypeContext, name: &str) -> bool {
     let mut i = 0
     while i < len(ctx.builtins) {
-        if ctx.builtins[i] == name {
+        if ctx.builtins[i] == string_clone(name) {
             return true
         }
         i = i + 1
@@ -2150,10 +2226,10 @@ fn is_builtin(ctx: &mut TypeContext, name: String) -> bool {
     return false
 }
 
-fn find_import_item(ctx: &mut TypeContext, name: String) -> i32 {
+fn find_import_item(ctx: &mut TypeContext, name: &str) -> i32 {
     let mut i = 0
     while i < len(ctx.import_items) {
-        if ctx.import_items[i].local == name {
+        if ctx.import_items[i].local == string_clone(name) {
             return i
         }
         i = i + 1
@@ -2161,35 +2237,35 @@ fn find_import_item(ctx: &mut TypeContext, name: String) -> i32 {
     return -1
 }
 
-fn resolve_struct_name(ctx: &mut TypeContext, name: String) -> String {
-    let mut structs = ctx.structs
-    if find_struct_in_module(&mut structs, ctx.current_module, name) >= 0 {
-        return qualify_name(ctx.current_module, name)
+fn resolve_struct_name(ctx: &mut TypeContext, name: &str) -> String {
+    let structs = &ctx.structs
+    if find_struct_in_module(structs, &ctx.current_module, name) >= 0 {
+        return qualify_name(&ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let sidx = find_struct_in_module(&mut structs, item.module, item.name)
+        let sidx = find_struct_in_module(structs, &item.module, &item.name)
         if sidx >= 0 {
             let decl = structs[sidx]
-            if ctx.allow_global || visibility_allows(decl.vis, decl.module, ctx.current_module) {
-                return qualify_name(decl.module, decl.name)
+            if ctx.allow_global || visibility_allows(decl.vis, &decl.module, &ctx.current_module) {
+                return qualify_name(&decl.module, &decl.name)
             }
-            add_type_error(ctx, "struct '" + name + "' is private")
+            add_type_error(ctx, "struct '" + string_clone(name) + "' is private")
             return ""
         }
-        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_struct())
+        let reexp = resolve_reexport(ctx, &item.module, &item.name, reexport_kind_struct())
         if reexp != "" { return reexp }
-        add_type_error(ctx, "imported '" + name + "' is not a struct")
+        add_type_error(ctx, "imported '" + string_clone(name) + "' is not a struct")
     }
     if ctx.allow_global {
         let mut found = ""
         let mut i = 0
         while i < len(structs) {
-            if structs[i].name == name {
-                let q = qualify_name(structs[i].module, structs[i].name)
+            if structs[i].name == string_clone(name) {
+                let q = qualify_name(&structs[i].module, &structs[i].name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous struct name '" + name + "'")
+                    add_type_error(ctx, "ambiguous struct name '" + string_clone(name) + "'")
                     return ""
                 }
                 found = q
@@ -2201,35 +2277,35 @@ fn resolve_struct_name(ctx: &mut TypeContext, name: String) -> String {
     return ""
 }
 
-fn resolve_enum_name(ctx: &mut TypeContext, name: String) -> String {
-    let mut enums = ctx.enums
-    if find_enum_in_module(&mut enums, ctx.current_module, name) >= 0 {
-        return qualify_name(ctx.current_module, name)
+fn resolve_enum_name(ctx: &mut TypeContext, name: &str) -> String {
+    let enums = &ctx.enums
+    if find_enum_in_module(enums, &ctx.current_module, name) >= 0 {
+        return qualify_name(&ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let eidx = find_enum_in_module(&mut enums, item.module, item.name)
+        let eidx = find_enum_in_module(enums, &item.module, &item.name)
         if eidx >= 0 {
             let decl = enums[eidx]
-            if ctx.allow_global || visibility_allows(decl.vis, decl.module, ctx.current_module) {
-                return qualify_name(decl.module, decl.name)
+            if ctx.allow_global || visibility_allows(decl.vis, &decl.module, &ctx.current_module) {
+                return qualify_name(&decl.module, &decl.name)
             }
-            add_type_error(ctx, "enum '" + name + "' is private")
+            add_type_error(ctx, "enum '" + string_clone(name) + "' is private")
             return ""
         }
-        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_enum())
+        let reexp = resolve_reexport(ctx, &item.module, &item.name, reexport_kind_enum())
         if reexp != "" { return reexp }
-        add_type_error(ctx, "imported '" + name + "' is not an enum")
+        add_type_error(ctx, "imported '" + string_clone(name) + "' is not an enum")
     }
     if ctx.allow_global {
         let mut found = ""
         let mut i = 0
         while i < len(enums) {
-            if enums[i].name == name {
-                let q = qualify_name(enums[i].module, enums[i].name)
+            if enums[i].name == string_clone(name) {
+                let q = qualify_name(&enums[i].module, &enums[i].name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous enum name '" + name + "'")
+                    add_type_error(ctx, "ambiguous enum name '" + string_clone(name) + "'")
                     return ""
                 }
                 found = q
@@ -2241,35 +2317,35 @@ fn resolve_enum_name(ctx: &mut TypeContext, name: String) -> String {
     return ""
 }
 
-fn resolve_const_name(ctx: &mut TypeContext, name: String) -> String {
-    let mut consts = ctx.consts
-    if find_const_in_module(&mut consts, ctx.current_module, name) >= 0 {
-        return qualify_name(ctx.current_module, name)
+fn resolve_const_name(ctx: &mut TypeContext, name: &str) -> String {
+    let consts = &ctx.consts
+    if find_const_in_module(consts, &ctx.current_module, name) >= 0 {
+        return qualify_name(&ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let cidx = find_const_in_module(&mut consts, item.module, item.name)
+        let cidx = find_const_in_module(consts, &item.module, &item.name)
         if cidx >= 0 {
             let c = consts[cidx]
-            if ctx.allow_global || visibility_allows(c.vis, c.module, ctx.current_module) {
-                return qualify_name(c.module, c.name)
+            if ctx.allow_global || visibility_allows(c.vis, &c.module, &ctx.current_module) {
+                return qualify_name(&c.module, &c.name)
             }
-            add_type_error(ctx, "const '" + name + "' is private")
+            add_type_error(ctx, "const '" + string_clone(name) + "' is private")
             return ""
         }
-        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_const())
+        let reexp = resolve_reexport(ctx, &item.module, &item.name, reexport_kind_const())
         if reexp != "" { return reexp }
-        add_type_error(ctx, "imported '" + name + "' is not a const")
+        add_type_error(ctx, "imported '" + string_clone(name) + "' is not a const")
     }
     if ctx.allow_global {
         let mut found = ""
         let mut i = 0
         while i < len(consts) {
-            if consts[i].name == name {
-                let q = qualify_name(consts[i].module, consts[i].name)
+            if consts[i].name == string_clone(name) {
+                let q = qualify_name(&consts[i].module, &consts[i].name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous const name '" + name + "'")
+                    add_type_error(ctx, "ambiguous const name '" + string_clone(name) + "'")
                     return ""
                 }
                 found = q
@@ -2281,35 +2357,35 @@ fn resolve_const_name(ctx: &mut TypeContext, name: String) -> String {
     return ""
 }
 
-fn resolve_func_name(ctx: &mut TypeContext, name: String) -> String {
-    if find_func_in_module(ctx, ctx.current_module, name) >= 0 {
-        return qualify_name(ctx.current_module, name)
+fn resolve_func_name(ctx: &mut TypeContext, name: &str) -> String {
+    if find_func_in_module(ctx, &ctx.current_module, name) >= 0 {
+        return qualify_name(&ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let fidx = find_func_in_module(ctx, item.module, item.name)
+        let fidx = find_func_in_module(ctx, &item.module, &item.name)
         if fidx >= 0 {
             let f = ctx.funcs[fidx]
-            if ctx.allow_global || visibility_allows(f.vis, f.module, ctx.current_module) {
-                return qualify_name(f.module, f.name)
+            if ctx.allow_global || visibility_allows(f.vis, &f.module, &ctx.current_module) {
+                return qualify_name(&f.module, &f.name)
             }
-            add_type_error(ctx, "function '" + name + "' is private")
+            add_type_error(ctx, "function '" + string_clone(name) + "' is private")
             return ""
         }
-        let reexp = resolve_reexport(ctx, item.module, item.name, reexport_kind_func())
+        let reexp = resolve_reexport(ctx, &item.module, &item.name, reexport_kind_func())
         if reexp != "" { return reexp }
-        add_type_error(ctx, "imported '" + name + "' is not a function")
+        add_type_error(ctx, "imported '" + string_clone(name) + "' is not a function")
     }
     if ctx.allow_global {
         let mut found = ""
         let mut i = 0
         while i < len(ctx.funcs) {
             let f = ctx.funcs[i]
-            if f.name == name {
-                let q = qualify_name(f.module, f.name)
+            if f.name == string_clone(name) {
+                let q = qualify_name(&f.module, &f.name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous function name '" + name + "'")
+                    add_type_error(ctx, "ambiguous function name '" + string_clone(name) + "'")
                     return ""
                 }
                 found = q
@@ -2321,67 +2397,67 @@ fn resolve_func_name(ctx: &mut TypeContext, name: String) -> String {
     return ""
 }
 
-fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String) -> String {
-    if name == "Self" && self_name != "" {
-        return self_name
+fn ctx_resolve_type_name(ctx: &mut TypeContext, name: &str, self_name: &str) -> String {
+    if *name == "Self" && *self_name != "" {
+        return string_clone(self_name)
     }
-    if name == "i8" || name == "i16" || name == "i32" || name == "i64" || name == "i128" ||
-       name == "u8" || name == "u16" || name == "u32" || name == "u64" || name == "u128" ||
-       name == "isize" || name == "usize" || name == "int" || name == "char" ||
-       name == "bool" || name == "String" || name == "str" || name == "string" ||
-       name == "unit" || name == "()" {
-        return name
+    if *name == "i8" || *name == "i16" || *name == "i32" || *name == "i64" || *name == "i128" ||
+       *name == "u8" || *name == "u16" || *name == "u32" || *name == "u64" || *name == "u128" ||
+       *name == "isize" || *name == "usize" || *name == "int" || *name == "char" ||
+       *name == "bool" || *name == "String" || *name == "str" ||
+       *name == "unit" || *name == "()" {
+        return string_clone(name)
     }
     // Check if name is a type parameter in current scope
     if is_type_param(ctx, name) {
-        return name
+        return string_clone(name)
     }
-    let mut structs = ctx.structs
-    if find_struct_in_module(&mut structs, ctx.current_module, name) >= 0 {
-        return qualify_name(ctx.current_module, name)
+    let structs = &ctx.structs
+    if find_struct_in_module(structs, &ctx.current_module, name) >= 0 {
+        return qualify_name(&ctx.current_module, name)
     }
-    let mut enums = ctx.enums
-    if find_enum_in_module(&mut enums, ctx.current_module, name) >= 0 {
-        return qualify_name(ctx.current_module, name)
+    let enums = &ctx.enums
+    if find_enum_in_module(enums, &ctx.current_module, name) >= 0 {
+        return qualify_name(&ctx.current_module, name)
     }
     let idx = find_import_item(ctx, name)
     if idx >= 0 {
         let item = ctx.import_items[idx]
-        let sidx = find_struct_in_module(&mut structs, item.module, item.name)
+        let sidx = find_struct_in_module(&structs, &item.module, &item.name)
         if sidx >= 0 {
             let decl = structs[sidx]
-            if ctx.allow_global || visibility_allows(decl.vis, decl.module, ctx.current_module) {
-                return qualify_name(decl.module, decl.name)
+            if ctx.allow_global || visibility_allows(decl.vis, &decl.module, &ctx.current_module) {
+                return qualify_name(&decl.module, &decl.name)
             }
-            add_type_error(ctx, "struct '" + name + "' is private")
-            return name
+            add_type_error(ctx, "struct '" + string_clone(name) + "' is private")
+            return string_clone(name)
         }
-        let eidx = find_enum_in_module(&mut enums, item.module, item.name)
+        let eidx = find_enum_in_module(&enums, &item.module, &item.name)
         if eidx >= 0 {
             let decl = enums[eidx]
-            if ctx.allow_global || visibility_allows(decl.vis, decl.module, ctx.current_module) {
-                return qualify_name(decl.module, decl.name)
+            if ctx.allow_global || visibility_allows(decl.vis, &decl.module, &ctx.current_module) {
+                return qualify_name(&decl.module, &decl.name)
             }
-            add_type_error(ctx, "enum '" + name + "' is private")
-            return name
+            add_type_error(ctx, "enum '" + string_clone(name) + "' is private")
+            return string_clone(name)
         }
-        let re_s = resolve_reexport(ctx, item.module, item.name, reexport_kind_struct())
+        let re_s = resolve_reexport(ctx, &item.module, &item.name, reexport_kind_struct())
         if re_s != "" { return re_s }
-        let re_e = resolve_reexport(ctx, item.module, item.name, reexport_kind_enum())
+        let re_e = resolve_reexport(ctx, &item.module, &item.name, reexport_kind_enum())
         if re_e != "" { return re_e }
-        add_type_error(ctx, "imported '" + name + "' is not a type")
-        return name
+        add_type_error(ctx, "imported '" + string_clone(name) + "' is not a type")
+        return string_clone(name)
     }
     if ctx.allow_global {
         let mut found = ""
         let mut ai = 0
         while ai < len(ctx.type_aliases) {
             let alias = ctx.type_aliases[ai]
-            if alias.name == name {
-                let q = qualify_name(alias.module, alias.name)
+            if alias.name == string_clone(name) {
+                let q = qualify_name(&alias.module, &alias.name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous type name '" + name + "'")
-                    return name
+                    add_type_error(ctx, "ambiguous type name '" + string_clone(name) + "'")
+                    return string_clone(name)
                 }
                 found = q
             }
@@ -2389,11 +2465,11 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
         }
         let mut si = 0
         while si < len(structs) {
-            if structs[si].name == name {
-                let q = qualify_name(structs[si].module, structs[si].name)
+            if structs[si].name == string_clone(name) {
+                let q = qualify_name(&structs[si].module, &structs[si].name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous type name '" + name + "'")
-                    return name
+                    add_type_error(ctx, "ambiguous type name '" + string_clone(name) + "'")
+                    return string_clone(name)
                 }
                 found = q
             }
@@ -2401,11 +2477,11 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
         }
         let mut ei = 0
         while ei < len(enums) {
-            if enums[ei].name == name {
-                let q = qualify_name(enums[ei].module, enums[ei].name)
+            if enums[ei].name == string_clone(name) {
+                let q = qualify_name(&enums[ei].module, &enums[ei].name)
                 if found != "" && found != q {
-                    add_type_error(ctx, "ambiguous type name '" + name + "'")
-                    return name
+                    add_type_error(ctx, "ambiguous type name '" + string_clone(name) + "'")
+                    return string_clone(name)
                 }
                 found = q
             }
@@ -2413,8 +2489,8 @@ fn ctx_resolve_type_name(ctx: &mut TypeContext, name: String, self_name: String)
         }
         if found != "" { return found }
     }
-    add_type_error(ctx, "unknown type '" + name + "'")
-    return name
+    add_type_error(ctx, "unknown type '" + string_clone(name) + "'")
+    return string_clone(name)
 }
 
 fn deref_type(types: &mut TypeTable, t: i32) -> i32 {
@@ -2465,26 +2541,27 @@ fn block_expr_type_expr(ctx: &mut TypeContext, block: BlockExpr) -> i32 {
     return t
 }
 
-fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
-    ctx_set_pos(ctx, expr_pos(expr))
+fn check_expr(ctx_in: &mut TypeContext, expr: Expr) -> i32 {
+    let ctx = ctx_in
+    ctx_set_pos(ctx, expr_pos(&expr))
     match expr {
         Expr.Ident(x) => {
             let v = ctx_env_lookup(ctx, x.name)
             if v.name != "" {
                 return v.typ
             }
-            let cq = resolve_const_name(ctx, x.name)
+            let cq = resolve_const_name(ctx, &x.name)
             if cq != "" {
                 let cidx = ctx_find_const(ctx, cq)
                 if cidx >= 0 {
                     return ctx.consts[cidx].typ
                 }
             }
-            let eq = resolve_enum_name(ctx, x.name)
+            let eq = resolve_enum_name(ctx, &x.name)
             if eq != "" {
                 return ctx_type_make(ctx, 6, eq, false, false, -1)
             }
-            let sq = resolve_struct_name(ctx, x.name)
+            let sq = resolve_struct_name(ctx, &x.name)
             if sq != "" {
                 return ctx_type_make(ctx, 5, sq, false, false, -1)
             }
@@ -2492,7 +2569,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             return 0
         }
         .IntLit(_) => { return ctx_type_make(ctx, 1, "int", false, false, -1) }
-        .StringLit(_) => { return ctx_type_make(ctx, 3, "string", false, false, -1) }
+        .StringLit(_) => { return ctx_type_make(ctx, 3, "String", false, false, -1) }
         .BoolLit(_) => { return ctx_type_make(ctx, 2, "bool", false, false, -1) }
         Expr.Block(b) => {
             return block_expr_type_expr(ctx, b)
@@ -2550,9 +2627,9 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     return ctx_type_make(ctx, 1, "int", false, false, -1)
                 }
                 if ctx_is_string(ctx, lt) && ctx_is_string(ctx, rt) {
-                    return ctx_type_make(ctx, 3, "string", false, false, -1)
+                    return ctx_type_make(ctx, 3, "String", false, false, -1)
                 }
-                add_type_error(ctx, "'+' requires int or string")
+                add_type_error(ctx, "'+' requires int or String/&str")
                 return 0
             }
             if b.op == TokenKind.Minus || b.op == TokenKind.Star || b.op == TokenKind.Slash || b.op == TokenKind.Percent {
@@ -2563,7 +2640,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 return ctx_type_make(ctx, 1, "int", false, false, -1)
             }
             if b.op == TokenKind.EqEq || b.op == TokenKind.NotEq {
-                if !ctx_type_equal(ctx, lt, rt) && lt != 0 && rt != 0 {
+                if !ctx_type_equal(ctx, lt, rt) && !(ctx_is_string(ctx, lt) && ctx_is_string(ctx, rt)) && lt != 0 && rt != 0 {
                     add_type_error(ctx, "equality operands must have same type")
                 }
                 return ctx_type_make(ctx, 2, "bool", false, false, -1)
@@ -2587,7 +2664,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 Expr.Ident(id) => {
                     let v = ctx_env_lookup(ctx, id.name)
                     if v.name == "" {
-                        if resolve_const_name(ctx, id.name) != "" {
+                        if resolve_const_name(ctx, &id.name) != "" {
                             add_type_error(ctx, "cannot take reference to const '" + id.name + "'")
                         } else {
                             add_type_error(ctx, "undefined variable '" + id.name + "'")
@@ -2598,6 +2675,12 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                         add_type_error(ctx, "cannot take &mut of immutable '" + id.name + "'")
                     }
                     let base = v.typ
+                    if ctx_is_string(ctx, base) {
+                        if r.mutable {
+                            add_type_error(ctx, "cannot take &mut of string")
+                        }
+                        return ctx_type_make(ctx, 3, "str", true, false, -1)
+                    }
                     let kind = ctx_type_kind(ctx, base)
                     let name = ctx_type_name(ctx, base)
                     let elem = ctx_type_elem(ctx, base)
@@ -2656,11 +2739,11 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             return ctx_type_elem(ctx, base)
         }
         .StructLit(s) => {
-            let qname = resolve_struct_name(ctx, s.name)
+            let qname = resolve_struct_name(ctx, &s.name)
             if qname == "" {
                 return 0
             }
-            let idx = ctx_find_struct(ctx, qname)
+            let idx = ctx_find_struct(ctx, &qname)
             if idx < 0 {
                 add_type_error(ctx, "unknown struct '" + s.name + "'")
                 return 0
@@ -2672,18 +2755,18 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             let mut i = 0
             while i < len(s.fields) {
                 let f = s.fields[i]
-                if find_field(decl, f.name) < 0 {
+                if find_field(&decl, &f.name) < 0 {
                     add_type_error(ctx, "unknown field '" + f.name + "'")
                 } else {
-                    let field = decl.fields[find_field(decl, f.name)]
-                    if !ctx.allow_global && !visibility_allows(field.vis, decl.module, ctx.current_module) {
+                    let field = decl.fields[find_field(&decl, &f.name)]
+                    if !ctx.allow_global && !visibility_allows(field.vis, &decl.module, &ctx.current_module) {
                         add_type_error(ctx, "field '" + f.name + "' is private")
                     }
-                    let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
+                    let ft = ctx_parse_type_in_module_empty(ctx, &field.typ, &decl.module)
                     let vt = check_expr(ctx, f.value)
                     // Check if field type is a type param - if so, T is inferred from value
                     let ft_name = ctx_type_name(ctx, ft)
-                    let is_param = find_type_param_idx(ctx.type_params, ft_name) >= 0
+                    let is_param = find_type_param_idx(&ctx.type_params, &ft_name) >= 0
                     if !is_param {
                         // Concrete type - require exact match
                         if !ctx_type_assignable(ctx, vt, ft) && ft != 0 && vt != 0 {
@@ -2707,7 +2790,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     k = k + 1
                 }
                 if !found {
-                    if !ctx.allow_global && !visibility_allows(decl.fields[j].vis, decl.module, ctx.current_module) {
+                    if !ctx.allow_global && !visibility_allows(decl.fields[j].vis, &decl.module, &ctx.current_module) {
                         add_type_error(ctx, "field '" + fname + "' is private")
                     } else {
                         add_type_error(ctx, "missing field '" + fname + "'")
@@ -2722,12 +2805,12 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
             match f.recv {
                 Expr.Ident(id) => {
                     if ctx_env_lookup(ctx, id.name).name == "" {
-                        let eq = resolve_enum_name(ctx, id.name)
+                        let eq = resolve_enum_name(ctx, &id.name)
                         if eq != "" {
-                            let eidx = ctx_find_enum(ctx, eq)
+                            let eidx = ctx_find_enum(ctx, &eq)
                             if eidx < 0 { return 0 }
                             let en = ctx.enums[eidx]
-                            let vidx = find_variant(en, f.name)
+                            let vidx = find_variant(&en, &f.name)
                             if vidx < 0 {
                                 add_type_error(ctx, "unknown variant '" + f.name + "'")
                                 return 0
@@ -2753,30 +2836,40 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 add_type_error(ctx, "field access requires struct")
                 return 0
             }
-            let sidx = ctx_find_struct(ctx, ctx_type_name(ctx, base))
+            let base_name = ctx_type_name(ctx, base)
+            let sidx = ctx_find_struct(ctx, &base_name)
             if sidx < 0 {
                 add_type_error(ctx, "unknown struct")
                 return 0
             }
             let decl = ctx.structs[sidx]
-            let find = find_field(decl, f.name)
+            let find = find_field(&decl, &f.name)
             if find < 0 {
                 add_type_error(ctx, "unknown field '" + f.name + "'")
                 return 0
             }
-            if !ctx.allow_global && !visibility_allows(decl.fields[find].vis, decl.module, ctx.current_module) {
+            if !ctx.allow_global && !visibility_allows(decl.fields[find].vis, &decl.module, &ctx.current_module) {
                 add_type_error(ctx, "field '" + f.name + "' is private")
             }
             // Set struct's type params so T is recognized in field types
             ctx_set_type_params(ctx, decl.type_params)
-            let ft = ctx_parse_type_in_module(ctx, decl.fields[find].typ, "", decl.module)
+            let ft = ctx_parse_type_in_module_empty(ctx, &decl.fields[find].typ, &decl.module)
             ctx_clear_type_params(ctx)
             return ft
         }
         Expr.Call(c) => {
             match c.callee {
                 Expr.Ident(id) => {
-                    let fq = resolve_func_name(ctx, id.name)
+                    // Variadic print/println should not be shadowed by stdlib stubs.
+                    if is_builtin(ctx, &id.name) && (id.name == "print" || id.name == "println" || id.name == "eprint" || id.name == "eprintln") {
+                        let mut ai = 0
+                        while ai < len(c.args) {
+                            let _ = check_expr(ctx, c.args[ai])
+                            ai = ai + 1
+                        }
+                        return ctx_type_make(ctx, 4, "unit", false, false, -1)
+                    }
+                    let fq = resolve_func_name(ctx, &id.name)
                     if fq != "" {
                         let fidx = find_func_qname(ctx, fq)
                         if fidx >= 0 {
@@ -2811,17 +2904,17 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                         let mut bi = 0
                                         while bi < len(param_sig.bounds) {
                                             let bound_trait = param_sig.bounds[bi]
-                                            if !type_implements_trait(ctx, type_arg, bound_trait) {
-                                                add_type_error(ctx, "type '" + type_arg + "' does not implement trait '" + bound_trait + "'")
+                                            if !type_implements_trait(ctx, &type_arg, &bound_trait) {
+                                                add_type_error(ctx, "type '" + string_clone(&type_arg) + "' does not implement trait '" + string_clone(&bound_trait) + "'")
                                             }
                                             bi = bi + 1
                                         }
                                         ti = ti + 1
                                     }
-                                    return resolve_explicit_return(ctx, sig, c.type_args)
+                                    return resolve_explicit_return(ctx, &sig, &c.type_args)
                                 }
                                 // Infer type params and verify bounds
-                                let inferred_types = infer_type_params_from_args(ctx, sig, arg_types)
+                                let inferred_types = infer_type_params_from_args(ctx, &sig, &arg_types)
                                 // Verify trait bounds for each inferred type
                                 let mut ti = 0
                                 while ti < len(inferred_types) && ti < len(sig.type_param_bounds) {
@@ -2832,20 +2925,20 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                         let mut bi = 0
                                         while bi < len(param_sig.bounds) {
                                             let bound_trait = param_sig.bounds[bi]
-                                            if !type_implements_trait(ctx, type_arg, bound_trait) {
-                                                add_type_error(ctx, "type '" + type_arg + "' does not implement trait '" + bound_trait + "'")
+                                            if !type_implements_trait(ctx, &type_arg, &bound_trait) {
+                                                add_type_error(ctx, "type '" + string_clone(&type_arg) + "' does not implement trait '" + string_clone(&bound_trait) + "'")
                                             }
                                             bi = bi + 1
                                         }
                                     }
                                     ti = ti + 1
                                 }
-                                return infer_generic_return(ctx, sig, arg_types)
+                                return infer_generic_return(ctx, &sig, &arg_types)
                             }
                             return sig.ret
                         }
                     }
-                    if is_builtin(ctx, id.name) {
+                    if is_builtin(ctx, &id.name) {
                         if id.name == "len" {
                             if len(c.args) != 1 {
                                 add_type_error(ctx, "len expects 1 argument")
@@ -2855,7 +2948,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     at = ctx_deref_type(ctx, at)
                                 }
                                 if ctx_type_kind(ctx, at) != 3 && ctx_type_kind(ctx, at) != 7 && at != 0 {
-                                    add_type_error(ctx, "len expects string or array")
+                                    add_type_error(ctx, "len expects String/&str or array")
                                 }
                             }
                             return ctx_type_make(ctx, 1, "int", false, false, -1)
@@ -2867,7 +2960,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 let st = check_expr(ctx, c.args[0])
                                 let it = check_expr(ctx, c.args[1])
                                 if !ctx_is_string(ctx, st) && st != 0 {
-                                    add_type_error(ctx, "char_at expects string")
+                                    add_type_error(ctx, "char_at expects String or &str")
                                 }
                                 if !ctx_is_int(ctx, it) && it != 0 {
                                     add_type_error(ctx, "char_at expects int index")
@@ -2883,7 +2976,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 let it = check_expr(ctx, c.args[1])
                                 let lt = check_expr(ctx, c.args[2])
                                 if !ctx_is_string(ctx, st) && st != 0 {
-                                    add_type_error(ctx, "substr expects string")
+                                    add_type_error(ctx, "substr expects String or &str")
                                 }
                                 if !ctx_is_int(ctx, it) && it != 0 {
                                     add_type_error(ctx, "substr expects int start")
@@ -2892,7 +2985,21 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     add_type_error(ctx, "substr expects int length")
                                 }
                             }
-                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 3, "String", false, false, -1)
+                        }
+                        if id.name == "string_clone" {
+                            if len(c.args) != 1 {
+                                add_type_error(ctx, "string_clone expects 1 argument")
+                            } else {
+                                let mut st = check_expr(ctx, c.args[0])
+                                if ctx_type_is_ref(ctx, st) {
+                                    st = ctx_deref_type(ctx, st)
+                                }
+                                if !ctx_is_string(ctx, st) && st != 0 {
+                                    add_type_error(ctx, "string_clone expects String or &str")
+                                }
+                            }
+                            return ctx_type_make(ctx, 3, "String", false, false, -1)
                         }
                         if id.name == "read_file" {
                             if len(c.args) != 1 {
@@ -2900,10 +3007,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             } else {
                                 let pt = check_expr(ctx, c.args[0])
                                 if !ctx_is_string(ctx, pt) && pt != 0 {
-                                    add_type_error(ctx, "read_file expects string path")
+                                    add_type_error(ctx, "read_file expects String or &str path")
                                 }
                             }
-                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 3, "String", false, false, -1)
                         }
                         if id.name == "read_dir" {
                             if len(c.args) != 1 {
@@ -2911,10 +3018,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             } else {
                                 let pt = check_expr(ctx, c.args[0])
                                 if !ctx_is_string(ctx, pt) && pt != 0 {
-                                    add_type_error(ctx, "read_dir expects string path")
+                                    add_type_error(ctx, "read_dir expects String or &str path")
                                 }
                             }
-                            let elem = ctx_type_make(ctx, 3, "string", false, false, -1)
+                            let elem = ctx_type_make(ctx, 3, "String", false, false, -1)
                             return ctx_type_make(ctx, 7, "", false, false, elem)
                         }
                         if id.name == "write_file" {
@@ -2924,10 +3031,10 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 let pt = check_expr(ctx, c.args[0])
                                 let dt = check_expr(ctx, c.args[1])
                                 if !ctx_is_string(ctx, pt) && pt != 0 {
-                                    add_type_error(ctx, "write_file expects string path")
+                                    add_type_error(ctx, "write_file expects String or &str path")
                                 }
                                 if !ctx_is_string(ctx, dt) && dt != 0 {
-                                    add_type_error(ctx, "write_file expects string data")
+                                    add_type_error(ctx, "write_file expects String or &str data")
                                 }
                             }
                             return ctx_type_make(ctx, 4, "unit", false, false, -1)
@@ -2938,7 +3045,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             } else {
                                 let pt = check_expr(ctx, c.args[0])
                                 if !ctx_is_string(ctx, pt) && pt != 0 {
-                                    add_type_error(ctx, "mkdir expects string path")
+                                    add_type_error(ctx, "mkdir expects String or &str path")
                                 }
                             }
                             return ctx_type_make(ctx, 4, "unit", false, false, -1)
@@ -2947,14 +3054,14 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             if len(c.args) != 0 {
                                 add_type_error(ctx, "args expects no arguments")
                             }
-                            let elem = ctx_type_make(ctx, 3, "string", false, false, -1)
+                            let elem = ctx_type_make(ctx, 3, "String", false, false, -1)
                             return ctx_type_make(ctx, 7, "", false, false, elem)
                         }
                         if id.name == "read_line" {
                             if len(c.args) != 0 {
                                 add_type_error(ctx, "read_line expects no arguments")
                             }
-                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 3, "String", false, false, -1)
                         }
                         if id.name == "read_bytes" {
                             if len(c.args) != 1 {
@@ -2965,7 +3072,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     add_type_error(ctx, "read_bytes expects int count")
                                 }
                             }
-                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 3, "String", false, false, -1)
                         }
                         if id.name == "exec" {
                             if len(c.args) != 2 {
@@ -2973,15 +3080,15 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             } else {
                                 let ct = check_expr(ctx, c.args[0])
                                 if !ctx_is_string(ctx, ct) && ct != 0 {
-                                    add_type_error(ctx, "exec expects string command")
+                                    add_type_error(ctx, "exec expects String or &str command")
                                 }
                                 let at = check_expr(ctx, c.args[1])
                                 if ctx_type_kind(ctx, at) != 7 {
-                                    if at != 0 { add_type_error(ctx, "exec expects [string] args") }
+                                    if at != 0 { add_type_error(ctx, "exec expects [String] args") }
                                 } else {
                                     let elem = ctx_type_elem(ctx, at)
                                     if !ctx_is_string(ctx, elem) && elem != 0 {
-                                        add_type_error(ctx, "exec expects [string] args")
+                                        add_type_error(ctx, "exec expects [String] args")
                                     }
                                 }
                             }
@@ -3032,7 +3139,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             } else {
                                 let st = check_expr(ctx, c.args[0])
                                 if !ctx_is_string(ctx, st) && st != 0 {
-                                    add_type_error(ctx, id.name + " expects string source")
+                                    add_type_error(ctx, id.name + " expects String or &str source")
                                 }
                                 if len(c.args) == 2 {
                                     let at = check_expr(ctx, c.args[1])
@@ -3060,7 +3167,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     add_type_error(ctx, "ast_to_string expects ast")
                                 }
                             }
-                            return ctx_type_make(ctx, 3, "string", false, false, -1)
+                            return ctx_type_make(ctx, 3, "String", false, false, -1)
                         }
                         if id.name == "gensym" || id.name == "bind" {
                             if len(c.args) != 1 {
@@ -3068,7 +3175,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                             } else {
                                 let st = check_expr(ctx, c.args[0])
                                 if !ctx_is_string(ctx, st) && st != 0 {
-                                    add_type_error(ctx, id.name + " expects string")
+                                    add_type_error(ctx, id.name + " expects String")
                                 }
                             }
                             return ctx_type_make(ctx, 9, "AstExpr", false, false, -1)
@@ -3094,12 +3201,12 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 .Field(f) => {
                     match f.recv {
                         Expr.Ident(id) => {
-                            let eq = resolve_enum_name(ctx, id.name)
+                            let eq = resolve_enum_name(ctx, &id.name)
                             if eq != "" {
-                                let eidx = ctx_find_enum(ctx, eq)
+                                let eidx = ctx_find_enum(ctx, &eq)
                                 if eidx < 0 { return 0 }
                                 let en = ctx.enums[eidx]
-                                let vidx = find_variant(en, f.name)
+                                let vidx = find_variant(&en, &f.name)
                                 if vidx < 0 {
                                     add_type_error(ctx, "unknown variant '" + f.name + "'")
                                     return 0
@@ -3110,11 +3217,11 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                     } else {
                                         // Set enum's type params for payload type parsing
                                         ctx_set_type_params(ctx, en.type_params)
-                                        let payload_t = ctx_parse_type_in_module(ctx, en.variants[vidx].payload, "", en.module)
+                                        let payload_t = ctx_parse_type_in_module_empty(ctx, &en.variants[vidx].payload, &en.module)
                                         let at = check_expr(ctx, c.args[0])
                                         // Check if payload type is a type param - if so, infer from value
                                         let pt_name = ctx_type_name(ctx, payload_t)
-                                        let is_param = find_type_param_idx(ctx.type_params, pt_name) >= 0
+                                        let is_param = find_type_param_idx(&ctx.type_params, &pt_name) >= 0
                                         if !is_param {
                                             if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
                                                 add_type_error(ctx, "variant payload type mismatch")
@@ -3145,11 +3252,11 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                     if ctx_env_lookup(ctx, id.name).name == "" {
                         let alias_mod = module_alias_module(ctx, id.name)
                         if alias_mod != "" {
-                            let mod_name = module_strip_root(alias_mod)
-                            let fidx = find_func_in_module(ctx, mod_name, m.method)
+                            let mod_name = module_strip_root(&alias_mod)
+                            let fidx = find_func_in_module(ctx, &mod_name, &m.method)
                             if fidx >= 0 {
                                 let sig = ctx.funcs[fidx]
-                                if !ctx.allow_global && !visibility_allows(sig.vis, sig.module, ctx.current_module) {
+                                if !ctx.allow_global && !visibility_allows(sig.vis, &sig.module, &ctx.current_module) {
                                     add_type_error(ctx, "function '" + m.method + "' is private")
                                     return sig.ret
                                 }
@@ -3166,7 +3273,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 }
                                 return sig.ret
                             }
-                            let rq = resolve_reexport(ctx, alias_mod, m.method, reexport_kind_func())
+                            let rq = resolve_reexport(ctx, &alias_mod, &m.method, reexport_kind_func())
                             if rq != "" {
                                 let fidx2 = find_func_qname(ctx, rq)
                                 if fidx2 >= 0 {
@@ -3186,12 +3293,12 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                 }
                             }
                         }
-                        let eq = resolve_enum_name(ctx, id.name)
+                        let eq = resolve_enum_name(ctx, &id.name)
                         if eq != "" {
-                            let eidx = ctx_find_enum(ctx, eq)
+                            let eidx = ctx_find_enum(ctx, &eq)
                             if eidx >= 0 {
                                 let en = ctx.enums[eidx]
-                                let vidx = find_variant(en, m.method)
+                                let vidx = find_variant(&en, &m.method)
                                 if vidx >= 0 {
                                     if en.variants[vidx].has_payload {
                                         if len(m.args) != 1 {
@@ -3199,11 +3306,11 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                                         } else {
                                             // Set enum's type params for payload type parsing
                                             ctx_set_type_params(ctx, en.type_params)
-                                            let payload_t = ctx_parse_type_in_module(ctx, en.variants[vidx].payload, "", en.module)
+                                            let payload_t = ctx_parse_type_in_module_empty(ctx, &en.variants[vidx].payload, &en.module)
                                             let at = check_expr(ctx, m.args[0])
                                             // Check if payload type is a type param - if so, infer from value
                                             let pt_name = ctx_type_name(ctx, payload_t)
-                                            let is_param = find_type_param_idx(ctx.type_params, pt_name) >= 0
+                                            let is_param = find_type_param_idx(&ctx.type_params, &pt_name) >= 0
                                             if !is_param {
                                                 if !ctx_type_assignable(ctx, at, payload_t) && at != 0 && payload_t != 0 {
                                                     add_type_error(ctx, "variant payload type mismatch")
@@ -3220,13 +3327,13 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                         }
                         let mut type_q = eq
                         if type_q == "" {
-                            type_q = resolve_struct_name(ctx, id.name)
+                            type_q = resolve_struct_name(ctx, &id.name)
                         }
                         if type_q != "" {
-                            let midx = find_method(ctx, type_q, m.method)
+                            let midx = find_method(ctx, &type_q, &m.method)
                             if midx >= 0 {
                                 let sig = ctx.methods[midx]
-                                if !ctx.allow_global && !visibility_allows(sig.vis, sig.module, ctx.current_module) {
+                                if !ctx.allow_global && !visibility_allows(sig.vis, &sig.module, &ctx.current_module) {
                                     add_type_error(ctx, "method '" + m.method + "' is private")
                                     return sig.ret
                                 }
@@ -3265,13 +3372,14 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 }
                 return 0
             }
-            let midx = find_method(ctx, ctx_type_name(ctx, base), m.method)
+            let base_name = ctx_type_name(ctx, base)
+            let midx = find_method(ctx, &base_name, &m.method)
             if midx < 0 {
                 add_type_error(ctx, "unknown method '" + m.method + "'")
                 return 0
             }
             let sig = ctx.methods[midx]
-            if !ctx.allow_global && !visibility_allows(sig.vis, sig.module, ctx.current_module) {
+            if !ctx.allow_global && !visibility_allows(sig.vis, &sig.module, &ctx.current_module) {
                 add_type_error(ctx, "method '" + m.method + "' is private")
                 return sig.ret
             }
@@ -3279,8 +3387,35 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 add_type_error(ctx, "method requires no self; call as Type.method()")
                 return sig.ret
             }
-            if len(sig.params) == 0 || !ctx_type_assignable(ctx, recv_t, sig.params[0]) {
+            if len(sig.params) == 0 {
                 add_type_error(ctx, "receiver type mismatch")
+            } else if !ctx_type_assignable(ctx, recv_t, sig.params[0]) {
+                let mut ok = false
+                if ctx_type_is_ref(ctx, sig.params[0]) {
+                    let base = ctx_deref_type(ctx, sig.params[0])
+                    if ctx_type_assignable(ctx, recv_t, base) {
+                        match m.recv {
+                            Expr.Ident(id) => {
+                                if ctx_type_is_mut(ctx, sig.params[0]) {
+                                    let v = ctx_env_lookup(ctx, id.name)
+                                    if v.name == "" || !v.mutable {
+                                        add_type_error(ctx, "cannot borrow immutable receiver as mutable")
+                                    } else {
+                                        ok = true
+                                    }
+                                } else {
+                                    ok = true
+                                }
+                            }
+                            _ => {
+                                add_type_error(ctx, "receiver must be identifier for implicit borrow")
+                            }
+                        }
+                    }
+                }
+                if !ok {
+                    add_type_error(ctx, "receiver type mismatch")
+                }
             }
             let expected = len(sig.params) - 1
             if len(m.args) != expected {
@@ -3305,11 +3440,11 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 if scrut_kind == 6 || scrut_kind == 5 {
                     scrut_name = ctx_type_name(ctx, scrut)
                 } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 && scrut_kind != 5 {
-                    add_type_error(ctx, "if let requires enum, struct, int, bool, or string expression")
+                    add_type_error(ctx, "if let requires enum, struct, int, bool, or String expression")
                 }
             }
             ctx_env_push(ctx)
-            check_pattern(ctx, x.pattern, scrut, scrut_name)
+            check_pattern(ctx, x.pattern, scrut, &scrut_name)
             let then_t = block_expr_type(ctx, x.then_block)
             ctx_env_pop(ctx)
             let unit = ctx_type_make(ctx, 4, "unit", false, false, -1)
@@ -3333,7 +3468,7 @@ fn check_expr(ctx: &mut TypeContext, expr: Expr) -> i32 {
                 let mut pt = 0
                 if p.has_type {
                     // Parse type with outer type_params available for generics
-                    pt = ctx_parse_type(ctx, p.typ, "")
+                    pt = ctx_parse_type_empty(ctx, &p.typ)
                 } else {
                     add_type_error(ctx, "closure parameter '" + p.name + "' requires type annotation")
                     pt = ctx_type_make(ctx, 1, "i32", false, false, -1)
@@ -3356,7 +3491,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
         Expr.Ident(id) => {
             let v = ctx_env_lookup(ctx, id.name)
             if v.name == "" {
-                if resolve_const_name(ctx, id.name) != "" {
+                if resolve_const_name(ctx, &id.name) != "" {
                     add_type_error(ctx, "cannot assign to const '" + id.name + "'")
                 } else {
                     add_type_error(ctx, "undefined variable '" + id.name + "'")
@@ -3366,7 +3501,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
             if !v.mutable {
                 add_type_error(ctx, "cannot assign to immutable '" + id.name + "'")
             }
-            let vt = check_expr(ctx, value)
+            let vt = check_expr(ctx, clone_expr(&value))
             if !ctx_type_assignable(ctx, vt, v.typ) && vt != 0 && v.typ != 0 {
                 add_type_error(ctx, "assignment type mismatch")
             }
@@ -3381,7 +3516,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 add_type_error(ctx, "assignment through & requires &mut")
             }
             let base = ctx_deref_type(ctx, rt)
-            let vt = check_expr(ctx, value)
+            let vt = check_expr(ctx, clone_expr(&value))
             if !ctx_type_assignable(ctx, vt, base) && vt != 0 && base != 0 {
                 add_type_error(ctx, "assignment type mismatch")
             }
@@ -3406,7 +3541,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 add_type_error(ctx, "index assignment requires array")
                 return
             }
-            let vt = check_expr(ctx, value)
+            let vt = check_expr(ctx, clone_expr(&value))
             let elem = ctx_type_elem(ctx, base)
             if !ctx_type_assignable(ctx, vt, elem) && vt != 0 && elem != 0 {
                 add_type_error(ctx, "index assignment type mismatch")
@@ -3440,25 +3575,26 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
                 }
                 return
             }
-            let sidx = ctx_find_struct(ctx, ctx_type_name(ctx, base))
+            let base_name = ctx_type_name(ctx, base)
+            let sidx = ctx_find_struct(ctx, &base_name)
             if sidx < 0 {
                 add_type_error(ctx, "unknown struct")
                 return
             }
             let decl = ctx.structs[sidx]
-            let find = find_field(decl, f.name)
+            let find = find_field(&decl, &f.name)
             if find < 0 {
                 add_type_error(ctx, "unknown field '" + f.name + "'")
                 return
             }
-            if !ctx.allow_global && !visibility_allows(decl.fields[find].vis, decl.module, ctx.current_module) {
+            if !ctx.allow_global && !visibility_allows(decl.fields[find].vis, &decl.module, &ctx.current_module) {
                 add_type_error(ctx, "field '" + f.name + "' is private")
             }
             // Set struct's type params for field type parsing
             ctx_set_type_params(ctx, decl.type_params)
-            let ft = ctx_parse_type_in_module(ctx, decl.fields[find].typ, "", decl.module)
+            let ft = ctx_parse_type_in_module_empty(ctx, &decl.fields[find].typ, &decl.module)
             ctx_clear_type_params(ctx)
-            let vt = check_expr(ctx, value)
+            let vt = check_expr(ctx, clone_expr(&value))
             if !ctx_type_assignable(ctx, vt, ft) && vt != 0 && ft != 0 {
                 add_type_error(ctx, "field assignment type mismatch")
             }
@@ -3470,7 +3606,7 @@ fn check_assign(ctx: &mut TypeContext, target: Expr, value: Expr) {
 }
 
 fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
-    ctx_set_pos(ctx, stmt_pos(stmt))
+    ctx_set_pos(ctx, stmt_pos(&stmt))
     match stmt {
         Stmt.Let(s) => {
             if !s.has_init {
@@ -3480,7 +3616,7 @@ fn check_stmt(ctx: &mut TypeContext, stmt: Stmt) {
             let init_t = check_expr(ctx, s.init)
             let mut decl_t = init_t
             if s.has_type {
-                decl_t = ctx_parse_type(ctx, s.typ, "")
+                decl_t = ctx_parse_type_empty(ctx, &s.typ)
                 match s.init {
                     .ArrayLit(a) => {
                         if len(a.elems) == 0 && ctx_type_kind(ctx, decl_t) == 7 {
@@ -3604,7 +3740,7 @@ fn check_tail_block(ctx: &mut TypeContext, block: Block, allow_implicit: bool) {
 }
 
 fn check_tail_stmt(ctx: &mut TypeContext, stmt: Stmt, allow_implicit: bool) {
-    ctx_set_pos(ctx, stmt_pos(stmt))
+    ctx_set_pos(ctx, stmt_pos(&stmt))
     match stmt {
         .Expr(e) => {
             let r = ReturnStmt { pos: e.pos, has_value: true, value: e.expr }
@@ -3634,7 +3770,7 @@ fn check_tail_if(ctx: &mut TypeContext, s: IfStmt, allow_implicit: bool) {
     check_tail_block(ctx, s.else_block, allow_implicit)
 }
 
-fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_name: String) {
+fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_name: &str) {
     let kind = ctx_type_kind(ctx, scrut_type)
     match pat {
         .Wildcard(_) => {}
@@ -3647,7 +3783,7 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
         .Literal(lp) => {
             ctx_set_pos(ctx, lp.pos)
             if kind != 1 && kind != 2 && kind != 3 {
-                add_type_error(ctx, "literal pattern requires int, bool, or string expression")
+                add_type_error(ctx, "literal pattern requires int, bool, or String expression")
             } else {
                 let pt = ctx_type_for_const_value(ctx, lp.value)
                 if pt != 0 && ctx_type_kind(ctx, pt) != kind {
@@ -3672,25 +3808,25 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
             }
             let mut pat_enum = vp.enum_name
             if pat_enum == "" {
-                pat_enum = scrut_name
+                pat_enum = string_clone(scrut_name)
             } else {
-                pat_enum = resolve_enum_name(ctx, pat_enum)
+                pat_enum = resolve_enum_name(ctx, &pat_enum)
             }
             if pat_enum == "" {
                 add_type_error(ctx, "cannot resolve enum for pattern")
                 return
             }
-            if pat_enum != scrut_name {
+            if pat_enum != string_clone(scrut_name) {
                 add_type_error(ctx, "enum pattern requires matching enum type")
                 return
             }
-            let eidx = ctx_find_enum(ctx, pat_enum)
+            let eidx = ctx_find_enum(ctx, &pat_enum)
             if eidx < 0 {
                 add_type_error(ctx, "unknown enum '" + pat_enum + "'")
                 return
             }
             let decl = ctx.enums[eidx]
-            let vidx = find_variant(decl, vp.variant)
+            let vidx = find_variant(&decl, &vp.variant)
             if vidx < 0 {
                 add_type_error(ctx, "unknown variant '" + vp.variant + "'")
                 return
@@ -3701,7 +3837,7 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                 } else {
                     // Set enum's type params for payload type parsing
                     ctx_set_type_params(ctx, decl.type_params)
-                    let pt = ctx_parse_type_in_module(ctx, decl.variants[vidx].payload, "", decl.module)
+                    let pt = ctx_parse_type_in_module_empty(ctx, &decl.variants[vidx].payload, &decl.module)
                     ctx_clear_type_params(ctx)
                     ctx_env_declare(ctx, vp.binding, pt, false)
                 }
@@ -3713,17 +3849,17 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                 add_type_error(ctx, "struct pattern requires struct expression")
                 return
             }
-            let mut pat_struct = resolve_struct_name(ctx, sp.name)
+            let mut pat_struct = resolve_struct_name(ctx, &sp.name)
             if pat_struct == "" { pat_struct = sp.name }
             if pat_struct == "" {
                 add_type_error(ctx, "cannot resolve struct for pattern")
                 return
             }
-            if scrut_name != "" && pat_struct != scrut_name {
+            if *scrut_name != "" && pat_struct != string_clone(scrut_name) {
                 add_type_error(ctx, "struct pattern requires matching struct type")
                 return
             }
-            let sidx = ctx_find_struct(ctx, pat_struct)
+            let sidx = ctx_find_struct(ctx, &pat_struct)
             if sidx < 0 {
                 add_type_error(ctx, "unknown struct '" + pat_struct + "'")
                 return
@@ -3734,16 +3870,16 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
             while i < len(sp.fields) {
                 let f = sp.fields[i]
                 ctx_set_pos(ctx, f.pos)
-                if name_list_contains(seen, f.name) {
+                if name_list_contains(&seen, &f.name) {
                     add_type_error(ctx, "duplicate field '" + f.name + "' in pattern")
                 } else {
-                    let fidx = find_field(decl, f.name)
+                    let fidx = find_field(&decl, &f.name)
                     if fidx < 0 {
                         add_type_error(ctx, "unknown field '" + f.name + "'")
                     } else {
                         push(&mut seen, f.name)
                         let field = decl.fields[fidx]
-                        let ft = ctx_parse_type_in_module(ctx, field.typ, "", decl.module)
+                        let ft = ctx_parse_type_in_module_empty(ctx, &field.typ, &decl.module)
                         if f.bind {
                             ctx_env_declare(ctx, f.name, ft, false)
                         } else if f.has_pattern {
@@ -3752,7 +3888,7 @@ fn check_pattern(ctx: &mut TypeContext, pat: Pattern, scrut_type: i32, scrut_nam
                             if field_kind == 5 || field_kind == 6 {
                                 field_name = ctx_type_name(ctx, ft)
                             }
-                            check_pattern(ctx, f.pattern, ft, field_name)
+                            check_pattern(ctx, f.pattern, ft, &field_name)
                         }
                     }
                 }
@@ -3790,16 +3926,16 @@ fn check_match(ctx: &mut TypeContext, m: MatchStmt) {
         if scrut_kind == 6 || scrut_kind == 5 {
             scrut_name = ctx_type_name(ctx, scrut)
         } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 && scrut_kind != 5 {
-            add_type_error(ctx, "match requires enum, struct, int, bool, or string expression")
+            add_type_error(ctx, "match requires enum, struct, int, bool, or String expression")
         }
     }
     let mut i = 0
     while i < len(m.arms) {
         ctx_env_push(ctx)
         let pat = m.arms[i].pattern
-        check_pattern(ctx, pat, scrut, scrut_name)
+        check_pattern(ctx, pat, scrut, &scrut_name)
         if m.arms[i].has_guard {
-            let gp = expr_pos(m.arms[i].guard)
+            let gp = expr_pos(&m.arms[i].guard)
             if gp != 0 { ctx_set_pos(ctx, gp) }
             let gt = check_expr(ctx, m.arms[i].guard)
             if !ctx_is_bool(ctx, gt) && gt != 0 {
@@ -3822,16 +3958,16 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
         if scrut_kind == 6 || scrut_kind == 5 {
             scrut_name = ctx_type_name(ctx, scrut)
         } else if scrut_kind != 1 && scrut_kind != 2 && scrut_kind != 3 && scrut_kind != 5 {
-            add_type_error(ctx, "match requires enum, struct, int, bool, or string expression")
+            add_type_error(ctx, "match requires enum, struct, int, bool, or String expression")
         }
     }
     let mut i = 0
     while i < len(m.arms) {
         ctx_env_push(ctx)
         let pat = m.arms[i].pattern
-        check_pattern(ctx, pat, scrut, scrut_name)
+        check_pattern(ctx, pat, scrut, &scrut_name)
         if m.arms[i].has_guard {
-            let gp = expr_pos(m.arms[i].guard)
+            let gp = expr_pos(&m.arms[i].guard)
             if gp != 0 { ctx_set_pos(ctx, gp) }
             let gt = check_expr(ctx, m.arms[i].guard)
             if !ctx_is_bool(ctx, gt) && gt != 0 {
@@ -3847,13 +3983,13 @@ fn check_tail_match(ctx: &mut TypeContext, m: MatchStmt, allow_implicit: bool) {
 fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
     ctx_set_file(ctx, f.file)
     ctx_set_pos(ctx, f.pos)
-    ctx_set_current_module(ctx, f.module)
-    let fidx = find_func_in_module(ctx, f.module, f.name)
+    ctx_set_current_module(ctx, &f.module)
+    let fidx = find_func_in_module(ctx, &f.module, &f.name)
     if fidx < 0 {
         return
     }
     let sig = ctx.funcs[fidx]
-    ctx.current_func = qualify_name(sig.module, sig.name)
+    ctx.current_func = qualify_name(&sig.module, &sig.name)
     ctx.current_ret = sig.ret
     ctx.current_ret_explicit = sig.ret_explicit
     ctx.infer_return = !sig.ret_explicit
@@ -3891,11 +4027,12 @@ fn check_function(ctx: &mut TypeContext, f: FunctionDecl) {
     ctx_env_pop(ctx)
 }
 
-fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
+fn check_method(ctx: &mut TypeContext, type_name: &str, f: FunctionDecl) {
+    let type_qname = string_clone(type_name)
     ctx_set_file(ctx, f.file)
     ctx_set_pos(ctx, f.pos)
-    ctx_set_current_module(ctx, f.module)
-    let midx = find_method(ctx, type_name, f.name)
+    ctx_set_current_module(ctx, &f.module)
+    let midx = find_method(ctx, &type_qname, &f.name)
     if midx < 0 {
         return
     }
@@ -3915,7 +4052,7 @@ fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
             }
             if ctx_type_kind(ctx, base) != 5 && ctx_type_kind(ctx, base) != 6 {
                 add_type_error(ctx, "self must be Self, &Self, or &mut Self")
-            } else if ctx_type_name(ctx, base) != type_name {
+            } else if ctx_type_name(ctx, base) != string_clone(&type_qname) {
                 add_type_error(ctx, "self type must be Self")
             }
         }
@@ -3927,7 +4064,7 @@ fn check_method(ctx: &mut TypeContext, type_name: String, f: FunctionDecl) {
     ctx.inferred_type = 0
     ctx.has_return = false
     ctx.has_bare_return = false
-    ctx.self_type = type_name
+    ctx.self_type = string_clone(&type_qname)
 
     ctx.env = env_new()
     ctx_env_push(ctx)
@@ -4005,13 +4142,20 @@ fn check_program(prog: Program, debug: bool, allow_global: bool, allow_compile: 
     }
     register_builtin_traits(&mut ctx)
     if debug { println("stage2: typecheck collect consts/traits/impls/reexports/sigs") }
-    collect_consts(&mut ctx, prog)
-    collect_traits(&mut ctx, prog)
-    collect_impl_traits(&mut ctx, prog)
-    collect_reexports(&mut ctx, prog)
-    collect_func_sigs(&mut ctx, prog)
-    collect_method_sigs(&mut ctx, prog)
-    check_import_conflicts(&mut ctx, prog)
+    if debug { println("stage2: typecheck collect consts") }
+    collect_consts(&mut ctx, &prog)
+    if debug { println("stage2: typecheck collect traits") }
+    collect_traits(&mut ctx, &prog)
+    if debug { println("stage2: typecheck collect impl-traits") }
+    collect_impl_traits(&mut ctx, &prog)
+    if debug { println("stage2: typecheck collect reexports") }
+    collect_reexports(&mut ctx, &prog)
+    if debug { println("stage2: typecheck collect func sigs") }
+    collect_func_sigs(&mut ctx, &prog)
+    if debug { println("stage2: typecheck collect method sigs") }
+    collect_method_sigs(&mut ctx, &prog)
+    if debug { println("stage2: typecheck import conflicts") }
+    check_import_conflicts(&mut ctx, &prog)
     let mut i = 0
     let total_funcs = len(prog.functions)
     while i < len(prog.functions) {
@@ -4028,18 +4172,20 @@ fn check_program(prog: Program, debug: bool, allow_global: bool, allow_compile: 
         let imp = prog.impls[j]
         ctx_set_file(&mut ctx, imp.file)
         ctx_set_pos(&mut ctx, imp.pos)
-        ctx_set_current_module(&mut ctx, imp.module)
-        let type_qname = ctx_resolve_type_name(&mut ctx, imp.type_name, "")
+        ctx_set_current_module(&mut ctx, &imp.module)
+        let empty = ""
+        let type_qname = ctx_resolve_type_name(&mut ctx, &imp.type_name, &empty)
         if debug {
-            println("stage2: typecheck impl", j + 1, "/", total_impls, "type", type_qname)
+            println("stage2: typecheck impl", j + 1, "/", total_impls, "type", string_clone(&type_qname))
         }
         let mut k = 0
         while k < len(imp.methods) {
             if type_qname != "" {
                 if debug {
-                    println("stage2: typecheck impl method", type_qname + "." + imp.methods[k].name, k + 1, "/", len(imp.methods))
+                    let method_label = string_clone(&type_qname) + "." + string_clone(&imp.methods[k].name)
+                    println("stage2: typecheck impl method", method_label, k + 1, "/", len(imp.methods))
                 }
-                check_method(&mut ctx, type_qname, imp.methods[k])
+                check_method(&mut ctx, &type_qname, imp.methods[k])
             }
             k = k + 1
         }
@@ -4053,18 +4199,20 @@ fn check_program(prog: Program, debug: bool, allow_global: bool, allow_compile: 
         let it = prog.impl_traits[jt]
         ctx_set_file(&mut ctx, it.file)
         ctx_set_pos(&mut ctx, it.pos)
-        ctx_set_current_module(&mut ctx, it.module)
-        let type_qname = ctx_resolve_type_name(&mut ctx, it.for_type, "")
+        ctx_set_current_module(&mut ctx, &it.module)
+        let empty = ""
+        let type_qname = ctx_resolve_type_name(&mut ctx, &it.for_type, &empty)
         if debug {
-            println("stage2: typecheck impl-trait", jt + 1, "/", total_impl_traits, "type", type_qname)
+            println("stage2: typecheck impl-trait", jt + 1, "/", total_impl_traits, "type", string_clone(&type_qname))
         }
         let mut kt = 0
         while kt < len(it.methods) {
             if type_qname != "" {
                 if debug {
-                    println("stage2: typecheck impl-trait method", type_qname + "." + it.methods[kt].name, kt + 1, "/", len(it.methods))
+                    let method_label = string_clone(&type_qname) + "." + string_clone(&it.methods[kt].name)
+                    println("stage2: typecheck impl-trait method", method_label, kt + 1, "/", len(it.methods))
                 }
-                check_method(&mut ctx, type_qname, it.methods[kt])
+                check_method(&mut ctx, &type_qname, it.methods[kt])
             }
             kt = kt + 1
         }

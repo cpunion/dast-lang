@@ -53,17 +53,24 @@ struct dast_struct_t {
 // Runtime init/cleanup
 void dast_runtime_init(int argc, char **argv);
 void dast_runtime_cleanup(void);
+void dast_set_mem_limit(size_t bytes);
+void *dast_rt_malloc(size_t n);
+void *dast_rt_realloc(void *p, size_t n);
+void dast_rt_free(void *p);
+char *dast_rt_strdup(const char *s);
 
 // String operations
 dast_string_t dast_string_from_cstr(const char *s);
 dast_string_t dast_string_from_literal(const char *s);
 dast_int dast_string_len(dast_string_t s);
 dast_string_t dast_string_concat(dast_string_t a, dast_string_t b);
+dast_string_t dast_string_clone(dast_string_t s);
 bool dast_string_eq(dast_string_t a, dast_string_t b);
 bool dast_string_eq_cstr(dast_string_t a, const char *b);
 dast_int dast_string_char_at(dast_string_t s, dast_int i);
 dast_string_t dast_string_substr(dast_string_t s, dast_int start,
                                  dast_int length);
+void dast_string_free(dast_string_t s);
 
 // Array operations
 dast_array_t dast_array_new(size_t elem_size);
@@ -72,6 +79,7 @@ void dast_array_push(dast_array_t *arr, void *elem);
 void dast_array_pop(dast_array_t *arr, void *out);
 void *dast_array_get(dast_array_t *arr, dast_int i);
 void dast_array_set(dast_array_t *arr, dast_int i, void *elem);
+void dast_array_free(dast_array_t arr);
 
 // I/O operations
 void dast_print(dast_string_t s);
@@ -107,6 +115,8 @@ dast_string_t dast_struct_get_string(dast_struct_t *st, const char *field);
 dast_array_t dast_struct_get_array(dast_struct_t *st, const char *field);
 dast_struct_t *dast_struct_get_struct(dast_struct_t *st, const char *field);
 void *dast_struct_get_ref(dast_struct_t *st, const char *field);
+void *dast_struct_alloc(size_t size);
+void dast_struct_free(void *ptr);
 
 // Misc builtins
 dast_array_t dast_args(void);

@@ -53,6 +53,46 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 		tok := p.advance()
 		return &ast.WildcardPattern{SpanInfo: tok.Span}
 	}
+	if p.match(lexer.TokenLParen) {
+		start := p.prev().Span
+		if p.at(lexer.TokenRParen) {
+			endTok := p.advance()
+			return &ast.TuplePattern{Elems: nil, SpanInfo: mergeSpan(start, endTok.Span)}
+		}
+		first := p.parsePattern()
+		if p.match(lexer.TokenComma) {
+			elems := []ast.Pattern{first}
+			for !p.at(lexer.TokenRParen) && !p.at(lexer.TokenEOF) {
+				elems = append(elems, p.parsePattern())
+				if p.match(lexer.TokenComma) {
+					continue
+				}
+				break
+			}
+			endTok := p.expect(lexer.TokenRParen, "expected ')' in tuple pattern")
+			return &ast.TuplePattern{Elems: elems, SpanInfo: mergeSpan(start, endTok.Span)}
+		}
+		p.expect(lexer.TokenRParen, "expected ')' in pattern")
+		return first
+	}
+	if p.match(lexer.TokenLBracket) {
+		start := p.prev().Span
+		var elems []ast.Pattern
+		if !p.at(lexer.TokenRBracket) {
+			for {
+				elems = append(elems, p.parsePattern())
+				if p.match(lexer.TokenComma) {
+					if p.at(lexer.TokenRBracket) {
+						break
+					}
+					continue
+				}
+				break
+			}
+		}
+		endTok := p.expect(lexer.TokenRBracket, "expected ']' in array pattern")
+		return &ast.ArrayPattern{Elems: elems, SpanInfo: mergeSpan(start, endTok.Span)}
+	}
 	switch p.peek().Kind {
 	case lexer.TokenInt, lexer.TokenMinus:
 		val, span := p.parseConstInt()
@@ -127,8 +167,7 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 			pat.SpanInfo = mergeSpan(pat.SpanInfo, endTok.Span)
 			return pat
 		}
-		p.diag.Add(nameTok.Span, "expected enum or struct pattern")
-		return &ast.WildcardPattern{SpanInfo: nameTok.Span}
+		return &ast.BindingPattern{Name: nameTok.Lexeme, SpanInfo: nameTok.Span}
 	}
 	p.errorCurrent("expected pattern")
 	return &ast.WildcardPattern{SpanInfo: p.peek().Span}

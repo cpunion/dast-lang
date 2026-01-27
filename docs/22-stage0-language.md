@@ -32,6 +32,17 @@ Stage0 CLI（`dast-stage0`）：
 - 使用 `--emit-qbe` 时，`-o` 输出 QBE 文件；未指定则输出到 stdout。
 - Stage0 可执行输出走 **IR → QBE → cc** 流水线（需要本机可用的 `qbe` 与 `cc/clang`）。
 
+### Drop 检查（调试）
+
+运行时可启用 drop 泄漏检测：
+
+```
+DAST_DROP_DEBUG=1 make test-stage0-drop
+```
+
+- 统计 `String` / `Array` / `Struct` 的分配与释放。
+- 检测到未释放会退出并打印统计。
+
 ## 3. 包与模块
 
 ### 3.1 目录结构
@@ -106,6 +117,7 @@ util = { workspace = true }
 - 字符串：`String`/`string`
 - 单元：`unit`
 - 数组：`[T]`
+- 元组：`(T, U, ...)`（单元素必须写成 `(T,)`）
 - 引用：`&T`, `&mut T`（IR 统一为 `*T`）
 
 ### 4.2 表达式
@@ -114,8 +126,11 @@ util = { workspace = true }
 - 一元：`- ! * & &mut`
 - 索引：`arr[i]`
 - 字段访问：`obj.field`
+- 元组访问：`t.0`
+- 元组字面量：`(a, b)` / `()` / `(a,)`
 - 块表达式：`{ ... }`
 - if/match 表达式（可有返回值）
+- loop 表达式（可有返回值）
 
 ## 5. 结构体与枚举
 
@@ -153,9 +168,12 @@ while let .Some(x) = opt { ... }
 
 支持的模式：
 - 常量字面量
+- 标识符绑定：`x`
 - `_|` 通配符
 - `a | b`（不允许带绑定）
 - `a..=b`（仅 int）
+- 元组模式：`(a, b)`
+- 数组模式：`[a, b]`
 - 结构体模式：`Point { x, y }`
 - 枚举模式：`.Some(x)` / `.None`
 - match guard：`if <bool>`
@@ -163,9 +181,17 @@ while let .Some(x) = opt { ... }
 ### 6.2 控制流
 
 - `if / else`
-- `while`, `loop`
-- `break`, `continue`
+- `while`, `loop`, `for in`
+- `break`, `continue`（支持标签）
+- `loop` 可作为表达式，`break <expr>` 返回值（仅 `loop`）
 - `return`
+
+`for in` 目前仅支持数组：
+
+```dast
+for x in nums { ... }
+for (x, y) in pairs { ... }
+```
 
 ## 7. 借用与引用
 

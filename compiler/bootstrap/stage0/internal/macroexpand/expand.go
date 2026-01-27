@@ -233,6 +233,10 @@ func (e *expander) rewriteExpr(slot *ast.Expr, ctx siteKind, inCompile bool) {
 		for i := range v.Elems {
 			e.rewriteExpr(&v.Elems[i], siteExpr, inCompile)
 		}
+	case *ast.TupleLit:
+		for i := range v.Elems {
+			e.rewriteExpr(&v.Elems[i], siteExpr, inCompile)
+		}
 	case *ast.StructLit:
 		for i := range v.Fields {
 			e.rewriteExpr(&v.Fields[i].Value, siteExpr, inCompile)
@@ -262,6 +266,8 @@ func (e *expander) rewriteExpr(slot *ast.Expr, ctx siteKind, inCompile bool) {
 		}
 	case *ast.BlockExpr:
 		e.rewriteBlock(v.Block)
+	case *ast.LoopExpr:
+		e.rewriteBlock(v.Body)
 	case *ast.IfExpr:
 		e.rewriteExpr(&v.Cond, siteExpr, inCompile)
 		e.rewriteExpr(&v.Then, siteExpr, inCompile)

@@ -1,35 +1,61 @@
 ir v0
 type Point = { x: int, y: int }
 
+fn __drop_Point(v: Point) -> unit
+  block entry0:
+    t0: i64 = + 0, 0
+    t1: bool = == v, t0
+    branch t1, done2, drop1
+  block drop1:
+    call struct_free(v)
+    jump done2
+  block done2:
+    return
+
+fn __drop_array_i64(v: [i64]) -> unit
+  block entry0:
+    t0: i64 = + 0, 0
+    t1: bool = == v, t0
+    branch t1, done2, loop1
+  block loop1:
+    jump done2
+  block done2:
+    call array_free(v)
+    return
+
 fn main() -> unit
   block entry0:
     t0: Point = struct Point { x: 1, y: 2 }
     store p, t0
-    t1: i64 = load p
-    t2: i64 = t1.x
+    t1: Point = load p
+    t2: int = t1.x
     store a, t2
-    t3: i64 = load p
+    t3: Point = load p
     t3.y = 3
-    t4: *i64 = load_addr p
+    t4: *Point = load_addr p
     t5: *i64 = addr_field t4.y
     store pr, t5
-    t6: i64 = load pr
+    t6: *int = load pr
     store_ref t6, 4
     t7: [i64] = array [1, 2, 3]
     store arr, t7
-    t8: i64 = load arr
+    t8: [i64] = load arr
     t9: i64 = index t8[1]
     store b, t9
-    t10: i64 = load arr
+    t10: [i64] = load arr
     set_index t10[2] = 5
-    t11: *i64 = load_addr arr
+    t11: *[i64] = load_addr arr
     t12: *i64 = addr_index t11[0]
     store ar, t12
-    t13: i64 = load ar
+    t13: *i64 = load ar
     store_ref t13, 6
-    t14: i64 = load a
+    t14: int = load a
     t15: i64 = load b
-    t16: i64 = + t14, t15
+    t16: int = + t14, t15
     t17: unit = call println("sum", t16)
+    t18: [i64] = load arr
+    call __drop_array_i64(t18)
+    t19: Point = load p
+    call __drop_Point(t19)
     return t17
 

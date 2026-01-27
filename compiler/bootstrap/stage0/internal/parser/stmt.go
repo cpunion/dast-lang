@@ -5,6 +5,7 @@ import (
 
 	"dastlang/internal/ast"
 	"dastlang/internal/lexer"
+	"dastlang/internal/source"
 )
 
 func (p *Parser) parseBlock() *ast.Block {
@@ -24,6 +25,20 @@ func (p *Parser) parseBlock() *ast.Block {
 }
 
 func (p *Parser) parseStmt() ast.Stmt {
+	if p.at(lexer.TokenIdent) && p.peekN(1).Kind == lexer.TokenColon {
+		if p.peekN(2).Kind == lexer.TokenLoop || p.peekN(2).Kind == lexer.TokenWhile || p.peekN(2).Kind == lexer.TokenFor {
+			labelTok := p.advance()
+			p.advance() // consume ':'
+			switch p.peek().Kind {
+			case lexer.TokenLoop:
+				return p.parseLoopWithLabel(labelTok.Lexeme, labelTok.Span)
+			case lexer.TokenWhile:
+				return p.parseWhileWithLabel(labelTok.Lexeme, labelTok.Span)
+			case lexer.TokenFor:
+				return p.parseForWithLabel(labelTok.Lexeme, labelTok.Span)
+			}
+		}
+	}
 	switch p.peek().Kind {
 	case lexer.TokenLet:
 		return p.parseLet()
@@ -32,9 +47,11 @@ func (p *Parser) parseStmt() ast.Stmt {
 	case lexer.TokenIf:
 		return p.parseIf()
 	case lexer.TokenWhile:
-		return p.parseWhile()
+		return p.parseWhileWithLabel("", source.Span{})
 	case lexer.TokenLoop:
-		return p.parseLoop()
+		return p.parseLoopWithLabel("", source.Span{})
+	case lexer.TokenFor:
+		return p.parseForWithLabel("", source.Span{})
 	case lexer.TokenBreak:
 		return p.parseBreak()
 	case lexer.TokenContinue:
@@ -65,7 +82,7 @@ func (p *Parser) parseLet() ast.Stmt {
 	if p.match(lexer.TokenMut) {
 		mutable = true
 	}
-	if p.at(lexer.TokenDot) || (p.at(lexer.TokenIdent) && p.peek().Lexeme == "_") {
+	if p.at(lexer.TokenDot) || p.at(lexer.TokenLParen) || p.at(lexer.TokenLBracket) || (p.at(lexer.TokenIdent) && p.peek().Lexeme == "_") {
 		pat := p.parsePattern()
 		if mutable {
 			p.diag.Add(start.Span, "let pattern does not support 'mut' in stage 0")
@@ -176,39 +193,61 @@ func (p *Parser) parseIf() ast.Stmt {
 }
 
 func (p *Parser) parseWhile() ast.Stmt {
+	return p.parseWhileWithLabel("", source.Span{})
+}
+
+func (p *Parser) parseWhileWithLabel(label string, labelSpan source.Span) ast.Stmt {
 	start := p.expect(lexer.TokenWhile, "expected 'while'")
 	if p.match(lexer.TokenLet) {
 		pat := p.parsePattern()
 		p.expect(lexer.TokenAssign, "expected '=' in while let")
 		expr := p.parseExpr(0)
 		body := p.parseBlock()
-		return &ast.WhileLetStmt{Pattern: pat, Expr: expr, Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
+		return &ast.WhileLetStmt{Label: label, Pattern: pat, Expr: expr, Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
 	}
 	cond := p.parseExpr(0)
 	body := p.parseBlock()
-	return &ast.WhileStmt{Cond: cond, Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
+	return &ast.WhileStmt{Label: label, Cond: cond, Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
 }
 
 func (p *Parser) parseLoop() ast.Stmt {
+	return p.parseLoopWithLabel("", source.Span{})
+}
+
+func (p *Parser) parseLoopWithLabel(label string, labelSpan source.Span) ast.Stmt {
 	start := p.expect(lexer.TokenLoop, "expected 'loop'")
 	body := p.parseBlock()
-	return &ast.LoopStmt{Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
+	return &ast.LoopStmt{Label: label, Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
 }
 
 func (p *Parser) parseBreak() ast.Stmt {
 	start := p.expect(lexer.TokenBreak, "expected 'break'")
+	label := ""
+	if p.at(lexer.TokenIdent) && p.peekN(1).Kind == lexer.TokenColon {
+		labelTok := p.advance()
+		p.advance() // consume ':'
+		label = labelTok.Lexeme
+	}
+	var val ast.Expr
 	if !p.at(lexer.TokenSemicolon) && !p.at(lexer.TokenRBrace) {
-		p.diag.Add(start.Span, "break value not supported in stage 0")
-		_ = p.parseExpr(0)
+		val = p.parseExpr(0)
 	}
 	p.maybeConsumeSemicolon()
-	return &ast.BreakStmt{SpanInfo: start.Span}
+	return &ast.BreakStmt{Label: label, Value: val, SpanInfo: start.Span}
 }
 
 func (p *Parser) parseContinue() ast.Stmt {
 	start := p.expect(lexer.TokenContinue, "expected 'continue'")
+	label := ""
+	if p.at(lexer.TokenIdent) {
+		labelTok := p.advance()
+		label = labelTok.Lexeme
+		if p.match(lexer.TokenColon) {
+			// optional colon after label
+		}
+	}
 	p.maybeConsumeSemicolon()
-	return &ast.ContinueStmt{SpanInfo: start.Span}
+	return &ast.ContinueStmt{Label: label, SpanInfo: start.Span}
 }
 
 func (p *Parser) parseMatch() ast.Stmt {
@@ -240,4 +279,13 @@ func (p *Parser) parseMatch() ast.Stmt {
 	rbrace := p.expect(lexer.TokenRBrace, "expected '}'")
 	stmt.SpanInfo = mergeSpan(stmt.SpanInfo, rbrace.Span)
 	return stmt
+}
+
+func (p *Parser) parseForWithLabel(label string, labelSpan source.Span) ast.Stmt {
+	start := p.expect(lexer.TokenFor, "expected 'for'")
+	pat := p.parsePattern()
+	p.expect(lexer.TokenIn, "expected 'in' in for loop")
+	expr := p.parseExpr(0)
+	body := p.parseBlock()
+	return &ast.ForStmt{Label: label, Pattern: pat, Expr: expr, Body: body, SpanInfo: mergeSpan(start.Span, body.Span())}
 }

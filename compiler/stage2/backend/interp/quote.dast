@@ -3,14 +3,18 @@ struct QuotePlaceholderIndex {
     idx: i32,
 }
 
-fn quote_has_prefix(s: String, prefix: String) -> bool {
-    if len(prefix) > len(s) { return false }
-    return substr(s, 0, len(prefix)) == prefix
+fn quote_has_prefix(s: &str, prefix: &str) -> bool {
+    let s_len = len(string_clone(s))
+    let p_len = len(string_clone(prefix))
+    if p_len > s_len { return false }
+    return substr(string_clone(s), 0, p_len) == string_clone(prefix)
 }
 
-fn quote_has_suffix(s: String, suffix: String) -> bool {
-    if len(suffix) > len(s) { return false }
-    return substr(s, len(s) - len(suffix), len(suffix)) == suffix
+fn quote_has_suffix(s: &str, suffix: &str) -> bool {
+    let s_len = len(string_clone(s))
+    let p_len = len(string_clone(suffix))
+    if p_len > s_len { return false }
+    return substr(string_clone(s), s_len - p_len, p_len) == string_clone(suffix)
 }
 
 fn quote_parse_int(text: String) -> i32 {
@@ -35,20 +39,20 @@ fn quote_parse_int(text: String) -> i32 {
     return val
 }
 
-fn quote_placeholder_index(name: String) -> QuotePlaceholderIndex {
+fn quote_placeholder_index(name: &str) -> QuotePlaceholderIndex {
     let prefix = "__dast_splice_"
     let suffix = "__"
-    if !quote_has_prefix(name, prefix) { return QuotePlaceholderIndex { ok: false, idx: 0 } }
-    if !quote_has_suffix(name, suffix) { return QuotePlaceholderIndex { ok: false, idx: 0 } }
-    let inner_len = len(name) - len(prefix) - len(suffix)
+    if !quote_has_prefix(name, &prefix) { return QuotePlaceholderIndex { ok: false, idx: 0 } }
+    if !quote_has_suffix(name, &suffix) { return QuotePlaceholderIndex { ok: false, idx: 0 } }
+    let inner_len = len(string_clone(name)) - len(string_clone(&prefix)) - len(string_clone(&suffix))
     if inner_len <= 0 { return QuotePlaceholderIndex { ok: false, idx: 0 } }
-    let num = substr(name, len(prefix), inner_len)
+    let num = substr(string_clone(name), len(string_clone(&prefix)), inner_len)
     let idx = quote_parse_int(num)
     if idx < 0 { return QuotePlaceholderIndex { ok: false, idx: 0 } }
     return QuotePlaceholderIndex { ok: true, idx: idx }
 }
 
-fn quote_is_placeholder(name: String) -> bool {
+fn quote_is_placeholder(name: &str) -> bool {
     let res = quote_placeholder_index(name)
     return res.ok
 }
@@ -106,6 +110,38 @@ fn quote_dummy_parsed_splice() -> QuoteParsedSplice {
     return QuoteParsedSplice { parsed: false, kind: -1, expr: dummy_expr(), stmt: quote_dummy_stmt(), block: quote_dummy_block_expr(), item: quote_dummy_item_result() }
 }
 
+fn quote_clone_block_expr(b: &BlockExpr) -> BlockExpr {
+    return BlockExpr { pos: b.pos, stmts: clone_stmt_list(&b.stmts), has_result: b.has_result, result: clone_expr(&b.result) }
+}
+
+fn quote_clone_item_result(item: &ParseItemResult) -> ParseItemResult {
+    return ParseItemResult {
+        ok: item.ok,
+        kind: item.kind,
+        err: string_clone(&item.err),
+        import_item: clone_import_decl(&item.import_item),
+        struct_item: clone_struct_decl(&item.struct_item),
+        enum_item: clone_enum_decl(&item.enum_item),
+        const_item: clone_const_decl(&item.const_item),
+        trait_item: clone_trait_decl(&item.trait_item),
+        type_item: clone_type_alias(&item.type_item),
+        func_item: clone_function_decl(&item.func_item),
+        impl_item: clone_impl_decl(&item.impl_item),
+        impl_trait_item: clone_impl_trait(&item.impl_trait_item),
+    }
+}
+
+fn quote_clone_parsed_splice(p: &QuoteParsedSplice) -> QuoteParsedSplice {
+    return QuoteParsedSplice {
+        parsed: p.parsed,
+        kind: p.kind,
+        expr: clone_expr(&p.expr),
+        stmt: clone_stmt(&p.stmt),
+        block: quote_clone_block_expr(&p.block),
+        item: quote_clone_item_result(&p.item),
+    }
+}
+
 fn quote_ctx_new(splices: [IrValue]) -> QuoteCtx {
     let mut parsed: [QuoteParsedSplice] = []
     let mut i = 0
@@ -127,7 +163,7 @@ fn quote_parse_splice(ctx: &mut QuoteCtx, idx: i32) -> QuoteParsedSplice {
         quote_set_error(ctx, "splice index out of range")
         return quote_dummy_parsed_splice()
     }
-    let existing = ctx.parsed[idx]
+    let existing = quote_clone_parsed_splice(&ctx.parsed[idx])
     if existing.parsed { return existing }
     let val = ctx.splices[idx]
     if val.kind != ir_kind_ast() {
@@ -171,7 +207,7 @@ fn quote_parse_splice(ctx: &mut QuoteCtx, idx: i32) -> QuoteParsedSplice {
     } else {
         quote_set_error(ctx, "unknown splice kind")
     }
-    ctx.parsed[idx] = out
+    ctx.parsed[idx] = quote_clone_parsed_splice(&out)
     return out
 }
 
@@ -283,16 +319,16 @@ fn hygiene_unique(r: &mut HygieneRenamer, base: String) -> String {
 }
 
 fn hygiene_declare(r: &mut HygieneRenamer, name: String) -> String {
-    if name == "" || quote_is_placeholder(name) { return name }
-    let renamed = hygiene_unique(r, name)
+    if name == "" || quote_is_placeholder(&name) { return name }
+    let renamed = hygiene_unique(r, string_clone(&name))
     let mut entries = r.entries
-    push(&mut entries, HygieneEntry { name: name, renamed: renamed })
+    push(&mut entries, HygieneEntry { name: name, renamed: string_clone(&renamed) })
     r.entries = entries
     return renamed
 }
 
 fn hygiene_declare_renamed(r: &mut HygieneRenamer, name: String, renamed: String) {
-    if name == "" || quote_is_placeholder(name) { return }
+    if name == "" || quote_is_placeholder(&name) { return }
     let mut entries = r.entries
     push(&mut entries, HygieneEntry { name: name, renamed: renamed })
     r.entries = entries
@@ -312,22 +348,22 @@ fn rename_pattern(r: &mut HygieneRenamer, pat: Pattern) -> RenamePatternResult {
 fn rename_pattern_with_binds(r: &mut HygieneRenamer, pat: Pattern, binds: &mut [HygieneEntry], generate: bool) -> Pattern {
     match pat {
         Pattern.Bind(b) => {
-            if b.name != "" && !quote_is_placeholder(b.name) {
+            if b.name != "" && !quote_is_placeholder(&b.name) {
                 let mut name = b.name
                 if generate {
-                    name = hygiene_unique(r, b.name)
-                    push(binds, HygieneEntry { name: b.name, renamed: name })
+                    name = hygiene_unique(r, string_clone(&b.name))
+                    push(binds, HygieneEntry { name: b.name, renamed: string_clone(&name) })
                 }
                 return Pattern.Bind(BindPattern { pos: b.pos, name: name })
             }
             return Pattern.Bind(b)
         }
         Pattern.Variant(v) => {
-            if v.has_binding && v.binding != "" && !quote_is_placeholder(v.binding) {
+            if v.has_binding && v.binding != "" && !quote_is_placeholder(&v.binding) {
                 let mut name = v.binding
                 if generate {
-                    name = hygiene_unique(r, v.binding)
-                    push(binds, HygieneEntry { name: v.binding, renamed: name })
+                    name = hygiene_unique(r, string_clone(&v.binding))
+                    push(binds, HygieneEntry { name: v.binding, renamed: string_clone(&name) })
                 }
                 return Pattern.Variant(VariantPattern { pos: v.pos, enum_name: v.enum_name, variant: v.variant, has_binding: true, binding: name })
             }
@@ -341,10 +377,10 @@ fn rename_pattern_with_binds(r: &mut HygieneRenamer, pat: Pattern, binds: &mut [
                 if f.has_pattern {
                     let new_pat = rename_pattern_with_binds(r, f.pattern, binds, generate)
                     push(&mut fields, StructPatternField { pos: f.pos, name: f.name, bind: f.bind, has_pattern: true, pattern: new_pat })
-                } else if f.bind && !quote_is_placeholder(f.name) {
+                } else if f.bind && !quote_is_placeholder(&f.name) {
                     if generate {
-                        let renamed = hygiene_unique(r, f.name)
-                        push(binds, HygieneEntry { name: f.name, renamed: renamed })
+                        let renamed = hygiene_unique(r, string_clone(&f.name))
+                        push(binds, HygieneEntry { name: string_clone(&f.name), renamed: string_clone(&renamed) })
                         let pat = Pattern.Bind(BindPattern { pos: f.pos, name: renamed })
                         push(&mut fields, StructPatternField { pos: f.pos, name: f.name, bind: false, has_pattern: true, pattern: pat })
                     } else {
@@ -394,7 +430,7 @@ fn hygiene_rename_stmt(r: &mut HygieneRenamer, stmt: Stmt) -> Stmt {
         Stmt.Let(s) => {
             let init = hygiene_rename_expr(r, s.init)
             let mut name = s.name
-            if name != "" && !quote_is_placeholder(name) {
+            if name != "" && !quote_is_placeholder(&name) {
                 name = hygiene_declare(r, name)
             }
             return Stmt.Let(LetStmt { pos: s.pos, name: name, mutable: s.mutable, has_type: s.has_type, typ: s.typ, has_init: s.has_init, init: init })
@@ -460,8 +496,8 @@ fn hygiene_rename_stmt(r: &mut HygieneRenamer, stmt: Stmt) -> Stmt {
 fn hygiene_rename_expr(r: &mut HygieneRenamer, expr: Expr) -> Expr {
     match expr {
         Expr.Ident(id) => {
-            if !quote_is_placeholder(id.name) {
-                let res = hygiene_lookup(r, id.name)
+            if !quote_is_placeholder(&id.name) {
+                let res = hygiene_lookup(r, string_clone(&id.name))
                 if res.ok {
                     return Expr.Ident(IdentExpr { pos: id.pos, name: res.renamed })
                 }
@@ -619,7 +655,7 @@ fn hygiene_rename_trait_method(r: &mut HygieneRenamer, m: TraitMethod) -> TraitM
     }
     let body = hygiene_rename_block(r, m.default_body)
     hygiene_pop(r)
-    return TraitMethod { pos: m.pos, name: m.name, params: params, has_return: m.has_return, ret: m.ret, has_default: true, default_body: body }
+    return TraitMethod { pos: m.pos, name: m.name, params: params, has_return: m.has_return, ret: m.ret, has_default: true, default_body: body, is_macro: m.is_macro }
 }
 
 fn hygiene_rename_item(r: &mut HygieneRenamer, item: ParseItemResult) -> ParseItemResult {
@@ -663,7 +699,7 @@ fn hygiene_rename_item(r: &mut HygieneRenamer, item: ParseItemResult) -> ParseIt
 }
 
 fn quote_replace_type(ctx: &mut QuoteCtx, typ: String) -> String {
-    let idx = quote_placeholder_index(typ)
+    let idx = quote_placeholder_index(&typ)
     if idx.ok {
         return quote_splice_ident(ctx, idx.idx)
     }
@@ -699,11 +735,11 @@ fn quote_replace_stmt(ctx: &mut QuoteCtx, stmt: Stmt) -> Stmt {
     match stmt {
         Stmt.Let(s) => {
             let mut name = s.name
-            let idx = quote_placeholder_index(name)
+            let idx = quote_placeholder_index(&name)
             if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
             let init = quote_replace_expr(ctx, s.init)
             let mut typ = s.typ
-            if s.has_type { typ = quote_replace_type(ctx, s.typ) }
+            if s.has_type { typ = quote_replace_type(ctx, typ) }
             return Stmt.Let(LetStmt { pos: s.pos, name: name, mutable: s.mutable, has_type: s.has_type, typ: typ, has_init: s.has_init, init: init })
         }
         Stmt.Return(s) => {
@@ -714,7 +750,7 @@ fn quote_replace_stmt(ctx: &mut QuoteCtx, stmt: Stmt) -> Stmt {
         Stmt.Expr(s) => {
             match s.expr {
                 Expr.Ident(id) => {
-                    let idx = quote_placeholder_index(id.name)
+                    let idx = quote_placeholder_index(&id.name)
                     if idx.ok {
                         return quote_splice_stmt(ctx, idx.idx)
                     }
@@ -767,7 +803,7 @@ fn quote_replace_pattern(ctx: &mut QuoteCtx, pat: Pattern) -> Pattern {
     if ctx.err != "" { return pat }
     match pat {
         Pattern.Bind(b) => {
-            let idx = quote_placeholder_index(b.name)
+            let idx = quote_placeholder_index(&b.name)
             if idx.ok {
                 let name = quote_splice_ident(ctx, idx.idx)
                 return Pattern.Bind(BindPattern { pos: b.pos, name: name })
@@ -777,27 +813,27 @@ fn quote_replace_pattern(ctx: &mut QuoteCtx, pat: Pattern) -> Pattern {
         Pattern.Variant(v) => {
             let mut enum_name = v.enum_name
             let mut variant = v.variant
-            let idx1 = quote_placeholder_index(enum_name)
+            let idx1 = quote_placeholder_index(&enum_name)
             if idx1.ok { enum_name = quote_splice_ident(ctx, idx1.idx) }
-            let idx2 = quote_placeholder_index(variant)
+            let idx2 = quote_placeholder_index(&variant)
             if idx2.ok { variant = quote_splice_ident(ctx, idx2.idx) }
             let mut binding = v.binding
             if v.has_binding {
-                let idx3 = quote_placeholder_index(binding)
+                let idx3 = quote_placeholder_index(&binding)
                 if idx3.ok { binding = quote_splice_ident(ctx, idx3.idx) }
             }
             return Pattern.Variant(VariantPattern { pos: v.pos, enum_name: enum_name, variant: variant, has_binding: v.has_binding, binding: binding })
         }
         Pattern.Struct(s) => {
             let mut name = s.name
-            let idx0 = quote_placeholder_index(name)
+            let idx0 = quote_placeholder_index(&name)
             if idx0.ok { name = quote_splice_ident(ctx, idx0.idx) }
             let mut fields: [StructPatternField] = []
             let mut i = 0
             while i < len(s.fields) {
                 let f = s.fields[i]
                 let mut fname = f.name
-                let idx = quote_placeholder_index(fname)
+                let idx = quote_placeholder_index(&fname)
                 if idx.ok { fname = quote_splice_ident(ctx, idx.idx) }
                 let mut pat_inner = f.pattern
                 if f.has_pattern {
@@ -816,7 +852,7 @@ fn quote_replace_expr(ctx: &mut QuoteCtx, expr: Expr) -> Expr {
     if ctx.err != "" { return expr }
     match expr {
         Expr.Ident(id) => {
-            let idx = quote_placeholder_index(id.name)
+            let idx = quote_placeholder_index(&id.name)
             if idx.ok { return quote_splice_expr(ctx, idx.idx) }
             return Expr.Ident(id)
         }
@@ -870,20 +906,20 @@ fn quote_replace_expr(ctx: &mut QuoteCtx, expr: Expr) -> Expr {
         Expr.Field(f) => {
             let recv = quote_replace_expr(ctx, f.recv)
             let mut name = f.name
-            let idx = quote_placeholder_index(name)
+            let idx = quote_placeholder_index(&name)
             if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
             return Expr.Field(FieldExpr { pos: f.pos, recv: recv, name: name })
         }
         Expr.StructLit(s) => {
             let mut name = s.name
-            let idx0 = quote_placeholder_index(name)
+            let idx0 = quote_placeholder_index(&name)
             if idx0.ok { name = quote_splice_ident(ctx, idx0.idx) }
             let mut fields: [FieldInit] = []
             let mut i = 0
             while i < len(s.fields) {
                 let f = s.fields[i]
                 let mut fname = f.name
-                let idx = quote_placeholder_index(fname)
+                let idx = quote_placeholder_index(&fname)
                 if idx.ok { fname = quote_splice_ident(ctx, idx.idx) }
                 let val = quote_replace_expr(ctx, f.value)
                 push(&mut fields, FieldInit { pos: f.pos, name: fname, value: val })
@@ -922,10 +958,10 @@ fn quote_replace_expr(ctx: &mut QuoteCtx, expr: Expr) -> Expr {
             while i < len(c.params) {
                 let p = c.params[i]
                 let mut name = p.name
-                let idx = quote_placeholder_index(name)
+                let idx = quote_placeholder_index(&name)
                 if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
                 let mut typ = p.typ
-                if p.has_type { typ = quote_replace_type(ctx, p.typ) }
+                if p.has_type { typ = quote_replace_type(ctx, typ) }
                 push(&mut params, ClosureParam { pos: p.pos, name: name, has_type: p.has_type, typ: typ })
                 i = i + 1
             }
@@ -950,21 +986,21 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_func() {
         let f = out.func_item
         let mut name = f.name
-        let idx = quote_placeholder_index(name)
+        let idx = quote_placeholder_index(&name)
         if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
         let mut params: [Param] = []
         let mut i = 0
         while i < len(f.params) {
             let p = f.params[i]
             let mut pname = p.name
-            let idxp = quote_placeholder_index(pname)
+            let idxp = quote_placeholder_index(&pname)
             if idxp.ok { pname = quote_splice_ident(ctx, idxp.idx) }
             let typ = quote_replace_type(ctx, p.typ)
             push(&mut params, Param { pos: p.pos, name: pname, typ: typ })
             i = i + 1
         }
         let mut ret = f.ret
-        if f.has_return { ret = quote_replace_type(ctx, f.ret) }
+        if f.has_return { ret = quote_replace_type(ctx, ret) }
         let body = quote_replace_block(ctx, f.body)
         out.func_item = FunctionDecl { vis: f.vis, module: f.module, file: f.file, pos: f.pos, name: name, type_params: f.type_params, params: params, has_return: f.has_return, ret: ret, body: body, is_macro: f.is_macro }
         return out
@@ -972,14 +1008,14 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_struct() {
         let s = out.struct_item
         let mut name = s.name
-        let idx = quote_placeholder_index(name)
+        let idx = quote_placeholder_index(&name)
         if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
         let mut fields: [Field] = []
         let mut i = 0
         while i < len(s.fields) {
             let f = s.fields[i]
             let mut fname = f.name
-            let idxf = quote_placeholder_index(fname)
+            let idxf = quote_placeholder_index(&fname)
             if idxf.ok { fname = quote_splice_ident(ctx, idxf.idx) }
             let typ = quote_replace_type(ctx, f.typ)
             push(&mut fields, Field { vis: f.vis, pos: f.pos, name: fname, typ: typ })
@@ -991,17 +1027,17 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_enum() {
         let e = out.enum_item
         let mut name = e.name
-        let idx = quote_placeholder_index(name)
+        let idx = quote_placeholder_index(&name)
         if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
         let mut variants: [Variant] = []
         let mut i = 0
         while i < len(e.variants) {
             let v = e.variants[i]
             let mut vname = v.name
-            let idxv = quote_placeholder_index(vname)
+            let idxv = quote_placeholder_index(&vname)
             if idxv.ok { vname = quote_splice_ident(ctx, idxv.idx) }
             let mut payload = v.payload
-            if v.has_payload { payload = quote_replace_type(ctx, v.payload) }
+            if v.has_payload { payload = quote_replace_type(ctx, payload) }
             push(&mut variants, Variant { pos: v.pos, name: vname, has_payload: v.has_payload, payload: payload, has_value: v.has_value, value: v.value })
             i = i + 1
         }
@@ -1011,17 +1047,17 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_const() {
         let c = out.const_item
         let mut name = c.name
-        let idx = quote_placeholder_index(name)
+        let idx = quote_placeholder_index(&name)
         if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
         let mut typ = c.typ
-        if c.has_type { typ = quote_replace_type(ctx, c.typ) }
+        if c.has_type { typ = quote_replace_type(ctx, typ) }
         out.const_item = ConstDecl { vis: c.vis, module: c.module, file: c.file, pos: c.pos, name: name, has_type: c.has_type, typ: typ, value: c.value }
         return out
     }
     if out.kind == item_kind_type() {
         let t = out.type_item
         let mut name = t.name
-        let idx = quote_placeholder_index(name)
+        let idx = quote_placeholder_index(&name)
         if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
         let target = quote_replace_type(ctx, t.target)
         out.type_item = TypeAlias { vis: t.vis, module: t.module, file: t.file, pos: t.pos, name: name, type_params: t.type_params, target: target }
@@ -1030,28 +1066,28 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_impl() {
         let imp = out.impl_item
         let mut type_name = imp.type_name
-        let idx = quote_placeholder_index(type_name)
+        let idx = quote_placeholder_index(&type_name)
         if idx.ok { type_name = quote_splice_ident(ctx, idx.idx) }
         let mut methods: [FunctionDecl] = []
         let mut i = 0
         while i < len(imp.methods) {
             let m = imp.methods[i]
             let mut mname = m.name
-            let idxm = quote_placeholder_index(mname)
+            let idxm = quote_placeholder_index(&mname)
             if idxm.ok { mname = quote_splice_ident(ctx, idxm.idx) }
             let mut params: [Param] = []
             let mut pi = 0
             while pi < len(m.params) {
                 let p = m.params[pi]
                 let mut pname = p.name
-                let idxp = quote_placeholder_index(pname)
+                let idxp = quote_placeholder_index(&pname)
                 if idxp.ok { pname = quote_splice_ident(ctx, idxp.idx) }
                 let typ = quote_replace_type(ctx, p.typ)
                 push(&mut params, Param { pos: p.pos, name: pname, typ: typ })
                 pi = pi + 1
             }
             let mut ret = m.ret
-            if m.has_return { ret = quote_replace_type(ctx, m.ret) }
+            if m.has_return { ret = quote_replace_type(ctx, ret) }
             let body = quote_replace_block(ctx, m.body)
             push(&mut methods, FunctionDecl { vis: m.vis, module: m.module, file: m.file, pos: m.pos, name: mname, type_params: m.type_params, params: params, has_return: m.has_return, ret: ret, body: body, is_macro: m.is_macro })
             i = i + 1
@@ -1062,31 +1098,31 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_impl_trait() {
         let imp = out.impl_trait_item
         let mut trait_name = imp.trait_name
-        let idx = quote_placeholder_index(trait_name)
+        let idx = quote_placeholder_index(&trait_name)
         if idx.ok { trait_name = quote_splice_ident(ctx, idx.idx) }
         let mut for_type = imp.for_type
-        let idxf = quote_placeholder_index(for_type)
+        let idxf = quote_placeholder_index(&for_type)
         if idxf.ok { for_type = quote_splice_ident(ctx, idxf.idx) }
         let mut methods: [FunctionDecl] = []
         let mut i = 0
         while i < len(imp.methods) {
             let m = imp.methods[i]
             let mut mname = m.name
-            let idxm = quote_placeholder_index(mname)
+            let idxm = quote_placeholder_index(&mname)
             if idxm.ok { mname = quote_splice_ident(ctx, idxm.idx) }
             let mut params: [Param] = []
             let mut pi = 0
             while pi < len(m.params) {
                 let p = m.params[pi]
                 let mut pname = p.name
-                let idxp = quote_placeholder_index(pname)
+                let idxp = quote_placeholder_index(&pname)
                 if idxp.ok { pname = quote_splice_ident(ctx, idxp.idx) }
                 let typ = quote_replace_type(ctx, p.typ)
                 push(&mut params, Param { pos: p.pos, name: pname, typ: typ })
                 pi = pi + 1
             }
             let mut ret = m.ret
-            if m.has_return { ret = quote_replace_type(ctx, m.ret) }
+            if m.has_return { ret = quote_replace_type(ctx, ret) }
             let body = quote_replace_block(ctx, m.body)
             push(&mut methods, FunctionDecl { vis: m.vis, module: m.module, file: m.file, pos: m.pos, name: mname, type_params: m.type_params, params: params, has_return: m.has_return, ret: ret, body: body, is_macro: m.is_macro })
             i = i + 1
@@ -1097,31 +1133,31 @@ fn quote_replace_item(ctx: &mut QuoteCtx, item: ParseItemResult) -> ParseItemRes
     if out.kind == item_kind_trait() {
         let t = out.trait_item
         let mut name = t.name
-        let idx = quote_placeholder_index(name)
+        let idx = quote_placeholder_index(&name)
         if idx.ok { name = quote_splice_ident(ctx, idx.idx) }
         let mut methods: [TraitMethod] = []
         let mut i = 0
         while i < len(t.methods) {
             let m = t.methods[i]
             let mut mname = m.name
-            let idxm = quote_placeholder_index(mname)
+            let idxm = quote_placeholder_index(&mname)
             if idxm.ok { mname = quote_splice_ident(ctx, idxm.idx) }
             let mut params: [Param] = []
             let mut pi = 0
             while pi < len(m.params) {
                 let p = m.params[pi]
                 let mut pname = p.name
-                let idxp = quote_placeholder_index(pname)
+                let idxp = quote_placeholder_index(&pname)
                 if idxp.ok { pname = quote_splice_ident(ctx, idxp.idx) }
                 let typ = quote_replace_type(ctx, p.typ)
                 push(&mut params, Param { pos: p.pos, name: pname, typ: typ })
                 pi = pi + 1
             }
             let mut ret = m.ret
-            if m.has_return { ret = quote_replace_type(ctx, m.ret) }
+            if m.has_return { ret = quote_replace_type(ctx, ret) }
             let mut body = m.default_body
             if m.has_default { body = quote_replace_block(ctx, m.default_body) }
-            push(&mut methods, TraitMethod { pos: m.pos, name: mname, params: params, has_return: m.has_return, ret: ret, has_default: m.has_default, default_body: body })
+            push(&mut methods, TraitMethod { pos: m.pos, name: mname, params: params, has_return: m.has_return, ret: ret, has_default: m.has_default, default_body: body, is_macro: m.is_macro })
             i = i + 1
         }
         out.trait_item = TraitDecl { vis: t.vis, module: t.module, file: t.file, pos: t.pos, name: name, type_params: t.type_params, associated_types: t.associated_types, methods: methods }
@@ -1180,7 +1216,7 @@ fn quote_op_string(k: TokenKind) -> String {
 }
 
 fn quote_format_expr_prec(expr: Expr, parent_prec: i32) -> String {
-    let prec = quote_expr_prec(expr)
+    let prec = quote_expr_prec(clone_expr(&expr))
     let mut out = ""
     match expr {
         Expr.Ident(id) => { out = id.name }
@@ -1413,7 +1449,7 @@ fn quote_format_block(block: Block) -> String {
     let mut i = 0
     while i < len(block.stmts) {
         let stmt = block.stmts[i]
-        out = out + quote_format_stmt(stmt)
+        out = out + quote_format_stmt(clone_stmt(&stmt))
         if quote_stmt_needs_semi(stmt) { out = out + ";" }
         if i + 1 < len(block.stmts) { out = out + " " }
         i = i + 1
@@ -1427,7 +1463,7 @@ fn quote_format_block_expr(b: BlockExpr) -> String {
     let mut i = 0
     while i < len(b.stmts) {
         let stmt = b.stmts[i]
-        out = out + quote_format_stmt(stmt)
+        out = out + quote_format_stmt(clone_stmt(&stmt))
         if quote_stmt_needs_semi(stmt) { out = out + ";" }
         out = out + " "
         i = i + 1
@@ -1695,9 +1731,10 @@ fn quote_build_ast(rt: &mut Runtime, kind: i32, template: String, splices: [IrVa
     let mut ctx = quote_ctx_new(splices)
     let mut ren = hygiene_new(rt.gensym_count)
     if kind == ir_ast_kind_expr() {
+        let tmpl = string_clone(&template)
         let parsed = parse_expr_string(template)
         if !parsed.ok {
-            runtime_error(rt, "quote expr parse error: " + parsed.err)
+            runtime_error(rt, "quote expr parse error: " + parsed.err + " (template=" + tmpl + ")")
             return ""
         }
         let mut expr = hygiene_rename_expr(&mut ren, parsed.expr)

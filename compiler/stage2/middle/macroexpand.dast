@@ -20,6 +20,7 @@ struct MacroExpander {
     sites: [MacroSite],
     next_id: i32,
     errors: [ParseError],
+    debug: bool,
 }
 
 fn param_list_new() -> [Param] {
@@ -57,9 +58,9 @@ fn macro_site_list_new() -> [MacroSite] {
     return items
 }
 
-fn macro_add_error(exp: &mut MacroExpander, pos: i32, file: String, msg: String) {
+fn macro_add_error(exp: &mut MacroExpander, pos: i32, file: &str, msg: String) {
     let mut errs = exp.errors
-    push(&mut errs, ParseError { pos: pos, file: file, line: 0, col: 0, msg: msg })
+    push(&mut errs, ParseError { pos: pos, file: string_clone(file), line: 0, col: 0, msg: msg })
     exp.errors = errs
 }
 
@@ -67,11 +68,11 @@ fn macro_site_dummy() -> MacroSite {
     return MacroSite { id: -1, kind: site_kind_expr(), pos: 0, module: "", file: "", expr: Expr.IntLit(IntLit { pos: 0, value: "0" }) }
 }
 
-fn macro_add_site(exp: &mut MacroExpander, kind: i32, pos: i32, module: String, file: String, expr: Expr) -> i32 {
+fn macro_add_site(exp: &mut MacroExpander, kind: i32, pos: i32, module: &str, file: &str, expr: Expr) -> i32 {
     let id = exp.next_id
     exp.next_id = exp.next_id + 1
     let mut sites = exp.sites
-    push(&mut sites, MacroSite { id: id, kind: kind, pos: pos, module: module, file: file, expr: expr })
+    push(&mut sites, MacroSite { id: id, kind: kind, pos: pos, module: string_clone(module), file: string_clone(file), expr: expr })
     exp.sites = sites
     return id
 }
@@ -84,13 +85,665 @@ fn macro_vis_private() -> Visibility {
     return Visibility { kind: vis_private() }
 }
 
-fn macro_call_to_call(exp: &mut MacroExpander, call: MacroCallExpr, file: String) -> Expr {
+fn clone_visibility(v: &Visibility) -> Visibility {
+    return Visibility { kind: v.kind }
+}
+
+fn clone_const_value(v: &ConstValue) -> ConstValue {
+    return ConstValue {
+        kind: v.kind,
+        int_value: string_clone(&v.int_value),
+        str_value: string_clone(&v.str_value),
+        bool_value: v.bool_value,
+    }
+}
+
+fn clone_trait_bound(b: &TraitBound) -> TraitBound {
+    return TraitBound { pos: b.pos, trait_name: string_clone(&b.trait_name) }
+}
+
+fn clone_trait_bound_list(items: & [TraitBound]) -> [TraitBound] {
+    let mut out: [TraitBound] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_trait_bound(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_generic_param(p: &GenericParam) -> GenericParam {
+    return GenericParam { pos: p.pos, name: string_clone(&p.name), bounds: clone_trait_bound_list(&p.bounds) }
+}
+
+fn clone_generic_param_list(items: & [GenericParam]) -> [GenericParam] {
+    let mut out: [GenericParam] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_generic_param(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_param(p: &Param) -> Param {
+    return Param { pos: p.pos, name: string_clone(&p.name), typ: string_clone(&p.typ) }
+}
+
+fn clone_param_list(items: & [Param]) -> [Param] {
+    let mut out: [Param] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_param(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_field(f: &Field) -> Field {
+    return Field { vis: clone_visibility(&f.vis), pos: f.pos, name: string_clone(&f.name), typ: string_clone(&f.typ) }
+}
+
+fn clone_field_list(items: & [Field]) -> [Field] {
+    let mut out: [Field] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_field(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_struct_decl(s: &StructDecl) -> StructDecl {
+    return StructDecl {
+        vis: clone_visibility(&s.vis),
+        module: string_clone(&s.module),
+        file: string_clone(&s.file),
+        pos: s.pos,
+        name: string_clone(&s.name),
+        type_params: clone_generic_param_list(&s.type_params),
+        fields: clone_field_list(&s.fields),
+    }
+}
+
+fn clone_struct_decl_list(items: & [StructDecl]) -> [StructDecl] {
+    let mut out: [StructDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_struct_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_variant(v: &Variant) -> Variant {
+    return Variant {
+        pos: v.pos,
+        name: string_clone(&v.name),
+        has_payload: v.has_payload,
+        payload: string_clone(&v.payload),
+        has_value: v.has_value,
+        value: string_clone(&v.value),
+    }
+}
+
+fn clone_variant_list(items: & [Variant]) -> [Variant] {
+    let mut out: [Variant] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_variant(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_enum_decl(e: &EnumDecl) -> EnumDecl {
+    return EnumDecl {
+        vis: clone_visibility(&e.vis),
+        module: string_clone(&e.module),
+        file: string_clone(&e.file),
+        pos: e.pos,
+        name: string_clone(&e.name),
+        type_params: clone_generic_param_list(&e.type_params),
+        repr: string_clone(&e.repr),
+        variants: clone_variant_list(&e.variants),
+    }
+}
+
+fn clone_enum_decl_list(items: & [EnumDecl]) -> [EnumDecl] {
+    let mut out: [EnumDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_enum_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_const_decl(c: &ConstDecl) -> ConstDecl {
+    return ConstDecl {
+        vis: clone_visibility(&c.vis),
+        module: string_clone(&c.module),
+        file: string_clone(&c.file),
+        pos: c.pos,
+        name: string_clone(&c.name),
+        has_type: c.has_type,
+        typ: string_clone(&c.typ),
+        value: clone_const_value(&c.value),
+    }
+}
+
+fn clone_const_decl_list(items: & [ConstDecl]) -> [ConstDecl] {
+    let mut out: [ConstDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_const_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_import_item_spec(s: &ImportItemSpec) -> ImportItemSpec {
+    return ImportItemSpec { pos: s.pos, name: string_clone(&s.name), has_alias: s.has_alias, alias: string_clone(&s.alias) }
+}
+
+fn clone_import_item_spec_list(items: & [ImportItemSpec]) -> [ImportItemSpec] {
+    let mut out: [ImportItemSpec] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_import_item_spec(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_import_decl(d: &ImportDecl) -> ImportDecl {
+    return ImportDecl {
+        vis: clone_visibility(&d.vis),
+        module: string_clone(&d.module),
+        file: string_clone(&d.file),
+        pos: d.pos,
+        has_items: d.has_items,
+        items: clone_import_item_spec_list(&d.items),
+        path: string_clone(&d.path),
+        path_is_string: d.path_is_string,
+        has_alias: d.has_alias,
+        alias: string_clone(&d.alias),
+    }
+}
+
+fn clone_import_decl_list(items: & [ImportDecl]) -> [ImportDecl] {
+    let mut out: [ImportDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_import_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_associated_type(t: &AssociatedType) -> AssociatedType {
+    return AssociatedType { pos: t.pos, name: string_clone(&t.name) }
+}
+
+fn clone_associated_type_list(items: & [AssociatedType]) -> [AssociatedType] {
+    let mut out: [AssociatedType] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_associated_type(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_associated_type_impl(t: &AssociatedTypeImpl) -> AssociatedTypeImpl {
+    return AssociatedTypeImpl { name: string_clone(&t.name), typ: string_clone(&t.typ) }
+}
+
+fn clone_associated_type_impl_list(items: & [AssociatedTypeImpl]) -> [AssociatedTypeImpl] {
+    let mut out: [AssociatedTypeImpl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_associated_type_impl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_block(b: &Block) -> Block {
+    let mut stmts: [Stmt] = []
+    let mut i = 0
+    while i < len(b.stmts) {
+        push(&mut stmts, clone_stmt(&b.stmts[i]))
+        i = i + 1
+    }
+    return Block { stmts: stmts }
+}
+
+fn clone_trait_method(m: &TraitMethod) -> TraitMethod {
+    return TraitMethod {
+        pos: m.pos,
+        name: string_clone(&m.name),
+        params: clone_param_list(&m.params),
+        has_return: m.has_return,
+        ret: string_clone(&m.ret),
+        has_default: m.has_default,
+        default_body: clone_block(&m.default_body),
+        is_macro: m.is_macro,
+    }
+}
+
+fn clone_trait_method_list(items: & [TraitMethod]) -> [TraitMethod] {
+    let mut out: [TraitMethod] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_trait_method(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_trait_decl(t: &TraitDecl) -> TraitDecl {
+    return TraitDecl {
+        vis: clone_visibility(&t.vis),
+        module: string_clone(&t.module),
+        file: string_clone(&t.file),
+        pos: t.pos,
+        name: string_clone(&t.name),
+        type_params: clone_generic_param_list(&t.type_params),
+        associated_types: clone_associated_type_list(&t.associated_types),
+        methods: clone_trait_method_list(&t.methods),
+    }
+}
+
+fn clone_trait_decl_list(items: & [TraitDecl]) -> [TraitDecl] {
+    let mut out: [TraitDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_trait_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_type_alias(t: &TypeAlias) -> TypeAlias {
+    return TypeAlias {
+        vis: clone_visibility(&t.vis),
+        module: string_clone(&t.module),
+        file: string_clone(&t.file),
+        pos: t.pos,
+        name: string_clone(&t.name),
+        type_params: clone_generic_param_list(&t.type_params),
+        target: string_clone(&t.target),
+    }
+}
+
+fn clone_type_alias_list(items: & [TypeAlias]) -> [TypeAlias] {
+    let mut out: [TypeAlias] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_type_alias(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_field_init(f: &FieldInit) -> FieldInit {
+    return FieldInit { pos: f.pos, name: string_clone(&f.name), value: clone_expr(&f.value) }
+}
+
+fn clone_field_init_list(items: & [FieldInit]) -> [FieldInit] {
+    let mut out: [FieldInit] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_field_init(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_quote_part(p: &QuotePart) -> QuotePart {
+    return QuotePart { text: string_clone(&p.text), has_expr: p.has_expr, expr: clone_expr(&p.expr) }
+}
+
+fn clone_quote_part_list(items: & [QuotePart]) -> [QuotePart] {
+    let mut out: [QuotePart] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_quote_part(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_closure_param(p: &ClosureParam) -> ClosureParam {
+    return ClosureParam { pos: p.pos, name: string_clone(&p.name), has_type: p.has_type, typ: string_clone(&p.typ) }
+}
+
+fn clone_closure_param_list(items: & [ClosureParam]) -> [ClosureParam] {
+    let mut out: [ClosureParam] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_closure_param(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_expr_list(items: & [Expr]) -> [Expr] {
+    let mut out: [Expr] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_expr(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_pattern(p: &Pattern) -> Pattern {
+    match *p {
+        Pattern.Wildcard(_) => { return Pattern.Wildcard(WildcardPattern {}) }
+        Pattern.Bind(b) => { return Pattern.Bind(BindPattern { pos: b.pos, name: string_clone(&b.name) }) }
+        Pattern.Variant(v) => {
+            return Pattern.Variant(VariantPattern {
+                pos: v.pos,
+                enum_name: string_clone(&v.enum_name),
+                variant: string_clone(&v.variant),
+                has_binding: v.has_binding,
+                binding: string_clone(&v.binding),
+            })
+        }
+        Pattern.Struct(s) => {
+            return Pattern.Struct(StructPattern {
+                pos: s.pos,
+                name: string_clone(&s.name),
+                fields: clone_struct_pattern_field_list(&s.fields),
+                has_rest: s.has_rest,
+            })
+        }
+        Pattern.Range(r) => {
+            return Pattern.Range(RangePattern { pos: r.pos, start: clone_const_value(&r.start), end: clone_const_value(&r.end), inclusive: r.inclusive })
+        }
+        Pattern.Literal(l) => {
+            return Pattern.Literal(LiteralPattern { pos: l.pos, value: clone_const_value(&l.value) })
+        }
+    }
+}
+
+fn clone_struct_pattern_field(f: &StructPatternField) -> StructPatternField {
+    return StructPatternField {
+        pos: f.pos,
+        name: string_clone(&f.name),
+        bind: f.bind,
+        has_pattern: f.has_pattern,
+        pattern: clone_pattern(&f.pattern),
+    }
+}
+
+fn clone_struct_pattern_field_list(items: & [StructPatternField]) -> [StructPatternField] {
+    let mut out: [StructPatternField] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_struct_pattern_field(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_match_arm(a: &MatchArm) -> MatchArm {
+    return MatchArm {
+        pos: a.pos,
+        pattern: clone_pattern(&a.pattern),
+        has_guard: a.has_guard,
+        guard: clone_expr(&a.guard),
+        body: clone_block(&a.body),
+    }
+}
+
+fn clone_match_arm_list(items: & [MatchArm]) -> [MatchArm] {
+    let mut out: [MatchArm] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_match_arm(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_stmt(s: &Stmt) -> Stmt {
+    match *s {
+        Stmt.Let(v) => {
+            return Stmt.Let(LetStmt { pos: v.pos, name: string_clone(&v.name), mutable: v.mutable, has_type: v.has_type, typ: string_clone(&v.typ), has_init: v.has_init, init: clone_expr(&v.init) })
+        }
+        Stmt.Return(v) => {
+            return Stmt.Return(ReturnStmt { pos: v.pos, has_value: v.has_value, value: clone_expr(&v.value) })
+        }
+        Stmt.Expr(v) => {
+            return Stmt.Expr(ExprStmt { pos: v.pos, expr: clone_expr(&v.expr) })
+        }
+        Stmt.If(v) => {
+            return Stmt.If(IfStmt { pos: v.pos, cond: clone_expr(&v.cond), then_block: clone_block(&v.then_block), has_else: v.has_else, else_block: clone_block(&v.else_block) })
+        }
+        Stmt.Assign(v) => {
+            return Stmt.Assign(AssignStmt { pos: v.pos, target: clone_expr(&v.target), value: clone_expr(&v.value) })
+        }
+        Stmt.While(v) => {
+            return Stmt.While(WhileStmt { pos: v.pos, cond: clone_expr(&v.cond), body: clone_block(&v.body) })
+        }
+        Stmt.Match(v) => {
+            return Stmt.Match(MatchStmt { pos: v.pos, expr: clone_expr(&v.expr), arms: clone_match_arm_list(&v.arms) })
+        }
+        Stmt.Break(v) => { return Stmt.Break(BreakStmt { pos: v.pos }) }
+        Stmt.Continue(v) => { return Stmt.Continue(ContinueStmt { pos: v.pos }) }
+    }
+}
+
+fn clone_expr(e: &Expr) -> Expr {
+    match *e {
+        Expr.Ident(v) => { return Expr.Ident(IdentExpr { pos: v.pos, name: string_clone(&v.name) }) }
+        Expr.IntLit(v) => { return Expr.IntLit(IntLit { pos: v.pos, value: string_clone(&v.value) }) }
+        Expr.StringLit(v) => { return Expr.StringLit(StringLit { pos: v.pos, value: string_clone(&v.value) }) }
+        Expr.BoolLit(v) => { return Expr.BoolLit(BoolLit { pos: v.pos, value: v.value }) }
+        Expr.Unary(v) => { return Expr.Unary(UnaryExpr { pos: v.pos, op: v.op, expr: clone_expr(&v.expr) }) }
+        Expr.Binary(v) => { return Expr.Binary(BinaryExpr { pos: v.pos, op: v.op, left: clone_expr(&v.left), right: clone_expr(&v.right) }) }
+        Expr.Call(v) => { return Expr.Call(CallExpr { pos: v.pos, callee: clone_expr(&v.callee), type_args: clone_string_list(&v.type_args), args: clone_expr_list(&v.args) }) }
+        Expr.MethodCall(v) => {
+            return Expr.MethodCall(MethodCallExpr {
+                pos: v.pos,
+                recv: clone_expr(&v.recv),
+                method: string_clone(&v.method),
+                args: clone_expr_list(&v.args),
+                resolved_name: string_clone(&v.resolved_name),
+                resolved_self: v.resolved_self,
+                enum_name: string_clone(&v.enum_name),
+            })
+        }
+        Expr.MacroCall(v) => { return Expr.MacroCall(MacroCallExpr { pos: v.pos, callee: clone_expr(&v.callee), args: clone_expr_list(&v.args) }) }
+        Expr.Index(v) => { return Expr.Index(IndexExpr { pos: v.pos, recv: clone_expr(&v.recv), index: clone_expr(&v.index) }) }
+        Expr.Field(v) => { return Expr.Field(FieldExpr { pos: v.pos, recv: clone_expr(&v.recv), name: string_clone(&v.name) }) }
+        Expr.StructLit(v) => { return Expr.StructLit(StructLit { pos: v.pos, name: string_clone(&v.name), fields: clone_field_init_list(&v.fields) }) }
+        Expr.ArrayLit(v) => { return Expr.ArrayLit(ArrayLit { pos: v.pos, elems: clone_expr_list(&v.elems) }) }
+        Expr.Ref(v) => { return Expr.Ref(RefExpr { pos: v.pos, mutable: v.mutable, expr: clone_expr(&v.expr) }) }
+        Expr.Deref(v) => { return Expr.Deref(DerefExpr { pos: v.pos, expr: clone_expr(&v.expr) }) }
+        Expr.IfLet(v) => {
+            return Expr.IfLet(IfLetExpr {
+                pos: v.pos,
+                pattern: clone_pattern(&v.pattern),
+                expr: clone_expr(&v.expr),
+                then_block: clone_block(&v.then_block),
+                has_else: v.has_else,
+                else_block: clone_block(&v.else_block),
+            })
+        }
+        Expr.Closure(v) => {
+            return Expr.Closure(ClosureExpr {
+                pos: v.pos,
+                params: clone_closure_param_list(&v.params),
+                has_ret_type: v.has_ret_type,
+                ret_type: string_clone(&v.ret_type),
+                body: clone_expr(&v.body),
+            })
+        }
+        Expr.Block(v) => {
+            return Expr.Block(BlockExpr {
+                pos: v.pos,
+                stmts: clone_stmt_list(&v.stmts),
+                has_result: v.has_result,
+                result: clone_expr(&v.result),
+            })
+        }
+        Expr.Quote(v) => { return Expr.Quote(QuoteExpr { pos: v.pos, kind: v.kind, parts: clone_quote_part_list(&v.parts) }) }
+        Expr.Compile(v) => { return Expr.Compile(CompileExpr { pos: v.pos, id: v.id, expr: clone_expr(&v.expr) }) }
+    }
+}
+
+fn clone_stmt_list(items: & [Stmt]) -> [Stmt] {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_stmt(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_function_decl(f: &FunctionDecl) -> FunctionDecl {
+    return FunctionDecl {
+        vis: clone_visibility(&f.vis),
+        module: string_clone(&f.module),
+        file: string_clone(&f.file),
+        pos: f.pos,
+        name: string_clone(&f.name),
+        type_params: clone_generic_param_list(&f.type_params),
+        params: clone_param_list(&f.params),
+        has_return: f.has_return,
+        ret: string_clone(&f.ret),
+        body: clone_block(&f.body),
+        is_macro: f.is_macro,
+    }
+}
+
+fn clone_function_list(items: & [FunctionDecl]) -> [FunctionDecl] {
+    let mut out: [FunctionDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_function_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_impl_decl(d: &ImplDecl) -> ImplDecl {
+    return ImplDecl {
+        vis: clone_visibility(&d.vis),
+        module: string_clone(&d.module),
+        file: string_clone(&d.file),
+        pos: d.pos,
+        type_name: string_clone(&d.type_name),
+        methods: clone_function_list(&d.methods),
+    }
+}
+
+fn clone_impl_decl_list(items: & [ImplDecl]) -> [ImplDecl] {
+    let mut out: [ImplDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_impl_decl(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_impl_trait(t: &ImplTrait) -> ImplTrait {
+    return ImplTrait {
+        vis: clone_visibility(&t.vis),
+        module: string_clone(&t.module),
+        file: string_clone(&t.file),
+        pos: t.pos,
+        trait_name: string_clone(&t.trait_name),
+        for_type: string_clone(&t.for_type),
+        type_args: clone_string_list(&t.type_args),
+        associated_types: clone_associated_type_impl_list(&t.associated_types),
+        methods: clone_function_list(&t.methods),
+    }
+}
+
+fn clone_impl_trait_list(items: & [ImplTrait]) -> [ImplTrait] {
+    let mut out: [ImplTrait] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_impl_trait(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_compile_item(c: &CompileItem) -> CompileItem {
+    return CompileItem {
+        pos: c.pos,
+        id: c.id,
+        module: string_clone(&c.module),
+        file: string_clone(&c.file),
+        expr: clone_expr(&c.expr),
+    }
+}
+
+fn clone_compile_item_list(items: & [CompileItem]) -> [CompileItem] {
+    let mut out: [CompileItem] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, clone_compile_item(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_string_list(items: & [String]) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, string_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn clone_macro_site(s: &MacroSite) -> MacroSite {
+    return MacroSite {
+        id: s.id,
+        kind: s.kind,
+        pos: s.pos,
+        module: string_clone(&s.module),
+        file: string_clone(&s.file),
+        expr: clone_expr(&s.expr),
+    }
+}
+
+fn macro_wrap_macro_arg_expr(arg: Expr, debug: bool) -> Expr {
+    let mut empty_exprs: [Expr] = []
+    let text = quote_format_expr(arg)
+    if debug { eprintln("[macro-arg] " + text) }
+    let callee = Expr.Ident(IdentExpr { pos: 0, name: "ast_expr" })
+    let mut args: [Expr] = []
+    push(&mut args, Expr.StringLit(StringLit { pos: 0, value: text }))
+    push(&mut args, Expr.ArrayLit(ArrayLit { pos: 0, elems: empty_exprs }))
+    return Expr.Call(CallExpr { pos: 0, callee: callee, type_args: string_list_new(), args: args })
+}
+
+fn macro_call_to_call(exp: &mut MacroExpander, call: MacroCallExpr, file: &str) -> Expr {
+    let mut wrapped_args: [Expr] = []
+    let mut i = 0
+    while i < len(call.args) {
+        push(&mut wrapped_args, macro_wrap_macro_arg_expr(call.args[i], exp.debug))
+        i = i + 1
+    }
+    let wrapped_args2 = clone_expr_list(&wrapped_args)
     match call.callee {
         Expr.Ident(id) => {
-            return Expr.Call(CallExpr { pos: call.pos, callee: Expr.Ident(id), type_args: string_list_new(), args: call.args })
+            return Expr.Call(CallExpr { pos: call.pos, callee: Expr.Ident(id), type_args: string_list_new(), args: wrapped_args })
         }
         Expr.Field(f) => {
-            return Expr.MethodCall(MethodCallExpr { pos: call.pos, recv: f.recv, method: f.name, args: call.args, resolved_name: "", resolved_self: false, enum_name: "" })
+            return Expr.MethodCall(MethodCallExpr { pos: call.pos, recv: f.recv, method: f.name, args: wrapped_args2, resolved_name: "", resolved_self: false, enum_name: "" })
         }
         _ => {
             macro_add_error(exp, call.pos, file, "macro call requires identifier or field access")
@@ -104,17 +757,18 @@ struct CompilePrepResult {
     expr: CompileExpr,
 }
 
-fn prepare_compile_expr(exp: &mut MacroExpander, expr: Expr, allow_macro: bool, module: String, file: String) -> CompilePrepResult {
+fn prepare_compile_expr(exp: &mut MacroExpander, expr: Expr, allow_macro: bool, module: &str, file: &str) -> CompilePrepResult {
     match expr {
         Expr.Compile(c) => {
             let inner = rewrite_expr(exp, c.expr, site_kind_expr(), true, module, file)
             return CompilePrepResult { ok: true, expr: CompileExpr { pos: c.pos, id: c.id, expr: inner } }
         }
         Expr.MacroCall(m) => {
-            if !allow_macro { return CompilePrepResult { ok: false, expr: CompileExpr { pos: m.pos, id: -1, expr: Expr.IntLit(IntLit { pos: m.pos, value: "0" }) } } }
+            let pos = m.pos
+            if !allow_macro { return CompilePrepResult { ok: false, expr: CompileExpr { pos: pos, id: -1, expr: Expr.IntLit(IntLit { pos: pos, value: "0" }) } } }
             let call_expr = macro_call_to_call(exp, m, file)
             let inner = rewrite_expr(exp, call_expr, site_kind_expr(), true, module, file)
-            return CompilePrepResult { ok: true, expr: CompileExpr { pos: m.pos, id: -1, expr: inner } }
+            return CompilePrepResult { ok: true, expr: CompileExpr { pos: pos, id: -1, expr: inner } }
         }
         _ => {
             return CompilePrepResult { ok: false, expr: CompileExpr { pos: 0, id: -1, expr: Expr.IntLit(IntLit { pos: 0, value: "0" }) } }
@@ -122,7 +776,7 @@ fn prepare_compile_expr(exp: &mut MacroExpander, expr: Expr, allow_macro: bool, 
     }
 }
 
-fn rewrite_block(exp: &mut MacroExpander, block: Block, module: String, file: String) -> Block {
+fn rewrite_block(exp: &mut MacroExpander, block: Block, module: &str, file: &str) -> Block {
     let mut stmts: [Stmt] = []
     let mut i = 0
     while i < len(block.stmts) {
@@ -132,7 +786,7 @@ fn rewrite_block(exp: &mut MacroExpander, block: Block, module: String, file: St
     return Block { stmts: stmts }
 }
 
-fn rewrite_stmt(exp: &mut MacroExpander, stmt: Stmt, module: String, file: String) -> Stmt {
+fn rewrite_stmt(exp: &mut MacroExpander, stmt: Stmt, module: &str, file: &str) -> Stmt {
     match stmt {
         Stmt.Let(s) => {
             let init = rewrite_expr(exp, s.init, site_kind_expr(), false, module, file)
@@ -180,11 +834,12 @@ fn rewrite_stmt(exp: &mut MacroExpander, stmt: Stmt, module: String, file: Strin
             }
             return Stmt.Match(MatchStmt { pos: s.pos, expr: expr, arms: arms })
         }
-        _ => { return stmt }
+        Stmt.Break(s) => { return Stmt.Break(s) }
+        Stmt.Continue(s) => { return Stmt.Continue(s) }
     }
 }
 
-fn rewrite_expr(exp: &mut MacroExpander, expr: Expr, ctx: i32, in_compile: bool, module: String, file: String) -> Expr {
+fn rewrite_expr(exp: &mut MacroExpander, expr: Expr, ctx: i32, in_compile: bool, module: &str, file: &str) -> Expr {
     match expr {
         Expr.Compile(c) => {
             if in_compile {
@@ -193,16 +848,19 @@ fn rewrite_expr(exp: &mut MacroExpander, expr: Expr, ctx: i32, in_compile: bool,
             }
             let inner = rewrite_expr(exp, c.expr, site_kind_expr(), true, module, file)
             let id = macro_add_site(exp, ctx, c.pos, module, file, inner)
-            return Expr.Compile(CompileExpr { pos: c.pos, id: id, expr: inner })
+            let dummy = Expr.IntLit(IntLit { pos: c.pos, value: "0" })
+            return Expr.Compile(CompileExpr { pos: c.pos, id: id, expr: dummy })
         }
         Expr.MacroCall(m) => {
+            let pos = m.pos
             let call_expr = macro_call_to_call(exp, m, file)
             if in_compile {
                 return rewrite_expr(exp, call_expr, site_kind_expr(), true, module, file)
             }
             let inner = rewrite_expr(exp, call_expr, site_kind_expr(), true, module, file)
-            let id = macro_add_site(exp, ctx, m.pos, module, file, inner)
-            return Expr.Compile(CompileExpr { pos: m.pos, id: id, expr: inner })
+            let id = macro_add_site(exp, ctx, pos, module, file, inner)
+            let dummy = Expr.IntLit(IntLit { pos: pos, value: "0" })
+            return Expr.Compile(CompileExpr { pos: pos, id: id, expr: dummy })
         }
         Expr.Unary(u) => {
             let inner = rewrite_expr(exp, u.expr, site_kind_expr(), in_compile, module, file)
@@ -297,7 +955,7 @@ fn rewrite_expr(exp: &mut MacroExpander, expr: Expr, ctx: i32, in_compile: bool,
 }
 
 fn rewrite_function(exp: &mut MacroExpander, f: FunctionDecl) -> FunctionDecl {
-    let body = rewrite_block(exp, f.body, f.module, f.file)
+    let body = rewrite_block(exp, f.body, &f.module, &f.file)
     return FunctionDecl {
         vis: f.vis,
         module: f.module,
@@ -338,11 +996,11 @@ fn rewrite_compile_items(exp: &mut MacroExpander, items: [CompileItem]) -> [Comp
     let mut i = 0
     while i < len(items) {
         let item = items[i]
-        let prep = prepare_compile_expr(exp, item.expr, true, item.module, item.file)
+        let prep = prepare_compile_expr(exp, item.expr, true, &item.module, &item.file)
         if !prep.ok {
-            macro_add_error(exp, item.pos, item.file, "compile! item expects compile! expression")
+            macro_add_error(exp, item.pos, &item.file, "compile! item expects compile! expression")
         } else {
-            let id = macro_add_site(exp, site_kind_item(), item.pos, item.module, item.file, prep.expr.expr)
+            let id = macro_add_site(exp, site_kind_item(), item.pos, &item.module, &item.file, prep.expr.expr)
             let ce = CompileExpr { pos: prep.expr.pos, id: id, expr: prep.expr.expr }
             push(&mut out, CompileItem { pos: item.pos, id: id, module: item.module, file: item.file, expr: Expr.Compile(ce) })
         }
@@ -351,15 +1009,15 @@ fn rewrite_compile_items(exp: &mut MacroExpander, items: [CompileItem]) -> [Comp
     return out
 }
 
-fn build_wrapper(site: MacroSite) -> FunctionDecl {
-    let ret = ReturnStmt { pos: site.pos, has_value: true, value: site.expr }
+fn build_wrapper(site: &MacroSite) -> FunctionDecl {
+    let ret = ReturnStmt { pos: site.pos, has_value: true, value: clone_expr(&site.expr) }
     let mut stmts: [Stmt] = []
     push(&mut stmts, Stmt.Return(ret))
     let body = Block { stmts: stmts }
     return FunctionDecl {
         vis: macro_vis_private(),
-        module: site.module,
-        file: site.file,
+        module: string_clone(&site.module),
+        file: string_clone(&site.file),
         pos: site.pos,
         name: macro_wrapper_name(site.id),
         type_params: generic_param_list_new(),
@@ -371,58 +1029,58 @@ fn build_wrapper(site: MacroSite) -> FunctionDecl {
     }
 }
 
-fn macro_program(prog: Program, sites: [MacroSite]) -> Program {
+fn macro_program(prog: &Program, sites: & [MacroSite]) -> Program {
     let mut functions: [FunctionDecl] = []
     let mut i = 0
     while i < len(prog.functions) {
-        let f = prog.functions[i]
-        if f.is_macro { push(&mut functions, f) }
+        let f = &prog.functions[i]
+        if f.is_macro { push(&mut functions, clone_function_decl(f)) }
         i = i + 1
     }
     let mut j = 0
     while j < len(sites) {
-        push(&mut functions, build_wrapper(sites[j]))
+        push(&mut functions, build_wrapper(&sites[j]))
         j = j + 1
     }
     let mut impls: [ImplDecl] = []
     let mut k = 0
     while k < len(prog.impls) {
-        let imp = prog.impls[k]
+        let imp = &prog.impls[k]
         let mut methods: [FunctionDecl] = []
         let mut mi = 0
         while mi < len(imp.methods) {
-            let m = imp.methods[mi]
-            if m.is_macro { push(&mut methods, m) }
+            let m = &imp.methods[mi]
+            if m.is_macro { push(&mut methods, clone_function_decl(m)) }
             mi = mi + 1
         }
         if len(methods) > 0 {
-            push(&mut impls, ImplDecl { vis: imp.vis, module: imp.module, file: imp.file, pos: imp.pos, type_name: imp.type_name, methods: methods })
+            push(&mut impls, ImplDecl { vis: clone_visibility(&imp.vis), module: string_clone(&imp.module), file: string_clone(&imp.file), pos: imp.pos, type_name: string_clone(&imp.type_name), methods: methods })
         }
         k = k + 1
     }
     let mut impl_traits: [ImplTrait] = []
     let mut t = 0
     while t < len(prog.impl_traits) {
-        let imp = prog.impl_traits[t]
+        let imp = &prog.impl_traits[t]
         let mut methods: [FunctionDecl] = []
         let mut mi = 0
         while mi < len(imp.methods) {
-            let m = imp.methods[mi]
-            if m.is_macro { push(&mut methods, m) }
+            let m = &imp.methods[mi]
+            if m.is_macro { push(&mut methods, clone_function_decl(m)) }
             mi = mi + 1
         }
         if len(methods) > 0 {
-            push(&mut impl_traits, ImplTrait { vis: imp.vis, module: imp.module, file: imp.file, pos: imp.pos, trait_name: imp.trait_name, for_type: imp.for_type, type_args: imp.type_args, associated_types: imp.associated_types, methods: methods })
+            push(&mut impl_traits, ImplTrait { vis: clone_visibility(&imp.vis), module: string_clone(&imp.module), file: string_clone(&imp.file), pos: imp.pos, trait_name: string_clone(&imp.trait_name), for_type: string_clone(&imp.for_type), type_args: clone_string_list(&imp.type_args), associated_types: clone_associated_type_impl_list(&imp.associated_types), methods: methods })
         }
         t = t + 1
     }
     return Program {
-        imports: prog.imports,
-        structs: prog.structs,
-        enums: prog.enums,
-        consts: prog.consts,
-        traits: prog.traits,
-        type_aliases: prog.type_aliases,
+        imports: clone_import_decl_list(&prog.imports),
+        structs: clone_struct_decl_list(&prog.structs),
+        enums: clone_enum_decl_list(&prog.enums),
+        consts: clone_const_decl_list(&prog.consts),
+        traits: clone_trait_decl_list(&prog.traits),
+        type_aliases: clone_type_alias_list(&prog.type_aliases),
         functions: functions,
         impls: impls,
         impl_traits: impl_traits,
@@ -468,9 +1126,9 @@ fn item_kind_impl() -> i32 { return 8 }
 fn item_kind_impl_trait() -> i32 { return 9 }
 
 fn parse_expr_string(src: String) -> ParseExprResult {
-    let mut lex = lexer_new(src)
+    let mut lex = lexer_new(string_clone(&src))
     let mut errors: [ParseError] = []
-    let expr = parse_expr(src, &mut lex, &mut errors, 0)
+    let expr = parse_expr(&src, &mut lex, &mut errors, 0)
     if len(errors) > 0 {
         return ParseExprResult { ok: false, expr: expr, err: errors[0].msg }
     }
@@ -481,9 +1139,9 @@ fn parse_expr_string(src: String) -> ParseExprResult {
 }
 
 fn parse_stmt_string(src: String) -> ParseStmtResult {
-    let mut lex = lexer_new(src)
+    let mut lex = lexer_new(string_clone(&src))
     let mut errors: [ParseError] = []
-    let stmt = parse_stmt(src, &mut lex, &mut errors)
+    let stmt = parse_stmt(&src, &mut lex, &mut errors)
     if len(errors) > 0 {
         return ParseStmtResult { ok: false, stmt: stmt, err: errors[0].msg }
     }
@@ -494,9 +1152,9 @@ fn parse_stmt_string(src: String) -> ParseStmtResult {
 }
 
 fn parse_item_string(src: String) -> ParseItemResult {
-    let mut lex = lexer_new(src)
+    let mut lex = lexer_new(string_clone(&src))
     let mut errors: [ParseError] = []
-    let prog = parse_program(src, &mut lex, &mut errors)
+    let prog = parse_program(&src, "", &mut lex, &mut errors)
     let mut count = 0
     let mut kind = 0
     let mut import_item = ImportDecl { vis: macro_vis_private(), module: "", file: "", pos: 0, has_items: false, items: import_item_list_new(), path: "", path_is_string: false, has_alias: false, alias: "" }
@@ -531,22 +1189,22 @@ fn parse_item_string(src: String) -> ParseItemResult {
     return ParseItemResult { ok: true, kind: kind, err: "", import_item: import_item, struct_item: struct_item, enum_item: enum_item, const_item: const_item, trait_item: trait_item, type_item: type_item, func_item: func_item, impl_item: impl_item, impl_trait_item: impl_trait_item }
 }
 
-fn apply_expr(exp: &mut MacroExpander, expr: Expr, sites: [MacroSite], results: [IrValue]) -> Expr {
+fn apply_expr(exp: &mut MacroExpander, expr: Expr, sites: & [MacroSite], results: & [IrValue]) -> Expr {
     match expr {
         Expr.Compile(c) => {
-            if c.id < 0 || c.id >= len(results) {
+            if c.id < 0 || c.id >= len(*results) {
                 return expr
             }
-            let site = sites[c.id]
-            let val = results[c.id]
+            let site = (*sites)[c.id]
+            let val = (*results)[c.id]
             if val.kind != ir_kind_ast() {
-                macro_add_error(exp, site.pos, site.file, "compile! expects AstExpr value")
+                macro_add_error(exp, site.pos, &site.file, "compile! expects AstExpr value")
                 return Expr.IntLit(IntLit { pos: site.pos, value: "0" })
             }
             if val.ast_kind == ir_ast_kind_expr() {
                 let parsed = parse_expr_string(val.ast_src)
                 if !parsed.ok {
-                    macro_add_error(exp, site.pos, site.file, "compile! expr parse error: " + parsed.err)
+                    macro_add_error(exp, site.pos, &site.file, "compile! expr parse error: " + parsed.err)
                     return Expr.IntLit(IntLit { pos: site.pos, value: "0" })
                 }
                 return parsed.expr
@@ -554,7 +1212,7 @@ fn apply_expr(exp: &mut MacroExpander, expr: Expr, sites: [MacroSite], results: 
             if val.ast_kind == ir_ast_kind_block() {
                 let parsed = parse_expr_string(val.ast_src)
                 if !parsed.ok {
-                    macro_add_error(exp, site.pos, site.file, "compile! block parse error: " + parsed.err)
+                    macro_add_error(exp, site.pos, &site.file, "compile! block parse error: " + parsed.err)
                     return Expr.IntLit(IntLit { pos: site.pos, value: "0" })
                 }
                 return parsed.expr
@@ -562,18 +1220,18 @@ fn apply_expr(exp: &mut MacroExpander, expr: Expr, sites: [MacroSite], results: 
             if val.ast_kind == ir_ast_kind_stmt() {
                 let parsed = parse_stmt_string(val.ast_src)
                 if !parsed.ok {
-                    macro_add_error(exp, site.pos, site.file, "compile! stmt parse error: " + parsed.err)
+                    macro_add_error(exp, site.pos, &site.file, "compile! stmt parse error: " + parsed.err)
                     return Expr.IntLit(IntLit { pos: site.pos, value: "0" })
                 }
                 match parsed.stmt {
                     Stmt.Expr(s) => { return s.expr }
                     _ => {
-                        macro_add_error(exp, site.pos, site.file, "compile! expr expects AstExpr or expression statement")
+                        macro_add_error(exp, site.pos, &site.file, "compile! expr expects AstExpr or expression statement")
                         return Expr.IntLit(IntLit { pos: site.pos, value: "0" })
                     }
                 }
             }
-            macro_add_error(exp, site.pos, site.file, "compile! expr expects AstExpr")
+            macro_add_error(exp, site.pos, &site.file, "compile! expr expects AstExpr")
             return Expr.IntLit(IntLit { pos: site.pos, value: "0" })
         }
         Expr.Unary(u) => {
@@ -668,22 +1326,23 @@ fn apply_expr(exp: &mut MacroExpander, expr: Expr, sites: [MacroSite], results: 
     }
 }
 
-fn apply_stmt(exp: &mut MacroExpander, stmt: Stmt, sites: [MacroSite], results: [IrValue]) -> Stmt {
+fn apply_stmt(exp: &mut MacroExpander, stmt: Stmt, sites: & [MacroSite], results: & [IrValue]) -> Stmt {
+    let orig = clone_stmt(&stmt)
     match stmt {
         Stmt.Expr(s) => {
             match s.expr {
                 Expr.Compile(c) => {
-                    if c.id >= 0 && c.id < len(results) {
-                        let site = sites[c.id]
-                        let val = results[c.id]
+                    if c.id >= 0 && c.id < len(*results) {
+                        let site = (*sites)[c.id]
+                        let val = (*results)[c.id]
                         if val.kind != ir_kind_ast() {
-                            macro_add_error(exp, site.pos, site.file, "compile! expects AstStmt value")
+                            macro_add_error(exp, site.pos, &site.file, "compile! expects AstStmt value")
                             return stmt
                         }
                         if val.ast_kind == ir_ast_kind_stmt() {
                             let parsed = parse_stmt_string(val.ast_src)
                             if !parsed.ok {
-                                macro_add_error(exp, site.pos, site.file, "compile! stmt parse error: " + parsed.err)
+                                macro_add_error(exp, site.pos, &site.file, "compile! stmt parse error: " + parsed.err)
                                 return stmt
                             }
                             return parsed.stmt
@@ -691,12 +1350,12 @@ fn apply_stmt(exp: &mut MacroExpander, stmt: Stmt, sites: [MacroSite], results: 
                         if val.ast_kind == ir_ast_kind_expr() || val.ast_kind == ir_ast_kind_block() {
                             let parsed = parse_expr_string(val.ast_src)
                             if !parsed.ok {
-                                macro_add_error(exp, site.pos, site.file, "compile! expr parse error: " + parsed.err)
+                                macro_add_error(exp, site.pos, &site.file, "compile! expr parse error: " + parsed.err)
                                 return stmt
                             }
                             return Stmt.Expr(ExprStmt { pos: site.pos, expr: parsed.expr })
                         }
-                        macro_add_error(exp, site.pos, site.file, "compile! stmt expects AstStmt/AstExpr/AstBlock")
+                        macro_add_error(exp, site.pos, &site.file, "compile! stmt expects AstStmt/AstExpr/AstBlock")
                         return stmt
                     }
                 }
@@ -747,11 +1406,11 @@ fn apply_stmt(exp: &mut MacroExpander, stmt: Stmt, sites: [MacroSite], results: 
             }
             return Stmt.Match(MatchStmt { pos: s.pos, expr: expr, arms: arms })
         }
-        _ => { return stmt }
+        _ => { return orig }
     }
 }
 
-fn apply_block(exp: &mut MacroExpander, block: Block, sites: [MacroSite], results: [IrValue]) -> Block {
+fn apply_block(exp: &mut MacroExpander, block: Block, sites: & [MacroSite], results: & [IrValue]) -> Block {
     let mut stmts: [Stmt] = []
     let mut i = 0
     while i < len(block.stmts) {
@@ -807,7 +1466,7 @@ fn set_item_module_file_impl_trait(item: &mut ImplTrait, module: String, file: S
 }
 
 fn macro_expand(prog: Program, debug: bool) -> MacroExpandResult {
-    let mut exp = MacroExpander { sites: macro_site_list_new(), next_id: 0, errors: parse_error_list_new() }
+    let mut exp = MacroExpander { sites: macro_site_list_new(), next_id: 0, errors: parse_error_list_new(), debug: debug }
     let mut out = prog
 
     let mut functions: [FunctionDecl] = []
@@ -845,41 +1504,53 @@ fn macro_expand(prog: Program, debug: bool) -> MacroExpandResult {
         return MacroExpandResult { prog: out, errors: exp.errors }
     }
 
-    let macro_prog = macro_program(out, exp.sites)
-    let tctx = check_program(macro_prog, debug, false, true)
-    if len(tctx.errors) > 0 {
-        return MacroExpandResult { prog: out, errors: tctx.errors }
+    let macro_prog_tc = macro_program(&out, &exp.sites)
+    let mctx = check_program(macro_prog_tc, debug, true, true)
+    if len(mctx.errors) > 0 {
+        return MacroExpandResult { prog: out, errors: mctx.errors }
     }
-    let comp = compile_program(macro_prog, tctx, debug)
-    if len(comp.errors) > 0 {
-        return MacroExpandResult { prog: out, errors: comp.errors }
+    let macro_prog = macro_program(&out, &exp.sites)
+    let mcomp = compile_program(macro_prog, mctx, debug)
+    if len(mcomp.errors) > 0 {
+        return MacroExpandResult { prog: out, errors: mcomp.errors }
     }
-    let mut rt = runtime_new(comp.prog, string_list_new())
-    let mut results: [IrValue] = []
-    let mut s = 0
-    while s < len(exp.sites) {
-        push(&mut results, ir_value_unit())
-        s = s + 1
-    }
+
     let mut sites_by_id: [MacroSite] = []
-    let mut t2 = 0
-    while t2 < len(exp.sites) {
+    let mut i = 0
+    while i < exp.next_id {
         push(&mut sites_by_id, macro_site_dummy())
-        t2 = t2 + 1
+        i = i + 1
     }
-    let mut si = 0
-    while si < len(exp.sites) {
-        let site = exp.sites[si]
-        sites_by_id[site.id] = site
+    i = 0
+    while i < len(exp.sites) {
+        let site = &exp.sites[i]
+        if site.id >= 0 && site.id < len(sites_by_id) {
+            sites_by_id[site.id] = clone_macro_site(site)
+        }
+        i = i + 1
+    }
+
+    let mut results: [IrValue] = []
+    i = 0
+    while i < exp.next_id {
+        push(&mut results, ir_value_unit())
+        i = i + 1
+    }
+
+    let mut rt = runtime_new(mcomp.prog, string_list_new())
+    i = 0
+    while i < len(exp.sites) {
+        let site = &exp.sites[i]
         let val = runtime_call(&mut rt, macro_wrapper_name(site.id), ir_value_list_new())
         if rt.error != "" {
-            macro_add_error(&mut exp, site.pos, site.file, rt.error)
+            macro_add_error(&mut exp, site.pos, &site.file, rt.error)
             rt.error = ""
-        } else {
+        } else if site.id >= 0 && site.id < len(results) {
             results[site.id] = val
         }
-        si = si + 1
+        i = i + 1
     }
+
     if len(exp.errors) > 0 {
         return MacroExpandResult { prog: out, errors: exp.errors }
     }
@@ -888,7 +1559,7 @@ fn macro_expand(prog: Program, debug: bool) -> MacroExpandResult {
     let mut fi = 0
     while fi < len(out.functions) {
         let f = out.functions[fi]
-        let body = apply_block(&mut exp, f.body, sites_by_id, results)
+        let body = apply_block(&mut exp, f.body, &sites_by_id, &results)
         push(&mut new_funcs, FunctionDecl { vis: f.vis, module: f.module, file: f.file, pos: f.pos, name: f.name, type_params: f.type_params, params: f.params, has_return: f.has_return, ret: f.ret, body: body, is_macro: f.is_macro })
         fi = fi + 1
     }
@@ -902,7 +1573,7 @@ fn macro_expand(prog: Program, debug: bool) -> MacroExpandResult {
         let mut mi = 0
         while mi < len(imp.methods) {
             let m = imp.methods[mi]
-            let body = apply_block(&mut exp, m.body, sites_by_id, results)
+            let body = apply_block(&mut exp, m.body, &sites_by_id, &results)
             push(&mut methods, FunctionDecl { vis: m.vis, module: m.module, file: m.file, pos: m.pos, name: m.name, type_params: m.type_params, params: m.params, has_return: m.has_return, ret: m.ret, body: body, is_macro: m.is_macro })
             mi = mi + 1
         }
@@ -919,7 +1590,7 @@ fn macro_expand(prog: Program, debug: bool) -> MacroExpandResult {
         let mut mi = 0
         while mi < len(imp.methods) {
             let m = imp.methods[mi]
-            let body = apply_block(&mut exp, m.body, sites_by_id, results)
+            let body = apply_block(&mut exp, m.body, &sites_by_id, &results)
             push(&mut methods, FunctionDecl { vis: m.vis, module: m.module, file: m.file, pos: m.pos, name: m.name, type_params: m.type_params, params: m.params, has_return: m.has_return, ret: m.ret, body: body, is_macro: m.is_macro })
             mi = mi + 1
         }
@@ -930,56 +1601,56 @@ fn macro_expand(prog: Program, debug: bool) -> MacroExpandResult {
 
     let mut ci = 0
     while ci < len(out.compile_items) {
-        let item = out.compile_items[ci]
+        let item = &out.compile_items[ci]
         if item.id >= 0 && item.id < len(results) {
-            let site = sites_by_id[item.id]
+            let site = &sites_by_id[item.id]
             let val = results[item.id]
             if val.kind != ir_kind_ast() || val.ast_kind != ir_ast_kind_item() {
-                macro_add_error(&mut exp, site.pos, site.file, "compile! item expects AstItem value")
+                macro_add_error(&mut exp, site.pos, &site.file, "compile! item expects AstItem value")
                 ci = ci + 1
                 continue
             }
             let parsed = parse_item_string(val.ast_src)
             if !parsed.ok {
-                macro_add_error(&mut exp, site.pos, site.file, "compile! item parse error: " + parsed.err)
+                macro_add_error(&mut exp, site.pos, &site.file, "compile! item parse error: " + parsed.err)
                 ci = ci + 1
                 continue
             }
             if parsed.kind == item_kind_import() {
                 let mut it = parsed.import_item
-                set_item_module_file_import(&mut it, site.module, site.file)
+                set_item_module_file_import(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.imports, it)
             } else if parsed.kind == item_kind_struct() {
                 let mut it = parsed.struct_item
-                set_item_module_file_struct(&mut it, site.module, site.file)
+                set_item_module_file_struct(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.structs, it)
             } else if parsed.kind == item_kind_enum() {
                 let mut it = parsed.enum_item
-                set_item_module_file_enum(&mut it, site.module, site.file)
+                set_item_module_file_enum(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.enums, it)
             } else if parsed.kind == item_kind_const() {
                 let mut it = parsed.const_item
-                set_item_module_file_const(&mut it, site.module, site.file)
+                set_item_module_file_const(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.consts, it)
             } else if parsed.kind == item_kind_trait() {
                 let mut it = parsed.trait_item
-                set_item_module_file_trait(&mut it, site.module, site.file)
+                set_item_module_file_trait(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.traits, it)
             } else if parsed.kind == item_kind_type() {
                 let mut it = parsed.type_item
-                set_item_module_file_type(&mut it, site.module, site.file)
+                set_item_module_file_type(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.type_aliases, it)
             } else if parsed.kind == item_kind_func() {
                 let mut it = parsed.func_item
-                set_item_module_file_func(&mut it, site.module, site.file)
+                set_item_module_file_func(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.functions, it)
             } else if parsed.kind == item_kind_impl() {
                 let mut it = parsed.impl_item
-                set_item_module_file_impl(&mut it, site.module, site.file)
+                set_item_module_file_impl(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.impls, it)
             } else if parsed.kind == item_kind_impl_trait() {
                 let mut it = parsed.impl_trait_item
-                set_item_module_file_impl_trait(&mut it, site.module, site.file)
+                set_item_module_file_impl_trait(&mut it, string_clone(&site.module), string_clone(&site.file))
                 push(&mut out.impl_traits, it)
             }
         }

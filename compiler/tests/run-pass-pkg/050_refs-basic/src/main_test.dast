@@ -1,0 +1,7 @@
+import "std/testing" as t
+
+fn test_main() {
+    let v = 1
+    let r = &v
+    t.assert_eq!(*r, 1)
+}

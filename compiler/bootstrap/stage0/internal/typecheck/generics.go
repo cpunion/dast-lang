@@ -7,9 +7,10 @@ import (
 )
 
 type TraitSig struct {
-	Name    string
-	Decl    *ast.TraitDecl
-	Methods []TraitMethodSig
+	Name       string
+	TypeParams []ast.TypeParam
+	Decl       *ast.TraitDecl
+	Methods    []TraitMethodSig
 }
 
 type TraitMethodSig struct {
@@ -145,6 +146,10 @@ func (c *Checker) unifyType(pattern Type, actual Type, subst map[string]Type) bo
 	if pattern.Kind == TypeInvalid || actual.Kind == TypeInvalid {
 		return false
 	}
+	// Allow &String (and String) to match &str in generic inference.
+	if pattern.Kind == TypeStr && pattern.Ref && !pattern.Mut && actual.Kind == TypeString {
+		return true
+	}
 	if pattern.Kind == TypeParam {
 		if bound, ok := subst[pattern.Name]; ok {
 			return typesEqual(bound, actual)
@@ -198,6 +203,17 @@ func (c *Checker) unifyType(pattern Type, actual Type, subst map[string]Type) bo
 			return false
 		}
 		return c.unifyType(*pattern.Elem, *actual.Elem, subst)
+	}
+	if pattern.Kind == TypeTuple {
+		if len(pattern.Elems) != len(actual.Elems) {
+			return false
+		}
+		for i := range pattern.Elems {
+			if !c.unifyType(pattern.Elems[i], actual.Elems[i], subst) {
+				return false
+			}
+		}
+		return true
 	}
 	if len(pattern.Args) != len(actual.Args) {
 		return false

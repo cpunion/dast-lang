@@ -28,6 +28,16 @@ struct TestCollect {
     errors: [ParseError],
 }
 
+fn parse_error_clone(e: &ParseError) -> ParseError {
+    return ParseError {
+        pos: e.pos,
+        file: string_clone(&e.file),
+        line: e.line,
+        col: e.col,
+        msg: string_clone(&e.msg),
+    }
+}
+
 struct Manifest {
     has_package: bool,
     package_line: i32,
@@ -108,9 +118,9 @@ fn program_empty() -> Program {
     }
 }
 
-fn driver_qualify_name(module: String, name: String) -> String {
-    if module == "" { return name }
-    return module + "::" + name
+fn driver_qualify_name(module: &str, name: &str) -> String {
+    if *module == "" { return string_clone(name) }
+    return string_clone(module) + "::" + string_clone(name)
 }
 
 fn usage() {
@@ -119,10 +129,9 @@ fn usage() {
     println("  dast run [--package name] [--example name] <file.dast|dir> [more ...] [-- args...]")
     println("  dast ir [--package name] [--example name] <file.dast|dir> [more ...]")
     println("  dast test [--package name] <file.dast|dir> [more ...]")
-    println("  dast ir-run <file.ir> [-- args...]")
+    // ir-run disabled while interp backend is not built
     println("  dast ir-verify <file.ir>")
     println("  dast ir-opt <file.ir>")
-    println("  dast ir-c <file.ir>")
 }
 
 fn die_usage() {
@@ -140,15 +149,17 @@ fn die_parse(file: String, line: i32, msg: String) {
     exit(1)
 }
 
-fn die_errors(errors: [ParseError]) {
+fn die_errors(errors: & [ParseError]) {
     print_errors(errors)
     exit(1)
 }
 
 fn handle_runtime_error(err: String) {
     if err == "" { return }
-    if driver_string_starts_with(err, "exit ") {
-        let code = parse_int(substr(err, 5, len(err) - 5))
+    let exit_prefix = "exit "
+    if driver_string_starts_with(&err, &exit_prefix) {
+        let err_len = len(string_clone(&err))
+        let code = parse_int(substr(err, 5, err_len - 5))
         exit(code)
     }
     print_error_line("<runtime>", 0, 0, err)
@@ -165,18 +176,18 @@ fn split_args(args: [String], start: i32) -> ArgSplit {
             i = i + 1
             done = true
         } else {
-            push(&mut files, args[i])
+            push(&mut files, string_clone(&args[i]))
             i = i + 1
         }
     }
     while i < len(args) {
-        push(&mut rest, args[i])
+        push(&mut rest, string_clone(&args[i]))
         i = i + 1
     }
     return ArgSplit { files: files, rest: rest }
 }
 
-fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
+fn split_args_with_pkg(args: [String], start: i32, include_tests: bool) -> ArgSplitPkg {
     let mut files: [String] = []
     let mut rest: [String] = []
     let mut pkg = ""
@@ -206,47 +217,50 @@ fn split_args_with_pkg(args: [String], start: i32) -> ArgSplitPkg {
             if i + 1 >= len(args) {
                 die_usage()
             }
-            pkg = args[i + 1]
+            pkg = string_clone(&args[i + 1])
             i = i + 2
         } else if args[i] == "--example" || args[i] == "-e" {
             if i + 1 >= len(args) {
                 die_usage()
             }
-            example = args[i + 1]
+            example = string_clone(&args[i + 1])
             i = i + 2
         } else {
             // Expand path (directory or file) to file list
-            let expanded = expand_path_to_files(args[i], false)
+            let expanded = expand_path_to_files(string_clone(&args[i]), include_tests)
             let mut j = 0
             while j < len(expanded) {
-                push(&mut files, expanded[j])
+                push(&mut files, string_clone(&expanded[j]))
                 j = j + 1
             }
             i = i + 1
         }
     }
     while i < len(args) {
-        push(&mut rest, args[i])
+        push(&mut rest, string_clone(&args[i]))
         i = i + 1
     }
     return ArgSplitPkg { files: files, rest: rest, package: pkg, example: example, debug: debug, emit_ir: emit_ir, bootstrap: bootstrap }
 }
 
 fn expand_path_to_files(path: String, include_tests: bool) -> [String] {
-    let clean = driver_trim_space(path)
-    if driver_string_ends_with(clean, ".dast") || driver_string_contains(clean, ".dast") {
+    let clean = driver_trim_space(&path)
+    let dast_ext = ".dast"
+    if driver_string_ends_with(&clean, &dast_ext) || driver_string_contains(&clean, &dast_ext) {
         let mut result: [String] = []
         push(&mut result, clean)
         return result
     }
     // Try to read as directory
-    let names = read_dir(clean)
+    let names = read_dir(string_clone(&clean))
     if len(names) > 0 {
         // Check if this is a package/workspace directory (has dast.toml)
-        if driver_dir_has_entry(clean, "dast.toml") {
+        let toml_name = "dast.toml"
+        if driver_dir_has_entry(&clean, &toml_name) {
             // Check for src/ directory (package)
-            let src_path = driver_path_join(clean, "src")
-            let src_names = read_dir(src_path)
+            let src_dir = "src"
+            let src_path = driver_path_join(&clean, &src_dir)
+            let src_names = read_dir(string_clone(&src_path))
             if len(src_names) > 0 {
                 // It's a package - scan src/ directory recursively
                 return driver_list_dast_files_recursive(src_path, include_tests)
@@ -274,10 +288,10 @@ fn parse_files(files: [String]) -> ParseResult {
     let mut i = 0
     while i < len(files) {
         let src = read_file(files[i])
-        let mut lex = lexer_new(src)
+        let mut lex = lexer_new(string_clone(&src))
         let mut local_errs: [ParseError] = []
-        let mut prog = parse_program(src, &mut lex, &mut local_errs)
-        program_set_file(&mut prog, files[i])
+        let mut prog = parse_program(&src, &files[i], &mut lex, &mut local_errs)
+        program_set_file(&mut prog, string_clone(&files[i]))
         append_program(&mut merged, prog)
         let mut j = 0
         while j < len(local_errs) {
@@ -287,15 +301,15 @@ fn parse_files(files: [String]) -> ParseResult {
             if e.pos >= 0 {
                 let mut offset = 0
                 if e.pos < len(lex.toks.items) {
-                    offset = tok_start(lex.toks, e.pos)
+                    offset = tok_start(&lex.toks, e.pos)
                 } else {
-                    offset = len(src)
+                    offset = len(string_clone(&src))
                 }
-                let lc = line_col_from_offset(src, offset)
+                let lc = line_col_from_offset(string_clone(&src), offset)
                 line = lc.line
                 col = lc.col
             }
-            push(&mut errs, ParseError { pos: e.pos, file: files[i], line: line, col: col, msg: e.msg })
+            push(&mut errs, ParseError { pos: e.pos, file: string_clone(&files[i]), line: line, col: col, msg: e.msg })
             j = j + 1
         }
         i = i + 1
@@ -377,10 +391,10 @@ fn append_program(dst: &mut Program, src: Program) {
     dst.compile_items = compile_items
 }
 
-fn driver_list_contains(list: [String], value: String) -> bool {
+fn driver_list_contains(list: & [String], value: &str) -> bool {
     let mut i = 0
-    while i < len(list) {
-        if list[i] == value {
+    while i < len(*list) {
+        if (*list)[i] == string_clone(value) {
             return true
         }
         i = i + 1
@@ -388,10 +402,10 @@ fn driver_list_contains(list: [String], value: String) -> bool {
     return false
 }
 
-fn driver_list_index(list: [String], value: String) -> i32 {
+fn driver_list_index(list: & [String], value: &str) -> i32 {
     let mut i = 0
-    while i < len(list) {
-        if list[i] == value {
+    while i < len(*list) {
+        if (*list)[i] == string_clone(value) {
             return i
         }
         i = i + 1
@@ -399,13 +413,22 @@ fn driver_list_index(list: [String], value: String) -> i32 {
     return -1
 }
 
-fn driver_path_dir(path: String) -> String {
+fn driver_string_list_clone(items: & [String]) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, string_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn driver_path_dir(path: &str) -> String {
     let mut last = -1
     let mut i = 0
-    while i < len(path) {
-        if char_at(path, i) == 47 {
-            last = i
-        }
+    let path_len = len(path)
+    while i < path_len {
+        if char_at(path, i) == 47 { last = i }
         i = i + 1
     }
     if last < 0 {
@@ -417,20 +440,22 @@ fn driver_path_dir(path: String) -> String {
     return substr(path, 0, last)
 }
 
-fn driver_path_join(dir: String, rel: String) -> String {
-    if dir == "" || dir == "." {
-        return rel
+fn driver_path_join(dir: &str, rel: &str) -> String {
+    if *dir == "" || *dir == "." {
+        return string_clone(rel)
     }
-    if char_at(dir, len(dir) - 1) == 47 {
-        return dir + rel
+    let dir_len = len(dir)
+    if char_at(dir, dir_len - 1) == 47 {
+        return string_clone(dir) + string_clone(rel)
     }
-    return dir + "/" + rel
+    return string_clone(dir) + "/" + string_clone(rel)
 }
 
-fn driver_replace_dots(path: String) -> String {
+fn driver_replace_dots(path: &str) -> String {
     let mut out = ""
     let mut i = 0
-    while i < len(path) {
+    let path_len = len(path)
+    while i < path_len {
         let c = char_at(path, i)
         if c == 46 {
             out = out + "/"
@@ -442,35 +467,70 @@ fn driver_replace_dots(path: String) -> String {
     return out
 }
 
-fn driver_module_path_to_dir(base_dir: String, mod_path: String) -> String {
+fn driver_module_path_to_dir(base_dir: &str, mod_path: &str) -> String {
     let rel = driver_replace_dots(mod_path)
-    return driver_path_join(base_dir, rel)
+    return driver_path_join(base_dir, &rel)
 }
 
-fn driver_string_ends_with(text: String, suffix: String) -> bool {
-    if len(text) < len(suffix) { return false }
-    let start = len(text) - len(suffix)
-    return substr(text, start, len(suffix)) == suffix
-}
-
-fn driver_string_starts_with(text: String, prefix: String) -> bool {
-    if len(text) < len(prefix) { return false }
-    return substr(text, 0, len(prefix)) == prefix
-}
-
-fn driver_string_contains(text: String, needle: String) -> bool {
-    if needle == "" { return true }
+fn driver_string_ends_with(text: &str, suffix: &str) -> bool {
+    let t_len = len(text)
+    let s_len = len(suffix)
+    if t_len < s_len { return false }
+    let start = t_len - s_len
     let mut i = 0
-    while i + len(needle) <= len(text) {
-        if substr(text, i, len(needle)) == needle {
-            return true
+    while i < s_len {
+        if char_at(text, start + i) != char_at(suffix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn driver_string_starts_with(text: &str, prefix: &str) -> bool {
+    let t_len = len(text)
+    let p_len = len(prefix)
+    if t_len < p_len { return false }
+    let mut i = 0
+    while i < p_len {
+        if char_at(text, i) != char_at(prefix, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn driver_string_contains(text: &str, needle: &str) -> bool {
+    if len(needle) == 0 { return true }
+    let mut i = 0
+    let t_len = len(text)
+    let n_len = len(needle)
+    while i + n_len <= t_len {
+        let mut j = 0
+        let mut ok = true
+        while j < n_len && ok {
+            if char_at(text, i + j) != char_at(needle, j) { ok = false }
+            j = j + 1
         }
+        if ok { return true }
         i = i + 1
     }
     return false
 }
 
-fn driver_trim_space(text: String) -> String {
+fn driver_string_is_empty(text: &str) -> bool {
+    return len(text) == 0
+}
+
+fn driver_string_eq(a: &str, b: &str) -> bool {
+    if len(a) != len(b) { return false }
+    let mut i = 0
+    let n = len(a)
+    while i < n {
+        if char_at(a, i) != char_at(b, i) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn driver_trim_space(text: &str) -> String {
     let mut start = 0
     let mut end = len(text)
     let mut done = false
@@ -495,11 +555,12 @@ fn driver_trim_space(text: String) -> String {
     return substr(text, start, end - start)
 }
 
-fn driver_split_lines(text: String) -> [String] {
+fn driver_split_lines(text: &str) -> [String] {
     let mut lines: [String] = []
     let mut i = 0
     let mut start = 0
-    while i < len(text) {
+    let text_len = len(text)
+    while i < text_len {
         let c = char_at(text, i)
         if c == 10 {
             push(&mut lines, substr(text, start, i - start))
@@ -507,28 +568,29 @@ fn driver_split_lines(text: String) -> [String] {
         }
         i = i + 1
     }
-    if start <= len(text) {
-        push(&mut lines, substr(text, start, len(text) - start))
+    if start <= text_len {
+        push(&mut lines, substr(text, start, text_len - start))
     }
     return lines
 }
 
-fn driver_split_path(path: String) -> [String] {
+fn driver_split_path(path: &str) -> [String] {
     let mut parts: [String] = []
     let mut i = 0
     let mut start = 0
-    while i < len(path) {
+    let path_len = len(path)
+    while i < path_len {
         if char_at(path, i) == 47 {
             push(&mut parts, substr(path, start, i - start))
             start = i + 1
         }
         i = i + 1
     }
-    push(&mut parts, substr(path, start, len(path) - start))
+    push(&mut parts, substr(path, start, path_len - start))
     return parts
 }
 
-fn driver_path_clean(path: String) -> String {
+fn driver_path_clean(path: &str) -> String {
     let mut abs = false
     if len(path) > 0 && char_at(path, 0) == 47 {
         abs = true
@@ -537,7 +599,7 @@ fn driver_path_clean(path: String) -> String {
     let mut stack: [String] = []
     let mut i = 0
     while i < len(parts) {
-        let seg = parts[i]
+        let seg = string_clone(&parts[i])
         if seg == "" || seg == "." {
             // skip
         } else if seg == ".." {
@@ -556,7 +618,7 @@ fn driver_path_clean(path: String) -> String {
         if j > 0 || abs {
             if out != "/" && out != "" { out = out + "/" }
         }
-        out = out + stack[j]
+        out = out + string_clone(&stack[j])
         j = j + 1
     }
     if out == "" {
@@ -566,29 +628,31 @@ fn driver_path_clean(path: String) -> String {
     return out
 }
 
-fn driver_is_test_file(name: String) -> bool {
-    return driver_string_ends_with(name, "_test.dast")
+fn driver_is_test_file(name: &str) -> bool {
+    let suffix = "_test.dast"
+    return driver_string_ends_with(name, &suffix)
 }
 
-fn driver_is_dast_file(name: String) -> bool {
-    return driver_string_ends_with(name, ".dast")
+fn driver_is_dast_file(name: &str) -> bool {
+    let suffix = ".dast"
+    return driver_string_ends_with(name, &suffix)
 }
 
-fn driver_list_dast_files(dir: String, include_tests: bool) -> [String] {
+fn driver_list_dast_files(dir: &str, include_tests: bool) -> [String] {
     let mut files: [String] = []
     let names = read_dir(dir)
     let mut i = 0
     while i < len(names) {
-        let name = names[i]
+        let name = string_clone(&names[i])
         let mut take = false
-        if driver_is_dast_file(name) {
+        if driver_is_dast_file(&name) {
             take = true
-            if !include_tests && driver_is_test_file(name) {
+            if !include_tests && driver_is_test_file(&name) {
                 take = false
             }
         }
         if take {
-            let full = driver_path_join(dir, name)
+            let full = driver_path_join(dir, &name)
             push(&mut files, full)
         }
         i = i + 1
@@ -596,29 +660,29 @@ fn driver_list_dast_files(dir: String, include_tests: bool) -> [String] {
     return driver_sort_strings(files)
 }
 
-fn driver_list_dast_files_recursive(dir: String, include_tests: bool) -> [String] {
+fn driver_list_dast_files_recursive(dir: &str, include_tests: bool) -> [String] {
     let mut files: [String] = []
     let names = read_dir(dir)
     let mut i = 0
     while i < len(names) {
-        let name = names[i]
-        let full = driver_path_join(dir, name)
+        let name = string_clone(&names[i])
+        let full = driver_path_join(dir, &name)
         // Check if it's a subdirectory
-        let sub_names = read_dir(full)
+        let sub_names = read_dir(&full)
         if len(sub_names) > 0 {
             // Recurse into subdirectory
-            let sub_files = driver_list_dast_files_recursive(full, include_tests)
+            let sub_files = driver_list_dast_files_recursive(&full, include_tests)
             let mut j = 0
             while j < len(sub_files) {
-                push(&mut files, sub_files[j])
+                push(&mut files, string_clone(&sub_files[j]))
                 j = j + 1
             }
         } else {
             // It's a file - check if it's a .dast file
             let mut take = false
-            if driver_is_dast_file(name) {
+            if driver_is_dast_file(&name) {
                 take = true
-                if !include_tests && driver_is_test_file(name) {
+                if !include_tests && driver_is_test_file(&name) {
                     take = false
                 }
             }
@@ -631,8 +695,21 @@ fn driver_list_dast_files_recursive(dir: String, include_tests: bool) -> [String
     return driver_sort_strings(files)
 }
 
+fn driver_debug_enabled() -> bool {
+    // Opt-in debug via marker file to avoid spamming normal runs.
+    let flag = read_file("/tmp/dast-driver-debug")
+    return flag != ""
+}
 
-fn driver_string_lt(a: String, b: String) -> bool {
+fn driver_debug_loaded(state: &LoadState, path: &str) {
+    let count = len(state.loaded)
+    if count > 0 && count % 50 == 0 && driver_debug_enabled() {
+        println("[driver-load]", count, path)
+    }
+}
+
+
+fn driver_string_lt(a: &str, b: &str) -> bool {
     let mut i = 0
     let alen = len(a)
     let blen = len(b)
@@ -654,7 +731,7 @@ fn driver_sort_strings(items: [String]) -> [String] {
     while i < n {
         let mut j = 0
         while j + 1 < n - i {
-            if driver_string_lt(out[j + 1], out[j]) {
+            if driver_string_lt(&out[j + 1], &out[j]) {
                 let tmp = out[j]
                 out[j] = out[j + 1]
                 out[j + 1] = tmp
@@ -666,10 +743,11 @@ fn driver_sort_strings(items: [String]) -> [String] {
     return out
 }
 
-fn driver_replace_slash(path: String) -> String {
+fn driver_replace_slash(path: &str) -> String {
     let mut out = ""
     let mut i = 0
-    while i < len(path) {
+    let path_len = len(path)
+    while i < path_len {
         let c = char_at(path, i)
         if c == 47 {
             out = out + "."
@@ -681,48 +759,50 @@ fn driver_replace_slash(path: String) -> String {
     return out
 }
 
-fn driver_path_rel(base: String, path: String) -> String {
-    if base == "" || base == "." {
-        return path
+fn driver_path_rel(base: &str, path: &str) -> String {
+    if *base == "" || *base == "." {
+        return string_clone(path)
     }
-    if path == base {
+    if *path == *base {
         return ""
     }
-    let mut prefix = base
-    if char_at(prefix, len(prefix) - 1) != 47 {
+    let mut prefix = string_clone(base)
+    if char_at(&prefix, len(&prefix) - 1) != 47 {
         prefix = prefix + "/"
     }
-    if driver_string_starts_with(path, prefix) {
-        return substr(path, len(prefix), len(path) - len(prefix))
+    if driver_string_starts_with(path, &prefix) {
+        let prefix_len = len(&prefix)
+        let path_len = len(path)
+        return substr(path, prefix_len, path_len - prefix_len)
     }
-    return path
+    return string_clone(path)
 }
 
-fn driver_path_is_within(root: String, path: String) -> bool {
-    if root == "" || root == "." { return true }
+fn driver_path_is_within(root: &str, path: &str) -> bool {
+    if *root == "" || *root == "." { return true }
     let clean_root = driver_path_clean(root)
     let clean_path = driver_path_clean(path)
     if clean_path == clean_root { return true }
     let mut prefix = clean_root
-    if len(prefix) > 0 && char_at(prefix, len(prefix) - 1) != 47 {
+    if len(&prefix) > 0 && char_at(&prefix, len(&prefix) - 1) != 47 {
         prefix = prefix + "/"
     }
-    return driver_string_starts_with(clean_path, prefix)
+    return driver_string_starts_with(&clean_path, &prefix)
 }
 
-fn driver_module_path_from_dir(root_dir: String, dir: String) -> String {
+fn driver_module_path_from_dir(root_dir: &str, dir: &str) -> String {
     let rel = driver_path_rel(root_dir, dir)
     if rel == "" || rel == "." {
         return ""
     }
-    return driver_replace_slash(rel)
+    return driver_replace_slash(&rel)
 }
 
-fn driver_dir_has_entry(dir: String, name: String) -> bool {
-    let names = read_dir(dir)
+fn driver_dir_has_entry(dir: &str, name: &str) -> bool {
+    let names = read_dir(string_clone(dir))
     let mut i = 0
     while i < len(names) {
-        if names[i] == name { return true }
+        if names[i] == string_clone(name) { return true }
         i = i + 1
     }
     return false
@@ -730,17 +810,18 @@ fn driver_dir_has_entry(dir: String, name: String) -> bool {
 
 fn driver_find_package_root(path: String) -> String {
     let mut dir = path
-    if driver_is_dast_file(path) {
-        dir = driver_path_dir(path)
+    if driver_is_dast_file(&dir) {
+        dir = driver_path_dir(&dir)
     }
     let mut cur = dir
     let mut done = false
-    while cur != "" && !done {
-        if driver_dir_has_entry(cur, "dast.toml") {
+    let toml_name = "dast.toml"
+    while !driver_string_is_empty(&cur) && !done {
+        if driver_dir_has_entry(&cur, &toml_name) {
             return cur
         }
-        let parent = driver_path_dir(cur)
-        if parent == cur || parent == "" {
+        let parent = driver_path_dir(&cur)
+        if driver_string_eq(&parent, &cur) || driver_string_is_empty(&parent) {
             done = true
         } else {
             cur = parent
@@ -749,22 +830,27 @@ fn driver_find_package_root(path: String) -> String {
     return ""
 }
 
-fn driver_find_workspace_root(path: String) -> String {
+fn driver_find_workspace_root(path: String, dbg: bool) -> String {
     let mut dir = path
-    if driver_is_dast_file(path) {
-        dir = driver_path_dir(path)
+    if dbg { println("stage2: ws_root path", string_clone(&dir)) }
+    if driver_is_dast_file(&dir) {
+        dir = driver_path_dir(&dir)
     }
+    if dbg { println("stage2: ws_root dir", string_clone(&dir)) }
     let mut cur = dir
     let mut done = false
-    while cur != "" && !done {
-        if driver_dir_has_entry(cur, "dast.toml") {
-            let res = driver_load_manifest(cur)
+    let toml_name = "dast.toml"
+    while !driver_string_is_empty(&cur) && !done {
+        if dbg { println("stage2: ws_root cur", string_clone(&cur)) }
+        if driver_dir_has_entry(&cur, &toml_name) {
+            if dbg { println("stage2: ws_root toml", string_clone(&cur)) }
+            let res = driver_load_manifest(string_clone(&cur))
             if res.manifest.has_workspace {
                 return cur
             }
         }
-        let parent = driver_path_dir(cur)
-        if parent == cur || parent == "" {
+        let parent = driver_path_dir(&cur)
+        if driver_string_eq(&parent, &cur) || driver_string_is_empty(&parent) {
             done = true
         } else {
             cur = parent
@@ -773,31 +859,35 @@ fn driver_find_workspace_root(path: String) -> String {
     return ""
 }
 
-fn driver_code_root(pkg_root: String) -> String {
-    if pkg_root == "" { return "" }
-    if driver_dir_has_entry(pkg_root, "src") {
-        return driver_path_join(pkg_root, "src")
+fn driver_code_root(pkg_root: &str) -> String {
+    if *pkg_root == "" { return "" }
+    let src_dir = "src"
+    if driver_dir_has_entry(pkg_root, &src_dir) {
+        return driver_path_join(pkg_root, &src_dir)
     }
-    return pkg_root
+    return string_clone(pkg_root)
 }
 
-fn driver_examples_root(pkg_root: String) -> String {
-    if pkg_root == "" { return "" }
-    if driver_dir_has_entry(pkg_root, "examples") {
-        return driver_path_join(pkg_root, "examples")
+fn driver_examples_root(pkg_root: &str) -> String {
+    if *pkg_root == "" { return "" }
+    let examples_dir = "examples"
+    if driver_dir_has_entry(pkg_root, &examples_dir) {
+        return driver_path_join(pkg_root, &examples_dir)
     }
     return ""
 }
 
-fn driver_find_stdlib_root(start_dir: String) -> String {
-    let mut cur = start_dir
+fn driver_find_stdlib_root(start_dir: &str) -> String {
+    let mut cur = string_clone(start_dir)
     let mut done = false
+    let stdlib_dir = "compiler/stage2/stdlib"
+    let prelude_dir = "prelude"
     while !done {
-        let cand = driver_path_join(cur, "compiler/stage2/stdlib")
-        if driver_dir_has_entry(cand, "prelude") {
+        let cand = driver_path_join(&cur, &stdlib_dir)
+        if driver_dir_has_entry(&cand, &prelude_dir) {
             return cand
         }
-        let parent = driver_path_dir(cur)
+        let parent = driver_path_dir(&cur)
         if parent == cur || parent == "" {
             done = true
         } else {
@@ -805,28 +895,97 @@ fn driver_find_stdlib_root(start_dir: String) -> String {
         }
     }
     return ""
+}
+
+fn driver_stdlib_prelude_files(std_root: &str) -> [String] {
+    let mut files: [String] = []
+    if *std_root == "" { return files }
+    let prelude_dir = driver_path_join(std_root, "prelude")
+    let names = read_dir(string_clone(&prelude_dir))
+    let skip_option = "option.dast"
+    let skip_result = "result.dast"
+    let skip_traits = "traits.dast"
+    let mut i = 0
+    while i < len(names) {
+        let name = string_clone(&names[i])
+        let skip = name == string_clone(&skip_option) ||
+            name == string_clone(&skip_result) ||
+            name == string_clone(&skip_traits)
+        if !skip && driver_string_ends_with(&name, ".dast") {
+            push(&mut files, driver_path_join(&prelude_dir, &name))
+        }
+        i = i + 1
+    }
+    return driver_sort_strings(files)
+}
+
+fn driver_load_stdlib(state: &mut LoadState, code_root: &str, include_tests: bool) {
+    let std_root = driver_find_stdlib_root(code_root)
+    if std_root == "" { return }
+    let prelude_files = driver_stdlib_prelude_files(&std_root)
+    let mut i = 0
+    while i < len(prelude_files) {
+        // Prelude items are injected into the root module for now.
+        let stack = driver_string_list_new()
+        load_file_recursive(
+            string_clone(&prelude_files[i]),
+            string_clone(&std_root),
+            "",
+            state,
+            false,
+            string_clone(&std_root),
+            string_clone(&std_root),
+            "",
+            stack
+        )
+        i = i + 1
+    }
+    if include_tests {
+        let testing_dir = driver_path_join(&std_root, "testing")
+        let testing_file = "lib.dast"
+        if driver_dir_has_entry(&testing_dir, &testing_file) {
+            let stack = driver_string_list_new()
+            load_file_recursive(
+                driver_path_join(&testing_dir, &testing_file),
+                string_clone(&std_root),
+                "",
+                state,
+                false,
+                string_clone(&std_root),
+                string_clone(&std_root),
+                "",
+                stack
+            )
+        }
+    }
 }
 
 fn driver_module_root_for_dir(dir: String, code_root: String, examples_root: String) -> String {
-    if examples_root != "" && driver_path_is_within(examples_root, dir) {
+    if examples_root != "" && driver_path_is_within(&examples_root, &dir) {
         return examples_root
     }
     return code_root
 }
 
 fn driver_parse_package_name(toml: String) -> String {
-    let lines = driver_split_lines(toml)
+    let lines = driver_split_lines(&toml)
+    let hash = "#"
+    let lbracket = "["
+    let name_key = "name"
+    let pkg_header = "[package]"
     let mut in_pkg = false
     let mut i = 0
     while i < len(lines) {
-        let line = driver_trim_space(lines[i])
-        if !(line == "" || driver_string_starts_with(line, "#")) {
-            if driver_string_starts_with(line, "[") {
-                in_pkg = line == "[package]"
-            } else if in_pkg && driver_string_starts_with(line, "name") {
-                let eq = find_char(line, 61, 0)
+        let line = driver_trim_space(&lines[i])
+        if !(line == "" || driver_string_starts_with(&line, &hash)) {
+            if driver_string_starts_with(&line, &lbracket) {
+                in_pkg = line == string_clone(&pkg_header)
+            } else if in_pkg && driver_string_starts_with(&line, &name_key) {
+                let eq = find_char(string_clone(&line), 61, 0)
                 if eq >= 0 {
-                    let raw = driver_trim_space(substr(line, eq + 1, len(line) - eq - 1))
+                    let line_len = len(string_clone(&line))
+                    let raw_text = substr(string_clone(&line), eq + 1, line_len - eq - 1)
+                    let raw = driver_trim_space(&raw_text)
                     if len(raw) >= 2 && char_at(raw, 0) == 34 {
                         return parse_string_lit_token(raw)
                     }
@@ -905,18 +1064,22 @@ fn driver_collect_string_literals(text: String) -> [String] {
 fn driver_parse_string_array(lines: [String], start_idx: i32, first_value: String) -> StringArrayParse {
     let mut combined = first_value
     let mut idx = start_idx
-    let mut ok = driver_string_contains(first_value, "[")
+    let lbracket = "["
+    let rbracket = "]"
+    let mut ok = driver_string_contains(&combined, &lbracket)
     if !ok {
         return StringArrayParse { items: driver_string_list_new(), end_idx: start_idx, ok: false }
     }
-    if !driver_string_contains(first_value, "]") {
+    if !driver_string_contains(&combined, &rbracket) {
         let mut done = false
         while idx + 1 < len(lines) && !done {
             idx = idx + 1
-            let mut line = driver_trim_space(lines[idx])
-            line = driver_trim_space(driver_strip_inline_comment(line))
+            let mut line = driver_trim_space(&lines[idx])
+            let stripped = driver_strip_inline_comment(line)
+            line = driver_trim_space(&stripped)
+            let line_check = string_clone(&line)
             combined = combined + "\n" + line
-            if driver_string_contains(line, "]") {
+            if driver_string_contains(&line_check, &rbracket) {
                 done = true
             }
         }
@@ -931,22 +1094,26 @@ fn driver_parse_string_array(lines: [String], start_idx: i32, first_value: Strin
 fn driver_parse_manifest(toml: String) -> ManifestResult {
     let mut manifest = manifest_empty()
     let mut errors: [ParseError] = []
-    let lines = driver_split_lines(toml)
+    let lines = driver_split_lines(&toml)
+    let hash = "#"
+    let lbracket = "["
+    let rbracket = "]"
     let mut section = ""
     let mut i = 0
     while i < len(lines) {
         let line_no = i + 1
-        let mut line = driver_trim_space(lines[i])
+        let mut line = driver_trim_space(&lines[i])
         let mut handled = false
-        if line == "" || driver_string_starts_with(line, "#") {
+        if line == "" || driver_string_starts_with(&line, &hash) {
             handled = true
         } else {
-            line = driver_trim_space(driver_strip_inline_comment(line))
+            let stripped = driver_strip_inline_comment(line)
+            line = driver_trim_space(&stripped)
             if line == "" {
                 handled = true
             }
         }
-        if !handled && driver_string_starts_with(line, "[") && driver_string_ends_with(line, "]") {
+        if !handled && driver_string_starts_with(&line, &lbracket) && driver_string_ends_with(&line, &rbracket) {
             if line == "[package]" {
                 section = "package"
                 manifest.has_package = true
@@ -967,16 +1134,19 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
             handled = true
         }
         if !handled {
-            let eq = find_char(line, 61, 0)
+            let eq = find_char(string_clone(&line), 61, 0)
             if eq >= 0 {
-                let key = driver_trim_space(substr(line, 0, eq))
-                let value = driver_trim_space(substr(line, eq + 1, len(line) - eq - 1))
+                let line_len = len(string_clone(&line))
+                let key_text = substr(string_clone(&line), 0, eq)
+                let value_text = substr(string_clone(&line), eq + 1, line_len - eq - 1)
+                let key = driver_trim_space(&key_text)
+                let value = driver_trim_space(&value_text)
                 if section == "package" {
                     if key == "name" {
                         if manifest.name != "" {
                             driver_manifest_add_error(&mut errors, line_no, "duplicate package.name")
                         } else if len(value) < 2 || char_at(value, 0) != '"' {
-                            driver_manifest_add_error(&mut errors, line_no, "package.name must be string")
+                            driver_manifest_add_error(&mut errors, line_no, "package.name must be String")
                         } else {
                             manifest.name = parse_string_lit_token(value)
                         }
@@ -984,7 +1154,7 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
                         if manifest.version != "" {
                             driver_manifest_add_error(&mut errors, line_no, "duplicate package.version")
                         } else if len(value) < 2 || char_at(value, 0) != '"' {
-                            driver_manifest_add_error(&mut errors, line_no, "package.version must be string")
+                            driver_manifest_add_error(&mut errors, line_no, "package.version must be String")
                         } else {
                             manifest.version = parse_string_lit_token(value)
                         }
@@ -992,7 +1162,7 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
                         if manifest.edition != "" {
                             driver_manifest_add_error(&mut errors, line_no, "duplicate package.edition")
                         } else if len(value) < 2 || char_at(value, 0) != '"' {
-                            driver_manifest_add_error(&mut errors, line_no, "package.edition must be string")
+                            driver_manifest_add_error(&mut errors, line_no, "package.edition must be String")
                         } else {
                             manifest.edition = parse_string_lit_token(value)
                         }
@@ -1045,18 +1215,20 @@ fn driver_parse_manifest(toml: String) -> ManifestResult {
 
 fn driver_manifest_with_file(res: ManifestResult, file: String) -> ManifestResult {
     let mut errs: [ParseError] = []
+    let file_name = string_clone(&file)
     let mut i = 0
     while i < len(res.errors) {
-        let e = res.errors[i]
-        push(&mut errs, ParseError { pos: e.pos, file: file, line: e.line, col: e.col, msg: e.msg })
+        let e = parse_error_clone(&res.errors[i])
+        push(&mut errs, ParseError { pos: e.pos, file: string_clone(&file_name), line: e.line, col: e.col, msg: string_clone(&e.msg) })
         i = i + 1
     }
     return ManifestResult { manifest: res.manifest, errors: errs }
 }
 
 fn driver_load_manifest(pkg_root: String) -> ManifestResult {
-    let path = driver_path_join(pkg_root, "dast.toml")
-    let text = read_file(path)
+    let toml_name = "dast.toml"
+    let path = driver_path_join(&pkg_root, &toml_name)
+    let text = read_file(string_clone(&path))
     let res = driver_parse_manifest(text)
     return driver_manifest_with_file(res, path)
 }
@@ -1064,74 +1236,75 @@ fn driver_load_manifest(pkg_root: String) -> ManifestResult {
 fn driver_package_name(pkg_root: String) -> String {
     if pkg_root == "" { return "" }
     let res = driver_load_manifest(pkg_root)
-    return res.manifest.name
+    return string_clone(&res.manifest.name)
 }
 
-fn driver_is_relative_import(path: String) -> bool {
-    if driver_string_starts_with(path, "./") { return true }
-    if driver_string_starts_with(path, "../") { return true }
+fn driver_is_relative_import(path: &str) -> bool {
+    let cur = "./"
+    let up = "../"
+    if driver_string_starts_with(path, &cur) { return true }
+    if driver_string_starts_with(path, &up) { return true }
     return false
 }
 
-fn driver_import_rel_to_path(rel: String) -> String {
-    if driver_string_contains(rel, "/") {
-        return rel
+fn driver_import_rel_to_path(rel: &str) -> String {
+    let slash = "/"
+    if driver_string_contains(rel, &slash) {
+        return string_clone(rel)
     }
     return driver_replace_dots(rel)
 }
 
-fn driver_import_path_to_dir(base_dir: String, path: String, is_string: bool, pkg_name: String, code_root: String) -> String {
-    let mut rel = path
-    let mut from_dir = base_dir
+fn driver_import_path_to_dir(base_dir: &str, path: &str, is_string: bool, pkg_name: &str, code_root: &str) -> String {
+    let mut rel = string_clone(path)
+    let mut from_dir = string_clone(base_dir)
+    let std_slash = "std/"
+    let std_dot = "std."
+    let std_name = "std"
     if is_string {
         if !driver_is_relative_import(path) {
             let mut handled = false
-            if driver_string_starts_with(path, "std/") || driver_string_starts_with(path, "std.") || path == "std" {
+            if driver_string_starts_with(path, &std_slash) || driver_string_starts_with(path, &std_dot) || *path == std_name {
                 let std_root = driver_find_stdlib_root(code_root)
                 if std_root != "" {
                     from_dir = std_root
                     handled = true
-                    if path == "std" {
+                    if *path == std_name {
                         rel = ""
                     } else {
-                        rel = substr(path, 4, len(path) - 4)
+                        let path_len = len(string_clone(path))
+                        rel = substr(string_clone(path), 4, path_len - 4)
                     }
                 }
             }
             if !handled {
-                if pkg_name != "" && path == pkg_name {
-                    return code_root
+                if *pkg_name != "" && *path == *pkg_name {
+                    return string_clone(code_root)
                 }
-                from_dir = code_root
+                from_dir = string_clone(code_root)
             }
         }
-        if driver_string_starts_with(rel, "./") {
-            rel = substr(rel, 2, len(rel) - 2)
+        let cur = "./"
+        if driver_string_starts_with(&rel, &cur) {
+            let rel_len = len(string_clone(&rel))
+            rel = substr(string_clone(&rel), 2, rel_len - 2)
         }
-        rel = driver_import_rel_to_path(rel)
+        rel = driver_import_rel_to_path(&rel)
     } else {
-        rel = driver_replace_dots(rel)
+        rel = driver_replace_dots(&rel)
     }
-    return driver_path_clean(driver_path_join(from_dir, rel))
+    let joined = driver_path_join(&from_dir, &rel)
+    return driver_path_clean(&joined)
 }
 
 fn program_set_module(prog: &mut Program, module: String) {
+    let module_copy = string_clone(&module)
     let mut imports: [ImportDecl] = []
     let mut i = 0
     while i < len(prog.imports) {
-        let imp = prog.imports[i]
-        push(&mut imports, ImportDecl {
-            vis: imp.vis,
-            module: module,
-            file: imp.file,
-            pos: imp.pos,
-            has_items: imp.has_items,
-            items: imp.items,
-            path: imp.path,
-            path_is_string: imp.path_is_string,
-            has_alias: imp.has_alias,
-            alias: imp.alias,
-        })
+        let mut imp = clone_import_decl(&prog.imports[i])
+        imp.module = string_clone(&module_copy)
+        push(&mut imports, imp)
         i = i + 1
     }
     prog.imports = imports
@@ -1139,8 +1312,9 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut structs: [StructDecl] = []
     i = 0
     while i < len(prog.structs) {
-        let st = prog.structs[i]
-        push(&mut structs, StructDecl { vis: st.vis, module: module, file: st.file, pos: st.pos, name: st.name, type_params: st.type_params, fields: st.fields })
+        let mut st = clone_struct_decl(&prog.structs[i])
+        st.module = string_clone(&module_copy)
+        push(&mut structs, st)
         i = i + 1
     }
     prog.structs = structs
@@ -1148,8 +1322,9 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut enums: [EnumDecl] = []
     i = 0
     while i < len(prog.enums) {
-        let en = prog.enums[i]
-        push(&mut enums, EnumDecl { vis: en.vis, module: module, file: en.file, pos: en.pos, name: en.name, type_params: en.type_params, repr: en.repr, variants: en.variants })
+        let mut en = clone_enum_decl(&prog.enums[i])
+        en.module = string_clone(&module_copy)
+        push(&mut enums, en)
         i = i + 1
     }
     prog.enums = enums
@@ -1157,8 +1332,9 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut consts: [ConstDecl] = []
     i = 0
     while i < len(prog.consts) {
-        let c = prog.consts[i]
-        push(&mut consts, ConstDecl { vis: c.vis, module: module, file: c.file, pos: c.pos, name: c.name, has_type: c.has_type, typ: c.typ, value: c.value })
+        let mut c = clone_const_decl(&prog.consts[i])
+        c.module = string_clone(&module_copy)
+        push(&mut consts, c)
         i = i + 1
     }
     prog.consts = consts
@@ -1166,20 +1342,9 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut funcs: [FunctionDecl] = []
     i = 0
     while i < len(prog.functions) {
-        let f = prog.functions[i]
-        push(&mut funcs, FunctionDecl {
-            vis: f.vis,
-            module: module,
-            file: f.file,
-            pos: f.pos,
-            name: f.name,
-            type_params: f.type_params,
-            params: f.params,
-            has_return: f.has_return,
-            ret: f.ret,
-            body: f.body,
-            is_macro: f.is_macro,
-        })
+        let mut f = clone_function_decl(&prog.functions[i])
+        f.module = string_clone(&module_copy)
+        push(&mut funcs, f)
         i = i + 1
     }
     prog.functions = funcs
@@ -1187,8 +1352,9 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut type_aliases: [TypeAlias] = []
     i = 0
     while i < len(prog.type_aliases) {
-        let ta = prog.type_aliases[i]
-        push(&mut type_aliases, TypeAlias { vis: ta.vis, module: module, file: ta.file, pos: ta.pos, name: ta.name, type_params: ta.type_params, target: ta.target })
+        let mut ta = clone_type_alias(&prog.type_aliases[i])
+        ta.module = string_clone(&module_copy)
+        push(&mut type_aliases, ta)
         i = i + 1
     }
     prog.type_aliases = type_aliases
@@ -1196,27 +1362,19 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut impls: [ImplDecl] = []
     i = 0
     while i < len(prog.impls) {
-        let imp = prog.impls[i]
+        let imp = &prog.impls[i]
         let mut methods: [FunctionDecl] = []
         let mut j = 0
         while j < len(imp.methods) {
-            let m = imp.methods[j]
-            push(&mut methods, FunctionDecl {
-                vis: m.vis,
-                module: module,
-                file: m.file,
-                pos: m.pos,
-                name: m.name,
-                type_params: m.type_params,
-                params: m.params,
-                has_return: m.has_return,
-                ret: m.ret,
-                body: m.body,
-                is_macro: m.is_macro,
-            })
+            let mut m = clone_function_decl(&imp.methods[j])
+            m.module = string_clone(&module_copy)
+            push(&mut methods, m)
             j = j + 1
         }
-        push(&mut impls, ImplDecl { vis: imp.vis, module: module, file: imp.file, pos: imp.pos, type_name: imp.type_name, methods: methods })
+        let mut imp_out = clone_impl_decl(imp)
+        imp_out.module = string_clone(&module_copy)
+        imp_out.methods = methods
+        push(&mut impls, imp_out)
         i = i + 1
     }
     prog.impls = impls
@@ -1224,30 +1382,22 @@ fn program_set_module(prog: &mut Program, module: String) {
     let mut compile_items: [CompileItem] = []
     i = 0
     while i < len(prog.compile_items) {
-        let ci = prog.compile_items[i]
-        push(&mut compile_items, CompileItem { pos: ci.pos, id: ci.id, module: module, file: ci.file, expr: ci.expr })
+        let mut ci = clone_compile_item(&prog.compile_items[i])
+        ci.module = string_clone(&module_copy)
+        push(&mut compile_items, ci)
         i = i + 1
     }
     prog.compile_items = compile_items
 }
 
 fn program_set_file(prog: &mut Program, file: String) {
+    let file_copy = string_clone(&file)
     let mut imports: [ImportDecl] = []
     let mut i = 0
     while i < len(prog.imports) {
-        let imp = prog.imports[i]
-        push(&mut imports, ImportDecl {
-            vis: imp.vis,
-            module: imp.module,
-            file: file,
-            pos: imp.pos,
-            has_items: imp.has_items,
-            items: imp.items,
-            path: imp.path,
-            path_is_string: imp.path_is_string,
-            has_alias: imp.has_alias,
-            alias: imp.alias,
-        })
+        let mut imp = clone_import_decl(&prog.imports[i])
+        imp.file = string_clone(&file_copy)
+        push(&mut imports, imp)
         i = i + 1
     }
     prog.imports = imports
@@ -1255,8 +1405,9 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut structs: [StructDecl] = []
     i = 0
     while i < len(prog.structs) {
-        let st = prog.structs[i]
-        push(&mut structs, StructDecl { vis: st.vis, module: st.module, file: file, pos: st.pos, name: st.name, type_params: st.type_params, fields: st.fields })
+        let mut st = clone_struct_decl(&prog.structs[i])
+        st.file = string_clone(&file_copy)
+        push(&mut structs, st)
         i = i + 1
     }
     prog.structs = structs
@@ -1264,8 +1415,9 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut enums: [EnumDecl] = []
     i = 0
     while i < len(prog.enums) {
-        let en = prog.enums[i]
-        push(&mut enums, EnumDecl { vis: en.vis, module: en.module, file: file, pos: en.pos, name: en.name, type_params: en.type_params, repr: en.repr, variants: en.variants })
+        let mut en = clone_enum_decl(&prog.enums[i])
+        en.file = string_clone(&file_copy)
+        push(&mut enums, en)
         i = i + 1
     }
     prog.enums = enums
@@ -1273,8 +1425,9 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut consts: [ConstDecl] = []
     i = 0
     while i < len(prog.consts) {
-        let c = prog.consts[i]
-        push(&mut consts, ConstDecl { vis: c.vis, module: c.module, file: file, pos: c.pos, name: c.name, has_type: c.has_type, typ: c.typ, value: c.value })
+        let mut c = clone_const_decl(&prog.consts[i])
+        c.file = string_clone(&file_copy)
+        push(&mut consts, c)
         i = i + 1
     }
     prog.consts = consts
@@ -1282,20 +1435,9 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut funcs: [FunctionDecl] = []
     i = 0
     while i < len(prog.functions) {
-        let f = prog.functions[i]
-        push(&mut funcs, FunctionDecl {
-            vis: f.vis,
-            module: f.module,
-            file: file,
-            pos: f.pos,
-            name: f.name,
-            type_params: f.type_params,
-            params: f.params,
-            has_return: f.has_return,
-            ret: f.ret,
-            body: f.body,
-            is_macro: f.is_macro,
-        })
+        let mut f = clone_function_decl(&prog.functions[i])
+        f.file = string_clone(&file_copy)
+        push(&mut funcs, f)
         i = i + 1
     }
     prog.functions = funcs
@@ -1303,8 +1445,9 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut type_aliases: [TypeAlias] = []
     i = 0
     while i < len(prog.type_aliases) {
-        let ta = prog.type_aliases[i]
-        push(&mut type_aliases, TypeAlias { vis: ta.vis, module: ta.module, file: file, pos: ta.pos, name: ta.name, type_params: ta.type_params, target: ta.target })
+        let mut ta = clone_type_alias(&prog.type_aliases[i])
+        ta.file = string_clone(&file_copy)
+        push(&mut type_aliases, ta)
         i = i + 1
     }
     prog.type_aliases = type_aliases
@@ -1312,27 +1455,19 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut impls: [ImplDecl] = []
     i = 0
     while i < len(prog.impls) {
-        let imp = prog.impls[i]
+        let imp = &prog.impls[i]
         let mut methods: [FunctionDecl] = []
         let mut j = 0
         while j < len(imp.methods) {
-            let m = imp.methods[j]
-            push(&mut methods, FunctionDecl {
-                vis: m.vis,
-                module: m.module,
-                file: file,
-                pos: m.pos,
-                name: m.name,
-                type_params: m.type_params,
-                params: m.params,
-                has_return: m.has_return,
-                ret: m.ret,
-                body: m.body,
-                is_macro: m.is_macro,
-            })
+            let mut m = clone_function_decl(&imp.methods[j])
+            m.file = string_clone(&file_copy)
+            push(&mut methods, m)
             j = j + 1
         }
-        push(&mut impls, ImplDecl { vis: imp.vis, module: imp.module, file: file, pos: imp.pos, type_name: imp.type_name, methods: methods })
+        let mut imp_out = clone_impl_decl(imp)
+        imp_out.file = string_clone(&file_copy)
+        imp_out.methods = methods
+        push(&mut impls, imp_out)
         i = i + 1
     }
     prog.impls = impls
@@ -1340,8 +1475,9 @@ fn program_set_file(prog: &mut Program, file: String) {
     let mut compile_items: [CompileItem] = []
     i = 0
     while i < len(prog.compile_items) {
-        let ci = prog.compile_items[i]
-        push(&mut compile_items, CompileItem { pos: ci.pos, id: ci.id, module: ci.module, file: file, expr: ci.expr })
+        let mut ci = clone_compile_item(&prog.compile_items[i])
+        ci.file = string_clone(&file_copy)
+        push(&mut compile_items, ci)
         i = i + 1
     }
     prog.compile_items = compile_items
@@ -1361,126 +1497,180 @@ struct ImportLoad {
     path: String,
 }
 
+fn clone_parse_error(e: &ParseError) -> ParseError {
+    return ParseError { pos: e.pos, file: string_clone(&e.file), line: e.line, col: e.col, msg: string_clone(&e.msg) }
+}
+
+fn clone_import_load(i: &ImportLoad) -> ImportLoad {
+    return ImportLoad { dir: string_clone(&i.dir), file: string_clone(&i.file), pos: i.pos, path: string_clone(&i.path) }
+}
+
 fn load_state_new() -> LoadState {
     return LoadState { merged: program_empty(), errors: parse_error_list_new(), loaded: driver_string_list_new(), sources: driver_string_list_new() }
 }
 
-fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState, include_tests: bool, pkg_name: String, code_root: String, examples_root: String, stack: [String]) {
-    if driver_list_contains(state.loaded, path) {
+fn load_file_recursive(path: String, root_dir: String, module_path: String, state: &mut LoadState, include_tests: bool, pkg_name_in: String, code_root_in: String, examples_root_in: String, stack: [String]) {
+    let pkg_name = pkg_name_in
+    let code_root = code_root_in
+    let examples_root = examples_root_in
+    let mut st = state
+    let clean_path = driver_path_clean(&path)
+    if driver_list_contains(&state.loaded, &clean_path) {
         return
     }
-    let src = read_file(path)
-    let mut loaded = state.loaded
-    push(&mut loaded, path)
-    state.loaded = loaded
-    let mut sources = state.sources
-    push(&mut sources, src)
-    state.sources = sources
-    let mut lex = lexer_new(src)
+    let src = read_file(string_clone(&clean_path))
+    if driver_debug_enabled() {
+        println("[driver-src-len]", clean_path, len(string_clone(&src)))
+    }
+    push(&mut st.loaded, string_clone(&clean_path))
+    driver_debug_loaded(st, &clean_path)
+    push(&mut st.sources, string_clone(&src))
+    let mut lex = lexer_new(string_clone(&src))
+    if driver_debug_enabled() {
+        println("[driver-tok-count]", clean_path, len(lex.toks.items))
+        let t0 = lexer_peek(&lex)
+        println("[driver-tok0]", t0.kind, t0.start, t0.len)
+        println("[driver-tok0-is-fn]", t0.kind == TokenKind.Fn)
+        println("[driver-tok0-is-ident]", t0.kind == TokenKind.Ident)
+        println("[driver-tok0-is-eof]", t0.kind == TokenKind.Eof)
+    }
     let mut local_errs: [ParseError] = []
-    let mut prog = parse_program(src, &mut lex, &mut local_errs)
-    program_set_file(&mut prog, path)
+    let mut prog = parse_program(&src, &clean_path, &mut lex, &mut local_errs)
+    if len(local_errs) > 1000 {
+        println("stage2: parse flood in", clean_path, len(local_errs))
+        let mut ei = 0
+        while ei < len(local_errs) && ei < 5 {
+            let pe = clone_parse_error(&local_errs[ei])
+            println("[parse-err]", pe.pos, pe.msg)
+            ei = ei + 1
+        }
+        exit(2)
+    }
+    program_set_file(&mut prog, string_clone(&clean_path))
     program_set_module(&mut prog, module_path)
 
-    let base = driver_path_dir(path)
+    let base = driver_path_dir(&clean_path)
+    let std_root = driver_find_stdlib_root(&code_root)
     let mut imports: [ImportDecl] = []
     let mut child_dirs: [ImportLoad] = []
     let mut j = 0
     while j < len(prog.imports) {
-        let imp = prog.imports[j]
-        if imp.path != "" {
-            let orig_path = imp.path
+        let imp = clone_import_decl(&prog.imports[j])
+        let imp_path = string_clone(&imp.path)
+        if imp_path != "" {
+            let orig_path = string_clone(&imp_path)
             let mut pkg_import = false
-            if imp.path_is_string && !driver_is_relative_import(orig_path) && pkg_name != "" && orig_path == pkg_name {
+            if imp.path_is_string && !driver_is_relative_import(&imp_path) && pkg_name != "" && string_clone(&imp_path) == pkg_name {
                 pkg_import = true
             }
-            let child_dir = driver_import_path_to_dir(base, imp.path, imp.path_is_string, pkg_name, code_root)
-            let mut allowed = driver_path_is_within(root_dir, child_dir)
-            if !allowed && root_dir != code_root {
-                allowed = driver_path_is_within(code_root, child_dir)
+            let child_dir = driver_import_path_to_dir(&base, &imp_path, imp.path_is_string, &pkg_name, &code_root)
+            let mut allowed = driver_path_is_within(&root_dir, &child_dir)
+            if !allowed && string_clone(&root_dir) != string_clone(&code_root) {
+                allowed = driver_path_is_within(&code_root, &child_dir)
+            }
+            if !allowed && std_root != "" {
+                allowed = driver_path_is_within(&std_root, &child_dir)
             }
             if !allowed {
-                push(&mut local_errs, ParseError { pos: imp.pos, file: "", line: 0, col: 0, msg: "import path escapes package root: " + imp.path })
+                push(&mut local_errs, ParseError { pos: imp.pos, file: "", line: 0, col: 0, msg: "import path escapes package root: " + imp_path })
             } else {
-                let child_root = driver_module_root_for_dir(child_dir, code_root, examples_root)
-                let child_mod = driver_module_path_from_dir(child_root, child_dir)
-                let mut new_path = child_mod
+                let child_root = driver_module_root_for_dir(string_clone(&child_dir), string_clone(&code_root), string_clone(&examples_root))
+                let child_mod = driver_module_path_from_dir(child_root, string_clone(&child_dir))
+                let mut new_path = ""
                 if pkg_import {
                     new_path = "::"
-                } else if child_mod != "" {
-                    new_path = "::" + child_mod
+                } else if string_clone(&child_mod) != "" {
+                    new_path = "::" + string_clone(&child_mod)
+                } else {
+                    new_path = child_mod
                 }
                 let mut has_alias = imp.has_alias
-                let mut alias = imp.alias
+                let mut alias = string_clone(&imp.alias)
                 if pkg_import && !has_alias {
                     has_alias = true
-                    alias = pkg_name
+                    alias = string_clone(&pkg_name)
                 }
                 push(&mut imports, ImportDecl {
-                    vis: imp.vis,
-                    module: imp.module,
-                    file: imp.file,
+                    vis: clone_visibility(&imp.vis),
+                    module: string_clone(&imp.module),
+                    file: string_clone(&imp.file),
                     pos: imp.pos,
                     has_items: imp.has_items,
-                    items: imp.items,
-                    path: new_path,
+                    items: clone_import_item_spec_list(&imp.items),
+                    path: string_clone(&new_path),
                     path_is_string: false,
                     has_alias: has_alias,
-                    alias: alias,
+                    alias: string_clone(&alias),
                 })
-                push(&mut child_dirs, ImportLoad { dir: child_dir, file: path, pos: imp.pos, path: orig_path })
+                push(&mut child_dirs, ImportLoad { dir: string_clone(&child_dir), file: string_clone(&clean_path), pos: imp.pos, path: string_clone(&orig_path) })
             }
         } else {
-            push(&mut imports, imp)
+            push(&mut imports, clone_import_decl(&imp))
         }
         j = j + 1
     }
     prog.imports = imports
 
-    let mut merged = state.merged
-    append_program(&mut merged, prog)
-    state.merged = merged
-    let mut errs = state.errors
+    append_program(&mut st.merged, prog)
     let mut i = 0
     while i < len(local_errs) {
-        let e = local_errs[i]
+        let e = clone_parse_error(&local_errs[i])
         let mut line = 0
         let mut col = 0
         if e.pos >= 0 {
             let mut offset = 0
             if e.pos < len(lex.toks.items) {
-                offset = tok_start(lex.toks, e.pos)
+                offset = tok_start(&lex.toks, e.pos)
             } else {
-                offset = len(src)
+                offset = len(string_clone(&src))
             }
-            let lc = line_col_from_offset(src, offset)
+            let lc = line_col_from_offset(string_clone(&src), offset)
             line = lc.line
             col = lc.col
         }
-        push(&mut errs, ParseError { pos: e.pos, file: path, line: line, col: col, msg: e.msg })
+        push(&mut st.errors, ParseError { pos: e.pos, file: string_clone(&clean_path), line: line, col: col, msg: e.msg })
         i = i + 1
     }
-    state.errors = errs
 
     j = 0
     while j < len(child_dirs) {
-        let child_root = driver_module_root_for_dir(child_dirs[j].dir, code_root, examples_root)
-        load_dir_recursive(child_dirs[j], child_root, state, false, pkg_name, code_root, examples_root, stack)
+        let child_dir = string_clone(&child_dirs[j].dir)
+        let child_root = driver_module_root_for_dir(child_dir, string_clone(&code_root), string_clone(&examples_root))
+        let mut child_stack: [String] = []
+        let mut si = 0
+        while si < len(stack) {
+            push(&mut child_stack, string_clone(&stack[si]))
+            si = si + 1
+        }
+        load_dir_recursive(clone_import_load(&child_dirs[j]), child_root, st, false, string_clone(&pkg_name), string_clone(&code_root), string_clone(&examples_root), child_stack)
         j = j + 1
     }
 }
 
-fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, include_tests: bool, pkg_name: String, code_root: String, examples_root: String, stack: [String]) {
+fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, include_tests: bool, pkg_name_in: String, code_root_in: String, examples_root_in: String, stack: [String]) {
+    let pkg_name = pkg_name_in
+    let code_root = code_root_in
+    let examples_root = examples_root_in
+    let mut st = state
+    let clean_root_dir = driver_path_clean(&root_dir)
+    let req_dir = driver_path_clean(&req.dir)
+    let req_file = string_clone(&req.file)
+    let req_path = string_clone(&req.path)
     let mut cycle_idx = -1
-    if len(stack) > 0 {
-        cycle_idx = driver_list_index(stack, req.dir)
+    let mut ci = 0
+    while ci < len(stack) {
+        if stack[ci] == req_dir {
+            cycle_idx = ci
+            break
+        }
+        ci = ci + 1
     }
     if cycle_idx >= 0 {
         let mut msg = "circular import: "
         let mut i = cycle_idx
         while i < len(stack) {
-            let stack_root = driver_module_root_for_dir(stack[i], code_root, examples_root)
-            let mut name = driver_module_path_from_dir(stack_root, stack[i])
+            let stack_root = driver_module_root_for_dir(string_clone(&stack[i]), string_clone(&code_root), string_clone(&examples_root))
+            let mut name = driver_module_path_from_dir(stack_root, string_clone(&stack[i]))
             if name == "" { name = "<root>" }
             if i > cycle_idx {
                 msg = msg + " -> "
@@ -1488,100 +1678,91 @@ fn load_dir_recursive(req: ImportLoad, root_dir: String, state: &mut LoadState, 
             msg = msg + name
             i = i + 1
         }
-        let req_root = driver_module_root_for_dir(req.dir, code_root, examples_root)
-        let mut last = driver_module_path_from_dir(req_root, req.dir)
+        let req_root = driver_module_root_for_dir(string_clone(&req_dir), string_clone(&code_root), string_clone(&examples_root))
+        let mut last = driver_module_path_from_dir(req_root, string_clone(&req_dir))
         if last == "" { last = "<root>" }
         msg = msg + " -> " + last
-        let mut errs = state.errors
-        if req.file != "" {
-            push(&mut errs, ParseError { pos: req.pos, file: req.file, line: 0, col: 0, msg: msg })
+        if req_file != "" {
+            push(&mut st.errors, ParseError { pos: req.pos, file: req_file, line: 0, col: 0, msg: msg })
         } else {
-            push(&mut errs, ParseError { pos: 0, file: req.dir, line: 1, col: 1, msg: msg })
+            push(&mut st.errors, ParseError { pos: 0, file: req_dir, line: 1, col: 1, msg: msg })
         }
-        state.errors = errs
         return
     }
-    let module_path = driver_module_path_from_dir(root_dir, req.dir)
-    let files = driver_list_dast_files(req.dir, include_tests)
+    let module_path = driver_module_path_from_dir(string_clone(&clean_root_dir), string_clone(&req_dir))
+    let files = driver_list_dast_files(string_clone(&req_dir), include_tests)
     if len(files) == 0 {
-        let mut errs = state.errors
-        if req.file != "" {
-            push(&mut errs, ParseError { pos: req.pos, file: req.file, line: 0, col: 0, msg: "import path has no .dast files: " + req.path })
+        if req_file != "" {
+            push(&mut st.errors, ParseError { pos: req.pos, file: req_file, line: 0, col: 0, msg: "import path has no .dast files: " + req_path })
         } else {
-            push(&mut errs, ParseError { pos: 0, file: req.dir, line: 1, col: 1, msg: "no .dast files in directory" })
+            push(&mut st.errors, ParseError { pos: 0, file: req_dir, line: 1, col: 1, msg: "no .dast files in directory" })
         }
-        state.errors = errs
         return
     }
     let mut next_stack: [String] = []
     let mut si = 0
     while si < len(stack) {
-        push(&mut next_stack, stack[si])
+        push(&mut next_stack, string_clone(&stack[si]))
         si = si + 1
     }
-    push(&mut next_stack, req.dir)
+    push(&mut next_stack, string_clone(&req_dir))
     let mut i = 0
     while i < len(files) {
-        load_file_recursive(files[i], root_dir, module_path, state, include_tests, pkg_name, code_root, examples_root, next_stack)
+        let mut child_stack: [String] = []
+        let mut si = 0
+        while si < len(next_stack) {
+            push(&mut child_stack, string_clone(&next_stack[si]))
+            si = si + 1
+        }
+        load_file_recursive(string_clone(&files[i]), string_clone(&clean_root_dir), string_clone(&module_path), st, include_tests, string_clone(&pkg_name), string_clone(&code_root), string_clone(&examples_root), child_stack)
         i = i + 1
     }
 }
 
-fn print_errors(errors: [ParseError]) {
+fn print_errors(errors: & [ParseError]) {
     let mut i = 0
-    while i < len(errors) {
-        let e = errors[i]
+    while i < len(*errors) {
+        let e = parse_error_clone(&(*errors)[i])
         print_error_line(e.file, e.line, e.col, e.msg)
         i = i + 1
     }
 }
 
 fn driver_source_for(state: &LoadState, path: String) -> String {
-    let idx = driver_list_index(state.loaded, path)
+    let idx = driver_list_index(&state.loaded, &path)
     if idx >= 0 && idx < len(state.sources) {
-        return state.sources[idx]
+        return string_clone(&state.sources[idx])
     }
     return ""
 }
 
-fn attach_error_locations(errors: [ParseError], state: &LoadState) -> [ParseError] {
+fn attach_error_locations(errors: & [ParseError], state: &LoadState) -> [ParseError] {
     let mut out: [ParseError] = []
-    let mut tok_files: [String] = []
-    let mut tok_list: [Tokens] = []
     let mut i = 0
-    while i < len(errors) {
-        let e = errors[i]
+    while i < len(*errors) {
+        let e = parse_error_clone(&(*errors)[i])
+        let e_copy = parse_error_clone(&e)
         let mut handled = false
         if e.file != "" && e.pos >= 0 && (e.line == 0 || e.col == 0) {
-            let src = driver_source_for(state, e.file)
+            let file_name = string_clone(&e.file)
+            let src = driver_source_for(state, string_clone(&file_name))
             if src != "" {
                 let mut offset = 0
-                let idx = driver_list_index(tok_files, e.file)
-                if idx >= 0 && idx < len(tok_list) {
-                    let toks = tok_list[idx]
-                    if e.pos < len(toks.items) {
-                        offset = tok_start(toks, e.pos)
-                    } else {
-                        offset = len(src)
-                    }
+                let mut lex = lexer_new(string_clone(&src))
+                let toks = lex.toks
+                let tok_count = len(toks.items)
+                if e.pos < tok_count {
+                    offset = tok_start(&toks, e.pos)
                 } else {
-                    let mut lex = lexer_new(src)
-                    let toks = lex.toks
-                    push(&mut tok_files, e.file)
-                    push(&mut tok_list, toks)
-                    if e.pos < len(toks.items) {
-                        offset = tok_start(toks, e.pos)
-                    } else {
-                        offset = len(src)
-                    }
+                    offset = len(string_clone(&src))
                 }
-                let lc = line_col_from_offset(src, offset)
-                push(&mut out, ParseError { pos: e.pos, file: e.file, line: lc.line, col: lc.col, msg: e.msg })
+                let lc = line_col_from_offset(string_clone(&src), offset)
+                push(&mut out, ParseError { pos: e.pos, file: file_name, line: lc.line, col: lc.col, msg: string_clone(&e.msg) })
                 handled = true
             }
         }
         if !handled {
-            push(&mut out, e)
+            push(&mut out, e_copy)
         }
         i = i + 1
     }
@@ -1618,26 +1799,27 @@ fn print_error_line(file: String, line: i32, col: i32, msg: String) {
 fn collect_tests(prog: Program) -> TestCollect {
     let mut out: [String] = []
     let mut errs: [ParseError] = []
+    let test_prefix = "test_"
     let mut i = 0
     while i < len(prog.functions) {
-        let f = prog.functions[i]
+        let f = &prog.functions[i]
         if f.name == "__dast_test_main" {
-            push(&mut errs, ParseError { pos: f.pos, file: f.file, line: 0, col: 0, msg: "test entry function already defined" })
+            push(&mut errs, ParseError { pos: f.pos, file: string_clone(&f.file), line: 0, col: 0, msg: "test entry function already defined" })
         }
-        if !driver_string_starts_with(f.name, "test_") {
+        if !driver_string_starts_with(&f.name, &test_prefix) {
             i = i + 1
             continue
         }
-        if !driver_is_test_file(f.file) {
+        if !driver_is_test_file(&f.file) {
             i = i + 1
             continue
         }
         if len(f.params) != 0 {
-            push(&mut errs, ParseError { pos: f.pos, file: f.file, line: 0, col: 0, msg: "test function must not accept parameters" })
+            push(&mut errs, ParseError { pos: f.pos, file: string_clone(&f.file), line: 0, col: 0, msg: "test function must not accept parameters" })
             i = i + 1
             continue
         }
-        push(&mut out, driver_qualify_name(f.module, f.name))
+        push(&mut out, driver_qualify_name(&f.module, &f.name))
         i = i + 1
     }
     out = driver_sort_strings(out)
@@ -1654,35 +1836,51 @@ fn driver_output_name(pkg_has_toml: bool, pkg_name: String, example: String) -> 
     return name
 }
 
-fn driver_emit_ir_file(target_dir: String, name: String, prog: IrProgram) -> String {
-    let out_path = driver_path_join(target_dir, name + ".ir")
-    write_file(out_path, ir_program_format(prog))
+fn driver_emit_ir_file(target_dir: &str, name: &str, prog: IrProgram) -> String {
+    let out_name = string_clone(name) + ".ir"
+    let out_path = driver_path_join(target_dir, &out_name)
+    write_file(string_clone(&out_path), ir_program_format(prog))
     return out_path
 }
 
-fn driver_emit_c_file(target_dir: String, name: String, prog: IrProgram, debug: bool) -> String {
+fn driver_emit_qbe_file(target_dir: &str, name: &str, prog: IrProgram, debug: bool) -> String {
     let opt = ir_opt_program_no_inline(prog)
-    let c_code = ir_program_to_c(opt, debug)
-    let out_path = driver_path_join(target_dir, name + ".c")
-    write_file(out_path, c_code)
+    let qbe_code = ir_program_to_qbe(&opt, debug)
+    let out_name = string_clone(name) + ".qbe"
+    let out_path = driver_path_join(target_dir, &out_name)
+    write_file(string_clone(&out_path), qbe_code)
     return out_path
 }
 
 fn driver_build_native(target_dir: String, name: String, prog: IrProgram, debug: bool) -> String {
-    let cfile = driver_emit_c_file(target_dir, name, prog, debug)
-    let out_path = driver_path_join(target_dir, name)
+    let qbe_file = driver_emit_qbe_file(&target_dir, &name, prog, debug)
+    let asm_name = string_clone(&name) + ".s"
+    let asm_file = driver_path_join(&target_dir, &asm_name)
+    let mut qargs: [String] = []
+    push(&mut qargs, "-o")
+    push(&mut qargs, string_clone(&asm_file))
+    push(&mut qargs, string_clone(&qbe_file))
+    let qcode = exec("qbe", qargs)
+    if qcode != 0 {
+        die_error("qbe failed")
+    }
+    let out_path = driver_path_join(&target_dir, &name)
     let mut args: [String] = []
-    push(&mut args, "-std=c11")
     push(&mut args, "-O2")
-    push(&mut args, cfile)
+    push(&mut args, "-std=c11")
+    push(&mut args, string_clone(&asm_file))
     push(&mut args, "compiler/stage2/backend/codegen-c/c_runtime.c")
+    push(&mut args, "compiler/stage2/backend/qbe/qbe_runtime.c")
     push(&mut args, "-I")
     push(&mut args, "compiler/stage2/backend/codegen-c")
     push(&mut args, "-o")
-    push(&mut args, out_path)
-    let code = exec("clang", args)
+    push(&mut args, string_clone(&out_path))
+    let code = exec("cc", args)
     if code != 0 {
-        die_error("clang failed")
+        let code2 = exec("clang", args)
+        if code2 != 0 {
+            die_error("cc/clang failed")
+        }
     }
     return out_path
 }
@@ -1692,7 +1890,7 @@ fn driver_make_test_program(prog: IrProgram, tests: [String]) -> IrProgram {
     let mut i = 0
     while i < len(tests) {
         let mut args: [IrOperand] = []
-        push(&mut instrs, IrInstr.Call(IrCall { dst: -1, callee: tests[i], args: args }))
+        push(&mut instrs, IrInstr.Call(IrCall { dst: -1, callee: string_clone(&tests[i]), args: args }))
         i = i + 1
     }
     let mut ok_args: [IrOperand] = []
@@ -1719,29 +1917,35 @@ fn driver_make_test_program(prog: IrProgram, tests: [String]) -> IrProgram {
 }
 
 fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, example: String, emit_ir: bool, bootstrap: bool, target_root: String) {
-    let mut pkg_root = driver_find_package_root(files[0])
+    let file0 = string_clone(&files[0])
+    let mut pkg_root = driver_find_package_root(string_clone(&file0))
     let mut pkg_has_toml = pkg_root != ""
     if !pkg_has_toml {
-        pkg_root = files[0]
-        if driver_is_dast_file(pkg_root) {
-            pkg_root = driver_path_dir(pkg_root)
+        pkg_root = string_clone(&file0)
+        if driver_is_dast_file(&pkg_root) {
+            pkg_root = driver_path_dir(&pkg_root)
         }
     }
-    let code_root = driver_code_root(pkg_root)
-    let examples_root = driver_examples_root(pkg_root)
+    let code_root = driver_code_root(&pkg_root)
+    let examples_root = driver_examples_root(&pkg_root)
     let mut pkg_name = ""
     if pkg_has_toml {
-        let manifest = driver_load_manifest(pkg_root)
+        let manifest = driver_load_manifest(string_clone(&pkg_root))
         if len(manifest.errors) > 0 {
-            die_errors(manifest.errors)
+            die_errors(&manifest.errors)
         }
-        pkg_name = manifest.manifest.name
+        pkg_name = string_clone(&manifest.manifest.name)
+    }
+    if debug {
+        let mut has_toml = "false"
+        if pkg_has_toml { has_toml = "true" }
+        println("stage2: exec pkg", string_clone(&pkg_root), "has_toml", has_toml)
     }
 
     let mut entry_files = files
-    let mut module_root = code_root
+    let mut module_root = string_clone(&code_root)
     if example != "" {
-        if len(files) != 1 {
+        if len(entry_files) != 1 {
             die_error("example expects single package path")
         }
         if cmd == "test" {
@@ -1751,54 +1955,68 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             die_error("examples directory not found")
         }
         let mut ex_path = ""
-        if driver_dir_has_entry(examples_root, example) {
-            ex_path = driver_path_join(examples_root, example)
+        if driver_dir_has_entry(&examples_root, &example) {
+            ex_path = driver_path_join(&examples_root, &example)
         } else {
-            let file_name = example + ".dast"
-            if driver_dir_has_entry(examples_root, file_name) {
-                ex_path = driver_path_join(examples_root, file_name)
+            let file_name = string_clone(&example) + ".dast"
+            if driver_dir_has_entry(&examples_root, &file_name) {
+                ex_path = driver_path_join(&examples_root, &file_name)
             }
         }
         if ex_path == "" {
-            die_error("example not found: " + example)
+            die_error("example not found: " + string_clone(&example))
         }
         let mut only: [String] = []
         push(&mut only, ex_path)
         entry_files = only
-        module_root = examples_root
+        module_root = string_clone(&examples_root)
     }
 
+    let include_tests = cmd == "test"
     let mut state = load_state_new()
+    // Load stdlib prelude/testing into the compiler itself.
+    driver_load_stdlib(&mut state, &code_root, include_tests)
     let mut i = 0
     while i < len(entry_files) {
-        let path = entry_files[i]
-        let mut dir = path
-        if driver_is_dast_file(path) {
-            dir = driver_path_dir(path)
+        let path = string_clone(&entry_files[i])
+        let entry_is_file = driver_is_dast_file(&path)
+        if debug { println("stage2: load entry", string_clone(&path)) }
+        let mut dir = string_clone(&path)
+        if driver_is_dast_file(&dir) {
+            if debug { println("stage2: entry is file", string_clone(&dir)) }
+            dir = driver_path_dir(&dir)
         }
+        if debug { println("stage2: entry dir", string_clone(&dir)) }
         if pkg_has_toml {
-            let other_root = driver_find_package_root(path)
+            let other_root = driver_find_package_root(string_clone(&dir))
+            if debug { println("stage2: pkg other_root", string_clone(&other_root)) }
             if other_root != pkg_root {
                 die_error("multiple package roots not supported")
             }
         } else {
-            let other_root = driver_find_package_root(path)
+            let other_root = driver_find_package_root(string_clone(&dir))
+            if debug { println("stage2: pkg other_root", string_clone(&other_root)) }
             if other_root != "" && other_root != pkg_root {
                 die_error("multiple package roots not supported")
             }
-            if !driver_path_is_within(pkg_root, dir) {
+            if !driver_path_is_within(&pkg_root, &dir) {
                 die_error("multiple package roots not supported")
             }
         }
         if dir == pkg_root {
-            dir = code_root
+            dir = string_clone(&code_root)
         }
-        if !driver_path_is_within(module_root, dir) {
-            die_error("path outside module root: " + path)
+        if debug { println("stage2: load dir", string_clone(&dir)) }
+        if !driver_path_is_within(&module_root, &dir) {
+            die_error("path outside module root: " + string_clone(&path))
         }
-        let include_tests = cmd == "test"
         let stack = driver_string_list_new()
-        load_dir_recursive(ImportLoad { dir: dir, file: "", pos: -1, path: dir }, module_root, &mut state, include_tests, pkg_name, code_root, examples_root, stack)
+        if entry_is_file {
+            let mod_path = driver_module_path_from_dir(string_clone(&module_root), string_clone(&dir))
+            load_file_recursive(string_clone(&path), string_clone(&module_root), mod_path, &mut state, include_tests, string_clone(&pkg_name), string_clone(&code_root), string_clone(&examples_root), stack)
+        } else {
+            load_dir_recursive(ImportLoad { dir: string_clone(&dir), file: "", pos: -1, path: string_clone(&dir) }, string_clone(&module_root), &mut state, include_tests, string_clone(&pkg_name), string_clone(&code_root), string_clone(&examples_root), stack)
+        }
         i = i + 1
     }
 
@@ -1811,8 +2029,8 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
     }
     let parse_res = ParseResult { prog: state.merged, errors: state.errors }
     if len(parse_res.errors) > 0 {
-        let perrs = attach_error_locations(parse_res.errors, &state)
-        die_errors(perrs)
+        let perrs = attach_error_locations(&parse_res.errors, &state)
+        die_errors(&perrs)
     }
     if debug { println("stage2: parsed") }
     if debug {
@@ -1831,18 +2049,18 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
     }
     let expand_res = macro_expand(parse_res.prog, debug)
     if len(expand_res.errors) > 0 {
-        let merrs = attach_error_locations(expand_res.errors, &state)
-        die_errors(merrs)
+        let merrs = attach_error_locations(&expand_res.errors, &state)
+        die_errors(&merrs)
     }
     let tctx = check_program(expand_res.prog, debug, false, false)
     if debug { println("stage2: typecheck errors raw", len(tctx.errors)) }
-    let terrs = attach_error_locations(tctx.errors, &state)
+    let terrs = attach_error_locations(&tctx.errors, &state)
     if debug { println("stage2: typecheck errors loc", len(terrs)) }
-    if len(terrs) > 0 { die_errors(terrs) }
+    if len(terrs) > 0 { die_errors(&terrs) }
     if debug { println("stage2: typechecked") }
     let comp = compile_program(expand_res.prog, tctx, debug)
-    let cerrs = attach_error_locations(comp.errors, &state)
-    if len(cerrs) > 0 { die_errors(cerrs) }
+    let cerrs = attach_error_locations(&comp.errors, &state)
+    if len(cerrs) > 0 { die_errors(&cerrs) }
     if debug { println("stage2: compiled") }
     let verr = ir_validate(comp.prog)
     if verr != "" {
@@ -1856,56 +2074,34 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
         return
     }
     if cmd == "build" || cmd == "run" || cmd == "test" {
-        let mut name = driver_output_name(pkg_has_toml, pkg_name, example)
-        let mut out_root = pkg_root
+        let mut name = driver_output_name(pkg_has_toml, string_clone(&pkg_name), string_clone(&example))
+        let mut out_root = string_clone(&pkg_root)
         if target_root != "" {
             out_root = target_root
         }
-        let target_dir = driver_path_join(out_root, "target")
-        mkdir(target_dir)
+        let target_name = "target"
+        let target_dir = driver_path_join(&out_root, &target_name)
+        mkdir(string_clone(&target_dir))
         if bootstrap {
             if cmd == "build" {
-                let _ = driver_emit_ir_file(target_dir, name, comp.prog)
+                let _ = driver_emit_ir_file(&target_dir, &name, comp.prog)
                 return
             }
-            if cmd == "test" {
-                let tests = collect_tests(parse_res.prog)
-                if len(tests.errors) > 0 {
-                    let perrs = attach_error_locations(tests.errors, &state)
-                    die_errors(perrs)
-                }
-                if len(tests.tests) == 0 {
-                    println("ok 0")
-                    return
-                }
-                name = name + "_test"
-                let test_prog = driver_make_test_program(comp.prog, tests.tests)
-                let mut rt = runtime_new(test_prog, driver_string_list_new())
-                if debug { println("stage2: running") }
-                runtime_run(&mut rt, test_prog.entry)
-                handle_runtime_error(rt.error)
-                return
-            }
-            // run
-            let mut rt = runtime_new(comp.prog, rest)
-            if debug { println("stage2: running") }
-            runtime_run(&mut rt, comp.prog.entry)
-            handle_runtime_error(rt.error)
-            return
+            die_error("bootstrap run/test disabled (interp backend not built)")
         }
         if cmd == "build" {
             if emit_ir {
-                let _ = driver_emit_ir_file(target_dir, name, comp.prog)
+                let _ = driver_emit_ir_file(&target_dir, &name, comp.prog)
                 return
             }
-            let _ = driver_build_native(target_dir, name, comp.prog, debug)
+            let _ = driver_build_native(string_clone(&target_dir), string_clone(&name), comp.prog, debug)
             return
         }
         if cmd == "test" {
             let tests = collect_tests(parse_res.prog)
             if len(tests.errors) > 0 {
-                let perrs = attach_error_locations(tests.errors, &state)
-                die_errors(perrs)
+                let perrs = attach_error_locations(&tests.errors, &state)
+                die_errors(&perrs)
             }
             if len(tests.tests) == 0 {
                 println("ok 0")
@@ -1913,21 +2109,18 @@ fn driver_execute(cmd: String, files: [String], rest: [String], debug: bool, exa
             }
             name = name + "_test"
             let test_prog = driver_make_test_program(comp.prog, tests.tests)
-            let out_path = driver_build_native(target_dir, name, test_prog, debug)
+            let out_path = driver_build_native(string_clone(&target_dir), string_clone(&name), test_prog, debug)
             let code = exec(out_path, driver_string_list_new())
             if code != 0 { exit(code) }
             return
         }
         // run
-        let out_path = driver_build_native(target_dir, name, comp.prog, debug)
+        let out_path = driver_build_native(string_clone(&target_dir), string_clone(&name), comp.prog, debug)
         let code = exec(out_path, rest)
         if code != 0 { exit(code) }
         return
     }
-    let mut rt = runtime_new(comp.prog, rest)
-    if debug { println("stage2: running") }
-    runtime_run(&mut rt, comp.prog.entry)
-    handle_runtime_error(rt.error)
+    die_usage()
 }
 
 fn main() {
@@ -1935,13 +2128,33 @@ fn main() {
     if len(argv) < 1 {
         die_usage()
     }
-    let cmd = argv[0]
-    if cmd != "build" && cmd != "run" && cmd != "ir" && cmd != "ir-run" && cmd != "ir-verify" && cmd != "ir-opt" && cmd != "ir-c" && cmd != "test" {
+    let mut dbg = false
+    let mut di = 0
+    while di < len(argv) {
+        if argv[di] == "--debug" { dbg = true; break }
+        di = di + 1
+    }
+    if dbg { println("stage2: argv ok") }
+    let cmd = string_clone(&argv[0])
+    if cmd != "build" && cmd != "run" && cmd != "ir" && cmd != "ir-verify" && cmd != "ir-opt" && cmd != "test" {
         die_usage()
     }
-    let split = split_args_with_pkg(argv, 1)
+    if dbg { println("stage2: pre-split") }
+    if dbg {
+        let tmp_files: [String] = []
+        let tmp_rest: [String] = []
+        let tmp = ArgSplitPkg { files: tmp_files, rest: tmp_rest, package: "", example: "", debug: false, emit_ir: false, bootstrap: false }
+        println("stage2: tmp split", tmp)
+    }
+    let split = split_args_with_pkg(argv, 1, cmd == "test")
+    if dbg { println("stage2: split raw", split) }
     let debug = split.debug
     if debug { println("stage2: start") }
+    if dbg { println("stage2: post-split") }
+    if dbg && len(split.files) > 0 {
+        let file0 = string_clone(&split.files[0])
+        println("stage2: split file0", file0)
+    }
     if len(split.files) == 0 {
         die_usage()
     }
@@ -1949,33 +2162,15 @@ fn main() {
         die_error("example flag not supported for test")
     }
 
-    if cmd == "ir-run" {
-        if len(split.files) != 1 {
-            die_usage()
-        }
-        let text = read_file(split.files[0])
-        let parsed = ir_parse_program(text, debug)
-        if !parsed.ok {
-            die_parse(split.files[0], parsed.line, parsed.error)
-        }
-        let verr = ir_validate(parsed.prog)
-        if verr != "" {
-            die_error(verr)
-        }
-        let mut rt = runtime_new(parsed.prog, split.rest)
-        if debug { println("stage2: running ir") }
-        runtime_run(&mut rt, parsed.prog.entry)
-        handle_runtime_error(rt.error)
-        return
-    }
     if cmd == "ir-verify" {
         if len(split.files) != 1 {
             die_usage()
         }
-        let text = read_file(split.files[0])
+        let file_path = string_clone(&split.files[0])
+        let text = read_file(string_clone(&file_path))
         let parsed = ir_parse_program(text, debug)
         if !parsed.ok {
-            die_parse(split.files[0], parsed.line, parsed.error)
+            die_parse(file_path, parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
@@ -1987,66 +2182,49 @@ fn main() {
         if len(split.files) != 1 {
             die_usage()
         }
-        let text = read_file(split.files[0])
+        let file_path = string_clone(&split.files[0])
+        let text = read_file(string_clone(&file_path))
         let parsed = ir_parse_program(text, debug)
         if !parsed.ok {
-            die_parse(split.files[0], parsed.line, parsed.error)
+            die_parse(file_path, parsed.line, parsed.error)
         }
         let verr = ir_validate(parsed.prog)
         if verr != "" {
             die_error(verr)
         }
         let opt = ir_opt_program(parsed.prog)
-        let verr2 = ir_validate(opt)
+        let verr2 = ir_validate(ir_program_clone(&opt))
         if verr2 != "" {
             die_error(verr2)
         }
         print(ir_program_format(opt))
         return
     }
-    if cmd == "ir-c" {
-        if len(split.files) != 1 {
-            die_usage()
-        }
-        let text = read_file(split.files[0])
-        if debug {
-            eprintln("ir-c: input bytes", len(text))
-        }
-        let parsed = ir_parse_program(text, debug)
-        if !parsed.ok {
-            die_parse(split.files[0], parsed.line, parsed.error)
-        }
-        if debug { eprintln("ir-c: parsed funcs", len(parsed.prog.functions), "entry", parsed.prog.entry) }
-        let verr = ir_validate(parsed.prog)
-        if verr != "" {
-            die_error(verr)
-        }
-        let opt = ir_opt_program_no_inline(parsed.prog)
-        if debug { eprintln("ir-c: opt funcs", len(opt.functions), "entry", opt.entry) }
-        ir_program_to_c_emit(opt, debug)
-        return
-    }
     let mut use_workspace = false
-    let ws_root = driver_find_workspace_root(split.files[0])
+    if dbg { println("stage2: ws_root begin") }
+    let ws_root = driver_find_workspace_root(string_clone(&split.files[0]), dbg)
+    if dbg { println("stage2: ws_root end", string_clone(&ws_root)) }
     if cmd == "build" || cmd == "run" || cmd == "test" {
         if ws_root != "" && len(split.files) == 1 {
-            let in_path = driver_path_clean(split.files[0])
-            let root_path = driver_path_clean(ws_root)
+            let in_path = driver_path_clean(&split.files[0])
+            let root_path = driver_path_clean(&ws_root)
             if in_path == root_path {
                 use_workspace = true
             }
         }
     }
     if use_workspace {
-        let manifest = driver_load_manifest(ws_root)
+        let manifest = driver_load_manifest(string_clone(&ws_root))
         if len(manifest.errors) > 0 {
-            die_errors(manifest.errors)
+            die_errors(&manifest.errors)
         }
-        let members = manifest.manifest.workspace_members
+        let members = driver_string_list_clone(&manifest.manifest.workspace_members)
         let mut member_paths: [String] = []
         let mut i = 0
         while i < len(members) {
-            let mpath = driver_path_clean(driver_path_join(ws_root, members[i]))
+            let member = string_clone(&members[i])
+            let joined = driver_path_join(&ws_root, &member)
+            let mpath = driver_path_clean(&joined)
             push(&mut member_paths, mpath)
             i = i + 1
         }
@@ -2054,18 +2232,18 @@ fn main() {
             let mut filtered: [String] = []
             let mut j = 0
             while j < len(member_paths) {
-                let mroot = member_paths[j]
-                let res = driver_load_manifest(mroot)
+                let mroot = string_clone(&member_paths[j])
+                let res = driver_load_manifest(string_clone(&mroot))
                 if len(res.errors) > 0 {
-                    die_errors(res.errors)
+                    die_errors(&res.errors)
                 }
-                if res.manifest.name == split.package {
+                if string_clone(&res.manifest.name) == split.package {
                     push(&mut filtered, mroot)
                 }
                 j = j + 1
             }
             if len(filtered) == 0 {
-                die_error("package not found: " + split.package)
+                die_error("package not found: " + string_clone(&split.package))
             }
             member_paths = filtered
         } else if cmd == "run" && len(member_paths) > 1 {
@@ -2076,10 +2254,10 @@ fn main() {
         }
         let mut k = 0
         while k < len(member_paths) {
-            if debug { println("stage2: workspace", member_paths[k]) }
+            if debug { println("stage2: workspace", string_clone(&member_paths[k])) }
             let mut files: [String] = []
-            push(&mut files, member_paths[k])
-            driver_execute(cmd, files, split.rest, debug, split.example, split.emit_ir, split.bootstrap, ws_root)
+            push(&mut files, string_clone(&member_paths[k]))
+            driver_execute(cmd, files, split.rest, debug, split.example, split.emit_ir, split.bootstrap, string_clone(&ws_root))
             k = k + 1
         }
         return
@@ -2087,5 +2265,7 @@ fn main() {
     if split.package != "" {
         die_error("package flag only valid for workspace root")
     }
+    if dbg { println("stage2: exec begin") }
     driver_execute(cmd, split.files, split.rest, debug, split.example, split.emit_ir, split.bootstrap, "")
+    if dbg { println("stage2: exec end") }
 }

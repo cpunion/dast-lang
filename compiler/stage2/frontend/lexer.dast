@@ -230,11 +230,11 @@ fn lexer_set_pos(self: &mut Lexer, pos: i32) {
 }
 
 fn lexer_peek(self: &Lexer) -> Token {
-    return token_at(self.toks, self.idx)
+    return token_at(&self.toks, self.idx)
 }
 
 fn lexer_peek_n(self: &Lexer, n: i32) -> Token {
-    return token_at(self.toks, self.idx + n)
+    return token_at(&self.toks, self.idx + n)
 }
 
 fn lexer_next(self: &mut Lexer) -> Token {

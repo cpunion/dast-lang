@@ -29,4 +29,4 @@ else
 fi
 
 ./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage0/examples/hello/main.dast
-./compiler/bootstrap/stage0/dast-stage0 build compiler/bootstrap/stage0/tests/module-basic -o /tmp/dast_module_basic
+./compiler/bootstrap/stage0/dast-stage0 build compiler/tests/integration/module-basic -o /tmp/dast_module_basic

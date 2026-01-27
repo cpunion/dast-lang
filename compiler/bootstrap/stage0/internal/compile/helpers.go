@@ -2,11 +2,24 @@ package compile
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"dastlang/internal/ast"
 	"dastlang/internal/ir"
 	"dastlang/internal/source"
 )
+
+type scope struct {
+	vars  map[string]VarInfo
+	order []string
+}
+
+// varState captures per-variable state that must merge across branches.
+type varState struct {
+	Moved    bool
+	Borrowed bool
+}
 
 func enumHasVariant(decl *ast.EnumDecl, name string) bool {
 	for _, v := range decl.Variants {
@@ -21,6 +34,15 @@ func enumVariant(decl *ast.EnumDecl, name string) *ast.VariantDef {
 	for i := range decl.Variants {
 		if decl.Variants[i].Name == name {
 			return &decl.Variants[i]
+		}
+	}
+	return nil
+}
+
+func findField(decl *ast.StructDecl, name string) *ast.FieldDef {
+	for i := range decl.Fields {
+		if decl.Fields[i].Name == name {
+			return &decl.Fields[i]
 		}
 	}
 	return nil
@@ -50,9 +72,135 @@ func (c *Compiler) constZero() int {
 	return t
 }
 
+func (c *Compiler) setTempBorrowed(temp int, borrowed bool) {
+	if temp < 0 {
+		return
+	}
+	if c.tempBorrowed == nil {
+		c.tempBorrowed = map[int]bool{}
+	}
+	c.tempBorrowed[temp] = borrowed
+}
+
+// markTempBorrowedVar propagates a borrow on a temp back to any variable that
+// currently owns that temp, preventing premature drops of the base value.
+func (c *Compiler) markTempBorrowedVar(temp int) {
+	if temp < 0 {
+		return
+	}
+	for si := len(c.scopeStack) - 1; si >= 0; si-- {
+		sc := c.scopeStack[si]
+		for name, info := range sc.vars {
+			if info.Temp == temp && !info.Borrowed {
+				info.Borrowed = true
+				sc.vars[name] = info
+			}
+		}
+		c.scopeStack[si] = sc
+	}
+}
+
+func (c *Compiler) isTempBorrowed(temp int) bool {
+	if temp < 0 || c.tempBorrowed == nil {
+		return false
+	}
+	return c.tempBorrowed[temp]
+}
+
+func (c *Compiler) operandBorrowed(op ir.Operand) bool {
+	if op.IsConst {
+		// String literals are backed by static data and must not be freed.
+		return op.Const.Kind == ir.KindString
+	}
+	return c.isTempBorrowed(op.Temp)
+}
+
+func (c *Compiler) callResultBorrowed(callee string) bool {
+	switch callee {
+	// Lexer/token accessors return borrowed views into lexer storage.
+	case "token_at", "token_kind_at", "token_start_at", "token_len_at":
+		return true
+	case "lexer_peek", "lexer_peek_n", "lexer_next":
+		return true
+	case "peek_kind", "peek_kind_n", "tok_kind":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Compiler) snapshotScopes() []scope {
+	out := make([]scope, len(c.scopeStack))
+	for i, sc := range c.scopeStack {
+		vars := make(map[string]VarInfo, len(sc.vars))
+		for name, info := range sc.vars {
+			vars[name] = info
+		}
+		order := append([]string(nil), sc.order...)
+		out[i] = scope{vars: vars, order: order}
+	}
+	return out
+}
+
+func (c *Compiler) restoreScopes(snapshot []scope) {
+	c.scopeStack = snapshot
+}
+
+func (c *Compiler) captureVarState(base []scope) map[string]varState {
+	out := map[string]varState{}
+	if len(base) != len(c.scopeStack) {
+		return out
+	}
+	for i := 0; i < len(base); i++ {
+		for name := range base[i].vars {
+			if cur, ok := c.scopeStack[i].vars[name]; ok {
+				out[fmt.Sprintf("%d:%s", i, name)] = varState{
+					Moved:    cur.Moved,
+					Borrowed: cur.Borrowed,
+				}
+			}
+		}
+	}
+	return out
+}
+
+func (c *Compiler) applyVarState(base []scope, state map[string]varState) {
+	if len(base) != len(c.scopeStack) {
+		return
+	}
+	for i := 0; i < len(base); i++ {
+		for name, info := range c.scopeStack[i].vars {
+			key := fmt.Sprintf("%d:%s", i, name)
+			if val, ok := state[key]; ok {
+				info.Moved = val.Moved
+				info.Borrowed = val.Borrowed
+				c.scopeStack[i].vars[name] = info
+			}
+		}
+	}
+}
+
+func termIsReturn(term ir.Term) bool {
+	if term == nil {
+		return false
+	}
+	_, ok := term.(*ir.Return)
+	return ok
+}
+
 func formatType(t ast.Type) string {
 	base := ""
-	if t.IsArray {
+	if t.IsTuple {
+		if len(t.TupleElems) == 0 {
+			base = "unit"
+		} else {
+			elemTypes := make([]string, 0, len(t.TupleElems))
+			for _, e := range t.TupleElems {
+				elemTypes = append(elemTypes, formatType(e))
+			}
+			base = tupleTypeName(elemTypes)
+		}
+	} else if t.IsArray {
 		if t.Elem != nil {
 			base = "[" + formatType(*t.Elem) + "]"
 		} else {
@@ -62,10 +210,25 @@ func formatType(t ast.Type) string {
 		base = t.Name
 	}
 	if t.IsRef {
-		// IR uses *T for all references (both & and &mut)
+		// Treat &str (and &String) as "str" for ABI compatibility.
+		if !t.IsMut && (base == "String" || base == "str") {
+			return "str"
+		}
+		// IR uses *T for other references (both & and &mut)
 		return "*" + base
 	}
 	return base
+}
+
+func tupleTypeName(elemTypes []string) string {
+	var sb strings.Builder
+	sb.WriteString("__tuple")
+	sb.WriteString(fmt.Sprintf("%d", len(elemTypes)))
+	for _, t := range elemTypes {
+		sb.WriteByte('_')
+		sb.WriteString(mangleTypeName(t))
+	}
+	return sb.String()
 }
 
 func isIntTypeName(name string) bool {
@@ -80,6 +243,7 @@ func isIntTypeName(name string) bool {
 }
 
 func (c *Compiler) computeEnumTags() {
+	debugEnum := os.Getenv("DAST_ENUM_DEBUG") != ""
 	for name, decl := range c.enums {
 		tagType := decl.Repr
 		if tagType == "" {
@@ -96,6 +260,13 @@ func (c *Compiler) computeEnumTags() {
 			next++
 		}
 		c.enumTags[name] = tags
+		if debugEnum && name == "Stmt" {
+			fmt.Fprintf(os.Stderr, "stage0: enum Stmt tags (%s):", tagType)
+			for _, variant := range decl.Variants {
+				fmt.Fprintf(os.Stderr, " %s=%d", variant.Name, tags[variant.Name])
+			}
+			fmt.Fprintln(os.Stderr)
+		}
 	}
 }
 
@@ -203,54 +374,81 @@ func (c *Compiler) setCurrentBlock(blk *ir.Block) {
 }
 
 func (c *Compiler) pushScope() {
-	c.scopeStack = append(c.scopeStack, map[string]VarInfo{})
+	c.scopeStack = append(c.scopeStack, scope{vars: map[string]VarInfo{}})
 }
 
 func (c *Compiler) popScope() {
 	if len(c.scopeStack) == 0 {
 		return
 	}
+	sc := c.scopeStack[len(c.scopeStack)-1]
+	c.emitScopeDrops(sc)
 	c.scopeStack = c.scopeStack[:len(c.scopeStack)-1]
 }
 
 // declareValueVar declares an immutable value variable (param or let)
 // The temp ID is stored and returned directly when accessed
-func (c *Compiler) declareValueVar(name string, temp int) {
-	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: temp, Mutable: false, RefTemp: -1}
+func (c *Compiler) declareValueVar(name string, temp int, typ string) {
+	sc := &c.scopeStack[len(c.scopeStack)-1]
+	sc.vars[name] = VarInfo{Temp: temp, Mutable: false, RefTemp: -1, Type: typ, Param: false}
+	sc.order = append(sc.order, name)
+}
+
+// declareParamVar declares a function parameter (value semantics, no auto-drop).
+func (c *Compiler) declareParamVar(name string, temp int, typ string) {
+	sc := &c.scopeStack[len(c.scopeStack)-1]
+	borrowed := isBorrowedTypeName(typ)
+	sc.vars[name] = VarInfo{Temp: temp, Mutable: false, RefTemp: -1, Type: typ, Param: true, Borrowed: borrowed}
+	sc.order = append(sc.order, name)
 }
 
 // declareMutVar declares a mutable variable (let mut)
 // Returns the IR name to use in load/store instructions
-func (c *Compiler) declareMutVar(name string) string {
+func (c *Compiler) declareMutVar(name string, typ string) string {
 	count := c.nameCount[name]
 	c.nameCount[name] = count + 1
 	irName := name
 	if count > 0 {
 		irName = fmt.Sprintf("%s#%d", name, count)
 	}
-	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: -1, Name: irName, Mutable: true, RefTemp: -1}
+	sc := &c.scopeStack[len(c.scopeStack)-1]
+	sc.vars[name] = VarInfo{Temp: -1, Name: irName, Mutable: true, RefTemp: -1, Type: typ, Param: false}
+	sc.order = append(sc.order, name)
 	return irName
 }
 
-func (c *Compiler) declareRefVar(name string, refTemp int, mutable bool) {
-	c.scopeStack[len(c.scopeStack)-1][name] = VarInfo{Temp: -1, Name: "", Mutable: mutable, RefTemp: refTemp}
+func (c *Compiler) declareRefVar(name string, refTemp int, mutable bool, typ string) {
+	sc := &c.scopeStack[len(c.scopeStack)-1]
+	sc.vars[name] = VarInfo{Temp: -1, Name: "", Mutable: mutable, RefTemp: refTemp, Type: typ, Param: false}
+	sc.order = append(sc.order, name)
 }
 
 func (c *Compiler) lookupVar(name string) (VarInfo, bool) {
 	for i := len(c.scopeStack) - 1; i >= 0; i-- {
-		if v, ok := c.scopeStack[i][name]; ok {
+		if v, ok := c.scopeStack[i].vars[name]; ok {
 			return v, true
 		}
 	}
 	return VarInfo{}, false
 }
 
+func (c *Compiler) updateVar(name string, update func(*VarInfo)) bool {
+	for i := len(c.scopeStack) - 1; i >= 0; i-- {
+		if v, ok := c.scopeStack[i].vars[name]; ok {
+			update(&v)
+			c.scopeStack[i].vars[name] = v
+			return true
+		}
+	}
+	return false
+}
+
 // markImmutable marks a variable as immutable (for let without mut)
 func (c *Compiler) markImmutable(name string) {
 	for i := len(c.scopeStack) - 1; i >= 0; i-- {
-		if v, ok := c.scopeStack[i][name]; ok {
+		if v, ok := c.scopeStack[i].vars[name]; ok {
 			v.Mutable = false
-			c.scopeStack[i][name] = v
+			c.scopeStack[i].vars[name] = v
 			return
 		}
 	}
@@ -258,16 +456,22 @@ func (c *Compiler) markImmutable(name string) {
 
 func (c *Compiler) markClosure(name string) {
 	for i := len(c.scopeStack) - 1; i >= 0; i-- {
-		if v, ok := c.scopeStack[i][name]; ok {
+		if v, ok := c.scopeStack[i].vars[name]; ok {
 			v.Closure = true
-			c.scopeStack[i][name] = v
+			c.scopeStack[i].vars[name] = v
 			return
 		}
 	}
 }
 
-func (c *Compiler) pushLoop(breakLabel, continueLabel string) {
-	c.loopStack = append(c.loopStack, loopContext{breakLabel: breakLabel, continueLabel: continueLabel})
+func (c *Compiler) pushLoop(breakLabel, continueLabel, label, breakValueName string) {
+	c.loopStack = append(c.loopStack, loopContext{
+		breakLabel:    breakLabel,
+		continueLabel: continueLabel,
+		scopeDepth:    len(c.scopeStack),
+		label:         label,
+		breakValueName: breakValueName,
+	})
 }
 
 func (c *Compiler) popLoop() {
@@ -284,18 +488,38 @@ func (c *Compiler) currentLoop() (loopContext, bool) {
 	return c.loopStack[len(c.loopStack)-1], true
 }
 
+func (c *Compiler) findLoop(label string) (loopContext, bool) {
+	if len(c.loopStack) == 0 {
+		return loopContext{}, false
+	}
+	if label == "" {
+		return c.loopStack[len(c.loopStack)-1], true
+	}
+	for i := len(c.loopStack) - 1; i >= 0; i-- {
+		if c.loopStack[i].label == label {
+			return c.loopStack[i], true
+		}
+	}
+	return loopContext{}, false
+}
+
 func (c *Compiler) operandToTemp(op ir.Operand, typ string) int {
 	if !op.IsConst {
 		return op.Temp
 	}
-	name := c.declareMutVar("__tmp")
-	c.emit(&ir.StoreVar{Name: name, Src: op})
-	dst := c.newTemp()
+	borrowed := c.operandBorrowed(op)
 	if typ == "" {
 		typ = "i64"
 	}
+	name := c.declareMutVar("__tmp", typ)
+	c.emit(&ir.StoreVar{Name: name, Src: op})
+	c.updateVar("__tmp", func(v *VarInfo) {
+		v.Borrowed = borrowed
+	})
+	dst := c.newTemp()
 	c.setTempType(dst, typ)
 	c.emit(&ir.LoadVar{Dst: dst, Name: name})
+	c.setTempBorrowed(dst, borrowed)
 	return dst
 }
 
@@ -311,12 +535,13 @@ func (c *Compiler) compileEnumVariant(enumName, variant string, args []ast.Expr,
 	// Create payload (unit if no args)
 	payload := ir.ConstOperand(ir.Value{Kind: ir.KindUnit})
 	if len(args) > 0 {
-		payload = c.compileOperand(args[0])
+		payload = c.compileOperandMove(args[0])
 	}
 
 	// Create struct with _tag and _payload fields
 	dst := c.newTemp()
 	c.setTempType(dst, enumName)
+	c.setTempBorrowed(dst, false)
 	c.emit(&ir.MakeStruct{
 		Dst:  dst,
 		Name: enumName,

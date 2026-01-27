@@ -102,6 +102,69 @@ let flags = 0b1010 | 0b0101  // 0b1111
 
 ---
 
+## 元组与解构
+
+### 元组类型与字面量
+
+```dast
+let t: (i32, String, bool) = (1, "hi", true)
+let unit: () = ()
+let single = (42,)  // 单元素元组必须写逗号
+```
+
+### 元组访问与解构
+
+```dast
+let a = t.0
+let b = t.1
+
+let (x, y) = (1, 2)
+```
+
+> 说明：`(T)` 是分组表达式；`(T,)` 才是单元素元组。
+
+---
+
+## 循环表达式与标签
+
+### loop 表达式与 break 返回值
+
+```dast
+let v = loop {
+    if cond { break 1 }
+    break 2
+}
+```
+
+- `loop` 可以作为表达式，结果来自 `break <expr>`。
+- `break` 可带值的形式仅用于 `loop` 表达式；`while/for` 中只能写 `break`。
+
+### 标签
+
+```dast
+outer: loop {
+    while cond {
+        break outer: 1
+    }
+}
+
+continue outer
+```
+
+- `label: loop/while/for` 定义标签。
+- `break label: expr` 跳出指定循环并返回值（仅 `loop` 表达式）。
+- `continue label` 跳到指定循环的下一次迭代（`continue label:` 也被接受）。
+
+### for-in
+
+```dast
+for (x, y) in pairs {
+    println("{x} {y}")
+}
+```
+
+---
+
 ## 注释风格
 
 ### 行注释
@@ -255,6 +318,13 @@ match point {
     Point { x: 0, y: 0 } => "origin",
     Point { x, y } => "point",
     Point { x: a, y } => "alias binding",
+}
+
+// 元组/数组模式
+match value {
+    (a, b) => a + b,
+    [x, y] => x * y,
+    _ => 0,
 }
 
 // 结构体模式字段绑定规则：

@@ -21,7 +21,7 @@ mapfile -t stage2_files < <(find "$root/compiler/stage2" -name '*.dast' \
   -not -path "$root/compiler/stage2/backend/codegen-c/*" \
   -not -path "$root/compiler/stage2/backend/interp/*" | sort)
 stage2_files+=("$root/compiler/stage2/backend/interp/interp.dast")
-stage2_files+=("$root/compiler/stage2/backend/codegen-c/codegen-c.dast")
+stage2_files+=("$root/compiler/stage2/backend/interp/quote.dast")
 
 report_dir="$root/compiler/stage2/target"
 report="$report_dir/parity-report.txt"
@@ -67,27 +67,27 @@ run_case() {
   fi
 }
 
-for f in "$root"/compiler/bootstrap/stage0/tests/run-pass/*.dast; do
+for f in "$root"/compiler/tests/run-pass/*.dast; do
   run_case "run-pass:$f" pass run "$f"
 done
 
-for f in "$root"/compiler/bootstrap/stage0/tests/compile-fail/*.dast; do
+for f in "$root"/compiler/tests/compile-fail/*.dast; do
   run_case "compile-fail:$f" fail run "$f"
 done
 
-run_case "module-basic:build" pass build --emit-ir "$root/compiler/bootstrap/stage0/tests/module-basic"
-run_case "module-basic:run" pass run "$root/compiler/bootstrap/stage0/tests/module-basic"
-run_case "module-basic:test" pass test "$root/compiler/bootstrap/stage0/tests/module-basic"
+run_case "module-basic:build" pass build --emit-ir "$root/compiler/tests/integration/module-basic"
+run_case "module-basic:run" pass run "$root/compiler/tests/integration/module-basic"
+run_case "module-basic:test" pass test "$root/compiler/tests/integration/module-basic"
 
-run_case "test-fail:test" fail test "$root/compiler/bootstrap/stage0/tests/test-fail"
-run_case "test-fail-compile:test" fail test "$root/compiler/bootstrap/stage0/tests/test-fail-compile"
+run_case "test-fail:test" fail test "$root/compiler/tests/integration/test-fail"
+run_case "test-fail-compile:test" fail test "$root/compiler/tests/integration/test-fail-compile"
 
-run_case "deps:build" pass build --emit-ir "$root/compiler/bootstrap/stage0/tests/deps/app"
-run_case "deps:run" pass run "$root/compiler/bootstrap/stage0/tests/deps/app"
-run_case "deps:test" pass test "$root/compiler/bootstrap/stage0/tests/deps/app"
+run_case "deps:build" pass build --emit-ir "$root/compiler/tests/integration/deps/app"
+run_case "deps:run" pass run "$root/compiler/tests/integration/deps/app"
+run_case "deps:test" pass test "$root/compiler/tests/integration/deps/app"
 
-run_case "workspace:run" pass run "$root/compiler/bootstrap/stage0/tests/workspace/app"
-run_case "workspace:test" pass test "$root/compiler/bootstrap/stage0/tests/workspace/app"
+run_case "workspace:run" pass run "$root/compiler/tests/integration/workspace/app"
+run_case "workspace:test" pass test "$root/compiler/tests/integration/workspace/app"
 
 echo >> "$report"
 echo "pass: $pass" >> "$report"

@@ -171,6 +171,10 @@ func New(prog *ir.Program) *Runtime {
 		"ast_to_string": rt.builtinAstToString(),
 		"gensym":        rt.builtinGensym(),
 		"bind":          rt.builtinBind(),
+		"string_clone":  rt.builtinStringClone(),
+		"string_free":   rt.builtinStringFree(),
+		"array_free":    rt.builtinArrayFree(),
+		"struct_free":   rt.builtinStructFree(),
 	}
 	return rt
 }
@@ -223,10 +227,15 @@ func (rt *Runtime) callFunction(name string, args []ir.Value) (ir.Value, error) 
 		return ir.Value{Kind: ir.KindUnit}, nil
 	}
 	fr.cur = fn.Blocks[0]
-	// Params are now temp IDs (t0, t1...), store them in temps array
+	// Params are now temp IDs (t0, t1...), store them in temps array.
+	// Also bind param names as vars so LoadVar works on parameters.
 	for i, val := range args {
 		if err := rt.setTemp(fr, i, val); err != nil {
 			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		if i < len(fn.Params) {
+			v := val
+			fr.vars[fn.Params[i].Name] = &v
 		}
 	}
 	res, err := rt.execFrame(fr)

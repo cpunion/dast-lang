@@ -112,27 +112,27 @@ fn single_char_kind(c: i32) -> TokenKind {
     return TokenKind.Invalid
 }
 
-fn token_at(toks: Tokens, i: i32) -> Token {
+fn token_at(toks: &Tokens, i: i32) -> Token {
     if i < 0 || i >= len(toks.items) {
         return Token { kind: TokenKind.Eof, start: 0, len: 0 }
     }
     return toks.items[i]
 }
 
-fn tok_kind(toks: Tokens, i: i32) -> TokenKind {
+fn tok_kind(toks: &Tokens, i: i32) -> TokenKind {
     return token_at(toks, i).kind
 }
 
-fn tok_start(toks: Tokens, i: i32) -> i32 {
+fn tok_start(toks: &Tokens, i: i32) -> i32 {
     return token_at(toks, i).start
 }
 
-fn tok_len(toks: Tokens, i: i32) -> i32 {
+fn tok_len(toks: &Tokens, i: i32) -> i32 {
     return token_at(toks, i).len
 }
 
 fn lexeme_at(src: String, toks: Tokens, i: i32) -> String {
-    let start = tok_start(toks, i)
-    let ln = tok_len(toks, i)
+    let start = tok_start(&toks, i)
+    let ln = tok_len(&toks, i)
     return substr(src, start, ln)
 }

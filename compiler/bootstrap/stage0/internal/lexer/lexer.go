@@ -380,6 +380,8 @@ func lookupKeyword(lex string) TokenKind {
 		return TokenImport
 	case "as":
 		return TokenAs
+	case "in":
+		return TokenIn
 	case "let":
 		return TokenLet
 	case "mut":

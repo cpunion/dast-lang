@@ -7,9 +7,9 @@ fn lsp_analyze_source(content: String) -> [String] {
     let mut all_errors: [String] = []
 
     // Run lexer + parser
-    let mut lex = lexer_new(content)
+    let mut lex = lexer_new(string_clone(&content))
     let mut parse_errors: [ParseError] = []
-    let prog = parse_program(content, &mut lex, &mut parse_errors)
+    let prog = parse_program(&content, "", &mut lex, &mut parse_errors)
 
     // Collect parse errors
     let mut i = 0
@@ -43,9 +43,9 @@ fn lsp_analyze_source(content: String) -> [String] {
 // Returns: "line:col:name" or "" if not found
 fn lsp_find_definition(content: String, target_line: i32, target_col: i32) -> String {
     // Parse the source
-    let mut lex = lexer_new(content)
+    let mut lex = lexer_new(string_clone(&content))
     let mut parse_errors: [ParseError] = []
-    let prog = parse_program(content, &mut lex, &mut parse_errors)
+    let prog = parse_program(&content, "", &mut lex, &mut parse_errors)
 
     if len(parse_errors) > 0 {
         return ""
@@ -75,9 +75,9 @@ fn lsp_find_definition(content: String, target_line: i32, target_col: i32) -> St
 // Returns: formatted signature or "" if not found
 fn lsp_get_hover(content: String, target_line: i32, target_col: i32) -> String {
     // Parse the source
-    let mut lex = lexer_new(content)
+    let mut lex = lexer_new(string_clone(&content))
     let mut parse_errors: [ParseError] = []
-    let prog = parse_program(content, &mut lex, &mut parse_errors)
+    let prog = parse_program(&content, "", &mut lex, &mut parse_errors)
 
     if len(parse_errors) > 0 {
         return ""
@@ -110,9 +110,9 @@ fn lsp_get_completions(content: String, target_line: i32, target_col: i32) -> [S
     let mut completions: [String] = []
 
     // Parse the source
-    let mut lex = lexer_new(content)
+    let mut lex = lexer_new(string_clone(&content))
     let mut parse_errors: [ParseError] = []
-    let prog = parse_program(content, &mut lex, &mut parse_errors)
+    let prog = parse_program(&content, "", &mut lex, &mut parse_errors)
 
     if len(parse_errors) > 0 {
         return completions

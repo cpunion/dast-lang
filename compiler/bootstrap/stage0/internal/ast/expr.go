@@ -47,6 +47,14 @@ type ArrayLit struct {
 func (e *ArrayLit) exprNode()         {}
 func (e *ArrayLit) Span() source.Span { return e.SpanInfo }
 
+type TupleLit struct {
+	Elems    []Expr
+	SpanInfo source.Span
+}
+
+func (e *TupleLit) exprNode()         {}
+func (e *TupleLit) Span() source.Span { return e.SpanInfo }
+
 type UnaryExpr struct {
 	Op       string
 	Expr     Expr
@@ -215,6 +223,14 @@ type BlockExpr struct {
 
 func (e *BlockExpr) exprNode()         {}
 func (e *BlockExpr) Span() source.Span { return e.SpanInfo }
+
+type LoopExpr struct {
+	Body     *Block
+	SpanInfo source.Span
+}
+
+func (e *LoopExpr) exprNode()         {}
+func (e *LoopExpr) Span() source.Span { return e.SpanInfo }
 
 type IfExpr struct {
 	Cond     Expr

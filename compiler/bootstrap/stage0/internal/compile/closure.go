@@ -50,6 +50,10 @@ func collectFreeVarsExpr(expr ast.Expr, locals map[string]struct{}, free *nameSe
 		for _, elem := range e.Elems {
 			collectFreeVarsExpr(elem, locals, free, mutated)
 		}
+	case *ast.TupleLit:
+		for _, elem := range e.Elems {
+			collectFreeVarsExpr(elem, locals, free, mutated)
+		}
 	case *ast.UnaryExpr:
 		collectFreeVarsExpr(e.Expr, locals, free, mutated)
 	case *ast.RefExpr:
@@ -88,6 +92,8 @@ func collectFreeVarsExpr(expr ast.Expr, locals map[string]struct{}, free *nameSe
 		}
 	case *ast.BlockExpr:
 		collectFreeVarsBlock(e.Block, locals, free, mutated)
+	case *ast.LoopExpr:
+		collectFreeVarsBlock(e.Body, locals, free, mutated)
 	case *ast.IfExpr:
 		collectFreeVarsExpr(e.Cond, locals, free, mutated)
 		collectFreeVarsExpr(e.Then, locals, free, mutated)
@@ -181,6 +187,17 @@ func collectFreeVarsStmt(stmt ast.Stmt, locals map[string]struct{}, free *nameSe
 			}
 			collectFreeVarsBlock(arm.Body, localCopy, free, mutated)
 		}
+	case *ast.ForStmt:
+		collectFreeVarsExpr(s.Expr, locals, free, mutated)
+		localCopy := copyLocalSet(locals)
+		declarePatternBindings(s.Pattern, localCopy)
+		collectFreeVarsBlock(s.Body, localCopy, free, mutated)
+	case *ast.LoopStmt:
+		collectFreeVarsBlock(s.Body, locals, free, mutated)
+	case *ast.BreakStmt:
+		if s.Value != nil {
+			collectFreeVarsExpr(s.Value, locals, free, mutated)
+		}
 	case *ast.Block:
 		collectFreeVarsBlock(s, locals, free, mutated)
 	}
@@ -191,6 +208,8 @@ func declarePatternBindings(p ast.Pattern, locals map[string]struct{}) {
 		return
 	}
 	switch pat := p.(type) {
+	case *ast.BindingPattern:
+		locals[pat.Name] = struct{}{}
 	case *ast.VariantPattern:
 		if pat.Binding != "" {
 			locals[pat.Binding] = struct{}{}
@@ -207,6 +226,14 @@ func declarePatternBindings(p ast.Pattern, locals map[string]struct{}) {
 	case *ast.OrPattern:
 		for _, alt := range pat.Alts {
 			declarePatternBindings(alt, locals)
+		}
+	case *ast.TuplePattern:
+		for _, el := range pat.Elems {
+			declarePatternBindings(el, locals)
+		}
+	case *ast.ArrayPattern:
+		for _, el := range pat.Elems {
+			declarePatternBindings(el, locals)
 		}
 	}
 }
@@ -232,9 +259,13 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 	// Filter free vars to those visible in outer scope
 	captures := make([]string, 0, len(freeVars))
 	mutatedCaptures := map[string]struct{}{}
+	captureTypes := map[string]string{}
 	for _, name := range freeVars {
-		if _, ok := c.lookupVar(name); ok {
+		if info, ok := c.lookupVar(name); ok {
 			captures = append(captures, name)
+			if info.Type != "" {
+				captureTypes[name] = info.Type
+			}
 			if _, ok := mutated[name]; ok {
 				mutatedCaptures[name] = struct{}{}
 			}
@@ -269,16 +300,16 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 	// Parameters: always include $env first
 	c.pushScope()
 	envTemp := c.newTemp()
-	c.declareValueVar("$env", envTemp)
+	c.declareValueVar("$env", envTemp, "$Env")
 	irFn.Params = append(irFn.Params, ir.Var{Name: "$env", Type: "$Env"})
 
 	for _, p := range e.Params {
 		paramTemp := c.newTemp()
-		c.declareValueVar(p.Name, paramTemp)
 		paramType := "i64"
 		if p.Type != nil {
 			paramType = formatType(*p.Type)
 		}
+		c.declareValueVar(p.Name, paramTemp, paramType)
 		irFn.Params = append(irFn.Params, ir.Var{Name: p.Name, Type: paramType})
 	}
 
@@ -294,16 +325,20 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 	// Unpack captured variables from env
 	for _, name := range captures {
 		dst := c.newTemp()
-		c.setTempType(dst, "i64")
+		typ := "i64"
+		if ct, ok := captureTypes[name]; ok && ct != "" {
+			typ = ct
+		}
+		c.setTempType(dst, typ)
 		c.emit(&ir.GetField{Dst: dst, Src: envTemp, Field: name})
 		if _, ok := mutatedCaptures[name]; ok {
-			c.declareRefVar(name, dst, true)
+			c.declareRefVar(name, dst, true, "*"+typ)
 		} else {
-			c.declareValueVar(name, dst)
+			c.declareValueVar(name, dst, typ)
 		}
 	}
 
-	bodyOp := c.compileOperand(e.Body)
+	bodyOp := c.compileOperandMove(e.Body)
 	if c.currentBlock() != nil && c.currentBlock().Term == nil {
 		c.emitTerm(&ir.Return{Value: &bodyOp})
 	}
@@ -331,6 +366,12 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 				{Name: "func", Type: "String"},
 				{Name: "env", Type: "$Env"},
 			},
+		}
+	}
+	if _, ok := c.prog.TypeDecls["$Env"]; !ok {
+		c.prog.TypeDecls["$Env"] = &ir.TypeDecl{
+			Name:   "$Env",
+			Fields: nil,
 		}
 	}
 

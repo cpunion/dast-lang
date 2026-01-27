@@ -443,6 +443,7 @@ struct TraitMethod {
     ret: String,
     has_default: bool,
     default_body: Block,
+    is_macro: bool,
 }
 
 struct AssociatedType {

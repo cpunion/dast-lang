@@ -84,6 +84,7 @@ func (s *IfLetStmt) stmtNode()         {}
 func (s *IfLetStmt) Span() source.Span { return s.SpanInfo }
 
 type WhileStmt struct {
+	Label    string
 	Cond     Expr
 	Body     *Block
 	SpanInfo source.Span
@@ -93,6 +94,7 @@ func (s *WhileStmt) stmtNode()         {}
 func (s *WhileStmt) Span() source.Span { return s.SpanInfo }
 
 type WhileLetStmt struct {
+	Label    string
 	Pattern  Pattern
 	Expr     Expr
 	Body     *Block
@@ -103,6 +105,7 @@ func (s *WhileLetStmt) stmtNode()         {}
 func (s *WhileLetStmt) Span() source.Span { return s.SpanInfo }
 
 type LoopStmt struct {
+	Label    string
 	Body     *Block
 	SpanInfo source.Span
 }
@@ -111,6 +114,8 @@ func (s *LoopStmt) stmtNode()         {}
 func (s *LoopStmt) Span() source.Span { return s.SpanInfo }
 
 type BreakStmt struct {
+	Label    string
+	Value    Expr
 	SpanInfo source.Span
 }
 
@@ -118,6 +123,7 @@ func (s *BreakStmt) stmtNode()         {}
 func (s *BreakStmt) Span() source.Span { return s.SpanInfo }
 
 type ContinueStmt struct {
+	Label    string
 	SpanInfo source.Span
 }
 
@@ -139,3 +145,14 @@ type MatchArm struct {
 	Body     *Block
 	SpanInfo source.Span
 }
+
+type ForStmt struct {
+	Label    string
+	Pattern  Pattern
+	Expr     Expr
+	Body     *Block
+	SpanInfo source.Span
+}
+
+func (s *ForStmt) stmtNode()         {}
+func (s *ForStmt) Span() source.Span { return s.SpanInfo }

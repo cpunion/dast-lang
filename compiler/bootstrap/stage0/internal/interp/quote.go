@@ -726,6 +726,14 @@ func (q *quoteCtx) replaceItem(item ast.Item) (ast.Item, error) {
 
 func (q *quoteCtx) replacePattern(pat ast.Pattern) error {
 	switch p := pat.(type) {
+	case *ast.BindingPattern:
+		if idx, ok := placeholderIndex(p.Name); ok {
+			name, err := q.spliceIdent(idx)
+			if err != nil {
+				return err
+			}
+			p.Name = name
+		}
 	case *ast.VariantPattern:
 		if idx, ok := placeholderIndex(p.EnumName); ok {
 			name, err := q.spliceIdent(idx)
@@ -779,6 +787,18 @@ func (q *quoteCtx) replacePattern(pat ast.Pattern) error {
 				if err := q.replacePattern(p.Fields[i].Pattern); err != nil {
 					return err
 				}
+			}
+		}
+	case *ast.TuplePattern:
+		for _, el := range p.Elems {
+			if err := q.replacePattern(el); err != nil {
+				return err
+			}
+		}
+	case *ast.ArrayPattern:
+		for _, el := range p.Elems {
+			if err := q.replacePattern(el); err != nil {
+				return err
 			}
 		}
 	case *ast.OrPattern:
@@ -1061,6 +1081,19 @@ func (r *hygieneRenamer) renamePattern(pat ast.Pattern) map[string]string {
 
 func (r *hygieneRenamer) renamePatternWithMap(pat ast.Pattern, binds map[string]string, generate bool) {
 	switch p := pat.(type) {
+	case *ast.BindingPattern:
+		if p.Name != "" && !isPlaceholder(p.Name) {
+			if renamed, ok := binds[p.Name]; ok {
+				p.Name = renamed
+				return
+			}
+			if !generate {
+				return
+			}
+			renamed := r.unique(p.Name)
+			binds[p.Name] = renamed
+			p.Name = renamed
+		}
 	case *ast.VariantPattern:
 		if p.Binding != "" && !isPlaceholder(p.Binding) {
 			if renamed, ok := binds[p.Binding]; ok {
@@ -1092,6 +1125,14 @@ func (r *hygieneRenamer) renamePatternWithMap(pat ast.Pattern, binds map[string]
 				continue
 			}
 			r.renamePatternWithMap(field.Pattern, binds, generate)
+		}
+	case *ast.TuplePattern:
+		for _, el := range p.Elems {
+			r.renamePatternWithMap(el, binds, generate)
+		}
+	case *ast.ArrayPattern:
+		for _, el := range p.Elems {
+			r.renamePatternWithMap(el, binds, generate)
 		}
 	case *ast.OrPattern:
 		if len(p.Alts) == 0 {

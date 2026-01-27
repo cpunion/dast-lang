@@ -6,18 +6,24 @@ fn peek_kind_n(lex: &Lexer, n: i32) -> TokenKind {
     return lexer_peek_n(lex, n).kind
 }
 
-fn current_lexeme(src: String, lex: &Lexer) -> String {
+fn current_lexeme(src: &str, lex: &Lexer) -> String {
     let tok = lexer_peek(lex)
-    return substr(src, tok.start, tok.len)
+    return substr(string_clone(src), tok.start, tok.len)
 }
 
-fn next_lexeme(src: String, lex: &mut Lexer) -> String {
+fn next_lexeme(src: &str, lex: &mut Lexer) -> String {
     let tok = lexer_next(lex)
-    return substr(src, tok.start, tok.len)
+    return substr(string_clone(src), tok.start, tok.len)
 }
 
 fn add_error(errors: &mut [ParseError], pos: i32, msg: String) {
-    push(errors, ParseError { pos: pos, file: "", line: 0, col: 0, msg: msg })
+    let msg_copy = string_clone(&msg)
+    push(errors, ParseError { pos: pos, file: "", line: 0, col: 0, msg: msg_copy })
+    // Guard against non-progress parsing loops that flood errors and OOM.
+    if len(*errors) > 20000 {
+        println("stage2: parse error flood", len(*errors), pos, msg)
+        exit(2)
+    }
 }
 
 fn sync_to_top_level(lex: &mut Lexer) {
@@ -51,13 +57,13 @@ fn dummy_expr() -> Expr {
     return Expr.IntLit(IntLit { pos: -1, value: "0" })
 }
 
-fn infix_prec(k: TokenKind) -> i32 {
-    if k == TokenKind.OrOr { return 1 }
-    if k == TokenKind.AndAnd { return 2 }
-    if k == TokenKind.EqEq || k == TokenKind.NotEq { return 3 }
-    if k == TokenKind.Lt || k == TokenKind.LtEq || k == TokenKind.Gt || k == TokenKind.GtEq { return 4 }
-    if k == TokenKind.Plus || k == TokenKind.Minus { return 5 }
-    if k == TokenKind.Star || k == TokenKind.Slash || k == TokenKind.Percent { return 6 }
+fn infix_prec(k: &TokenKind) -> i32 {
+    if *k == TokenKind.OrOr { return 1 }
+    if *k == TokenKind.AndAnd { return 2 }
+    if *k == TokenKind.EqEq || *k == TokenKind.NotEq { return 3 }
+    if *k == TokenKind.Lt || *k == TokenKind.LtEq || *k == TokenKind.Gt || *k == TokenKind.GtEq { return 4 }
+    if *k == TokenKind.Plus || *k == TokenKind.Minus { return 5 }
+    if *k == TokenKind.Star || *k == TokenKind.Slash || *k == TokenKind.Percent { return 6 }
     return -1
 }
 
@@ -75,12 +81,12 @@ fn looks_like_struct_lit(lex: &Lexer) -> bool {
     return false
 }
 
-fn parse_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError], min_prec: i32) -> Expr {
+fn parse_expr(src: &str, lex: &mut Lexer, errors: &mut [ParseError], min_prec: i32) -> Expr {
     let mut left = parse_unary(src, lex, errors)
     let mut done = false
     while !done {
         let k = peek_kind(lex)
-        let prec = infix_prec(k)
+        let prec = infix_prec(&k)
         if prec < min_prec {
             done = true
         } else {
@@ -93,7 +99,7 @@ fn parse_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError], min_prec:
     return left
 }
 
-fn parse_unary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_unary(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let k = peek_kind(lex)
     if k == TokenKind.Minus || k == TokenKind.Bang {
         let op_pos = lexer_pos(lex)
@@ -121,7 +127,7 @@ fn parse_unary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr 
     return parse_postfix(src, lex, errors)
 }
 
-fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_postfix(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let mut expr = parse_primary(src, lex, errors)
     let mut done = false
     while !done {
@@ -286,6 +292,7 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
             } else {
                 add_error(errors, lexer_pos(lex), "expected ')'");
             }
+            let args_clone = clone_expr_list(&args)
             match expr {
                 Expr.Ident(_) => {
                     expr = Expr.Call(CallExpr { pos: call_pos, callee: expr, type_args: string_list_new(), args: args })
@@ -295,7 +302,7 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
                         pos: call_pos,
                         recv: f.recv,
                         method: f.name,
-                        args: args,
+                        args: args_clone,
                         resolved_name: "",
                         resolved_self: false,
                         enum_name: "",
@@ -312,7 +319,7 @@ fn parse_postfix(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
     return expr
 }
 
-fn parse_quote_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_quote_expr(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let start_pos = lexer_pos(lex)
     lexer_next(lex) // consume 'quote'
     let mut kind = quote_kind_expr()
@@ -339,7 +346,7 @@ fn parse_quote_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> 
     return Expr.Quote(QuoteExpr { pos: start_pos, kind: kind, parts: parts })
 }
 
-fn parse_quote_parts(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [QuotePart] {
+fn parse_quote_parts(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> [QuotePart] {
     let mut parts: [QuotePart] = []
     let mut buf: [Token] = token_list_new()
     let mut depth = 1
@@ -376,7 +383,7 @@ fn parse_quote_parts(src: String, lex: &mut Lexer, errors: &mut [ParseError]) ->
     return parts
 }
 
-fn parse_quote_splice(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_quote_splice(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     if peek_kind(lex) == TokenKind.LParen {
         lexer_next(lex)
         let mut toks: [Token] = []
@@ -410,15 +417,15 @@ fn parse_quote_splice(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -
     return dummy_expr()
 }
 
-fn parse_expr_from_tokens(src: String, toks: [Token], errors: &mut [ParseError], err_pos: i32) -> Expr {
+fn parse_expr_from_tokens(src: &str, toks: [Token], errors: &mut [ParseError], err_pos: i32) -> Expr {
     if len(toks) == 0 {
         add_error(errors, err_pos, "empty splice expression")
         return dummy_expr()
     }
     let text = tokens_to_source(src, toks)
-    let mut sub = lexer_new(text)
+    let mut sub = lexer_new(string_clone(&text))
     let mut local_errs: [ParseError] = []
-    let expr = parse_expr(text, &mut sub, &mut local_errs, 0)
+    let expr = parse_expr(&text, &mut sub, &mut local_errs, 0)
     if len(local_errs) > 0 {
         add_error(errors, err_pos, "invalid splice expression")
     }
@@ -428,19 +435,19 @@ fn parse_expr_from_tokens(src: String, toks: [Token], errors: &mut [ParseError],
     return expr
 }
 
-fn tokens_to_source(src: String, toks: [Token]) -> String {
+fn tokens_to_source(src: &str, toks: [Token]) -> String {
     let mut out = ""
     let mut i = 0
     while i < len(toks) {
         let tok = toks[i]
-        let text = substr(src, tok.start, tok.len)
+        let text = substr(string_clone(src), tok.start, tok.len)
         out = out + text + " "
         i = i + 1
     }
     return out
 }
 
-fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_primary(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let k = peek_kind(lex)
     let start_pos = lexer_pos(lex)
     if k == TokenKind.If && peek_kind_n(lex, 1) == TokenKind.Let {
@@ -571,7 +578,7 @@ fn parse_primary(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Exp
     return dummy_expr()
 }
 
-fn parse_ident(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+fn parse_ident(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
     if peek_kind(lex) != TokenKind.Ident {
         add_error(errors, lexer_pos(lex), "expected identifier");
         lexer_next(lex)
@@ -582,7 +589,7 @@ fn parse_ident(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Strin
 }
 
 // Parse closure: |x, y| body or |x: i32, y: i32| -> i32 body
-fn parse_closure(src: String, lex: &mut Lexer, errors: &mut [ParseError], start_pos: i32) -> Expr {
+fn parse_closure(src: &str, lex: &mut Lexer, errors: &mut [ParseError], start_pos: i32) -> Expr {
     // Consume opening |
     lexer_next(lex)
 
@@ -650,7 +657,7 @@ fn parse_closure(src: String, lex: &mut Lexer, errors: &mut [ParseError], start_
 }
 
 // Parse block expression: { stmt1; stmt2; result_expr }
-fn parse_block_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_block_expr(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let start_pos = lexer_pos(lex)
 
     // Consume {
@@ -701,7 +708,7 @@ fn parse_block_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> 
     })
 }
 
-fn parse_fn_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, fn_pos: i32, is_macro: bool) -> FunctionDecl {
+fn parse_fn_decl(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, fn_pos: i32, is_macro: bool) -> FunctionDecl {
     let name = parse_ident(src, lex, errors)
     let type_params = parse_type_params(src, lex, errors)
     let mut params: [Param] = []
@@ -748,7 +755,7 @@ fn visibility_private() -> Visibility {
     return Visibility { kind: vis_private() }
 }
 
-fn parse_visibility(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Visibility {
+fn parse_visibility(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Visibility {
     if peek_kind(lex) != TokenKind.Pub {
         return visibility_private()
     }
@@ -770,7 +777,7 @@ fn parse_visibility(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> 
     return Visibility { kind: vis_pub() }
 }
 
-fn parse_param_name(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+fn parse_param_name(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
     let k = peek_kind(lex)
     if k != TokenKind.Ident && k != TokenKind.SelfVal {
         add_error(errors, lexer_pos(lex), "expected parameter name");
@@ -781,7 +788,7 @@ fn parse_param_name(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> 
     return name
 }
 
-fn parse_type(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+fn parse_type(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
     let mut text = ""
     if peek_kind(lex) == TokenKind.Amp {
         text = "&";
@@ -814,7 +821,7 @@ fn parse_type(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String
     return ""
 }
 
-fn parse_path(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
+fn parse_path(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> String {
     let mut path = parse_ident(src, lex, errors)
     let mut done = false
     while !done {
@@ -869,7 +876,7 @@ fn parse_string_lit_token(raw: String) -> String {
     return out
 }
 
-fn parse_import_path(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ImportPath {
+fn parse_import_path(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> ImportPath {
     if peek_kind(lex) == TokenKind.String {
         let raw = next_lexeme(src, lex)
         return ImportPath { path: parse_string_lit_token(raw), is_string: true }
@@ -897,7 +904,7 @@ fn generic_param_list_new() -> [GenericParam] {
     return params
 }
 
-fn parse_type_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [GenericParam] {
+fn parse_type_params(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> [GenericParam] {
     let mut params: [GenericParam] = []
     if peek_kind(lex) != TokenKind.LBracket {
         return params
@@ -953,7 +960,7 @@ fn parse_type_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) ->
     return params
 }
 
-fn parse_attribute(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ParsedAttr {
+fn parse_attribute(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> ParsedAttr {
     let name = parse_ident(src, lex, errors)
     if name != "repr" {
         add_error(errors, lexer_pos(lex), "unknown attribute");
@@ -973,7 +980,7 @@ fn parse_attribute(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> P
     return ParsedAttr { kind: "repr", repr: repr }
 }
 
-fn parse_const_value(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ConstValue {
+fn parse_const_value(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> ConstValue {
     let k = peek_kind(lex)
     if k == TokenKind.Minus {
         lexer_next(lex)
@@ -1033,7 +1040,7 @@ fn parse_char_literal(text: String) -> i32 {
     return c
 }
 
-fn parse_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [Param] {
+fn parse_params(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> [Param] {
     let mut params: [Param] = []
     if peek_kind(lex) == TokenKind.RParen {
         return params
@@ -1133,7 +1140,7 @@ fn parse_params(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> [Par
 }
 
 
-fn parse_const_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ConstDecl {
+fn parse_const_decl(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ConstDecl {
     let name = parse_ident(src, lex, errors)
     let mut has_type = false
     let mut typ = ""
@@ -1152,7 +1159,7 @@ fn parse_const_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis
     return ConstDecl { vis: vis, module: "", file: "", pos: pos, name: name, has_type: has_type, typ: typ, value: value }
 }
 
-fn parse_type_alias(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> TypeAlias {
+fn parse_type_alias(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> TypeAlias {
     lexer_next(lex)  // consume 'type'
     let name = parse_ident(src, lex, errors)
     let type_params = parse_type_params(src, lex, errors)
@@ -1170,7 +1177,7 @@ fn parse_type_alias(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis
     return TypeAlias { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, target: target }
 }
 
-fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> TraitDecl {
+fn parse_trait(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> TraitDecl {
     lexer_next(lex)  // consume 'trait'
     let name = parse_ident(src, lex, errors)
     let type_params = parse_type_params(src, lex, errors)
@@ -1196,9 +1203,21 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
             let type_name = parse_ident(src, lex, errors)
             maybe_consume_semi(lex)
             push(&mut associated_types, AssociatedType { pos: type_pos, name: type_name })
-        } else if k == TokenKind.Fn {
+        } else if k == TokenKind.Macro || k == TokenKind.Fn {
+            let mut is_macro = false
             let method_pos = lexer_pos(lex)
-            lexer_next(lex)  // consume 'fn'
+            if k == TokenKind.Macro {
+                is_macro = true
+                lexer_next(lex)  // consume 'macro'
+                if peek_kind(lex) != TokenKind.Fn {
+                    add_error(errors, lexer_pos(lex), "expected fn after macro")
+                }
+            }
+            if peek_kind(lex) == TokenKind.Fn {
+                lexer_next(lex)  // consume 'fn'
+            } else {
+                add_error(errors, lexer_pos(lex), "expected 'fn' in trait")
+            }
             let method_name = parse_ident(src, lex, errors)
             let mut params: [Param] = []
             let mut has_return = false
@@ -1241,6 +1260,7 @@ fn parse_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Vis
                 ret: ret,
                 has_default: has_default,
                 default_body: default_body,
+                is_macro: is_macro,
             })
         } else {
             add_error(errors, lexer_pos(lex), "expected 'type' or 'fn' in trait");
@@ -1261,7 +1281,7 @@ struct ImplParseResult {
     impl_trait: ImplTrait,
 }
 
-fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImplParseResult {
+fn parse_impl_or_impl_trait(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImplParseResult {
     lexer_next(lex)  // consume 'impl'
     let first_name = parse_ident(src, lex, errors)
 
@@ -1275,8 +1295,9 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
         if peek_kind(lex) != TokenKind.LBrace {
             add_error(errors, lexer_pos(lex), "expected '{' after impl Trait for Type");
             sync_to_top_level(lex)
-            let empty_impl = ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: "", methods: methods }
-            let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), associated_types: associated_types, methods: methods }
+            let vis2 = Visibility { kind: vis.kind }
+            let empty_impl = ImplDecl { vis: vis2, module: "", file: "", pos: pos, type_name: "", methods: func_list_new() }
+            let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: func_list_new() }
             return ImplParseResult { is_trait_impl: true, impl_decl: empty_impl, impl_trait: impl_trait }
         }
         lexer_next(lex)
@@ -1298,16 +1319,26 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                 } else {
                     add_error(errors, lexer_pos(lex), "expected '=' after associated type name");
                 }
-            } else if k == TokenKind.Pub || k == TokenKind.Fn {
+            } else if k == TokenKind.Pub || k == TokenKind.Fn || k == TokenKind.Macro {
                 let mvis = parse_visibility(src, lex, errors)
+                let mut ok = true
+                let mut is_macro = false
                 let mut fn_pos = lexer_pos(lex)
+                if peek_kind(lex) == TokenKind.Macro {
+                    is_macro = true
+                    fn_pos = lexer_pos(lex)
+                    lexer_next(lex)
+                }
                 if peek_kind(lex) == TokenKind.Fn {
                     lexer_next(lex)
-                    let decl = parse_fn_decl(src, lex, errors, mvis, fn_pos, false)
-                    push(&mut methods, decl)
                 } else {
                     add_error(errors, lexer_pos(lex), "expected fn");
                     lexer_next(lex)
+                    ok = false
+                }
+                if ok {
+                    let decl = parse_fn_decl(src, lex, errors, mvis, fn_pos, is_macro)
+                    push(&mut methods, decl)
                 }
             } else {
                 add_error(errors, lexer_pos(lex), "expected 'type' or method");
@@ -1318,7 +1349,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
             lexer_next(lex)
         }
 
-        let empty_impl = ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: "", methods: func_list_new() }
+        let empty_impl = ImplDecl { vis: Visibility { kind: vis.kind }, module: "", file: "", pos: pos, type_name: "", methods: func_list_new() }
         let impl_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: first_name, for_type: for_type, type_args: string_list_new(), associated_types: associated_types, methods: methods }
         return ImplParseResult { is_trait_impl: true, impl_decl: empty_impl, impl_trait: impl_trait }
     }
@@ -1328,8 +1359,9 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{' after impl");
         sync_to_top_level(lex)
-        let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: methods }
-        return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: methods }, impl_trait: empty_trait }
+        let vis2 = Visibility { kind: vis.kind }
+        let empty_trait = ImplTrait { vis: vis2, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: func_list_new() }
+        return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: func_list_new() }, impl_trait: empty_trait }
     }
     lexer_next(lex)
     let mut done = false
@@ -1337,10 +1369,16 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
         let k = peek_kind(lex)
         if k == TokenKind.RBrace || k == TokenKind.Eof {
             done = true
-        } else if k == TokenKind.Pub || k == TokenKind.Fn {
+        } else if k == TokenKind.Pub || k == TokenKind.Fn || k == TokenKind.Macro {
             let mvis = parse_visibility(src, lex, errors)
             let mut ok = true
+            let mut is_macro = false
             let mut fn_pos = lexer_pos(lex)
+            if peek_kind(lex) == TokenKind.Macro {
+                is_macro = true
+                fn_pos = lexer_pos(lex)
+                lexer_next(lex)
+            }
             if peek_kind(lex) == TokenKind.Fn {
                 lexer_next(lex)
             } else {
@@ -1349,7 +1387,7 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
                 ok = false
             }
             if ok {
-                let decl = parse_fn_decl(src, lex, errors, mvis, fn_pos, false)
+                let decl = parse_fn_decl(src, lex, errors, mvis, fn_pos, is_macro)
                 push(&mut methods, decl)
             }
         } else {
@@ -1360,11 +1398,11 @@ fn parse_impl_or_impl_trait(src: String, lex: &mut Lexer, errors: &mut [ParseErr
     if peek_kind(lex) == TokenKind.RBrace {
         lexer_next(lex)
     }
-    let empty_trait = ImplTrait { vis: vis, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: func_list_new() }
+    let empty_trait = ImplTrait { vis: Visibility { kind: vis.kind }, module: "", file: "", pos: pos, trait_name: "", for_type: "", type_args: string_list_new(), associated_types: assoc_type_impl_list_new(), methods: func_list_new() }
     return ImplParseResult { is_trait_impl: false, impl_decl: ImplDecl { vis: vis, module: "", file: "", pos: pos, type_name: first_name, methods: methods }, impl_trait: empty_trait }
 }
 
-fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> StructDecl {
+fn parse_struct_decl(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> StructDecl {
     lexer_next(lex)
     let name = parse_ident(src, lex, errors)
     let type_params = parse_type_params(src, lex, errors)
@@ -1407,7 +1445,7 @@ fn parse_struct_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vi
     return StructDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, fields: fields }
 }
 
-fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr: String, vis: Visibility, pos: i32) -> EnumDecl {
+fn parse_enum_decl(src: &str, lex: &mut Lexer, errors: &mut [ParseError], repr: String, vis: Visibility, pos: i32) -> EnumDecl {
     lexer_next(lex)
     let name = parse_ident(src, lex, errors)
     let type_params = parse_type_params(src, lex, errors)
@@ -1467,7 +1505,7 @@ fn parse_enum_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], repr
     return EnumDecl { vis: vis, module: "", file: "", pos: pos, name: name, type_params: type_params, repr: repr, variants: variants }
 }
 
-fn parse_import_decl(src: String, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImportDecl {
+fn parse_import_decl(src: &str, lex: &mut Lexer, errors: &mut [ParseError], vis: Visibility, pos: i32) -> ImportDecl {
     lexer_next(lex)
     let mut items: [ImportItemSpec] = []
     let mut has_items = false
@@ -1555,7 +1593,7 @@ fn empty_block() -> Block {
     return Block { stmts: stmts }
 }
 
-fn parse_block(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Block {
+fn parse_block(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Block {
     let mut stmts: [Stmt] = []
     if peek_kind(lex) != TokenKind.LBrace {
         add_error(errors, lexer_pos(lex), "expected '{'");
@@ -1575,7 +1613,7 @@ fn parse_block(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Block
     return Block { stmts: stmts }
 }
 
-fn parse_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> LetStmt {
+fn parse_let(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> LetStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     let mut mutable = false
@@ -1602,7 +1640,7 @@ fn parse_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> LetStmt
     return LetStmt { pos: pos, name: name, mutable: mutable, has_type: has_type, typ: typ, has_init: has_init, init: init }
 }
 
-fn parse_return(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ReturnStmt {
+fn parse_return(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> ReturnStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     if peek_kind(lex) == TokenKind.Semi || peek_kind(lex) == TokenKind.RBrace {
@@ -1614,7 +1652,7 @@ fn parse_return(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Retu
     return ReturnStmt { pos: pos, has_value: true, value: expr }
 }
 
-fn parse_if(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> IfStmt {
+fn parse_if(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> IfStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     let cond = parse_expr(src, lex, errors, 0)
@@ -1636,7 +1674,7 @@ fn parse_if(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> IfStmt {
     return IfStmt { pos: pos, cond: cond, then_block: then_block, has_else: has_else, else_block: else_block }
 }
 
-fn parse_if_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> MatchStmt {
+fn parse_if_let(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> MatchStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     lexer_next(lex)
@@ -1670,7 +1708,7 @@ fn parse_if_let(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Matc
     return MatchStmt { pos: pos, expr: expr, arms: arms }
 }
 
-fn parse_if_let_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
+fn parse_if_let_expr(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Expr {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     lexer_next(lex)
@@ -1699,7 +1737,7 @@ fn parse_if_let_expr(src: String, lex: &mut Lexer, errors: &mut [ParseError]) ->
     return Expr.IfLet(IfLetExpr { pos: pos, pattern: pat, expr: expr, then_block: then_block, has_else: has_else, else_block: else_block })
 }
 
-fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
+fn parse_while(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     let cond = parse_expr(src, lex, errors, 0)
@@ -1707,7 +1745,7 @@ fn parse_while(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> While
     return WhileStmt { pos: pos, cond: cond, body: body }
 }
 
-fn parse_loop(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
+fn parse_loop(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     let cond = Expr.BoolLit(BoolLit { pos: pos, value: true })
@@ -1715,21 +1753,21 @@ fn parse_loop(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> WhileS
     return WhileStmt { pos: pos, cond: cond, body: body }
 }
 
-fn parse_break(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> BreakStmt {
+fn parse_break(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> BreakStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     maybe_consume_semi(lex)
     return BreakStmt { pos: pos }
 }
 
-fn parse_continue(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> ContinueStmt {
+fn parse_continue(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> ContinueStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     maybe_consume_semi(lex)
     return ContinueStmt { pos: pos }
 }
 
-fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pattern {
+fn parse_pattern(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Pattern {
     let k = peek_kind(lex)
     if k == TokenKind.Minus || k == TokenKind.Int || k == TokenKind.True || k == TokenKind.False || k == TokenKind.String || k == TokenKind.Char {
         let pos = lexer_pos(lex)
@@ -1865,7 +1903,7 @@ fn parse_pattern(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pat
     return Pattern.Wildcard(WildcardPattern {})
 }
 
-fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> MatchStmt {
+fn parse_match(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> MatchStmt {
     let pos = lexer_pos(lex)
     lexer_next(lex)
     let expr = parse_expr(src, lex, errors, 0)
@@ -1929,7 +1967,7 @@ fn parse_match(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Match
     return MatchStmt { pos: pos, expr: expr, arms: arms }
 }
 
-fn parse_stmt(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Stmt {
+fn parse_stmt(src: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Stmt {
     let k = peek_kind(lex)
     if k == TokenKind.Let {
         return Stmt.Let(parse_let(src, lex, errors))
@@ -1970,7 +2008,7 @@ fn parse_stmt(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Stmt {
     return Stmt.Expr(ExprStmt { pos: stmt_pos, expr: expr })
 }
 
-fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Program {
+fn parse_program(src: &str, file: &str, lex: &mut Lexer, errors: &mut [ParseError]) -> Program {
     let mut imports: [ImportDecl] = []
     let mut structs: [StructDecl] = []
     let mut enums: [EnumDecl] = []
@@ -1983,6 +2021,16 @@ fn parse_program(src: String, lex: &mut Lexer, errors: &mut [ParseError]) -> Pro
     let mut compile_items: [CompileItem] = []
     let mut pending_repr = ""
     while peek_kind(lex) != TokenKind.Eof {
+        if len(*errors) > 1000 {
+            let tok = lexer_peek(lex)
+            let lx = substr(src, tok.start, tok.len)
+            println("stage2: parse flood in", file, len(*errors), lexer_pos(lex), tok.kind, lx)
+            if len(*errors) > 0 {
+                let last = &(*errors)[len(*errors) - 1]
+                println("[parse-last]", last.pos, string_clone(&last.msg))
+            }
+            exit(2)
+        }
         let k = peek_kind(lex)
         if k == TokenKind.At {
             lexer_next(lex)

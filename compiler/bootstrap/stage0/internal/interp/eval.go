@@ -565,6 +565,53 @@ func (rt *Runtime) builtinBind() Builtin {
 	}
 }
 
+func (rt *Runtime) builtinStringClone() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("string_clone expects 1 argument")
+		}
+		arg := args[0]
+		if arg.Kind == ir.KindRef {
+			val, err := rt.deref(arg)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			arg = val
+		}
+		if arg.Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("string_clone expects string")
+		}
+		return ir.Value{Kind: ir.KindString, Str: arg.Str}, nil
+	}
+}
+
+func (rt *Runtime) builtinStringFree() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("string_free expects 1 argument")
+		}
+		return ir.Value{Kind: ir.KindUnit}, nil
+	}
+}
+
+func (rt *Runtime) builtinArrayFree() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("array_free expects 1 argument")
+		}
+		return ir.Value{Kind: ir.KindUnit}, nil
+	}
+}
+
+func (rt *Runtime) builtinStructFree() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("struct_free expects 1 argument")
+		}
+		return ir.Value{Kind: ir.KindUnit}, nil
+	}
+}
+
 func sanitizeIdent(s string) string {
 	var out []rune
 	for _, r := range s {

@@ -1,17 +1,20 @@
-data $str0 = { b "Point", b 0 }
-data $str1 = { b "x", b 0 }
-data $str2 = { b "y", b 0 }
+data $str_data_0 = { b "Point", b 0 }
+data $str_0 = { l $str_data_0, l 5, l 6 }
+data $str_data_1 = { b "x", b 0 }
+data $str_1 = { l $str_data_1, l 1, l 2 }
+data $str_data_2 = { b "y", b 0 }
+data $str_2 = { l $str_data_2, l 1, l 2 }
 
 export function l $dast_user_main() {
 @entry
 
 @entry
-  %t0 =l call $dast_struct_new(l $str0, l 2)
-  call $dast_struct_set_i64(l %t0, l $str1, l 1)
-  call $dast_struct_set_i64(l %t0, l $str2, l 2)
-  %t1 =l call $dast_struct_get_i64(l %t0, l $str1)
-  call $dast_struct_set_i64(l %t0, l $str2, l 3)
-  %t2 =l call $dast_struct_field_addr(l %t0, l $str2)
+  %t0 =l call $dast_struct_new(l $str_data_0, l 2)
+  call $dast_struct_set_i64(l %t0, l $str_data_1, l 1)
+  call $dast_struct_set_i64(l %t0, l $str_data_2, l 2)
+  %t1 =l call $dast_struct_get_i64(l %t0, l $str_data_1)
+  call $dast_struct_set_i64(l %t0, l $str_data_2, l 3)
+  %t2 =l call $dast_struct_field_addr(l %t0, l $str_data_2)
   storel 4, %t2
   %t3 =l call $dast_array_new(l 3)
   call $dast_array_push(l %t3, l 1)

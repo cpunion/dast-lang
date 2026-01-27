@@ -14,7 +14,8 @@ type Compiler struct {
 	blockID      int
 	tempID       int
 	tempTypes    map[int]string       // temp ID -> type string
-	scopeStack   []map[string]VarInfo // name -> VarInfo
+	tempBorrowed map[int]bool         // temp ID -> borrowed/non-owning
+	scopeStack   []scope              // name -> VarInfo
 	nameCount    map[string]int
 	structs      map[string]*ast.StructDecl
 	enums        map[string]*ast.EnumDecl
@@ -22,10 +23,12 @@ type Compiler struct {
 	enumTagType  map[string]string
 	consts       map[string]ConstInfo
 	funcRetTypes map[string]string // function name -> return type
+	funcParamTypes map[string][]string // function name -> param types
 	loopStack    []loopContext
 	opts         Options
 	closureID    int
 	currentFuncName string
+	dropFuncs    map[string]struct{}
 }
 
 // VarInfo tracks variable info for value semantics
@@ -35,6 +38,10 @@ type VarInfo struct {
 	Mutable bool   // true if let mut
 	RefTemp int    // temp ID for captured ref vars, -1 if not a ref capture
 	Closure bool   // true if this var holds a closure value
+	Type    string // IR type name (for drop/copy)
+	Param   bool   // true if this variable is a function parameter
+	Borrowed bool  // true if value is borrowed/non-owning
+	Moved   bool   // true if moved
 }
 
 type ConstInfo struct {
@@ -45,6 +52,9 @@ type ConstInfo struct {
 type loopContext struct {
 	breakLabel    string
 	continueLabel string
+	scopeDepth    int
+	label         string
+	breakValueName string
 }
 
 type Options struct {
@@ -70,7 +80,10 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 		enumTagType:  map[string]string{},
 		consts:       map[string]ConstInfo{},
 		funcRetTypes: map[string]string{},
+		funcParamTypes: map[string][]string{},
+		tempBorrowed: map[int]bool{},
 		opts:         opts,
+		dropFuncs:    map[string]struct{}{},
 	}
 	// Initialize builtin function return types
 	c.funcRetTypes["len"] = "i64"
@@ -93,6 +106,7 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 	c.funcRetTypes["parse_int"] = "i32"
 	c.funcRetTypes["string_to_int"] = "i64"
 	c.funcRetTypes["has_prefix"] = "bool"
+	c.funcRetTypes["string_clone"] = "String"
 	c.funcRetTypes["ast_expr"] = "AstExpr"
 	c.funcRetTypes["ast_stmt"] = "AstStmt"
 	c.funcRetTypes["ast_item"] = "AstItem"
@@ -107,14 +121,21 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 			// Add to IR type declarations
 			fields := make([]ir.Var, 0, len(t.Fields))
 			for _, f := range t.Fields {
+				c.registerTupleTypesInType(f.Type)
 				fields = append(fields, ir.Var{Name: f.Name, Type: formatType(f.Type)})
 			}
 			c.prog.TypeDecls[t.Name] = &ir.TypeDecl{Name: t.Name, Fields: fields}
 		case *ast.EnumDecl:
 			c.enums[t.Name] = t
+			for _, v := range t.Variants {
+				if v.Payload != nil {
+					c.registerTupleTypesInType(*v.Payload)
+				}
+			}
 		case *ast.ConstDecl:
 			typeName := ""
 			if t.Type != nil {
+				c.registerTupleTypesInType(*t.Type)
 				typeName = formatType(*t.Type)
 			}
 			c.consts[t.Name] = ConstInfo{Value: t.Value, TypeName: typeName}
@@ -130,7 +151,14 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 	for _, item := range prog.Items {
 		switch t := item.(type) {
 		case *ast.Function:
+			params := make([]string, 0, len(t.Params))
+			for _, p := range t.Params {
+				c.registerTupleTypesInType(p.Type)
+				params = append(params, formatType(p.Type))
+			}
+			c.funcParamTypes[t.Name] = params
 			if t.ReturnType != nil {
+				c.registerTupleTypesInType(*t.ReturnType)
 				c.funcRetTypes[t.Name] = formatType(*t.ReturnType)
 			} else {
 				c.funcRetTypes[t.Name] = "unit"
@@ -138,7 +166,14 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 		case *ast.ImplDecl:
 			for _, method := range t.Methods {
 				name := t.TypeName + "." + method.Name
+				params := make([]string, 0, len(method.Params))
+				for _, p := range method.Params {
+					c.registerTupleTypesInType(p.Type)
+					params = append(params, formatType(p.Type))
+				}
+				c.funcParamTypes[name] = params
 				if method.ReturnType != nil {
+					c.registerTupleTypesInType(*method.ReturnType)
 					c.funcRetTypes[name] = formatType(*method.ReturnType)
 				} else {
 					c.funcRetTypes[name] = "unit"
@@ -147,7 +182,14 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 		case *ast.ImplTraitDecl:
 			for _, method := range t.Methods {
 				name := t.ForTypeName + "." + method.Name
+				params := make([]string, 0, len(method.Params))
+				for _, p := range method.Params {
+					c.registerTupleTypesInType(p.Type)
+					params = append(params, formatType(p.Type))
+				}
+				c.funcParamTypes[name] = params
 				if method.ReturnType != nil {
+					c.registerTupleTypesInType(*method.ReturnType)
 					c.funcRetTypes[name] = formatType(*method.ReturnType)
 				} else {
 					c.funcRetTypes[name] = "unit"
@@ -169,6 +211,7 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 			}
 		}
 	}
+	c.emitDropHelpers()
 	return c.prog, c.diag
 }
 
@@ -192,7 +235,7 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	// Params use temp IDs internally, but we store names for formatting
 	for _, param := range fn.Params {
 		paramTemp := c.newTemp()
-		c.declareValueVar(param.Name, paramTemp)
+		c.declareParamVar(param.Name, paramTemp, formatType(param.Type))
 		// Store with original name for IR output
 		irFn.Params = append(irFn.Params, ir.Var{Name: param.Name, Type: formatType(param.Type)})
 	}
@@ -205,6 +248,7 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	c.setCurrentBlock(entry)
 	c.compileFunctionBody(fn)
 	if c.currentBlock() != nil && c.currentBlock().Term == nil {
+		c.emitDropsFromDepth(0)
 		c.emitTerm(&ir.Return{Value: nil})
 	}
 	c.popScope()
@@ -257,7 +301,8 @@ func (c *Compiler) compileBlockWithTail(block *ast.Block, allowImplicit bool) {
 		if i == len(block.Stmts)-1 {
 			switch s := stmt.(type) {
 			case *ast.ExprStmt:
-				val := c.compileOperand(s.Expr)
+				val := c.compileOperandMove(s.Expr)
+				c.emitDropsFromDepth(0)
 				c.emitTerm(&ir.Return{Value: &val})
 				c.popScope()
 				return
@@ -288,7 +333,7 @@ func (c *Compiler) compileBlockExprOperand(block *ast.Block) ir.Operand {
 		}
 		if i == len(block.Stmts)-1 {
 			if exprStmt, ok := stmt.(*ast.ExprStmt); ok {
-				result = c.compileOperand(exprStmt.Expr)
+				result = c.compileOperandMove(exprStmt.Expr)
 				break
 			}
 		}
@@ -296,4 +341,42 @@ func (c *Compiler) compileBlockExprOperand(block *ast.Block) ir.Operand {
 	}
 	c.popScope()
 	return result
+}
+
+func (c *Compiler) markMovedExpr(expr ast.Expr) {
+	ident, ok := expr.(*ast.IdentExpr)
+	if !ok {
+		return
+	}
+	varInfo, ok := c.lookupVar(ident.Name)
+	if !ok {
+		return
+	}
+	if c.needsDropType(varInfo.Type) && !isCopyTypeName(varInfo.Type) && !isRefTypeName(varInfo.Type) {
+		c.updateVar(ident.Name, func(v *VarInfo) { v.Moved = true })
+	}
+}
+
+func (c *Compiler) callArgConsumes(callee string, index int) bool {
+	switch callee {
+	case "push":
+		return index == 1
+	case "string_free", "array_free", "struct_free":
+		return true
+	case "print", "println", "eprint", "eprintln", "len", "char_at", "substr", "string_clone", "read_file", "read_dir", "write_file", "mkdir", "args", "read_line", "read_bytes", "exec", "ast_expr", "ast_stmt", "ast_item", "ast_block", "ast_to_string", "gensym", "bind", "parse_int", "string_to_int", "has_prefix", "int_to_string", "pop", "exit":
+		return false
+	}
+	if params, ok := c.funcParamTypes[callee]; ok {
+		if index < len(params) {
+			pt := params[index]
+			if isRefTypeName(pt) {
+				return false
+			}
+			if isCopyTypeName(pt) {
+				return false
+			}
+			return c.needsDropType(pt)
+		}
+	}
+	return true
 }

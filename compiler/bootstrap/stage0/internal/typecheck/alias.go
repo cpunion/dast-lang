@@ -72,6 +72,11 @@ func (c *Checker) expandAliasType(t ast.Type) ast.Type {
 		elem := c.expandAliasType(*t.Elem)
 		t.Elem = &elem
 	}
+	if t.IsTuple && len(t.TupleElems) > 0 {
+		for i := range t.TupleElems {
+			t.TupleElems[i] = c.expandAliasType(t.TupleElems[i])
+		}
+	}
 	if len(t.Args) > 0 {
 		for i := range t.Args {
 			t.Args[i] = c.expandAliasType(t.Args[i])
@@ -189,6 +194,13 @@ func (c *Checker) expandAliasesInStmt(stmt ast.Stmt) {
 		c.expandAliasesInBlock(s.Body)
 	case *ast.LoopStmt:
 		c.expandAliasesInBlock(s.Body)
+	case *ast.ForStmt:
+		c.expandAliasesInExpr(s.Expr)
+		c.expandAliasesInBlock(s.Body)
+	case *ast.BreakStmt:
+		if s.Value != nil {
+			c.expandAliasesInExpr(s.Value)
+		}
 	case *ast.MatchStmt:
 		c.expandAliasesInExpr(s.Expr)
 		for i := range s.Arms {
@@ -205,6 +217,10 @@ func (c *Checker) expandAliasesInStmt(stmt ast.Stmt) {
 func (c *Checker) expandAliasesInExpr(expr ast.Expr) {
 	switch e := expr.(type) {
 	case *ast.ArrayLit:
+		for _, el := range e.Elems {
+			c.expandAliasesInExpr(el)
+		}
+	case *ast.TupleLit:
 		for _, el := range e.Elems {
 			c.expandAliasesInExpr(el)
 		}
@@ -250,6 +266,8 @@ func (c *Checker) expandAliasesInExpr(expr ast.Expr) {
 		}
 	case *ast.BlockExpr:
 		c.expandAliasesInBlock(e.Block)
+	case *ast.LoopExpr:
+		c.expandAliasesInBlock(e.Body)
 	case *ast.IfExpr:
 		c.expandAliasesInExpr(e.Cond)
 		c.expandAliasesInExpr(e.Then)

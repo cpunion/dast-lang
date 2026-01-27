@@ -1,0 +1,15 @@
+fn sum(xs: &[i64]) -> i64 {
+    let mut i = 0
+    let mut acc = 0
+    while i < len(*xs) {
+        acc = acc + (*xs)[i]
+        i = i + 1
+    }
+    return acc
+}
+
+fn main() {
+    let nums = [1, 2, 3, 4]
+    let s = sum(&nums)
+    println("sum", s)
+}

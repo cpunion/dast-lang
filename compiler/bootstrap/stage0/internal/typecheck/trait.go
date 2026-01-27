@@ -15,9 +15,12 @@ func (c *Checker) collectTraitSigs() {
 		if len(sig.Methods) > 0 {
 			continue
 		}
+		sig.TypeParams = append([]ast.TypeParam{}, sig.Decl.TypeParams...)
+		restore := c.pushTypeParams(sig.Decl.TypeParams)
 		for _, m := range sig.Decl.Methods {
 			sig.Methods = append(sig.Methods, c.traitMethodSig(m))
 		}
+		c.popTypeParams(restore)
 	}
 }
 
@@ -61,58 +64,87 @@ func (c *Checker) collectImplTraits(prog *ast.Program) {
 			continue
 		}
 		if len(impl.TypeParams) > 0 {
-			// Generic impl traits are not instantiated in stage0 yet.
+			// Generic impl traits are instantiated during monomorphization.
 			continue
 		}
 		implType := c.typeFromNameAndArgs(impl.ForTypeName, impl.ForTypeArgs)
-		typeKey := typeKey(implType)
-		if _, ok := c.traitImpls[traitSig.Name]; !ok {
-			c.traitImpls[traitSig.Name] = map[string]struct{}{}
+		traitSubst, ok := c.traitSubstForImplTrait(impl, nil, traitSig, impl.Span())
+		if !ok {
+			continue
 		}
-		if _, exists := c.traitImpls[traitSig.Name][typeKey]; exists {
-			c.diag.Add(impl.Span(), fmt.Sprintf("duplicate impl of trait '%s' for '%s'", impl.TraitName, impl.ForTypeName))
-		}
-		c.traitImpls[traitSig.Name][typeKey] = struct{}{}
+		c.applyImplTrait(impl, implType, traitSig, traitSubst)
+	}
+}
 
-		implMethods := map[string]*ast.Function{}
-		for _, m := range impl.Methods {
-			implMethods[m.Name] = m
+func (c *Checker) traitSubstForImplTrait(impl *ast.ImplTraitDecl, baseSubst map[string]Type, traitSig *TraitSig, span source.Span) (map[string]Type, bool) {
+	subst := map[string]Type{}
+	if traitSig == nil || len(traitSig.TypeParams) == 0 {
+		return subst, true
+	}
+	if len(impl.TraitArgs) != len(traitSig.TypeParams) {
+		c.diag.Add(span, fmt.Sprintf("trait '%s' expects %d type arguments, got %d", traitSig.Name, len(traitSig.TypeParams), len(impl.TraitArgs)))
+		return subst, false
+	}
+	for i, p := range traitSig.TypeParams {
+		argAst := impl.TraitArgs[i]
+		if len(baseSubst) > 0 {
+			argAst = c.cloneType(argAst, baseSubst)
 		}
+		argType := c.fromAstType(argAst)
+		subst[p.Name] = argType
+	}
+	return subst, true
+}
 
-		for _, req := range traitSig.Methods {
-			implMethod, ok := implMethods[req.Name]
-			if !ok {
-				c.diag.Add(impl.Span(), fmt.Sprintf("missing method '%s' required by trait '%s'", req.Name, impl.TraitName))
-				continue
-			}
-			reqSig := c.substSelf(req, implType)
-			implSig := c.methodSignature(implType, implMethod)
-			if len(reqSig.Params) != len(implSig.Params) {
-				c.diag.Add(implMethod.Span(), fmt.Sprintf("method '%s' has wrong parameter count", req.Name))
-				continue
-			}
-			for i := range reqSig.Params {
-				if !typesEqual(reqSig.Params[i], implSig.Params[i]) {
-					c.diag.Add(implMethod.Span(), fmt.Sprintf("method '%s' parameter %d type mismatch", req.Name, i+1))
-					break
-				}
-			}
-			if !typesEqual(reqSig.Return, implSig.Return) && reqSig.Return.Kind != TypeInvalid && implSig.Return.Kind != TypeInvalid {
-				c.diag.Add(implMethod.Span(), fmt.Sprintf("method '%s' return type mismatch", req.Name))
-			}
-		}
+func (c *Checker) applyImplTrait(impl *ast.ImplTraitDecl, implType Type, traitSig *TraitSig, traitSubst map[string]Type) {
+	implType = c.canonicalizeType(implType)
+	typeKey := typeKey(implType)
+	if _, ok := c.traitImpls[traitSig.Name]; !ok {
+		c.traitImpls[traitSig.Name] = map[string]struct{}{}
+	}
+	if _, exists := c.traitImpls[traitSig.Name][typeKey]; exists {
+		c.diag.Add(impl.Span(), fmt.Sprintf("duplicate impl of trait '%s' for '%s'", impl.TraitName, impl.ForTypeName))
+	}
+	c.traitImpls[traitSig.Name][typeKey] = struct{}{}
 
-		// Register methods for method call resolution
-		for _, method := range impl.Methods {
-			if _, exists := c.methods[implType.Name]; !exists {
-				c.methods[implType.Name] = map[string]*MethodSig{}
-			}
-			if _, exists := c.methods[implType.Name][method.Name]; exists {
-				continue
-			}
-			sig := c.methodSignature(implType, method)
-			c.methods[implType.Name][method.Name] = sig
+	implMethods := map[string]*ast.Function{}
+	for _, m := range impl.Methods {
+		implMethods[m.Name] = m
+	}
+
+	for _, req := range traitSig.Methods {
+		implMethod, ok := implMethods[req.Name]
+		if !ok {
+			c.diag.Add(impl.Span(), fmt.Sprintf("missing method '%s' required by trait '%s'", req.Name, impl.TraitName))
+			continue
 		}
+		reqSig := c.substTraitAndSelf(req, implType, traitSubst)
+		implSig := c.methodSignature(implType, implMethod)
+		if len(reqSig.Params) != len(implSig.Params) {
+			c.diag.Add(implMethod.Span(), fmt.Sprintf("method '%s' has wrong parameter count", req.Name))
+			continue
+		}
+		for i := range reqSig.Params {
+			if !typesEqual(reqSig.Params[i], implSig.Params[i]) {
+				c.diag.Add(implMethod.Span(), fmt.Sprintf("method '%s' parameter %d type mismatch", req.Name, i+1))
+				break
+			}
+		}
+		if !typesEqual(reqSig.Return, implSig.Return) && reqSig.Return.Kind != TypeInvalid && implSig.Return.Kind != TypeInvalid {
+			c.diag.Add(implMethod.Span(), fmt.Sprintf("method '%s' return type mismatch", req.Name))
+		}
+	}
+
+	// Register methods for method call resolution
+	for _, method := range impl.Methods {
+		if _, exists := c.methods[implType.Name]; !exists {
+			c.methods[implType.Name] = map[string]*MethodSig{}
+		}
+		if _, exists := c.methods[implType.Name][method.Name]; exists {
+			continue
+		}
+		sig := c.methodSignature(implType, method)
+		c.methods[implType.Name][method.Name] = sig
 	}
 }
 
@@ -144,8 +176,11 @@ func (c *Checker) methodSignature(selfType Type, fn *ast.Function) *MethodSig {
 	return sig
 }
 
-func (c *Checker) substSelf(sig TraitMethodSig, selfType Type) TraitMethodSig {
+func (c *Checker) substTraitAndSelf(sig TraitMethodSig, selfType Type, traitSubst map[string]Type) TraitMethodSig {
 	subst := map[string]Type{"Self": selfType}
+	for k, v := range traitSubst {
+		subst[k] = v
+	}
 	out := sig
 	out.Params = nil
 	for _, p := range sig.Params {
@@ -179,9 +214,46 @@ func (c *Checker) checkTypeParamBounds(params []ast.TypeParam, subst map[string]
 
 func (c *Checker) typeImplementsTrait(t Type, trait string) bool {
 	impls, ok := c.traitImpls[trait]
+	if ok {
+		if _, exists := impls[typeKey(t)]; exists {
+			return true
+		}
+	}
+	expanded := c.expandInstType(t)
+	if ok {
+		if _, exists := impls[typeKey(expanded)]; exists {
+			return true
+		}
+	}
+	if expanded.Kind != TypeStruct && expanded.Kind != TypeEnum {
+		return false
+	}
+	if len(expanded.Args) == 0 {
+		return false
+	}
+	return c.hasImplTraitTemplate(expanded.Name, expanded.Args, trait)
+}
+
+func (c *Checker) hasImplTraitTemplate(base string, args []Type, trait string) bool {
+	templates := c.implTraitTemplates[base]
+	if len(templates) == 0 {
+		return false
+	}
+	traitSig, ok := c.traits[trait]
 	if !ok {
 		return false
 	}
-	_, ok = impls[typeKey(t)]
-	return ok
+	for _, tmpl := range templates {
+		if tmpl.TraitName != trait {
+			continue
+		}
+		if len(tmpl.TypeParams) != len(args) {
+			continue
+		}
+		if len(traitSig.TypeParams) != len(tmpl.TraitArgs) {
+			continue
+		}
+		return true
+	}
+	return false
 }

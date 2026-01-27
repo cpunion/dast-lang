@@ -4,7 +4,15 @@ import "dastlang/internal/ast"
 
 func typeToAst(t Type) ast.Type {
 	out := ast.Type{}
-	if t.Kind == TypeArray && t.Elem != nil {
+	if t.Kind == TypeTuple {
+		out.IsTuple = true
+		if len(t.Elems) > 0 {
+			out.TupleElems = make([]ast.Type, 0, len(t.Elems))
+			for _, e := range t.Elems {
+				out.TupleElems = append(out.TupleElems, typeToAst(e))
+			}
+		}
+	} else if t.Kind == TypeArray && t.Elem != nil {
 		elem := typeToAst(*t.Elem)
 		out.IsArray = true
 		out.Elem = &elem
@@ -29,6 +37,24 @@ func typeToAst(t Type) ast.Type {
 }
 
 func (c *Checker) cloneType(t ast.Type, subst map[string]Type) ast.Type {
+	if t.Name == "Self" && !t.IsArray {
+		if rep, ok := subst["Self"]; ok {
+			out := typeToAst(rep)
+			if t.IsRef {
+				out.IsRef = true
+				out.IsMut = t.IsMut
+			}
+			return out
+		}
+		if c.selfType != nil {
+			out := typeToAst(*c.selfType)
+			if t.IsRef {
+				out.IsRef = true
+				out.IsMut = t.IsMut
+			}
+			return out
+		}
+	}
 	if rep, ok := subst[t.Name]; ok && !t.IsArray {
 		out := typeToAst(rep)
 		if t.IsRef {
@@ -41,6 +67,12 @@ func (c *Checker) cloneType(t ast.Type, subst map[string]Type) ast.Type {
 	if t.IsArray && t.Elem != nil {
 		elem := c.cloneType(*t.Elem, subst)
 		out.Elem = &elem
+	}
+	if t.IsTuple && len(t.TupleElems) > 0 {
+		out.TupleElems = make([]ast.Type, 0, len(t.TupleElems))
+		for _, e := range t.TupleElems {
+			out.TupleElems = append(out.TupleElems, c.cloneType(e, subst))
+		}
 	}
 	if len(t.Args) > 0 {
 		out.Args = make([]ast.Type, 0, len(t.Args))
@@ -147,9 +179,18 @@ func (c *Checker) cloneStmt(stmt ast.Stmt, subst map[string]Type) ast.Stmt {
 		return &out
 	case *ast.BreakStmt:
 		out := *s
+		if s.Value != nil {
+			out.Value = c.cloneExpr(s.Value, subst)
+		}
 		return &out
 	case *ast.ContinueStmt:
 		out := *s
+		return &out
+	case *ast.ForStmt:
+		out := *s
+		out.Pattern = c.clonePattern(s.Pattern, subst)
+		out.Expr = c.cloneExpr(s.Expr, subst)
+		out.Body = c.cloneBlock(s.Body, subst)
 		return &out
 	case *ast.MatchStmt:
 		out := *s
@@ -189,6 +230,13 @@ func (c *Checker) cloneExpr(expr ast.Expr, subst map[string]Type) ast.Expr {
 		out := *e
 		return &out
 	case *ast.ArrayLit:
+		out := *e
+		out.Elems = nil
+		for _, el := range e.Elems {
+			out.Elems = append(out.Elems, c.cloneExpr(el, subst))
+		}
+		return &out
+	case *ast.TupleLit:
 		out := *e
 		out.Elems = nil
 		for _, el := range e.Elems {
@@ -271,6 +319,10 @@ func (c *Checker) cloneExpr(expr ast.Expr, subst map[string]Type) ast.Expr {
 		out := *e
 		out.Block = c.cloneBlock(e.Block, subst)
 		return &out
+	case *ast.LoopExpr:
+		out := *e
+		out.Body = c.cloneBlock(e.Body, subst)
+		return &out
 	case *ast.IfExpr:
 		out := *e
 		out.Cond = c.cloneExpr(e.Cond, subst)
@@ -326,6 +378,9 @@ func (c *Checker) clonePattern(pat ast.Pattern, subst map[string]Type) ast.Patte
 	case *ast.WildcardPattern:
 		out := *p
 		return &out
+	case *ast.BindingPattern:
+		out := *p
+		return &out
 	case *ast.LiteralPattern:
 		out := *p
 		return &out
@@ -351,6 +406,20 @@ func (c *Checker) clonePattern(pat ast.Pattern, subst map[string]Type) ast.Patte
 				fc.Pattern = c.clonePattern(f.Pattern, subst)
 			}
 			out.Fields = append(out.Fields, fc)
+		}
+		return &out
+	case *ast.TuplePattern:
+		out := *p
+		out.Elems = nil
+		for _, el := range p.Elems {
+			out.Elems = append(out.Elems, c.clonePattern(el, subst))
+		}
+		return &out
+	case *ast.ArrayPattern:
+		out := *p
+		out.Elems = nil
+		for _, el := range p.Elems {
+			out.Elems = append(out.Elems, c.clonePattern(el, subst))
 		}
 		return &out
 	default:

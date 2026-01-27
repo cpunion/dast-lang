@@ -1,0 +1,26 @@
+enum Maybe {
+    None,
+    Some(int),
+}
+
+import "std/testing" as t
+
+fn test_main() {
+    let a = Maybe.Some(5)
+    let mut hit = false
+    if let .Some(x) = a {
+        t.assert_eq!(x, 5)
+        hit = true
+    } else {
+        t.assert!(false)
+    }
+    t.assert!(hit)
+
+    let b = Maybe.None
+    let mut hit2 = false
+    if let .Some(_x) = b {
+        hit2 = true
+        t.assert!(false)
+    }
+    t.assert_eq!(hit2, false)
+}

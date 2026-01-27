@@ -1,0 +1,25 @@
+// Test type inference for local variables
+import "std/testing" as t
+
+fn test_main() {
+    // Test 1: Infer from int literal
+    let x = 42
+    t.assert_eq!(x, 42)
+    
+    // Test 2: Infer from String literal
+    let s = "hello"
+    t.assert_eq!(s, "hello")
+    
+    // Test 3: Infer from bool literal
+    let b = true
+    t.assert_eq!(b, true)
+    
+    // Test 4: Infer from array literal
+    let arr = [1, 2, 3]
+    t.assert_eq!(arr[0], 1)
+    
+    // Test 5: Infer mutable variable
+    let mut count = 0
+    count = count + 1
+    t.assert_eq!(count, 1)
+}

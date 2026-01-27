@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 )
 
 func main() {
+	applyMemLimit()
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(1)
@@ -52,6 +54,28 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
+}
+
+func applyMemLimit() {
+	limit := parseMemLimitBytes()
+	if limit <= 0 {
+		return
+	}
+	debug.SetMemoryLimit(limit)
+}
+
+func parseMemLimitBytes() int64 {
+	if v := os.Getenv("DAST_MEM_LIMIT_BYTES"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	if v := os.Getenv("DAST_MEM_LIMIT_MB"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+			return n * 1024 * 1024
+		}
+	}
+	return 0
 }
 
 func usage() {
