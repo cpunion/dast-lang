@@ -1,4 +1,4 @@
-// AST: expressions for stage2v2-min.
+// AST: expressions for stage2.
 
 const EXPR_IDENT = 1
 const EXPR_INT = 2

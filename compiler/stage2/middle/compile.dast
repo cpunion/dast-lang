@@ -1,4 +1,4 @@
-// stage2v2-min: minimal compiler pipeline (parse -> QBE -> native).
+// stage2: minimal compiler pipeline (parse -> QBE -> native).
 
 struct QbeValue {
     typ: String,
@@ -1243,7 +1243,7 @@ fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
 fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeValue, has_payload_arg: bool) -> QbeValue {
     let tag = enum_variant_value(e, enum_name, variant)
     if tag < 0 {
-        println("stage2v2-min: unknown enum variant", variant)
+        println("stage2: unknown enum variant", variant)
         exit(1)
     }
     let tag_t = enum_tag_type(e, enum_name)
@@ -1357,7 +1357,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         emit_line(e, "  " + tn + " =w csltl " + rhs.expr + ", " + lhs.expr)
         return qbe_value("bool", tn)
     }
-    println("stage2v2-min: unsupported binary op", op)
+    println("stage2: unsupported binary op", op)
     exit(1)
     return qbe_value("i64", "0")
 }
@@ -1445,7 +1445,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         EXPR_STRUCT_LIT => {
             let st_name = string_clone(&expr.name)
             if struct_index(e, &st_name) < 0 {
-                println("stage2v2-min: unknown struct", st_name)
+                println("stage2: unknown struct", st_name)
                 exit(1)
             }
             let name_ptr = string_data_ptr(e, &st_name)
@@ -1459,7 +1459,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 let fname = string_clone(&f.name)
                 let ftyp = struct_field_type(e, &st_name, &fname)
                 if ftyp == "" {
-                    println("stage2v2-min: unknown struct field", fname)
+                    println("stage2: unknown struct field", fname)
                     exit(1)
                 }
                 let v = emit_expr(e, &f.value)
@@ -1474,7 +1474,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_FIELD => {
             if len(expr.args) == 0 {
-                println("stage2v2-min: field access missing receiver")
+                println("stage2: field access missing receiver")
                 exit(1)
             }
             let recv_expr = &expr.args[0]
@@ -1492,7 +1492,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let fname = string_clone(&expr.name)
             let ftyp = struct_field_type(e, &recv_t, &fname)
             if ftyp == "" {
-                println("stage2v2-min: unknown field", fname)
+                println("stage2: unknown field", fname)
                 exit(1)
             }
             let fname_ptr = string_data_ptr(e, &fname)
@@ -1557,7 +1557,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             return qbe_value(ret_t, tn)
         }
         _ => {
-            println("stage2v2-min: unsupported expr kind", expr.kind)
+            println("stage2: unsupported expr kind", expr.kind)
             exit(1)
             return qbe_value("i64", "0")
         }
@@ -1644,7 +1644,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         emit_line(e, "  " + op + " " + casted + ", " + ptr.expr)
         return
     }
-    println("stage2v2-min: unsupported assignment target")
+    println("stage2: unsupported assignment target")
     exit(1)
 }
 
@@ -1804,7 +1804,7 @@ fn emit_loop(e: &mut Emitter, stmt: &Stmt) {
 fn emit_break(e: &mut Emitter) {
     let target = top_break_label(e)
     if target == "" {
-        println("stage2v2-min: break outside loop")
+        println("stage2: break outside loop")
         exit(1)
     }
     emit_line(e, "  jmp @" + target)
@@ -1813,7 +1813,7 @@ fn emit_break(e: &mut Emitter) {
 fn emit_continue(e: &mut Emitter) {
     let target = top_continue_label(e)
     if target == "" {
-        println("stage2v2-min: continue outside loop")
+        println("stage2: continue outside loop")
         exit(1)
     }
     emit_line(e, "  jmp @" + target)
@@ -2073,7 +2073,7 @@ fn load_prelude_dir(dir: String) -> String {
 
 fn compile_native_single(src_path: String, out_bin: String) {
     let src = read_file(src_path)
-    let prelude_dir = "compiler/stage2v2-min/stdlib/prelude"
+    let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(prelude_dir)
     let src_all = prelude + "\n" + src
     let prog = parse_program(src_all)
@@ -2083,7 +2083,7 @@ fn compile_native_single(src_path: String, out_bin: String) {
     let qbe = compile_to_qbe(prog)
 
     // Use a deterministic target directory.
-    let target_dir = "compiler/stage2v2-min/target/min"
+    let target_dir = "compiler/stage2/target/min"
     mkdir(target_dir)
     let qbe_path = target_dir + "/main.qbe"
     let asm_path = target_dir + "/main.s"
@@ -2098,7 +2098,7 @@ fn compile_native_single(src_path: String, out_bin: String) {
 }
 
 fn compile_and_run_single(src_path: String, run_args: [String]) {
-    let out_bin = "compiler/stage2v2-min/target/min/main"
+    let out_bin = "compiler/stage2/target/min/main"
     compile_native_single(src_path, string_clone(&out_bin))
     let _ = exec(out_bin, run_args)
 }

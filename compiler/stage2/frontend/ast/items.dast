@@ -1,4 +1,4 @@
-// AST: items (struct/enum/const/function/program) for stage2v2-min.
+// AST: items (struct/enum/const/function/program) for stage2.
 
 struct ConstDecl {
     name: String,

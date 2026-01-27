@@ -1,4 +1,4 @@
-// Minimal drop classification utilities for stage2v2-min.
+// Minimal drop classification utilities for stage2.
 // This is intentionally small and will be expanded bottom-up.
 
 fn drop_trim_space(s: String) -> String {
@@ -66,4 +66,3 @@ fn drop_needs_drop_type(t: String) -> bool {
     if drop_is_array_type_name(n) { return true }
     return false
 }
-

@@ -1,4 +1,4 @@
-// Statement parsing for stage2v2-min.
+// Statement parsing for stage2.
 
 fn parse_variant_pattern(p: &mut Parser) -> MatchArm {
     let _ = parser_expect(p, TK_DOT, ".")

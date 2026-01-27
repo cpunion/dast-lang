@@ -1,4 +1,4 @@
-// Item and program parsing for stage2v2-min.
+// Item and program parsing for stage2.
 
 fn parse_const(p: &mut Parser) -> ConstDecl {
     let _ = parser_expect(p, TK_CONST, "const")

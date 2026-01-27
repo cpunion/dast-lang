@@ -1,4 +1,4 @@
-// AST: statements and blocks for stage2v2-min.
+// AST: statements and blocks for stage2.
 
 const STMT_LET = 1
 const STMT_EXPR = 2

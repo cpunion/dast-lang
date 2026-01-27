@@ -1,4 +1,4 @@
-// Expression parsing for stage2v2-min.
+// Expression parsing for stage2.
 
 fn parse_const_expr(p: &mut Parser) -> Expr {
     let t = parser_peek(p)

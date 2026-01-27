@@ -1,20 +1,20 @@
-// stage2v2-min driver: keep simple, but exercise full compile->run.
+// stage2 driver: keep simple, but exercise full compile->run.
 
 fn usage() {
-    println("usage", "dast-stage2v2-min <build|run> <file.dast> [-o out] [-- args]")
+    println("usage", "dast-stage2 <build|run> <file.dast> [-o out] [-- args]")
 }
 
 fn main() {
     let argv = args()
     if len(argv) == 0 {
-        println("stage2v2-min", "scaffold")
+        println("stage2", "scaffold")
         usage()
         return
     }
 
     let cmd = string_clone(&argv[0])
     if cmd == "--self-test" {
-        println("stage2v2-min", "ok")
+        println("stage2", "ok")
         return
     }
     if cmd == "--drop-self-test" {
@@ -44,7 +44,7 @@ fn main() {
     }
 
     let src_path = string_clone(&argv[1])
-    let mut out_bin = "compiler/stage2v2-min/target/min/main"
+    let mut out_bin = "compiler/stage2/target/min/main"
     let mut run_args: [String] = []
     let mut i = 2
     let mut after_sep = false

@@ -2,6 +2,9 @@ SHELL := /bin/sh
 
 STAGE0_DIR := compiler/bootstrap/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
+STAGE0_SAFE_MEM_MB ?= 128
+STAGE0_SAFE_RUN ?= scripts/safe-run.sh
+STAGE0_SAFE_CMD := $(if $(STAGE0_SAFE_RUN),$(STAGE0_SAFE_RUN) --mem-mb $(STAGE0_SAFE_MEM_MB),)
 STAGE2V2_DRIVER := compiler/stage2/driver/main.dast
 STAGE2V2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/stdlib/prelude/*' | sort)
 STAGE2V2_OUT ?= compiler/stage2/target/dast-stage2
@@ -149,11 +152,11 @@ test-stage0: build-stage0
 	@echo "[stage0-phase1] simple syntax compile"; \
 	for f in $(STAGE0_SIMPLE_RUN_PASS); do \
 		echo "[stage0-simple] $$f"; \
-		./$(STAGE0_BIN) run $$f || exit 1; \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $$f || exit 1; \
 	done; \
 	for f in $(STAGE0_COMPILE_FAIL); do \
 		echo "[stage0-fail] $$f"; \
-		out=$$(./$(STAGE0_BIN) run $$f 2>&1); \
+		out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $$f 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
@@ -162,7 +165,7 @@ test-stage0: build-stage0
 	@echo "[stage0-phase1b] shared simple package tests"; \
 	for d in $(SHARED_PKG_SIMPLE_DIRS); do \
 		echo "[stage0-simple-pkg] $$d"; \
-		./$(STAGE0_BIN) test $$d || exit 1; \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $$d || exit 1; \
 	done
 	@echo "[stage0-phase2] simple syntax generate"; \
 	$(MAKE) test-ir-gen-simple; \
@@ -170,34 +173,34 @@ test-stage0: build-stage0
 	@echo "[stage0-phase3] combo syntax compile+generate"; \
 	for f in $(STAGE0_COMBO_RUN_PASS); do \
 		echo "[stage0-combo] $$f"; \
-		./$(STAGE0_BIN) run $$f || exit 1; \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $$f || exit 1; \
 	done; \
 	for d in $(SHARED_PKG_COMBO_DIRS); do \
 		echo "[stage0-combo-pkg] $$d"; \
-		./$(STAGE0_BIN) test $$d || exit 1; \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $$d || exit 1; \
 	done; \
 	$(MAKE) test-ir-gen-combo; \
 	$(MAKE) test-ir-qbe-combo
 	@echo "[stage0-phase4] integration"; \
 	for f in $(EXAMPLES); do \
 		echo "[stage0-example] $$f"; \
-		./$(STAGE0_BIN) run $$f || exit 1; \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $$f || exit 1; \
 	done
 	@echo "[stage0-build] $(STAGE0_MODULE_TEST_DIR)"; \
 	./$(STAGE0_BIN) build --emit-ir $(STAGE0_MODULE_TEST_DIR) -o /tmp/dast-stage0-module.ir || exit 1; \
 	rm -f /tmp/dast-stage0-module.ir
 	@echo "[stage0-run] $(STAGE0_MODULE_TEST_DIR)"; \
-	./$(STAGE0_BIN) run $(STAGE0_MODULE_TEST_DIR) || exit 1
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE0_MODULE_TEST_DIR) || exit 1
 	@echo "[stage0-test] $(STAGE0_MODULE_TEST_DIR)"; \
-	./$(STAGE0_BIN) test $(STAGE0_MODULE_TEST_DIR) || exit 1
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $(STAGE0_MODULE_TEST_DIR) || exit 1
 	@echo "[stage0-test-fail] $(STAGE0_TEST_FAIL_DIR)"; \
-	out=$$(./$(STAGE0_BIN) test $(STAGE0_TEST_FAIL_DIR) 2>&1); \
+	out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $(STAGE0_TEST_FAIL_DIR) 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -eq 0 ]; then echo "expected test failure"; exit 1; fi; \
 	if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi
 	@echo "[stage0-test-fail-compile] $(STAGE0_TEST_FAIL_COMPILE_DIR)"; \
-	out=$$(./$(STAGE0_BIN) test $(STAGE0_TEST_FAIL_COMPILE_DIR) 2>&1); \
+	out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $(STAGE0_TEST_FAIL_COMPILE_DIR) 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -eq 0 ]; then echo "expected test failure"; exit 1; fi; \
@@ -206,20 +209,20 @@ test-stage0: build-stage0
 	./$(STAGE0_BIN) build --emit-ir $(STAGE0_DEPS_APP_DIR) -o /tmp/dast-stage0-deps.ir || exit 1; \
 	rm -f /tmp/dast-stage0-deps.ir
 	@echo "[stage0-deps-run] $(STAGE0_DEPS_APP_DIR)"; \
-	./$(STAGE0_BIN) run $(STAGE0_DEPS_APP_DIR) || exit 1
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE0_DEPS_APP_DIR) || exit 1
 	@echo "[stage0-deps-test] $(STAGE0_DEPS_APP_DIR)"; \
-	./$(STAGE0_BIN) test $(STAGE0_DEPS_APP_DIR) || exit 1
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $(STAGE0_DEPS_APP_DIR) || exit 1
 	@echo "[stage0-workspace-run] $(STAGE0_WORKSPACE_APP_DIR)"; \
-	./$(STAGE0_BIN) run $(STAGE0_WORKSPACE_APP_DIR) || exit 1
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE0_WORKSPACE_APP_DIR) || exit 1
 	@echo "[stage0-workspace-test] $(STAGE0_WORKSPACE_APP_DIR)"; \
-	./$(STAGE0_BIN) test $(STAGE0_WORKSPACE_APP_DIR) || exit 1
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) test $(STAGE0_WORKSPACE_APP_DIR) || exit 1
 
 test-shared-stage0: build-stage0
 	@i=0; total=$(SHARED_RUN_PASS_TOTAL); \
 	for f in $(SHARED_RUN_PASS); do \
 		i=$$((i+1)); \
 		echo "[shared-stage0 $$i/$$total] $$f"; \
-		./$(STAGE0_BIN) run $$f || exit 1; \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $$f || exit 1; \
 	done
 
 test-stage0-drop: build-stage0
@@ -279,217 +282,37 @@ test-ir-qbe: build-stage0
 
 test-stage2: build-stage0
 	@set -e; \
-	stage2_bin="$(STAGE2_COMPILER_OUT)"; \
+	stage2_bin="$(STAGE2V2_OUT)"; \
 	mkdir -p "$$(dirname "$$stage2_bin")"; \
 	echo "[stage2-build] $$stage2_bin"; \
-	$(STAGE2_MEM_LIMIT_CMD) ./$(STAGE0_BIN) build -o "$$stage2_bin" $(STAGE2_FILES); \
-	$(STAGE2_MEM_LIMIT_CMD) i=0; total=$(SHARED_RUN_PASS_TOTAL); \
-	for f in $(SHARED_RUN_PASS); do \
-		i=$$((i+1)); \
-		echo "[shared-stage2 $$i/$$total] $$f"; \
-		out=$$($$stage2_bin run $$f 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	echo "[stage2-phase1] simple syntax compile"; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(SHARED_PKG_SIMPLE_DIRS); do \
-		echo "[shared-simple-pkg] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_SIMPLE_RUN_TEST_DIRS); do \
-		echo "[stage2-simple] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	echo "[stage2-phase2] simple syntax generate"; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_SIMPLE_BUILD); do \
-		echo "[stage2-simple-build] $$d"; \
-		rm -rf $$d/target; \
-		out=$$($$stage2_bin build --emit-ir $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
-		for f in $$d/target/*.ir; do \
-			out2=$$($$stage2_bin ir-verify $$f 2>&1); \
-			status2=$$?; \
-			echo "$$out2"; \
-			if [ $$status2 -ne 0 ]; then exit $$status2; fi; \
-			if echo "$$out2" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-		done; \
-	done; \
-	echo "[stage2-phase3] combo syntax compile"; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(SHARED_PKG_COMBO_DIRS); do \
-		echo "[shared-combo-pkg] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_COMBO_RUN_TEST_DIRS); do \
-		echo "[stage2-combo] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	echo "[stage2-phase3] combo syntax generate"; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_COMBO_BUILD); do \
-		echo "[stage2-combo-build] $$d"; \
-		rm -rf $$d/target; \
-		out=$$($$stage2_bin build --emit-ir $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
-		for f in $$d/target/*.ir; do \
-			out2=$$($$stage2_bin ir-verify $$f 2>&1); \
-			status2=$$?; \
-			echo "$$out2"; \
-			if [ $$status2 -ne 0 ]; then exit $$status2; fi; \
-			if echo "$$out2" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-		done; \
-	done; \
-	echo "[stage2-phase4] shared-integration"; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(INTEGRATION_TEST_DIRS); do \
-		echo "[shared-integration-run] $$d"; \
-		out=$$($$stage2_bin run $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-		echo "[shared-integration-test] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	echo "[shared-integration-build] $(STAGE0_MODULE_TEST_DIR)"; \
-	$(STAGE2_MEM_LIMIT_CMD) $$stage2_bin build --emit-ir $(STAGE0_MODULE_TEST_DIR) -o /tmp/dast-stage2-module.ir || exit 1; \
-	rm -f /tmp/dast-stage2-module.ir; \
-	echo "[shared-integration-build] $(STAGE0_DEPS_APP_DIR)"; \
-	$(STAGE2_MEM_LIMIT_CMD) $$stage2_bin build --emit-ir $(STAGE0_DEPS_APP_DIR) -o /tmp/dast-stage2-deps.ir || exit 1; \
-	rm -f /tmp/dast-stage2-deps.ir; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(INTEGRATION_FAIL_DIRS); do \
-		echo "[shared-integration-fail] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
-		echo "$$out" | grep -q '^stage[0-9]:' || exit 1; \
-	done; \
-	echo "[stage2-phase4] integration"; \
-	$(STAGE2_MEM_LIMIT_CMD) for f in $(STAGE2_COMPILE_FAIL); do \
-		echo "[stage2-fail] $$f"; \
-		out=$$($$stage2_bin run $$f 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
-		echo "$$out" | grep -q '^stage[0-9]:' || exit 1; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_TEST_CMD); do \
-		echo "[stage2-test] $$d"; \
-		out=$$($$stage2_bin test $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_BUILD_FAIL); do \
-		echo "[stage2-build-fail] $$d"; \
-		rm -rf $$d/target; \
-		out=$$($$stage2_bin build --emit-ir $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -eq 0 ]; then echo "expected failure"; exit 1; fi; \
-		echo "$$out" | grep -q '^stage[0-9]:' || exit 1; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_WORKSPACE); do \
-		echo "[stage2-workspace-run] $$d"; \
-		out=$$($$stage2_bin run --package app $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_WORKSPACE); do \
-		echo "[stage2-workspace-test] $$d"; \
-		out=$$($$stage2_bin test --package app $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_WORKSPACE); do \
-		echo "[stage2-workspace-build] $$d"; \
-		rm -rf $$d/app/target; \
-		out=$$($$stage2_bin build --emit-ir --package app $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if ! ls $$d/app/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_EXAMPLES); do \
-		echo "[stage2-example-run] $$d"; \
-		out=$$($$stage2_bin run --example hello $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done; \
-	$(STAGE2_MEM_LIMIT_CMD) for d in $(STAGE2_EXAMPLES); do \
-		echo "[stage2-example-build] $$d"; \
-		rm -rf $$d/target; \
-		out=$$($$stage2_bin build --emit-ir --example hello $$d 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if ! ls $$d/target/*.ir >/dev/null 2>&1; then echo "missing build output"; exit 1; fi; \
-	done
-
-test-stage2v2: build-stage0
-	@set -e; \
-	stage2v2_bin="$(STAGE2V2_OUT)"; \
-	mkdir -p "$$(dirname "$$stage2v2_bin")"; \
-	echo "[stage2v2-build] $$stage2v2_bin"; \
-	$(STAGE2V2_RUN_ENV) ./$(STAGE0_BIN) build -o "$$stage2v2_bin" $(STAGE2V2_FILES); \
-	echo "[stage2v2-smoke] $$stage2v2_bin"; \
-	out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin 2>&1); \
+	$(STAGE2V2_RUN_ENV) ./$(STAGE0_BIN) build -o "$$stage2_bin" $(STAGE2V2_FILES); \
+	echo "[stage2-smoke] $$stage2_bin"; \
+	out=$$($(STAGE2V2_RUN_ENV) $$stage2_bin 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "[stage2v2-drop] $$stage2v2_bin --drop-self-test"; \
-	out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin --drop-self-test 2>&1); \
+	echo "[stage2-drop] $$stage2_bin --drop-self-test"; \
+	out=$$($(STAGE2V2_RUN_ENV) $$stage2_bin --drop-self-test 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "[stage2v2-drop-pass] $$stage2v2_bin --drop-pass-self-test"; \
-	out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin --drop-pass-self-test 2>&1); \
+	echo "[stage2-drop-pass] $$stage2_bin --drop-pass-self-test"; \
+	out=$$($(STAGE2V2_RUN_ENV) $$stage2_bin --drop-pass-self-test 2>&1); \
 	status=$$?; \
 	echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	echo "[stage2v2-phase1] shared simple run-pass"; \
+	echo "[stage2-phase1] shared simple run-pass"; \
 	i=0; total=$(words $(STAGE2V2_SHARED_SIMPLE)); \
 	for f in $(STAGE2V2_SHARED_SIMPLE); do \
 		i=$$((i+1)); \
-		echo "[stage2v2-shared $$i/$$total] $$f"; \
-		out=$$($(STAGE2V2_RUN_ENV) $$stage2v2_bin run $$f 2>&1); \
+		echo "[stage2-shared $$i/$$total] $$f"; \
+		out=$$($(STAGE2V2_RUN_ENV) $$stage2_bin run $$f 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 	done
+
+test-stage2v2: test-stage2
 
 test-stage2-bootstrap: build-stage0
 	@tmp=$$(mktemp); $(STAGE2_MEM_LIMIT_CMD) \
@@ -590,7 +413,7 @@ stage2-native: build-stage0
 	if [ -n "$(NATIVE_TARGET_DIR)" ]; then target="$(NATIVE_TARGET_DIR)"; else target="$$root/target"; fi; \
 	echo "[stage2-native] build $$path"; \
 	rm -rf "$$target"; \
-	./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(NATIVE_BUILD_ARGS) "$$path"; \
+	$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(NATIVE_BUILD_ARGS) "$$path"; \
 	out=$$(find "$$target" -maxdepth 1 -type f -perm -111 2>/dev/null | head -1); \
 	if [ -z "$$out" ]; then echo "missing native output in $$target"; exit 1; fi; \
 	echo "native: $$out"
@@ -613,10 +436,10 @@ stage2-compiler: build-stage0
 	if [ $$use_native -eq 1 ]; then \
 		if ! "$$stage2_bin" build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); then \
 			echo "[stage2-compiler] native build failed, falling back to stage0"; \
-			./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
+			$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
 		fi; \
 	else \
-		./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
+		$(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
 	fi; \
 	out_src=$$(find "$$target" -maxdepth 1 -type f -perm -111 2>/dev/null | head -1); \
 	if [ -z "$$out_src" ]; then echo "missing native output in $$target"; exit 1; fi; \
@@ -645,12 +468,12 @@ test-ir: build-stage0
 	@for f in $(EXAMPLES); do \
 		echo "[ir1] $$f"; \
 		tmp="/tmp/dast-ir-v0-$$.ir"; \
-		out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $$f 2>&1); \
+		out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir $$f 2>&1); \
 		status=$$?; \
 		echo "$$out"; \
 		if [ $$status -ne 0 ]; then exit $$status; fi; \
 		echo "$$out" > $$tmp; \
-		out2=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-run $$tmp 2>&1); \
+		out2=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-run $$tmp 2>&1); \
 		status2=$$?; \
 		echo "$$out2"; \
 		if [ $$status2 -ne 0 ]; then exit $$status2; fi; \
@@ -686,83 +509,83 @@ test-ir-verify: build-stage0
 	@if ./$(STAGE0_BIN) ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
-	@out=$$(./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
+	@out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_VALID) 2>&1); \
+	@out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \
 	if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
+	@if $(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi; \
 	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
@@ -774,10 +597,10 @@ test-ir-opt: build-stage0
 	@out=$$(./$(STAGE0_BIN) ir-opt $(IR_OPT_CONST)); \
 	echo "$$out" | grep -q 't0 = + 1, 2' || { echo "expected inline const binop"; echo "$$out"; exit 1; }; \
 	echo "$$out" | grep -q 't1 = == true, false' || { echo "expected inline const cmp"; echo "$$out"; exit 1; }
-	@out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-opt $(IR_OPT) 2>&1); \
+	@out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-opt $(IR_OPT) 2>&1); \
 	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
 	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
-	@out=$$(./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-opt $(IR_OPT_CONST) 2>&1); \
+	@out=$$($(STAGE0_SAFE_CMD) ./$(STAGE0_BIN) run $(STAGE2_FILES) -- ir-opt $(IR_OPT_CONST) 2>&1); \
 	echo "$$out" | grep -q 't0 = + 1, 2' || { echo "expected inline const binop"; echo "$$out"; exit 1; }; \
 	echo "$$out" | grep -q 't1 = == true, false' || { echo "expected inline const cmp"; echo "$$out"; exit 1; }
 

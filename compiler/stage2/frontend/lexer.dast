@@ -1,4 +1,4 @@
-// Minimal lexer for stage2v2-min.
+// Minimal lexer for stage2.
 
 const TK_EOF = 0
 const TK_IDENT = 1
