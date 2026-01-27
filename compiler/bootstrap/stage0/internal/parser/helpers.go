@@ -221,15 +221,28 @@ func (p *Parser) isStructName(name string) bool {
 }
 
 func (p *Parser) structLitStart() bool {
-	end, _, last, ok := p.peekQualifiedName()
-	if !ok || !p.isStructName(last) {
+	end, _, _, ok := p.peekQualifiedName()
+	if !ok {
 		return false
 	}
 	idx := end
 	if idx < len(p.tokens) && p.tokens[idx].Kind == lexer.TokenLBracket {
 		idx = p.skipBracketList(idx)
 	}
-	return idx < len(p.tokens) && p.tokens[idx].Kind == lexer.TokenLBrace
+	if idx >= len(p.tokens) || p.tokens[idx].Kind != lexer.TokenLBrace {
+		return false
+	}
+	if idx+1 >= len(p.tokens) {
+		return false
+	}
+	next := p.tokens[idx+1].Kind
+	if next == lexer.TokenRBrace {
+		return true
+	}
+	if next == lexer.TokenIdent && idx+2 < len(p.tokens) && p.tokens[idx+2].Kind == lexer.TokenColon {
+		return true
+	}
+	return false
 }
 
 func (p *Parser) skipBracketList(start int) int {

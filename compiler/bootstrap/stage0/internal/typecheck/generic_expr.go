@@ -124,8 +124,21 @@ func (c *Checker) checkCallExpr(e *ast.CallExpr, sig *FuncSig) Type {
 func (c *Checker) checkStructLit(e *ast.StructLit) Type {
 	decl, ok := c.structs[e.Name]
 	if !ok {
-		c.diag.Add(e.Span(), fmt.Sprintf("unknown struct '%s'", e.Name))
-		return Type{Kind: TypeInvalid}
+		if alias, okAlias := c.aliases[e.Name]; okAlias {
+			use := ast.Type{Name: e.Name, Args: e.TypeArgs, Span: e.SpanInfo}
+			if expanded, okExp := c.expandAlias(alias, use); okExp {
+				expanded = c.expandAliasType(expanded)
+				if expanded.Name != "" && !expanded.IsArray && !expanded.IsTuple {
+					e.Name = expanded.Name
+					e.TypeArgs = expanded.Args
+					decl, ok = c.structs[e.Name]
+				}
+			}
+		}
+		if !ok {
+			c.diag.Add(e.Span(), fmt.Sprintf("unknown struct '%s'", e.Name))
+			return Type{Kind: TypeInvalid}
+		}
 	}
 	restore := c.pushTypeParams(decl.TypeParams)
 	defer c.popTypeParams(restore)
@@ -234,6 +247,16 @@ func (c *Checker) checkEnumVariantCall(enumName string, typeArgsAst []ast.Type, 
 	if enumName == "" {
 		c.diag.Add(span.Span(), "cannot resolve enum for variant")
 		return Type{Kind: TypeInvalid}
+	}
+	if alias, okAlias := c.aliases[enumName]; okAlias {
+		use := ast.Type{Name: enumName, Args: typeArgsAst, Span: span.Span()}
+		if expanded, okExp := c.expandAlias(alias, use); okExp {
+			expanded = c.expandAliasType(expanded)
+			if expanded.Name != "" && !expanded.IsArray && !expanded.IsTuple {
+				enumName = expanded.Name
+				typeArgsAst = expanded.Args
+			}
+		}
 	}
 	decl, ok := c.enums[enumName]
 	if !ok {

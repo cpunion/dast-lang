@@ -61,6 +61,22 @@ func (p *Parser) parsePostfix() ast.Expr {
 				continue
 			}
 			nameTok := p.expect(lexer.TokenIdent, "expected field or variant name")
+			if ident, ok := expr.(*ast.IdentExpr); ok && len(ident.Name) > 0 {
+				c := ident.Name[0]
+				if c >= 'A' && c <= 'Z' {
+					var arg ast.Expr
+					endSpan := nameTok.Span
+					if p.match(lexer.TokenLParen) {
+						if !p.at(lexer.TokenRParen) {
+							arg = p.parseExpr(0)
+						}
+						endTok := p.expect(lexer.TokenRParen, "expected ')' after variant payload")
+						endSpan = endTok.Span
+					}
+					expr = &ast.EnumVariantExpr{EnumName: ident.Name, Variant: nameTok.Lexeme, Arg: arg, SpanInfo: mergeSpan(expr.Span(), endSpan)}
+					continue
+				}
+			}
 			expr = &ast.AccessExpr{Receiver: expr, Field: nameTok.Lexeme, SpanInfo: mergeSpan(expr.Span(), nameTok.Span)}
 			continue
 		}
