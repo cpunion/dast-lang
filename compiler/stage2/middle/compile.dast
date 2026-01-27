@@ -200,6 +200,8 @@ struct Emitter {
     continue_labels: [String],
     // Emitted body lines.
     body: [String],
+    // Emitted line count.
+    emit_lines: i64,
 }
 
 fn emitter_new() -> Emitter {
@@ -223,6 +225,7 @@ fn emitter_new() -> Emitter {
         break_labels: string_list_empty(),
         continue_labels: string_list_empty(),
         body: string_list_empty(),
+        emit_lines: 0,
     }
 }
 
@@ -247,6 +250,7 @@ fn emit_line(e: &mut Emitter, line: String) {
     let mut body = e.body
     push(&mut body, line)
     e.body = body
+    e.emit_lines = e.emit_lines + 1
 }
 
 fn mangle_name(name: &str) -> String {
@@ -1964,7 +1968,12 @@ fn emit_function_text(e: &Emitter, f: &Function) -> String {
     return out
 }
 
-fn emit_compiled_function(glob: &mut Emitter, f: &Function) -> String {
+struct FuncEmitResult {
+    text: String,
+    lines: i64,
+}
+
+fn emit_compiled_function(glob: &mut Emitter, f: &Function) -> FuncEmitResult {
     let mut e = emitter_with_globals(glob)
     let eff_rt = effective_ret_type(&e, f)
     e.cur_ret_type = string_clone(&eff_rt)
@@ -1993,10 +2002,28 @@ fn emit_compiled_function(glob: &mut Emitter, f: &Function) -> String {
     }
     let text = emit_function_text(&e, f)
     glob.strings = ast_string_list_clone(&e.strings)
-    return text
+    return FuncEmitResult { text: text, lines: e.emit_lines }
+}
+
+struct CompileStats {
+    func_count: i64,
+    total_lines: i64,
+    max_lines: i64,
+    max_func: String,
+    string_count: i64,
+    const_count: i64,
+}
+
+fn compile_stats_new() -> CompileStats {
+    return CompileStats { func_count: 0, total_lines: 0, max_lines: 0, max_func: "", string_count: 0, const_count: 0 }
 }
 
 fn compile_to_qbe(prog: Program) -> String {
+    let mut stats = compile_stats_new()
+    return compile_to_qbe_with_stats(prog, &mut stats)
+}
+
+fn compile_to_qbe_with_stats(prog: Program, stats: &mut CompileStats) -> String {
     let mut glob = emitter_new()
     collect_type_aliases(&mut glob, &prog)
     collect_structs(&mut glob, &prog)
@@ -2004,11 +2031,20 @@ fn compile_to_qbe(prog: Program) -> String {
     collect_funcs(&mut glob, &prog)
     collect_consts(&mut glob, &prog)
     collect_strings(&mut glob, &prog)
+    stats.string_count = len(glob.strings)
+    stats.const_count = len(glob.const_names)
 
     let mut out_funcs = ""
     let mut i = 0
     while i < len(prog.functions) {
-        out_funcs = out_funcs + emit_compiled_function(&mut glob, &prog.functions[i]) + "\n"
+        let res = emit_compiled_function(&mut glob, &prog.functions[i])
+        out_funcs = out_funcs + res.text + "\n"
+        stats.func_count = stats.func_count + 1
+        stats.total_lines = stats.total_lines + res.lines
+        if res.lines > stats.max_lines {
+            stats.max_lines = res.lines
+            stats.max_func = prog.functions[i].name
+        }
         i = i + 1
     }
     let data = emit_string_data(&glob)
@@ -2083,6 +2119,37 @@ fn compile_native_single(src_path: String, out_bin: String) {
     let qbe = compile_to_qbe(prog)
 
     // Use a deterministic target directory.
+    let target_dir = "compiler/stage2/target/min"
+    mkdir(target_dir)
+    let qbe_path = target_dir + "/main.qbe"
+    let asm_path = target_dir + "/main.s"
+    let entry_path = target_dir + "/entry.c"
+    let runtime_path = "compiler/bootstrap/stage0/runtime/c_runtime.c"
+
+    write_file(qbe_path, qbe)
+    write_file(entry_path, build_entry_c(&alias_e, &main_rt))
+
+    run_exec("qbe", ["-o", string_clone(&asm_path), string_clone(&qbe_path)])
+    run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
+}
+
+fn compile_native_single_stats(src_path: String, out_bin: String) {
+    let src = read_file(src_path)
+    let prelude_dir = "compiler/stage2/stdlib/prelude"
+    let prelude = load_prelude_dir(prelude_dir)
+    let src_all = prelude + "\n" + src
+    let prog = parse_program(src_all)
+    let mut alias_e = emitter_new()
+    collect_type_aliases(&mut alias_e, &prog)
+    let main_rt = main_ret_type(&prog)
+    let mut stats = compile_stats_new()
+    let qbe = compile_to_qbe_with_stats(prog, &mut stats)
+
+    println("stats", "funcs", stats.func_count, "lines", stats.total_lines, "strings", stats.string_count, "consts", stats.const_count)
+    if stats.max_func != "" {
+        println("stats-max-func", stats.max_func, stats.max_lines)
+    }
+
     let target_dir = "compiler/stage2/target/min"
     mkdir(target_dir)
     let qbe_path = target_dir + "/main.qbe"

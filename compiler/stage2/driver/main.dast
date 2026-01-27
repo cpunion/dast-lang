@@ -43,10 +43,22 @@ fn main() {
         return
     }
 
-    let src_path = string_clone(&argv[1])
     let mut out_bin = "compiler/stage2/target/min/main"
+    let mut stats = false
+    let mut arg_idx = 1
+    if len(argv) > 1 && argv[1] == "--stats" {
+        stats = true
+        arg_idx = 2
+    }
+    if len(argv) <= arg_idx {
+        println("error", "missing input file")
+        usage()
+        exit(2)
+        return
+    }
+    let src_path = string_clone(&argv[arg_idx])
     let mut run_args: [String] = []
-    let mut i = 2
+    let mut i = arg_idx + 1
     let mut after_sep = false
     while i < len(argv) {
         let a = string_clone(&argv[i])
@@ -60,6 +72,11 @@ fn main() {
             i = i + 2
             continue
         }
+        if !after_sep && a == "--stats" {
+            stats = true
+            i = i + 1
+            continue
+        }
         if after_sep {
             push(&mut run_args, a)
         }
@@ -67,13 +84,21 @@ fn main() {
     }
 
     if cmd == "build" {
-        compile_native_single(src_path, string_clone(&out_bin))
+        if stats {
+            compile_native_single_stats(src_path, string_clone(&out_bin))
+        } else {
+            compile_native_single(src_path, string_clone(&out_bin))
+        }
         println("built", out_bin)
         return
     }
 
     // run
-    compile_native_single(src_path, string_clone(&out_bin))
+    if stats {
+        compile_native_single_stats(src_path, string_clone(&out_bin))
+    } else {
+        compile_native_single(src_path, string_clone(&out_bin))
+    }
     let code = exec(out_bin, run_args)
     if code != 0 {
         println("run-exit", code)
