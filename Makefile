@@ -2,9 +2,9 @@ SHELL := /bin/sh
 
 STAGE0_DIR := compiler/bootstrap/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
-STAGE2V2_DRIVER := compiler/stage2v2-min/driver/main.dast
-STAGE2V2_FILES := $(shell find compiler/stage2v2-min -name '*.dast' -not -path 'compiler/stage2v2-min/stdlib/prelude/*' | sort)
-STAGE2V2_OUT ?= compiler/stage2v2-min/target/dast-stage2v2-min
+STAGE2V2_DRIVER := compiler/stage2/driver/main.dast
+STAGE2V2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/stdlib/prelude/*' | sort)
+STAGE2V2_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2V2_ALLOC_MAX_MB ?= 128
 STAGE2V2_RUN_ENV := $(if $(STAGE2V2_ALLOC_MAX_MB),DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2V2_ALLOC_MAX_MB),)
 STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/interp/quote.dast
