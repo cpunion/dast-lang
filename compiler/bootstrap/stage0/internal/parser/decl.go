@@ -47,6 +47,11 @@ func (p *Parser) parseEnumDecl(repr string, vis ast.Visibility) ast.Item {
 	if p.at(lexer.TokenLBracket) {
 		decl.TypeParams = p.parseTypeParams()
 	}
+	if p.peek().Kind == lexer.TokenIdent && p.peek().Lexeme == "tag" {
+		p.advance()
+		tagTok := p.expect(lexer.TokenIdent, "expected enum tag type")
+		decl.Repr = tagTok.Lexeme
+	}
 	p.expect(lexer.TokenLBrace, "expected '{'")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		variantTok := p.expect(lexer.TokenIdent, "expected variant name")
