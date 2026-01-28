@@ -266,12 +266,14 @@ fn body_ends_with_ret_line(e: &Emitter) -> bool {
     let n = len(&e.body)
     if n == 0 { return false }
     let mut i = n - 1
+    let label_prefix = "@"
+    let ret_prefix = "  ret "
     while i >= 0 {
         let line = string_clone(&e.body[i])
-        if string_has_prefix(&line, "@") {
+        if string_has_prefix(&line, &label_prefix) {
             i = i - 1
         } else {
-            return string_has_prefix(&line, "  ret ")
+            return string_has_prefix(&line, &ret_prefix)
         }
     }
     return false
@@ -471,7 +473,8 @@ fn load_prelude_dir(dir: String) -> String {
     let mut i = 0
     while i < len(&names) {
         let name = names[i]
-        if str_has_suffix(&name, ".dast") {
+        let suffix = ".dast"
+        if str_has_suffix(&name, &suffix) {
             let path = string_clone(&dir) + "/" + name
             let text = read_file(path)
             out = out + text + "\n"

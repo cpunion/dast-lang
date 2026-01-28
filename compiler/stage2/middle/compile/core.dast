@@ -358,9 +358,10 @@ fn int_to_string(n: i64) -> String {
         v = -v
     }
     let mut out = ""
+    let digits = "0123456789"
     while v > 0 {
         let d = v % 10
-        out = str_substr("0123456789", d, 1) + out
+        out = str_substr(&digits, d, 1) + out
         v = v / 10
     }
     if neg { out = "-" + out }
@@ -377,7 +378,7 @@ fn new_temp(e: &mut Emitter) -> i64 {
     return id
 }
 
-fn new_label(e: &mut Emitter, prefix: &str) -> String {
+fn new_label(e: &mut Emitter, prefix: String) -> String {
     let id = e.label_id
     e.label_id = id + 1
     return prefix + int_to_string(id)
@@ -437,20 +438,32 @@ fn emit_label(e: &mut Emitter, label: &str) {
     emit_line(e, "@" + label)
 }
 
+fn expr_arg_ref(expr: &Expr, idx: i64, ctx: String) -> &Expr {
+    if idx < 0 || idx >= len(&expr.args) {
+        println("stage2: expr args oob", expr.kind, "len", len(&expr.args), "idx", idx, expr.name, ctx)
+        exit(1)
+    }
+    return &expr.args[idx]
+}
+
 fn type_is_ref_raw(t: &str) -> bool {
-    return string_has_prefix(t, "&")
+    let prefix = "&"
+    return string_has_prefix(t, &prefix)
 }
 
 fn type_is_mut_ref_raw(t: &str) -> bool {
-    return string_has_prefix(t, "&mut ")
+    let prefix = "&mut "
+    return string_has_prefix(t, &prefix)
 }
 
 fn type_ref_base_raw(t: &str) -> String {
-    if string_has_prefix(t, "&mut ") {
+    let mut_prefix = "&mut "
+    let ref_prefix = "&"
+    if string_has_prefix(t, &mut_prefix) {
         let n = str_len(t)
         return substr(string_clone(t), 5, n - 5)
     }
-    if string_has_prefix(t, "&") {
+    if string_has_prefix(t, &ref_prefix) {
         let n = str_len(t)
         return substr(string_clone(t), 1, n - 1)
     }
@@ -458,7 +471,8 @@ fn type_ref_base_raw(t: &str) -> String {
 }
 
 fn type_is_array_raw(t: &str) -> bool {
-    return string_has_prefix(t, "[")
+    let prefix = "["
+    return string_has_prefix(t, &prefix)
 }
 
 fn type_array_elem_raw(t: &str) -> String {
@@ -791,4 +805,3 @@ fn enum_index(e: &Emitter, name: &str) -> i64 {
 fn type_is_enum(e: &Emitter, t: &str) -> bool {
     return enum_index(e, t) >= 0
 }
-

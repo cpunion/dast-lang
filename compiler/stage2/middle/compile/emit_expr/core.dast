@@ -54,7 +54,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 return emit_load_var(e, &expr.name, &vt)
             }
             if var_index(e, &expr.name) >= 0 {
-                return emit_load_var(e, &expr.name, "i64")
+                let default_t = "i64"
+                return emit_load_var(e, &expr.name, &default_t)
             }
             return qbe_value("i64", "0")
         }

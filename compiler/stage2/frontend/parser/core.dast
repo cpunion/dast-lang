@@ -62,10 +62,10 @@ fn parser_int_to_string(n: i64) -> String {
     return out
 }
 
-fn parser_gensym(p: &mut Parser, prefix: &str) -> String {
+fn parser_gensym(p: &mut Parser, prefix: String) -> String {
     let id = p.gensym
     p.gensym = p.gensym + 1
-    return string_clone(prefix) + parser_int_to_string(id)
+    return prefix + parser_int_to_string(id)
 }
 
 // Parse helpers from raw strings for macro expansion.

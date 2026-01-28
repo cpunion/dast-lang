@@ -209,15 +209,14 @@ func typesAssignable(actual, expected Type) bool {
 		return true
 	}
 	if isString(actual) && isString(expected) {
-		// Internal helper: allow String -> str for auto-borrow to &str.
-		if !actual.Ref && !expected.Ref && actual.Kind == TypeString && expected.Kind == TypeStr {
-			return true
+		if actual.Kind == TypeString && expected.Kind == TypeStr {
+			if actual.Ref && expected.Ref && !expected.Mut {
+				return true
+			}
+			return false
 		}
-		if !actual.Ref && expected.Ref && !expected.Mut && actual.Kind == TypeString && expected.Kind == TypeStr {
-			return true
-		}
-		if actual.Ref && expected.Ref && !expected.Mut && actual.Kind == TypeString && expected.Kind == TypeStr {
-			return true
+		if actual.Kind == TypeStr && expected.Kind == TypeStr {
+			return actual.Ref == expected.Ref && actual.Mut == expected.Mut
 		}
 		return false
 	}

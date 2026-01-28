@@ -196,18 +196,13 @@ fn impl_type_param_names(imp: &ImplDecl) -> [String] {
     return params
 }
 
-fn type_norm_string(e: &Emitter, t: &str) -> String {
-    let rt = type_resolve(e, t)
-    if rt == "str" { return "String" }
-    if rt == "&str" { return "&String" }
-    if rt == "&mut str" { return "&mut String" }
-    return rt
-}
-
 fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
-    let declared = type_norm_string(e, expected)
-    let actual = type_norm_string(e, actual)
+    let declared = type_resolve(e, expected)
+    let actual = type_resolve(e, actual)
     if declared == actual { return true }
+    if declared == "&str" {
+        if actual == "&String" || actual == "&mut String" { return true }
+    }
     if type_is_int(e, &declared) && type_is_int(e, &actual) { return true }
     if type_is_array(e, &declared) && type_is_array(e, &actual) {
         let de = type_array_elem(e, &declared)
@@ -636,9 +631,9 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                 let bt = block_expr_type(e, &arm.block)
                 if out == "" { out = bt }
                 else {
-                    let a = type_norm_string(e, &out)
-                    let b = type_norm_string(e, &bt)
-                    if a != b {
+                    let a = type_resolve(e, &out)
+                    let b = type_resolve(e, &bt)
+                    if !type_compatible(e, &a, &b) && !type_compatible(e, &b, &a) {
                         println("stage2: match arms must have same type:", a, "vs", b)
                         exit(1)
                     }

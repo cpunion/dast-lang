@@ -24,7 +24,9 @@ func (c *Checker) tryAutoBorrow(arg ast.Expr, argType Type, expect Type) (ast.Ex
 		return arg, argType
 	}
 	baseExpect := derefType(expect)
-	if !typesAssignable(argType, baseExpect) {
+	if baseExpect.Kind == TypeStr && argType.Kind == TypeString {
+		// allow auto-borrow String -> &str
+	} else if !typesAssignable(argType, baseExpect) {
 		return arg, argType
 	}
 	borrow := &ast.RefExpr{Mutable: false, Expr: arg, SpanInfo: arg.Span()}

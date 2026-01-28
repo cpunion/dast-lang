@@ -119,7 +119,8 @@ fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
 }
 
 fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
-    return cast_to_type(e, v, "i64")
+    let t = "i64"
+    return cast_to_type(e, v, &t)
 }
 
 fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeValue, has_payload_arg: bool) -> QbeValue {
@@ -134,8 +135,10 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
     let tag_expr = cast_to_type(e, qbe_value("i64", int_to_string(tag)), &tag_t)
     if enum_has_payload(e, enum_name) {
         let name_ptr = string_data_ptr(e, enum_name)
-        let tag_ptr = string_data_ptr(e, "_tag")
-        let payload_ptr = string_data_ptr(e, "_payload")
+        let tag_field = "_tag"
+        let payload_field = "_payload"
+        let tag_ptr = string_data_ptr(e, &tag_field)
+        let payload_ptr = string_data_ptr(e, &payload_field)
         let payload_t = enum_variant_payload_type(e, enum_name, variant)
         let payload_fn = struct_set_fn_for_type(e, &payload_t)
         let payload_q = qbe_type(e, &payload_t)
@@ -156,7 +159,8 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
 fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue {
     let tag_t = enum_tag_type(e, enum_t)
     if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
-        let tag_ptr = string_data_ptr(e, "_tag")
+        let tag_field = "_tag"
+        let tag_ptr = string_data_ptr(e, &tag_field)
         let tag_fn = struct_get_fn_for_type(e, &tag_t)
         let tag_q = qbe_type(e, &tag_t)
         let tmp = new_temp(e)
@@ -171,7 +175,8 @@ fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue 
 fn enum_payload_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str, variant: &str) -> QbeValue {
     let payload_t = enum_variant_payload_type(e, enum_t, variant)
     if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
-        let payload_ptr = string_data_ptr(e, "_payload")
+        let payload_field = "_payload"
+        let payload_ptr = string_data_ptr(e, &payload_field)
         let payload_fn = struct_get_fn_for_type(e, &payload_t)
         let payload_q = qbe_type(e, &payload_t)
         let tmp = new_temp(e)
@@ -259,12 +264,3 @@ fn emit_block_expr(e: &mut Emitter, b: &Block) -> QbeValue {
     emit_stmt(e, last)
     return qbe_value("unit", "0")
 }
-
-fn expr_arg_ref(expr: &Expr, idx: i64, ctx: &str) -> &Expr {
-    if idx < 0 || idx >= len(&expr.args) {
-        println("stage2: expr args oob", expr.kind, "len", len(&expr.args), "idx", idx, expr.name, ctx)
-        exit(1)
-    }
-    return &expr.args[idx]
-}
-

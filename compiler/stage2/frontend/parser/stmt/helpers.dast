@@ -175,4 +175,3 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
     push(&mut stmts, while_stmt)
     return stmt_expr(expr_block(Block { stmts: stmts }))
 }
-

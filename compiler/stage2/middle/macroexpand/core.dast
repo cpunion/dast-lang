@@ -417,7 +417,9 @@ fn quote_placeholder_name(id: i64) -> String {
 }
 
 fn quote_is_placeholder(name: &str) -> bool {
-    return str_has_prefix(name, "__dast_splice_") && str_has_suffix(name, "__")
+    let prefix = "__dast_splice_"
+    let suffix = "__"
+    return str_has_prefix(name, &prefix) && str_has_suffix(name, &suffix)
 }
 
 fn quote_placeholder_index(name: &str) -> i64 {
@@ -437,7 +439,8 @@ fn quote_bind_marker(name: &str) -> String {
 }
 
 fn quote_is_bind_marker(name: &str) -> bool {
-    return str_has_prefix(name, "__dast_bind__")
+    let prefix = "__dast_bind__"
+    return str_has_prefix(name, &prefix)
 }
 
 fn quote_strip_bind_marker(name: &str) -> String {
@@ -518,4 +521,3 @@ fn hygiene_bind_name(ctx: &mut MacroCtx, m: &mut RenameMap, name: &str) -> Strin
     rename_map_add(m, name, &renamed)
     return renamed
 }
-
