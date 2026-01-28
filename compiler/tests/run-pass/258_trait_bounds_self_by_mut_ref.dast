@@ -1,0 +1,24 @@
+trait Bumper {
+    fn bump(self: &mut Self) -> i32;
+}
+
+struct Point {
+    x: i32,
+}
+
+impl Bumper for Point {
+    fn bump(self: &mut Self) -> i32 {
+        self.x = self.x + 1
+        return self.x
+    }
+}
+
+fn use_bound[T: Bumper](x: &mut T) -> i32 {
+    return x.bump()
+}
+
+fn main() {
+    let mut p = Point{ x: 2 }
+    let v = use_bound(&mut p)
+    println("v", v)
+}

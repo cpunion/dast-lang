@@ -4,10 +4,10 @@
 fn drop_trim_space(s: String) -> String {
     let mut start = 0
     let mut end = len(string_clone(&s))
-    while start < end && (char_at(string_clone(&s), start) == 32 || char_at(string_clone(&s), start) == 9) {
+    while start < end && (str_char_at(&s, start) == 32 || str_char_at(&s, start) == 9) {
         start = start + 1
     }
-    while end > start && (char_at(string_clone(&s), end - 1) == 32 || char_at(string_clone(&s), end - 1) == 9) {
+    while end > start && (str_char_at(&s, end - 1) == 32 || str_char_at(&s, end - 1) == 9) {
         end = end - 1
     }
     if end <= start { return "" }
@@ -22,7 +22,7 @@ fn drop_is_ref_type_name(t: String) -> bool {
     let n = drop_normalize_type_name(t)
     // Accept both "&T" (surface) and "*T" (legacy IR).
     if n == "" { return false }
-    let c0 = char_at(string_clone(&n), 0)
+    let c0 = str_char_at(&n, 0)
     return c0 == 38 || c0 == 42
 }
 
@@ -30,14 +30,14 @@ fn drop_is_array_type_name(t: String) -> bool {
     let n = drop_normalize_type_name(t)
     let nlen = len(string_clone(&n))
     if nlen < 2 { return false }
-    return char_at(string_clone(&n), 0) == 91 && char_at(string_clone(&n), nlen - 1) == 93
+    return str_char_at(&n, 0) == 91 && str_char_at(&n, nlen - 1) == 93
 }
 
 fn drop_array_elem_type_name(t: String) -> String {
     let n = drop_normalize_type_name(t)
     let nlen = len(string_clone(&n))
     if nlen < 2 { return "" }
-    if char_at(string_clone(&n), 0) != 91 || char_at(string_clone(&n), nlen - 1) != 93 { return "" }
+    if str_char_at(&n, 0) != 91 || str_char_at(&n, nlen - 1) != 93 { return "" }
     return drop_trim_space(substr(n, 1, nlen - 2))
 }
 

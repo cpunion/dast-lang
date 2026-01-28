@@ -1,0 +1,23 @@
+trait Cloneable {
+    fn clone(self: &Self) -> Self;
+}
+
+struct Point {
+    x: i32,
+}
+
+impl Cloneable for Point {
+    fn clone(self: &Self) -> Self {
+        return Point { x: self.x }
+    }
+}
+
+fn use_bound[T: Cloneable](x: T) -> i32 {
+    return 1
+}
+
+fn main() {
+    let p = Point{ x: 1 }
+    let v = use_bound(p)
+    println("v", v)
+}

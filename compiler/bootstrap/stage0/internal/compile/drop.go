@@ -86,6 +86,16 @@ func isCopyTypeName(t string) bool {
 
 func isBorrowedTypeName(t string) bool {
 	t = normalizeTypeName(t)
+	base := t
+	if idx := strings.LastIndex(base, "::"); idx >= 0 {
+		base = base[idx+2:]
+	}
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	if idx := strings.LastIndex(base, "."); idx >= 0 {
+		base = base[idx+1:]
+	}
 	// Arrays of borrowed element types are also borrowed; otherwise we end up
 	// emitting drop calls for element helpers that we intentionally suppress.
 	if isArrayTypeName(t) {
@@ -94,7 +104,7 @@ func isBorrowedTypeName(t string) bool {
 			return true
 		}
 	}
-	switch t {
+	switch base {
 	// Tokens are borrowed views into lexer storage and must not be auto-dropped
 	// when passed around by value in stage0.
 	case "Token", "TokenKind", "Tokens":
@@ -109,6 +119,7 @@ func isBorrowedTypeName(t string) bool {
 		"WildcardPattern", "VariantPattern", "StructPatternField", "StructPattern", "BindPattern", "RangePattern", "LiteralPattern", "Pattern",
 		"MatchArm", "MatchStmt", "Block", "Stmt", "AssignStmt", "FunctionDecl", "ImplDecl", "ImportItemSpec", "ImportDecl",
 		"TraitMethod", "AssociatedType", "AssociatedTypeImpl", "TraitDecl", "ImplTrait", "TraitBound", "TypeAlias", "Program", "CompileItem",
+		"MacroValue",
 		// Stage2 IR values are also passed by value pervasively; until move tracking
 		// is complete, treat them as borrowed to prevent drop-time corruption.
 		"IrArraySafety", "IrArrayValue", "IrBinOp", "IrBlock", "IrBranch", "IrCall", "IrCallClosure",

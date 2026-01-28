@@ -1,18 +1,82 @@
 // Core string/array builtins declared in the prelude package.
 
-fn len(x: String) -> i64 {
+// Read-only string APIs use &str.
+fn len(x: &str) -> i64 {
     return 0
 }
 
-fn char_at(x: String, i: i64) -> i64 {
+fn char_at(x: &str, i: i64) -> i64 {
     return 0
 }
 
-fn substr(x: String, start: i64, count: i64) -> String {
+fn substr(x: &str, start: i64, count: i64) -> String {
     return x
 }
 
-fn string_clone(x: String) -> String {
+fn string_clone(x: &str) -> String {
     return x
 }
 
+// Callable traits (minimal surface; semantics implemented by compiler).
+trait Fn[Ret] {
+    fn call(self: &Self) -> Ret;
+}
+
+trait FnMut[Ret] {
+    fn call_mut(self: &mut Self) -> Ret;
+}
+
+trait FnOnce[Ret] {
+    fn call_once(self: Self) -> Ret;
+}
+
+// Core ownership/thread-safety traits.
+trait Drop {
+    fn drop(self: &mut Self);
+}
+
+trait Clone {
+    fn clone(self: &Self) -> Self;
+}
+
+trait Copy {
+}
+
+trait Sendable {
+}
+
+trait Shareable {
+}
+
+// Core comparison traits.
+trait PartialEq[Rhs] {
+    fn eq(self: &Self, other: &Rhs) -> bool;
+}
+
+trait Eq {
+}
+
+trait PartialOrd[Rhs] {
+    fn lt(self: &Self, other: &Rhs) -> bool;
+    fn le(self: &Self, other: &Rhs) -> bool;
+    fn gt(self: &Self, other: &Rhs) -> bool;
+    fn ge(self: &Self, other: &Rhs) -> bool;
+}
+
+trait Ord {
+}
+
+trait Default {
+    fn default() -> Self;
+}
+
+// Core algebraic data types.
+enum Option[T] {
+    Some(T),
+    None,
+}
+
+enum Result[T, E] {
+    Ok(T),
+    Err(E),
+}

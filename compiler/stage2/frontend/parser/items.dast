@@ -3,9 +3,16 @@
 fn parse_const(p: &mut Parser) -> ConstDecl {
     let _ = parser_expect(p, TK_CONST, "const")
     let name = parser_expect(p, TK_IDENT, "ident").text
+    let mut has_type = false
+    let mut typ = "i64"
+    if parser_peek(p).kind == TK_COLON {
+        let _ = parser_advance(p)
+        typ = parse_type_name(p)
+        has_type = true
+    }
     let _ = parser_expect(p, TK_ASSIGN, "=")
     let expr = parse_const_expr(p)
-    return ConstDecl { name: name, expr: expr }
+    return ConstDecl { name: name, has_type: has_type, typ: typ, expr: expr }
 }
 
 fn parse_struct_fields(p: &mut Parser) -> [StructField] {
@@ -37,8 +44,9 @@ fn parse_struct_fields(p: &mut Parser) -> [StructField] {
 fn parse_struct(p: &mut Parser) -> StructDecl {
     let _ = parser_expect(p, TK_STRUCT, "struct")
     let name = parser_expect(p, TK_IDENT, "struct name").text
+    let type_params = parse_generic_params(p)
     let fields = parse_struct_fields(p)
-    return StructDecl { name: name, fields: fields }
+    return StructDecl { name: name, type_params: type_params, fields: fields }
 }
 
 fn parse_enum_variants(p: &mut Parser) -> [EnumVariant] {
@@ -76,13 +84,14 @@ fn parse_enum_variants(p: &mut Parser) -> [EnumVariant] {
 fn parse_enum(p: &mut Parser) -> EnumDecl {
     let _ = parser_expect(p, TK_ENUM, "enum")
     let name = parser_expect(p, TK_IDENT, "enum name").text
+    let type_params = parse_generic_params(p)
     let mut tag_type = "i32"
     if parser_peek(p).kind == TK_TAG {
         let _ = parser_advance(p)
         tag_type = parse_type_name(p)
     }
     let variants = parse_enum_variants(p)
-    return EnumDecl { name: name, tag_type: tag_type, variants: variants }
+    return EnumDecl { name: name, type_params: type_params, tag_type: tag_type, variants: variants }
 }
 
 fn parse_type_alias(p: &mut Parser) -> TypeAlias {
@@ -93,12 +102,75 @@ fn parse_type_alias(p: &mut Parser) -> TypeAlias {
     return TypeAlias { name: name, target: target }
 }
 
+fn parse_generic_params(p: &mut Parser) -> [GenericParam] {
+    let mut params: [GenericParam] = []
+    if parser_peek(p).kind != TK_LBRACKET { return params }
+    let _ = parser_advance(p)
+    if parser_peek(p).kind == TK_RBRACKET {
+        let _ = parser_advance(p)
+        return params
+    }
+    let mut done = false
+    while !done {
+        let name = parser_expect(p, TK_IDENT, "type param").text
+        let mut has_bound = false
+        let mut bound = ""
+        if parser_peek(p).kind == TK_COLON {
+            let _ = parser_advance(p)
+            bound = parser_expect(p, TK_IDENT, "trait").text
+            has_bound = true
+        }
+        push(&mut params, GenericParam { name: name, has_bound: has_bound, bound: bound })
+        if parser_peek(p).kind == TK_COMMA {
+            let _ = parser_advance(p)
+        } else {
+            done = true
+        }
+    }
+    let _ = parser_expect(p, TK_RBRACKET, "]")
+    return params
+}
+
+fn parse_type_suffix(p: &mut Parser, base: String) -> String {
+    let mut out = base
+    if parser_peek(p).kind == TK_LBRACKET {
+        let _ = parser_advance(p)
+        let mut args: [String] = []
+        if parser_peek(p).kind != TK_RBRACKET {
+            let mut done = false
+            while !done {
+                push(&mut args, parse_type_name(p))
+                if parser_peek(p).kind == TK_COMMA {
+                    let _ = parser_advance(p)
+                } else {
+                    done = true
+                }
+            }
+        }
+        let _ = parser_expect(p, TK_RBRACKET, "]")
+        let mut s = out + "["
+        let mut i = 0
+        while i < len(args) {
+            if i > 0 { s = s + "," }
+            s = s + args[i]
+            i = i + 1
+        }
+        s = s + "]"
+        out = s
+    }
+    return out
+}
+
 fn parse_type_name(p: &mut Parser) -> String {
     let mut is_ref = false
+    let mut is_mut = false
     if parser_peek(p).kind == TK_AMP {
         let _ = parser_advance(p)
         is_ref = true
-        if parser_peek(p).kind == TK_MUT { let _ = parser_advance(p) }
+        if parser_peek(p).kind == TK_MUT {
+            let _ = parser_advance(p)
+            is_mut = true
+        }
     }
     let mut base = ""
     if parser_peek(p).kind == TK_LBRACKET {
@@ -108,8 +180,16 @@ fn parse_type_name(p: &mut Parser) -> String {
         base = "[" + elem + "]"
     } else {
         base = parser_expect(p, TK_IDENT, "type").text
+        base = parse_type_suffix(p, base)
     }
-    if is_ref { return "&" + base }
+    if base == "string" {
+        println("parse error: use String/str instead of string")
+        exit(1)
+    }
+    if is_ref {
+        if is_mut { return "&mut " + base }
+        return "&" + base
+    }
     return base
 }
 
@@ -139,6 +219,7 @@ fn parse_params(p: &mut Parser) -> [Param] {
 fn parse_fn(p: &mut Parser) -> Function {
     let _ = parser_expect(p, TK_FN, "fn")
     let name = parser_expect(p, TK_IDENT, "main").text
+    let type_params = parse_generic_params(p)
     let _ = parser_expect(p, TK_LPAREN, "(")
     let params = parse_params(p)
     let _ = parser_expect(p, TK_RPAREN, ")")
@@ -148,10 +229,79 @@ fn parse_fn(p: &mut Parser) -> Function {
         ret_type = parse_type_name(p)
     }
     let body_block = parse_block(p)
-    return Function { name: name, params: params, ret_type: ret_type, body: body_block }
+    return Function { name: name, type_params: type_params, params: params, ret_type: ret_type, body: body_block, is_macro: false }
 }
 
-fn parse_program(src: String) -> Program {
+fn parse_macro_fn(p: &mut Parser) -> Function {
+    let _ = parser_expect(p, TK_MACRO, "macro")
+    let mut f = parse_fn(p)
+    f.is_macro = true
+    return f
+}
+
+fn parse_trait(p: &mut Parser) -> TraitDecl {
+    let _ = parser_expect(p, TK_TRAIT, "trait")
+    let name = parser_expect(p, TK_IDENT, "trait name").text
+    let type_params = parse_generic_params(p)
+    let _ = parser_expect(p, TK_LBRACE, "{")
+    let mut depth = 1
+    while depth > 0 {
+        let t = parser_advance(p)
+        if t.kind == TK_LBRACE { depth = depth + 1 }
+        if t.kind == TK_RBRACE { depth = depth - 1 }
+        if t.kind == TK_EOF { break }
+    }
+    return TraitDecl { name: name, type_params: type_params }
+}
+
+fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
+    let _ = parser_expect(p, TK_IMPL, "impl")
+    let type_params = parse_generic_params(p)
+    let first = parser_expect(p, TK_IDENT, "impl target").text
+    let mut trait_name = ""
+    let mut for_type = ""
+    if parser_peek(p).kind == TK_FOR {
+        let _ = parser_advance(p)
+        trait_name = first
+        for_type = parse_type_name(p)
+    } else {
+        for_type = parse_type_suffix(p, first)
+    }
+    let _ = parser_expect(p, TK_LBRACE, "{")
+    while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
+        let mut m = parse_fn(p)
+        let mut pi = 0
+        while pi < len(m.params) {
+            let name = m.params[pi].name
+            let mut pt = m.params[pi].typ
+            let mut has_type = m.params[pi].has_type
+            if name == "self" && !has_type {
+                pt = "Self"
+                has_type = true
+            }
+            if pt == "Self" { pt = string_clone(&for_type) }
+            if pt == "&Self" { pt = "&" + string_clone(&for_type) }
+            if pt == "&mut Self" { pt = "&mut " + string_clone(&for_type) }
+            m.params[pi] = Param { name: name, typ: pt, has_type: has_type }
+            pi = pi + 1
+        }
+        if m.ret_type == "Self" { m.ret_type = string_clone(&for_type) }
+        if len(type_params) > 0 {
+            let mut combined = generic_param_list_clone(&type_params)
+            let mut ti = 0
+            while ti < len(m.type_params) {
+                push(&mut combined, generic_param_clone(&m.type_params[ti]))
+                ti = ti + 1
+            }
+            m.type_params = combined
+        }
+        push(funcs, m)
+    }
+    let _ = parser_expect(p, TK_RBRACE, "}")
+    return ImplDecl { trait_name: trait_name, for_type: for_type, type_params: type_params }
+}
+
+fn parse_program(src: &str) -> Program {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     let mut structs: [StructDecl] = []
@@ -159,6 +309,9 @@ fn parse_program(src: String) -> Program {
     let mut type_aliases: [TypeAlias] = []
     let mut consts: [ConstDecl] = []
     let mut funcs: [Function] = []
+    let mut compile_items: [CompileItem] = []
+    let mut traits: [TraitDecl] = []
+    let mut impls: [ImplDecl] = []
     let mut has_main = false
     let mut done = false
     while !done {
@@ -173,10 +326,22 @@ fn parse_program(src: String) -> Program {
             push(&mut type_aliases, parse_type_alias(&mut p))
         } else if k == TK_CONST {
             push(&mut consts, parse_const(&mut p))
+        } else if k == TK_MACRO {
+            let f = parse_macro_fn(&mut p)
+            push(&mut funcs, f)
+        } else if k == TK_TRAIT {
+            push(&mut traits, parse_trait(&mut p))
+        } else if k == TK_IMPL {
+            let imp = parse_impl(&mut p, &mut funcs)
+            push(&mut impls, imp)
         } else if k == TK_FN {
             let f = parse_fn(&mut p)
-            if string_clone(&f.name) == "main" { has_main = true }
+            if !f.is_macro && string_clone(&f.name) == "main" { has_main = true }
             push(&mut funcs, f)
+        } else if k == TK_IDENT && parser_peek(&p).text == "compile" && parser_peek_next(&p).kind == TK_BANG {
+            let expr = parse_expr(&mut p)
+            push(&mut compile_items, CompileItem { expr: expr })
+            if parser_peek(&p).kind == TK_SEMI { let _ = parser_advance(&mut p) }
         } else {
             println("parse error: unexpected token in program", k, parser_peek(&p).text)
             exit(1)
@@ -186,5 +351,53 @@ fn parse_program(src: String) -> Program {
         println("parse error: missing fn main")
         exit(1)
     }
-    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs }
+    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
+}
+
+// Parse a program without requiring fn main (used by macro expansion).
+fn parse_program_loose(src: &str) -> Program {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    let mut structs: [StructDecl] = []
+    let mut enums: [EnumDecl] = []
+    let mut type_aliases: [TypeAlias] = []
+    let mut consts: [ConstDecl] = []
+    let mut funcs: [Function] = []
+    let mut compile_items: [CompileItem] = []
+    let mut traits: [TraitDecl] = []
+    let mut impls: [ImplDecl] = []
+    let mut done = false
+    while !done {
+        let k = parser_peek(&p).kind
+        if k == TK_EOF {
+            done = true
+        } else if k == TK_STRUCT {
+            push(&mut structs, parse_struct(&mut p))
+        } else if k == TK_ENUM {
+            push(&mut enums, parse_enum(&mut p))
+        } else if k == TK_TYPE {
+            push(&mut type_aliases, parse_type_alias(&mut p))
+        } else if k == TK_CONST {
+            push(&mut consts, parse_const(&mut p))
+        } else if k == TK_MACRO {
+            let f = parse_macro_fn(&mut p)
+            push(&mut funcs, f)
+        } else if k == TK_TRAIT {
+            push(&mut traits, parse_trait(&mut p))
+        } else if k == TK_IMPL {
+            let imp = parse_impl(&mut p, &mut funcs)
+            push(&mut impls, imp)
+        } else if k == TK_FN {
+            let f = parse_fn(&mut p)
+            push(&mut funcs, f)
+        } else if k == TK_IDENT && parser_peek(&p).text == "compile" && parser_peek_next(&p).kind == TK_BANG {
+            let expr = parse_expr(&mut p)
+            push(&mut compile_items, CompileItem { expr: expr })
+            if parser_peek(&p).kind == TK_SEMI { let _ = parser_advance(&mut p) }
+        } else {
+            println("parse error: unexpected token in program", k, parser_peek(&p).text)
+            exit(1)
+        }
+    }
+    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
 }

@@ -5,25 +5,26 @@ struct Parser {
     idx: i64,
     n: i64,
     no_struct_lit: bool,
+    gensym: i64,
 }
 
 fn token_clone(t: &Token) -> Token {
-    return Token { kind: t.kind, text: string_clone(&t.text), int_value: t.int_value, bool_value: t.bool_value }
+    return Token { kind: t.kind, text: string_clone(&t.text), name: string_clone(&t.name), int_value: t.int_value, bool_value: t.bool_value }
 }
 
 fn parser_new(tokens: [Token]) -> Parser {
     let n = len(tokens)
-    return Parser { tokens: tokens, idx: 0, n: n, no_struct_lit: false }
+    return Parser { tokens: tokens, idx: 0, n: n, no_struct_lit: false, gensym: 0 }
 }
 
 fn parser_peek(p: &Parser) -> Token {
-    if p.idx >= p.n { return Token { kind: TK_EOF, text: "", int_value: 0, bool_value: false } }
+    if p.idx >= p.n { return Token { kind: TK_EOF, text: "", name: "", int_value: 0, bool_value: false } }
     return token_clone(&p.tokens[p.idx])
 }
 
 fn parser_peek_next(p: &Parser) -> Token {
     let next = p.idx + 1
-    if next >= p.n { return Token { kind: TK_EOF, text: "", int_value: 0, bool_value: false } }
+    if next >= p.n { return Token { kind: TK_EOF, text: "", name: "", int_value: 0, bool_value: false } }
     return token_clone(&p.tokens[next])
 }
 
@@ -40,4 +41,48 @@ fn parser_expect(p: &mut Parser, kind: i32, label: String) -> Token {
         exit(1)
     }
     return t
+}
+
+fn parser_int_to_string(n: i64) -> String {
+    if n == 0 { return "0" }
+    let mut x = n
+    let mut out = ""
+    let mut neg = false
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    while x > 0 {
+        let d = x % 10
+        let digit = substr("0123456789", d, 1)
+        out = digit + out
+        x = x / 10
+    }
+    if neg { out = "-" + out }
+    return out
+}
+
+fn parser_gensym(p: &mut Parser, prefix: &str) -> String {
+    let id = p.gensym
+    p.gensym = p.gensym + 1
+    return string_clone(prefix) + parser_int_to_string(id)
+}
+
+// Parse helpers from raw strings for macro expansion.
+fn parse_expr_string(src: &str) -> Expr {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    return parse_expr(&mut p)
+}
+
+fn parse_stmt_string(src: &str) -> Stmt {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    return parse_stmt(&mut p)
+}
+
+fn parse_block_string(src: &str) -> Block {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    return parse_block(&mut p)
 }

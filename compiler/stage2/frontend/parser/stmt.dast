@@ -17,6 +17,44 @@ fn parse_variant_pattern(p: &mut Parser) -> MatchArm {
         binding: binding,
         has_binding: has_binding,
         int_value: 0,
+        struct_name: "",
+        struct_fields: struct_pattern_field_list_empty(),
+        block: block_empty(),
+    }
+}
+
+fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
+    let name = parser_expect(p, TK_IDENT, "struct").text
+    let _ = parser_expect(p, TK_LBRACE, "{")
+    let mut fields: [StructPatternField] = []
+    if parser_peek(p).kind != TK_RBRACE {
+        let mut done = false
+        while !done {
+            let fname = parser_expect(p, TK_IDENT, "field").text
+            let mut binding = string_clone(&fname)
+            let mut has_binding = true
+            if parser_peek(p).kind == TK_COLON {
+                let _ = parser_advance(p)
+                binding = parser_expect(p, TK_IDENT, "binding").text
+                has_binding = true
+            }
+            push(&mut fields, StructPatternField { name: fname, binding: binding, has_binding: has_binding })
+            if parser_peek(p).kind == TK_COMMA {
+                let _ = parser_advance(p)
+            } else {
+                done = true
+            }
+        }
+    }
+    let _ = parser_expect(p, TK_RBRACE, "}")
+    return MatchArm {
+        pat_kind: PAT_STRUCT,
+        variant: "",
+        binding: "",
+        has_binding: false,
+        int_value: 0,
+        struct_name: name,
+        struct_fields: fields,
         block: block_empty(),
     }
 }
@@ -26,6 +64,9 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
     if t.kind == TK_DOT {
         return parse_variant_pattern(p)
     }
+    if t.kind == TK_IDENT && parser_peek_next(p).kind == TK_LBRACE {
+        return parse_struct_pattern(p)
+    }
     if t.kind == TK_INT {
         let v = parser_advance(p).int_value
         return MatchArm {
@@ -34,6 +75,8 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
             binding: "",
             has_binding: false,
             int_value: v,
+            struct_name: "",
+            struct_fields: struct_pattern_field_list_empty(),
             block: block_empty(),
         }
     }
@@ -45,6 +88,8 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
             binding: "",
             has_binding: false,
             int_value: 0,
+            struct_name: "",
+            struct_fields: struct_pattern_field_list_empty(),
             block: block_empty(),
         }
     }
@@ -71,11 +116,173 @@ fn parse_match_arm_body(p: &mut Parser) -> Block {
     return Block { stmts: stmts }
 }
 
+fn parse_binding_list(p: &mut Parser, end_kind: i32) -> [String] {
+    let mut names: [String] = []
+    if parser_peek(p).kind == end_kind { return names }
+    let mut done = false
+    while !done {
+        let name = parser_expect(p, TK_IDENT, "ident").text
+        push(&mut names, name)
+        if parser_peek(p).kind == TK_COMMA {
+            let _ = parser_advance(p)
+            if parser_peek(p).kind == end_kind { done = true }
+        } else {
+            done = true
+        }
+    }
+    return names
+}
+
+fn desugar_pattern_lets(names: & [String], base_expr: &Expr, mutable: bool) -> [Stmt] {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(*names) {
+        let name = string_clone(&(*names)[i])
+        if name != "_" {
+            let idx = expr_int(i)
+            let idx_expr = expr_index(expr_clone(base_expr), idx)
+            push(&mut out, stmt_let(name, mutable, false, "", idx_expr))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn rewrite_break_values_block(b: &Block, target: &str) -> Block {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(b.stmts) {
+        let mut items = rewrite_break_values_stmt(&b.stmts[i], target)
+        let mut j = 0
+        while j < len(items) {
+            push(&mut out, items[j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return Block { stmts: out }
+}
+
+fn rewrite_break_values_stmt(s: &Stmt, target: &str) -> [Stmt] {
+    let mut out: [Stmt] = []
+    if s.kind == STMT_BREAK_VALUE {
+        push(&mut out, stmt_assign(string_clone(target), expr_clone(&s.expr)))
+        push(&mut out, stmt_break())
+        return out
+    }
+    if s.kind == STMT_IF {
+        let tb = rewrite_break_values_block(&s.block, target)
+        let mut eb = block_empty()
+        if s.has_else { eb = rewrite_break_values_block(&s.else_block, target) }
+        push(&mut out, stmt_if(expr_clone(&s.expr), tb, eb, s.has_else))
+        return out
+    }
+    if s.kind == STMT_IFLET {
+        let tb = rewrite_break_values_block(&s.block, target)
+        let mut eb = block_empty()
+        if s.has_else { eb = rewrite_break_values_block(&s.else_block, target) }
+        push(&mut out, stmt_iflet(expr_clone(&s.expr), string_clone(&s.pat_variant), string_clone(&s.pat_binding), s.pat_has_binding, tb, eb, s.has_else))
+        return out
+    }
+    if s.kind == STMT_MATCH {
+        let mut arms = match_arm_list_empty()
+        let mut ai = 0
+        while ai < len(s.arms) {
+            let mut a = match_arm_clone(&s.arms[ai])
+            a.block = rewrite_break_values_block(&a.block, target)
+            push(&mut arms, a)
+            ai = ai + 1
+        }
+        push(&mut out, stmt_match(expr_clone(&s.expr), arms))
+        return out
+    }
+    if s.kind == STMT_WHILE {
+        let tb = rewrite_break_values_block(&s.block, target)
+        push(&mut out, stmt_while(expr_clone(&s.expr), tb))
+        return out
+    }
+    if s.kind == STMT_LOOP {
+        let tb = rewrite_break_values_block(&s.block, target)
+        push(&mut out, stmt_loop(tb))
+        return out
+    }
+    if s.kind == STMT_EXPR && s.expr.kind == EXPR_BLOCK {
+        let nb = rewrite_break_values_block(&s.expr.block, target)
+        push(&mut out, stmt_expr(expr_block(nb)))
+        return out
+    }
+    push(&mut out, stmt_clone(s))
+    return out
+}
+
+fn desugar_let_pattern(p: &mut Parser, names: & [String], rhs: Expr, mutable: bool) -> Stmt {
+    let tmp = parser_gensym(p, "__pat")
+    let mut stmts: [Stmt] = []
+    push(&mut stmts, stmt_let(string_clone(&tmp), false, false, "", rhs))
+    let base = expr_ident(string_clone(&tmp))
+    let mut binds = desugar_pattern_lets(&names, &base, mutable)
+    let mut i = 0
+    while i < len(binds) {
+        push(&mut stmts, binds[i])
+        i = i + 1
+    }
+    return stmt_expr(expr_block(Block { stmts: stmts }))
+}
+
+fn desugar_loop_expr(p: &mut Parser, name: String, mutable: bool, has_type: bool, typ: String, body: Block) -> Stmt {
+    let res = parser_gensym(p, "__loop_res")
+    let mut stmts: [Stmt] = []
+    push(&mut stmts, stmt_let(string_clone(&res), true, has_type, string_clone(&typ), expr_int(0)))
+    let rb = rewrite_break_values_block(&body, &res)
+    push(&mut stmts, stmt_loop(rb))
+    push(&mut stmts, stmt_expr(expr_ident(res)))
+    return stmt_let(name, mutable, has_type, typ, expr_block(Block { stmts: stmts }))
+}
+
+fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Block) -> Stmt {
+    let arr_name = parser_gensym(p, "__for_arr")
+    let idx_name = parser_gensym(p, "__for_i")
+    let elem_name = parser_gensym(p, "__for_elem")
+    let mut stmts: [Stmt] = []
+    push(&mut stmts, stmt_let(string_clone(&arr_name), false, false, "", iter_expr))
+    push(&mut stmts, stmt_let(string_clone(&idx_name), true, false, "", expr_int(0)))
+    let cond = expr_binary("<", expr_ident(string_clone(&idx_name)), expr_call("len", [expr_ident(string_clone(&arr_name))]))
+    let mut body_stmts: [Stmt] = []
+    let elem_expr = expr_index(expr_ident(string_clone(&arr_name)), expr_ident(string_clone(&idx_name)))
+    if len(*names) <= 1 {
+        if len(*names) == 1 && (*names)[0] != "_" {
+            push(&mut body_stmts, stmt_let(string_clone(&(*names)[0]), false, false, "", elem_expr))
+        }
+    } else {
+        push(&mut body_stmts, stmt_let(string_clone(&elem_name), false, false, "", elem_expr))
+        let base = expr_ident(string_clone(&elem_name))
+        let mut binds = desugar_pattern_lets(&names, &base, false)
+        let mut bi = 0
+        while bi < len(binds) {
+            push(&mut body_stmts, binds[bi])
+            bi = bi + 1
+        }
+    }
+    let inc = expr_binary("+", expr_ident(string_clone(&idx_name)), expr_int(1))
+    push(&mut body_stmts, stmt_assign(string_clone(&idx_name), inc))
+    let mut i = 0
+    while i < len(body.stmts) {
+        push(&mut body_stmts, body.stmts[i])
+        i = i + 1
+    }
+    let while_stmt = stmt_while(cond, Block { stmts: body_stmts })
+    push(&mut stmts, while_stmt)
+    return stmt_expr(expr_block(Block { stmts: stmts }))
+}
+
 fn parse_block(p: &mut Parser) -> Block {
     let _ = parser_expect(p, TK_LBRACE, "{")
     let mut stmts = stmt_list_empty()
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
         push(&mut stmts, parse_stmt(p))
+        while parser_peek(p).kind == TK_SEMI {
+            let _ = parser_advance(p)
+        }
     }
     let _ = parser_expect(p, TK_RBRACE, "}")
     return Block { stmts: stmts }
@@ -83,13 +290,66 @@ fn parse_block(p: &mut Parser) -> Block {
 
 fn parse_stmt(p: &mut Parser) -> Stmt {
     let t = parser_peek(p)
+    if t.kind == TK_IDENT && parser_peek_next(p).kind == TK_COLON {
+        let _ = parser_advance(p)
+        let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_LOOP {
+            let _ = parser_advance(p)
+            let body = parse_block(p)
+            return stmt_loop(body)
+        }
+        println("parse error: label must prefix loop")
+        exit(1)
+    }
     if t.kind == TK_LET {
         let _ = parser_advance(p)
-        if parser_peek(p).kind == TK_MUT { let _ = parser_advance(p) }
+        let mut is_mut = false
+        if parser_peek(p).kind == TK_MUT {
+            let _ = parser_advance(p)
+            is_mut = true
+        }
+        if parser_peek(p).kind == TK_LPAREN || parser_peek(p).kind == TK_LBRACKET {
+            let end_kind = if parser_peek(p).kind == TK_LPAREN { TK_RPAREN } else { TK_RBRACKET }
+            let _ = parser_advance(p)
+            let names = parse_binding_list(p, end_kind)
+            let end_label = if end_kind == TK_RPAREN { ")" } else { "]" }
+            let _ = parser_expect(p, end_kind, end_label)
+            let _ = parser_expect(p, TK_ASSIGN, "=")
+            let e = parse_expr(p)
+            return desugar_let_pattern(p, &names, e, is_mut)
+        }
         let name = parser_expect(p, TK_IDENT, "ident").text
+        let mut has_type = false
+        let mut typ = ""
+        if parser_peek(p).kind == TK_COLON {
+            let _ = parser_advance(p)
+            typ = parse_type_name(p)
+            has_type = true
+        }
         let _ = parser_expect(p, TK_ASSIGN, "=")
+        if parser_peek(p).kind == TK_LOOP {
+            let _ = parser_advance(p)
+            let body = parse_block(p)
+            return desugar_loop_expr(p, name, is_mut, has_type, typ, body)
+        }
         let e = parse_expr(p)
-        return stmt_let(name, e)
+        return stmt_let(name, is_mut, has_type, typ, e)
+    }
+    if t.kind == TK_FOR {
+        let _ = parser_advance(p)
+        let mut names: [String] = []
+        if parser_peek(p).kind == TK_LPAREN {
+            let _ = parser_advance(p)
+            names = parse_binding_list(p, TK_RPAREN)
+            let _ = parser_expect(p, TK_RPAREN, ")")
+        } else {
+            let name = parser_expect(p, TK_IDENT, "ident").text
+            push(&mut names, name)
+        }
+        let _ = parser_expect(p, TK_IN, "in")
+        let iter_expr = parse_expr_before_block(p)
+        let body = parse_block(p)
+        return desugar_for_stmt(p, &names, iter_expr, body)
     }
     if t.kind == TK_IF {
         let _ = parser_advance(p)
@@ -161,10 +421,24 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
     }
     if t.kind == TK_BREAK {
         let _ = parser_advance(p)
-        return stmt_break()
+        if parser_peek(p).kind == TK_IDENT && parser_peek_next(p).kind == TK_COLON {
+            let _ = parser_advance(p)
+            let _ = parser_advance(p)
+            return stmt_break()
+        }
+        let k = parser_peek(p).kind
+        if k == TK_RBRACE || k == TK_EOF || k == TK_SEMI {
+            return stmt_break()
+        }
+        let v = parse_expr(p)
+        return stmt_break_value(v)
     }
     if t.kind == TK_CONTINUE {
         let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_IDENT {
+            let _ = parser_advance(p)
+            if parser_peek(p).kind == TK_COLON { let _ = parser_advance(p) }
+        }
         return stmt_continue()
     }
     if t.kind == TK_RETURN {

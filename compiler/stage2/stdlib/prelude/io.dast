@@ -1,22 +1,35 @@
 // IO/process builtins declared in the prelude package.
 
-fn read_file(path: String) -> String {
+fn read_file(path: &str) -> String {
     return path
 }
 
-fn write_file(path: String, data: String) -> unit {
+fn write_file(path: &str, data: &str) -> unit {
     return
 }
 
-fn mkdir(path: String) -> unit {
+fn mkdir(path: &str) -> unit {
     return
 }
 
-fn read_dir(path: String) -> [String] {
+fn read_dir(path: &str) -> [String] {
     return []
 }
 
-fn exec(cmd: String, args: [String]) -> i64 {
+fn args() -> [String] {
+    return []
+}
+
+fn read_line() -> String {
+    return ""
+}
+
+fn read_bytes(count: i64) -> String {
+    let _ = count
+    return ""
+}
+
+fn exec(cmd: &str, args: [String]) -> i64 {
     return 0
 }
 

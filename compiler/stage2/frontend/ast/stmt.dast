@@ -11,10 +11,12 @@ const STMT_CONTINUE = 8
 const STMT_RETURN = 9
 const STMT_IFLET = 10
 const STMT_MATCH = 11
+const STMT_BREAK_VALUE = 12
 
 const PAT_VARIANT = 1
 const PAT_INT = 2
 const PAT_WILDCARD = 3
+const PAT_STRUCT = 4
 
 struct Block {
     stmts: [Stmt],
@@ -26,7 +28,38 @@ struct MatchArm {
     binding: String,
     has_binding: bool,
     int_value: i64,
+    struct_name: String,
+    struct_fields: [StructPatternField],
     block: Block,
+}
+
+struct StructPatternField {
+    name: String,
+    binding: String,
+    has_binding: bool,
+}
+
+fn struct_pattern_field_list_empty() -> [StructPatternField] {
+    let mut out: [StructPatternField] = []
+    return out
+}
+
+fn struct_pattern_field_clone(f: &StructPatternField) -> StructPatternField {
+    return StructPatternField {
+        name: string_clone(&f.name),
+        binding: string_clone(&f.binding),
+        has_binding: f.has_binding,
+    }
+}
+
+fn struct_pattern_field_list_clone(items: & [StructPatternField]) -> [StructPatternField] {
+    let mut out: [StructPatternField] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, struct_pattern_field_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
 }
 
 fn match_arm_list_empty() -> [MatchArm] {
@@ -41,6 +74,8 @@ fn match_arm_clone(a: &MatchArm) -> MatchArm {
         binding: string_clone(&a.binding),
         has_binding: a.has_binding,
         int_value: a.int_value,
+        struct_name: string_clone(&a.struct_name),
+        struct_fields: struct_pattern_field_list_clone(&a.struct_fields),
         block: block_clone(&a.block),
     }
 }
@@ -64,9 +99,17 @@ fn block_empty() -> Block {
     return Block { stmts: stmt_list_empty() }
 }
 
+fn block_list_empty() -> [Block] {
+    let mut out: [Block] = []
+    return out
+}
+
 struct Stmt {
     kind: i32,
     name: String,
+    mutable: bool,
+    has_type: bool,
+    typ: String,
     lhs: Expr,
     expr: Expr,
     block: Block,
@@ -97,6 +140,9 @@ fn stmt_clone(s: &Stmt) -> Stmt {
     return Stmt {
         kind: s.kind,
         name: string_clone(&s.name),
+        mutable: s.mutable,
+        has_type: s.has_type,
+        typ: string_clone(&s.typ),
         lhs: expr_clone(&s.lhs),
         expr: expr_clone(&s.expr),
         block: block_clone(&s.block),
@@ -110,57 +156,64 @@ fn stmt_clone(s: &Stmt) -> Stmt {
     }
 }
 
-fn stmt_let(name: String, expr: Expr) -> Stmt {
-    return Stmt { kind: STMT_LET, name: name, lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+fn stmt_let(name: String, mutable: bool, has_type: bool, typ: String, expr: Expr) -> Stmt {
+    return Stmt { kind: STMT_LET, name: name, mutable: mutable, has_type: has_type, typ: typ, lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_assign(name: String, expr: Expr) -> Stmt {
     let lhs = expr_ident(string_clone(&name))
-    return Stmt { kind: STMT_ASSIGN, name: name, lhs: lhs, expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_ASSIGN, name: name, mutable: false, has_type: false, typ: "", lhs: lhs, expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_assign_expr(lhs: Expr, expr: Expr) -> Stmt {
     let mut name = ""
     if lhs.kind == EXPR_IDENT { name = string_clone(&lhs.name) }
-    return Stmt { kind: STMT_ASSIGN, name: name, lhs: lhs, expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_ASSIGN, name: name, mutable: false, has_type: false, typ: "", lhs: lhs, expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_expr(expr: Expr) -> Stmt {
-    return Stmt { kind: STMT_EXPR, name: "", lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_EXPR, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_if(cond: Expr, then_block: Block, else_block: Block, has_else: bool) -> Stmt {
-    return Stmt { kind: STMT_IF, name: "", lhs: expr_int(0), expr: cond, block: then_block, else_block: else_block, has_else: has_else, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_IF, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: cond, block: then_block, else_block: else_block, has_else: has_else, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_while(cond: Expr, body: Block) -> Stmt {
-    return Stmt { kind: STMT_WHILE, name: "", lhs: expr_int(0), expr: cond, block: body, else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_WHILE, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: cond, block: body, else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_loop(body: Block) -> Stmt {
-    return Stmt { kind: STMT_LOOP, name: "", lhs: expr_int(0), expr: expr_int(0), block: body, else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_LOOP, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr_int(0), block: body, else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_break() -> Stmt {
-    return Stmt { kind: STMT_BREAK, name: "", lhs: expr_int(0), expr: expr_int(0), block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_BREAK, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr_int(0), block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+}
+
+fn stmt_break_value(expr: Expr) -> Stmt {
+    return Stmt { kind: STMT_BREAK_VALUE, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_continue() -> Stmt {
-    return Stmt { kind: STMT_CONTINUE, name: "", lhs: expr_int(0), expr: expr_int(0), block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_CONTINUE, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr_int(0), block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_return(expr: Expr) -> Stmt {
-    return Stmt { kind: STMT_RETURN, name: "", lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: true, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_RETURN, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr, block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: true, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_return_unit() -> Stmt {
-    return Stmt { kind: STMT_RETURN, name: "", lhs: expr_int(0), expr: expr_int(0), block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
+    return Stmt { kind: STMT_RETURN, name: "", mutable: false, has_type: false, typ: "", lhs: expr_int(0), expr: expr_int(0), block: block_empty(), else_block: block_empty(), has_else: false, ret_has_value: false, pat_variant: "", pat_binding: "", pat_has_binding: false, arms: match_arm_list_empty() }
 }
 
 fn stmt_iflet(scrut: Expr, variant: String, binding: String, has_binding: bool, then_block: Block, else_block: Block, has_else: bool) -> Stmt {
     return Stmt {
         kind: STMT_IFLET,
         name: "",
+        mutable: false,
+        has_type: false,
+        typ: "",
         lhs: expr_int(0),
         expr: scrut,
         block: then_block,
@@ -178,6 +231,9 @@ fn stmt_match(scrut: Expr, arms: [MatchArm]) -> Stmt {
     return Stmt {
         kind: STMT_MATCH,
         name: "",
+        mutable: false,
+        has_type: false,
+        typ: "",
         lhs: expr_int(0),
         expr: scrut,
         block: block_empty(),

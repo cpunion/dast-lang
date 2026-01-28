@@ -42,6 +42,16 @@ const TK_FATARROW = 38
 const TK_GT = 39
 const TK_TYPE = 40
 const TK_TAG = 41
+const TK_TRAIT = 42
+const TK_IMPL = 43
+const TK_FOR = 44
+const TK_SEMI = 45
+const TK_PIPE = 46
+const TK_BANG = 47
+const TK_DOLLAR = 48
+const TK_MACRO = 49
+const TK_QUOTE = 50
+const TK_IN = 51
 
 // Character constants used by the lexer.
 const CH_TAB = '\t'
@@ -68,30 +78,36 @@ const CH_RBRACKET = ']'
 const CH_LOWER_N = 'n'
 const CH_COLON = ':'
 const CH_DOT = '.'
+const CH_SEMI = ';'
 const CH_AMP = '&'
 const CH_STAR = '*'
+const CH_PIPE = '|'
+const CH_BANG = '!'
+const CH_DOLLAR = '$'
 
 struct Token {
     kind: i32,
     text: String,
+    name: String,
     int_value: i64,
     bool_value: bool,
 }
 
 fn tok(kind: i32, text: String) -> Token {
-    return Token { kind: kind, text: text, int_value: 0, bool_value: false }
+    let name = string_clone(&text)
+    return Token { kind: kind, text: text, name: name, int_value: 0, bool_value: false }
 }
 
 fn tok_int(v: i64) -> Token {
-    return Token { kind: TK_INT, text: "", int_value: v, bool_value: false }
+    return Token { kind: TK_INT, text: "", name: "", int_value: v, bool_value: false }
 }
 
 fn tok_bool(v: bool) -> Token {
-    return Token { kind: if v { TK_TRUE } else { TK_FALSE }, text: "", int_value: 0, bool_value: v }
+    return Token { kind: if v { TK_TRUE } else { TK_FALSE }, text: "", name: "", int_value: 0, bool_value: v }
 }
 
-fn tok_char(v: i64) -> Token {
-    return Token { kind: TK_CHAR, text: "", int_value: v, bool_value: false }
+fn tok_char(v: i64, raw: String) -> Token {
+    return Token { kind: TK_CHAR, text: raw, name: "", int_value: v, bool_value: false }
 }
 
 struct Lexer {
@@ -100,9 +116,10 @@ struct Lexer {
     n: i64,
 }
 
-fn lexer_new(src: String) -> Lexer {
-    let n = str_len(&src)
-    return Lexer { src: src, idx: 0, n: n }
+fn lexer_new(src: &str) -> Lexer {
+    let s = string_clone(src)
+    let n = str_len(&s)
+    return Lexer { src: s, idx: 0, n: n }
 }
 
 fn lex_is_space(c: i64) -> bool {
@@ -211,7 +228,13 @@ fn lex_read_string(l: &mut Lexer) -> String {
     return out
 }
 
-fn lex_read_char(l: &mut Lexer) -> i64 {
+struct CharLit {
+    value: i64,
+    raw: String,
+}
+
+fn lex_read_char(l: &mut Lexer) -> CharLit {
+    let start = l.idx
     // Opening quote already checked.
     let _ = lex_advance(l)
     let c0 = lex_advance(l)
@@ -226,7 +249,9 @@ fn lex_read_char(l: &mut Lexer) -> i64 {
     }
     // Consume closing quote if present.
     if lex_peek(l) == CH_APOSTROPHE { let _ = lex_advance(l) }
-    return value
+    let end = l.idx
+    let raw = substr(&l.src, start, end - start)
+    return CharLit { value: value, raw: raw }
 }
 
 fn lexer_next(l: &mut Lexer) -> Token {
@@ -251,6 +276,12 @@ fn lexer_next(l: &mut Lexer) -> Token {
         if text == "type" { return tok(TK_TYPE, text) }
         if text == "tag" { return tok(TK_TAG, text) }
         if text == "match" { return tok(TK_MATCH, text) }
+        if text == "trait" { return tok(TK_TRAIT, text) }
+        if text == "impl" { return tok(TK_IMPL, text) }
+        if text == "for" { return tok(TK_FOR, text) }
+        if text == "in" { return tok(TK_IN, text) }
+        if text == "macro" { return tok(TK_MACRO, text) }
+        if text == "quote" { return tok(TK_QUOTE, text) }
         if text == "true" { return tok_bool(true) }
         if text == "false" { return tok_bool(false) }
         return tok(TK_IDENT, text)
@@ -265,7 +296,7 @@ fn lexer_next(l: &mut Lexer) -> Token {
     }
     if c == CH_APOSTROPHE {
         let v = lex_read_char(l)
-        return tok_char(v)
+        return tok_char(v.value, v.raw)
     }
     if c == CH_EQ && lex_peek_next(l) == CH_EQ {
         let _ = lex_advance(l)
@@ -289,12 +320,16 @@ fn lexer_next(l: &mut Lexer) -> Token {
     if c == CH_LBRACE { return tok(TK_LBRACE, "{") }
     if c == CH_RBRACE { return tok(TK_RBRACE, "}") }
     if c == CH_COMMA { return tok(TK_COMMA, ",") }
+    if c == CH_SEMI { return tok(TK_SEMI, ";") }
     if c == CH_COLON { return tok(TK_COLON, ":") }
     if c == CH_DOT { return tok(TK_DOT, ".") }
     if c == CH_LBRACKET { return tok(TK_LBRACKET, "[") }
     if c == CH_RBRACKET { return tok(TK_RBRACKET, "]") }
     if c == CH_AMP { return tok(TK_AMP, "&") }
     if c == CH_STAR { return tok(TK_STAR, "*") }
+    if c == CH_PIPE { return tok(TK_PIPE, "|") }
+    if c == CH_BANG { return tok(TK_BANG, "!") }
+    if c == CH_DOLLAR { return tok(TK_DOLLAR, "$") }
     if c == CH_MINUS { return tok(TK_MINUS, "-") }
     if c == CH_PLUS { return tok(TK_PLUS, "+") }
     if c == CH_LT { return tok(TK_LT, "<") }
@@ -302,7 +337,7 @@ fn lexer_next(l: &mut Lexer) -> Token {
     return tok(TK_EOF, "")
 }
 
-fn lexer_all(src: String) -> [Token] {
+fn lexer_all(src: &str) -> [Token] {
     let mut l = lexer_new(src)
     let mut out: [Token] = []
     while true {

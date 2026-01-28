@@ -13,6 +13,15 @@ const EXPR_REF = 10
 const EXPR_DEREF = 11
 const EXPR_ARRAY = 12
 const EXPR_INDEX = 13
+const EXPR_CLOSURE = 14
+const EXPR_MACRO_CALL = 15
+const EXPR_QUOTE = 16
+const EXPR_BLOCK = 17
+const EXPR_MATCH = 18
+
+const QUOTE_EXPR = 1
+const QUOTE_STMT = 2
+const QUOTE_ITEM = 3
 
 struct FieldInit {
     name: String,
@@ -38,13 +47,44 @@ fn field_init_list_clone(items: & [FieldInit]) -> [FieldInit] {
     return out
 }
 
+struct QuotePart {
+    text: String,
+    has_expr: bool,
+    expr: Expr,
+}
+
+fn quote_part_list_empty() -> [QuotePart] {
+    let mut out: [QuotePart] = []
+    return out
+}
+
+fn quote_part_clone(p: &QuotePart) -> QuotePart {
+    return QuotePart { text: string_clone(&p.text), has_expr: p.has_expr, expr: expr_clone(&p.expr) }
+}
+
+fn quote_part_list_clone(items: & [QuotePart]) -> [QuotePart] {
+    let mut out: [QuotePart] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, quote_part_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
 struct Expr {
     kind: i32,
     name: String,
     int_value: i64,
     bool_value: bool,
+    ref_mut: bool,
     args: [Expr],
     fields: [FieldInit],
+    params: [Param],
+    block: Block,
+    match_arms: [MatchArm],
+    quote_kind: i32,
+    quote_parts: [QuotePart],
 }
 
 fn expr_list_empty() -> [Expr] {
@@ -58,8 +98,14 @@ fn expr_clone(e: &Expr) -> Expr {
         name: string_clone(&e.name),
         int_value: e.int_value,
         bool_value: e.bool_value,
+        ref_mut: e.ref_mut,
         args: expr_list_clone(&e.args),
         fields: field_init_list_clone(&e.fields),
+        params: param_list_clone(&e.params),
+        block: block_clone(&e.block),
+        match_arms: match_arm_list_clone(&e.match_arms),
+        quote_kind: e.quote_kind,
+        quote_parts: quote_part_list_clone(&e.quote_parts),
     }
 }
 
@@ -74,65 +120,93 @@ fn expr_list_clone(items: & [Expr]) -> [Expr] {
 }
 
 fn expr_ident(name: String) -> Expr {
-    return Expr { kind: EXPR_IDENT, name: name, int_value: 0, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+    return Expr { kind: EXPR_IDENT, name: name, int_value: 0, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_int(v: i64) -> Expr {
-    return Expr { kind: EXPR_INT, name: "", int_value: v, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+    return Expr { kind: EXPR_INT, name: "", int_value: v, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_bool(v: bool) -> Expr {
-    return Expr { kind: EXPR_BOOL, name: "", int_value: 0, bool_value: v, args: expr_list_empty(), fields: field_init_list_empty() }
+    return Expr { kind: EXPR_BOOL, name: "", int_value: 0, bool_value: v, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_char(v: i64) -> Expr {
-    return Expr { kind: EXPR_CHAR, name: "", int_value: v, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+    return Expr { kind: EXPR_CHAR, name: "", int_value: v, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_string(v: String) -> Expr {
-    return Expr { kind: EXPR_STRING, name: v, int_value: 0, bool_value: false, args: expr_list_empty(), fields: field_init_list_empty() }
+    return Expr { kind: EXPR_STRING, name: v, int_value: 0, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_call(name: String, args: [Expr]) -> Expr {
-    return Expr { kind: EXPR_CALL, name: name, int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_CALL, name: name, int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_binary(op: String, lhs: Expr, rhs: Expr) -> Expr {
     let mut args = expr_list_empty()
     push(&mut args, lhs)
     push(&mut args, rhs)
-    return Expr { kind: EXPR_BINARY, name: op, int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_BINARY, name: op, int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_struct_lit(name: String, fields: [FieldInit]) -> Expr {
-    return Expr { kind: EXPR_STRUCT_LIT, name: name, int_value: 0, bool_value: false, args: expr_list_empty(), fields: fields }
+    return Expr { kind: EXPR_STRUCT_LIT, name: name, int_value: 0, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: fields, params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_field(recv: Expr, field: String) -> Expr {
     let mut args = expr_list_empty()
     push(&mut args, recv)
-    return Expr { kind: EXPR_FIELD, name: field, int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_FIELD, name: field, int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_ref(inner: Expr) -> Expr {
     let mut args = expr_list_empty()
     push(&mut args, inner)
-    return Expr { kind: EXPR_REF, name: "", int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_REF, name: "", int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
+}
+
+fn expr_ref_mut(inner: Expr) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, inner)
+    return Expr { kind: EXPR_REF, name: "", int_value: 0, bool_value: false, ref_mut: true, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_deref(inner: Expr) -> Expr {
     let mut args = expr_list_empty()
     push(&mut args, inner)
-    return Expr { kind: EXPR_DEREF, name: "", int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_DEREF, name: "", int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_array(elems: [Expr]) -> Expr {
-    return Expr { kind: EXPR_ARRAY, name: "", int_value: 0, bool_value: false, args: elems, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_ARRAY, name: "", int_value: 0, bool_value: false, ref_mut: false, args: elems, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
 }
 
 fn expr_index(recv: Expr, idx: Expr) -> Expr {
     let mut args = expr_list_empty()
     push(&mut args, recv)
     push(&mut args, idx)
-    return Expr { kind: EXPR_INDEX, name: "", int_value: 0, bool_value: false, args: args, fields: field_init_list_empty() }
+    return Expr { kind: EXPR_INDEX, name: "", int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
+}
+
+fn expr_closure(params: [Param], body: Block) -> Expr {
+    return Expr { kind: EXPR_CLOSURE, name: "", int_value: 0, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_clone(&params), block: block_clone(&body), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
+}
+
+fn expr_macro_call(name: String, args: [Expr]) -> Expr {
+    return Expr { kind: EXPR_MACRO_CALL, name: name, int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
+}
+
+fn expr_quote(kind: i32, parts: [QuotePart]) -> Expr {
+    return Expr { kind: EXPR_QUOTE, name: "", int_value: 0, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: match_arm_list_empty(), quote_kind: kind, quote_parts: parts }
+}
+
+fn expr_block(b: Block) -> Expr {
+    return Expr { kind: EXPR_BLOCK, name: "", int_value: 0, bool_value: false, ref_mut: false, args: expr_list_empty(), fields: field_init_list_empty(), params: param_list_empty(), block: block_clone(&b), match_arms: match_arm_list_empty(), quote_kind: 0, quote_parts: quote_part_list_empty() }
+}
+
+fn expr_match(scrut: Expr, arms: [MatchArm]) -> Expr {
+    let mut args = expr_list_empty()
+    push(&mut args, scrut)
+    return Expr { kind: EXPR_MATCH, name: "", int_value: 0, bool_value: false, ref_mut: false, args: args, fields: field_init_list_empty(), params: param_list_empty(), block: block_empty(), match_arms: arms, quote_kind: 0, quote_parts: quote_part_list_empty() }
 }

@@ -2,11 +2,28 @@
 
 struct ConstDecl {
     name: String,
+    has_type: bool,
+    typ: String,
     expr: Expr,
 }
 
 fn const_decl_clone(c: &ConstDecl) -> ConstDecl {
-    return ConstDecl { name: string_clone(&c.name), expr: expr_clone(&c.expr) }
+    return ConstDecl {
+        name: string_clone(&c.name),
+        has_type: c.has_type,
+        typ: string_clone(&c.typ),
+        expr: expr_clone(&c.expr),
+    }
+}
+
+fn const_decl_list_clone(items: & [ConstDecl]) -> [ConstDecl] {
+    let mut out: [ConstDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, const_decl_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
 }
 
 fn ast_string_list_clone(items: & [String]) -> [String] {
@@ -14,6 +31,26 @@ fn ast_string_list_clone(items: & [String]) -> [String] {
     let mut i = 0
     while i < len(*items) {
         push(&mut out, string_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct GenericParam {
+    name: String,
+    has_bound: bool,
+    bound: String,
+}
+
+fn generic_param_clone(p: &GenericParam) -> GenericParam {
+    return GenericParam { name: string_clone(&p.name), has_bound: p.has_bound, bound: string_clone(&p.bound) }
+}
+
+fn generic_param_list_clone(items: & [GenericParam]) -> [GenericParam] {
+    let mut out: [GenericParam] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, generic_param_clone(&(*items)[i]))
         i = i + 1
     }
     return out
@@ -40,11 +77,12 @@ fn struct_field_list_clone(items: & [StructField]) -> [StructField] {
 
 struct StructDecl {
     name: String,
+    type_params: [GenericParam],
     fields: [StructField],
 }
 
 fn struct_decl_clone(s: &StructDecl) -> StructDecl {
-    return StructDecl { name: string_clone(&s.name), fields: struct_field_list_clone(&s.fields) }
+    return StructDecl { name: string_clone(&s.name), type_params: generic_param_list_clone(&s.type_params), fields: struct_field_list_clone(&s.fields) }
 }
 
 fn struct_decl_list_clone(items: & [StructDecl]) -> [StructDecl] {
@@ -79,12 +117,13 @@ fn enum_variant_list_clone(items: & [EnumVariant]) -> [EnumVariant] {
 
 struct EnumDecl {
     name: String,
+    type_params: [GenericParam],
     tag_type: String,
     variants: [EnumVariant],
 }
 
 fn enum_decl_clone(e: &EnumDecl) -> EnumDecl {
-    return EnumDecl { name: string_clone(&e.name), tag_type: string_clone(&e.tag_type), variants: enum_variant_list_clone(&e.variants) }
+    return EnumDecl { name: string_clone(&e.name), type_params: generic_param_list_clone(&e.type_params), tag_type: string_clone(&e.tag_type), variants: enum_variant_list_clone(&e.variants) }
 }
 
 fn enum_decl_list_clone(items: & [EnumDecl]) -> [EnumDecl] {
@@ -136,19 +175,28 @@ fn param_list_clone(items: & [Param]) -> [Param] {
     return out
 }
 
+fn param_list_empty() -> [Param] {
+    let mut out: [Param] = []
+    return out
+}
+
 struct Function {
     name: String,
+    type_params: [GenericParam],
     params: [Param],
     ret_type: String,
     body: Block,
+    is_macro: bool,
 }
 
 fn function_clone(f: &Function) -> Function {
     return Function {
         name: string_clone(&f.name),
+        type_params: generic_param_list_clone(&f.type_params),
         params: param_list_clone(&f.params),
         ret_type: string_clone(&f.ret_type),
         body: block_clone(&f.body),
+        is_macro: f.is_macro,
     }
 }
 
@@ -162,10 +210,85 @@ fn function_list_clone(items: & [Function]) -> [Function] {
     return out
 }
 
+fn function_list_empty() -> [Function] {
+    let mut out: [Function] = []
+    return out
+}
+
+struct CompileItem {
+    expr: Expr,
+}
+
+fn compile_item_clone(c: &CompileItem) -> CompileItem {
+    return CompileItem { expr: expr_clone(&c.expr) }
+}
+
+fn compile_item_list_clone(items: & [CompileItem]) -> [CompileItem] {
+    let mut out: [CompileItem] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, compile_item_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn compile_item_list_empty() -> [CompileItem] {
+    let mut out: [CompileItem] = []
+    return out
+}
+
 struct Program {
     structs: [StructDecl],
     enums: [EnumDecl],
     type_aliases: [TypeAlias],
     consts: [ConstDecl],
     functions: [Function],
+    compile_items: [CompileItem],
+    traits: [TraitDecl],
+    impls: [ImplDecl],
+}
+
+struct TraitDecl {
+    name: String,
+    type_params: [GenericParam],
+}
+
+fn trait_decl_clone(t: &TraitDecl) -> TraitDecl {
+    return TraitDecl { name: string_clone(&t.name), type_params: generic_param_list_clone(&t.type_params) }
+}
+
+fn trait_decl_list_clone(items: & [TraitDecl]) -> [TraitDecl] {
+    let mut out: [TraitDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, trait_decl_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct ImplDecl {
+    trait_name: String,
+    for_type: String,
+    type_params: [GenericParam],
+}
+
+fn impl_decl_clone(i: &ImplDecl) -> ImplDecl {
+    return ImplDecl { trait_name: string_clone(&i.trait_name), for_type: string_clone(&i.for_type), type_params: generic_param_list_clone(&i.type_params) }
+}
+
+fn impl_decl_list_clone(items: & [ImplDecl]) -> [ImplDecl] {
+    let mut out: [ImplDecl] = []
+    let mut i = 0
+    while i < len(*items) {
+        push(&mut out, impl_decl_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn impl_decl_list_empty() -> [ImplDecl] {
+    let mut out: [ImplDecl] = []
+    return out
 }

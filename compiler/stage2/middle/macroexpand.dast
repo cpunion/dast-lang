@@ -1,0 +1,1096 @@
+// Minimal macro expansion for stage2 (macro fn, compile!, quote).
+
+const MV_UNIT = 0
+const MV_INT = 1
+const MV_BOOL = 2
+const MV_STRING = 3
+const MV_AST_EXPR = 4
+const MV_AST_STMT = 5
+const MV_AST_ITEM = 6
+const MV_AST_BLOCK = 7
+const MV_BIND = 8
+
+struct MacroValue {
+    kind: i32,
+    int_value: i64,
+    bool_value: bool,
+    str_value: String,
+    expr: Expr,
+    stmt: Stmt,
+    block: Block,
+    prog: Program,
+    ast_src: String,
+}
+
+fn program_empty() -> Program {
+    let mut structs: [StructDecl] = []
+    let mut enums: [EnumDecl] = []
+    let mut type_aliases: [TypeAlias] = []
+    let mut consts: [ConstDecl] = []
+    let mut functions: [Function] = []
+    let mut traits: [TraitDecl] = []
+    let mut impls: [ImplDecl] = []
+    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: functions, compile_items: compile_item_list_empty(), traits: traits, impls: impls }
+}
+
+fn program_clone(p: &Program) -> Program {
+    return Program {
+        structs: struct_decl_list_clone(&p.structs),
+        enums: enum_decl_list_clone(&p.enums),
+        type_aliases: type_alias_list_clone(&p.type_aliases),
+        consts: const_decl_list_clone(&p.consts),
+        functions: function_list_clone(&p.functions),
+        compile_items: compile_item_list_clone(&p.compile_items),
+        traits: trait_decl_list_clone(&p.traits),
+        impls: impl_decl_list_clone(&p.impls),
+    }
+}
+
+fn program_merge(dest: &mut Program, src: &Program) {
+    let mut d = dest
+    let mut i = 0
+    while i < len(src.structs) {
+        push(&mut d.structs, struct_decl_clone(&src.structs[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(src.enums) {
+        push(&mut d.enums, enum_decl_clone(&src.enums[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(src.type_aliases) {
+        push(&mut d.type_aliases, type_alias_clone(&src.type_aliases[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(src.consts) {
+        push(&mut d.consts, const_decl_clone(&src.consts[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(src.traits) {
+        push(&mut d.traits, trait_decl_clone(&src.traits[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(src.impls) {
+        push(&mut d.impls, impl_decl_clone(&src.impls[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(src.functions) {
+        push(&mut d.functions, function_clone(&src.functions[i]))
+        i = i + 1
+    }
+}
+
+fn macro_value_unit() -> MacroValue {
+    return MacroValue { kind: MV_UNIT, int_value: 0, bool_value: false, str_value: "", expr: expr_int(0), stmt: stmt_expr(expr_int(0)), block: block_empty(), prog: program_empty(), ast_src: "" }
+}
+
+fn macro_value_int(v: i64) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_INT
+    out.int_value = v
+    return out
+}
+
+fn macro_value_bool(v: bool) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_BOOL
+    out.bool_value = v
+    return out
+}
+
+fn macro_value_string(v: String) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_STRING
+    out.str_value = v
+    return out
+}
+
+fn macro_value_bind(name: String) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_BIND
+    out.str_value = name
+    return out
+}
+
+fn macro_value_expr(e: Expr, src: String) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_AST_EXPR
+    out.expr = expr_clone(&e)
+    out.ast_src = src
+    return out
+}
+
+fn macro_value_stmt(s: Stmt, src: String) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_AST_STMT
+    out.stmt = stmt_clone(&s)
+    out.ast_src = src
+    return out
+}
+
+fn macro_value_block(b: Block, src: String) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_AST_BLOCK
+    out.block = block_clone(&b)
+    out.ast_src = src
+    return out
+}
+
+fn macro_value_item(p: Program, src: String) -> MacroValue {
+    let mut out = macro_value_unit()
+    out.kind = MV_AST_ITEM
+    out.prog = program_clone(&p)
+    out.ast_src = src
+    return out
+}
+
+fn macro_value_clone(v: &MacroValue) -> MacroValue {
+    return MacroValue {
+        kind: v.kind,
+        int_value: v.int_value,
+        bool_value: v.bool_value,
+        str_value: string_clone(&v.str_value),
+        expr: expr_clone(&v.expr),
+        stmt: stmt_clone(&v.stmt),
+        block: block_clone(&v.block),
+        prog: program_clone(&v.prog),
+        ast_src: string_clone(&v.ast_src),
+    }
+}
+
+struct MacroEnv {
+    names: [String],
+    values: [MacroValue],
+}
+
+fn macro_env_new() -> MacroEnv {
+    let mut names: [String] = []
+    let mut values: [MacroValue] = []
+    return MacroEnv { names: names, values: values }
+}
+
+fn macro_env_get(env: &MacroEnv, name: &str) -> MacroValue {
+    let mut i = len(env.names) - 1
+    while i >= 0 {
+        if env.names[i] == name {
+            return macro_value_clone(&env.values[i])
+        }
+        if i == 0 { break }
+        i = i - 1
+    }
+    println("stage2: macro unknown identifier", name)
+    exit(1)
+    return macro_value_unit()
+}
+
+fn macro_env_set(env: &mut MacroEnv, name: &str, v: MacroValue) {
+    let mut e = env
+    push(&mut e.names, string_clone(name))
+    push(&mut e.values, macro_value_clone(&v))
+}
+
+struct MacroCtx {
+    macro_names: [String],
+    macro_funcs: [Function],
+    gensym_count: i64,
+}
+
+fn macro_ctx_new(prog: &Program) -> MacroCtx {
+    let mut names: [String] = []
+    let mut funcs: [Function] = []
+    let mut i = 0
+    while i < len(prog.functions) {
+        let f = &prog.functions[i]
+        if f.is_macro {
+            push(&mut names, string_clone(&f.name))
+            push(&mut funcs, function_clone(f))
+        }
+        i = i + 1
+    }
+    return MacroCtx { macro_names: names, macro_funcs: funcs, gensym_count: 0 }
+}
+
+fn macro_find_fn(ctx: &MacroCtx, name: &str) -> i64 {
+    let mut i = 0
+    while i < len(ctx.macro_names) {
+        if ctx.macro_names[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn macro_gensym(ctx: &mut MacroCtx, prefix: &str) -> String {
+    let name = "__dast_" + string_clone(prefix) + "_" + int_to_string(ctx.gensym_count)
+    ctx.gensym_count = ctx.gensym_count + 1
+    return name
+}
+
+struct EvalResult {
+    value: MacroValue,
+    returned: bool,
+}
+
+fn eval_result(value: MacroValue, returned: bool) -> EvalResult {
+    return EvalResult { value: value, returned: returned }
+}
+
+fn eval_block(ctx: &mut MacroCtx, env: &mut MacroEnv, block: &Block) -> EvalResult {
+    let n = len(block.stmts)
+    if n == 0 { return eval_result(macro_value_unit(), false) }
+    let mut i = 0
+    while i < n {
+        let stmt = stmt_clone(&block.stmts[i])
+        if i + 1 == n && stmt.kind == STMT_EXPR {
+            let v = eval_expr(ctx, env, &stmt.expr)
+            return eval_result(v, false)
+        }
+        let res = eval_stmt(ctx, env, &stmt)
+        if res.returned { return res }
+        i = i + 1
+    }
+    return eval_result(macro_value_unit(), false)
+}
+
+fn eval_stmt(ctx: &mut MacroCtx, env: &mut MacroEnv, stmt: &Stmt) -> EvalResult {
+    if stmt.kind == STMT_LET {
+        let v = eval_expr(ctx, env, &stmt.expr)
+        macro_env_set(env, &stmt.name, v)
+        return eval_result(macro_value_unit(), false)
+    }
+    if stmt.kind == STMT_RETURN {
+        if stmt.ret_has_value {
+            let v = eval_expr(ctx, env, &stmt.expr)
+            return eval_result(v, true)
+        }
+        return eval_result(macro_value_unit(), true)
+    }
+    if stmt.kind == STMT_EXPR {
+        let v = eval_expr(ctx, env, &stmt.expr)
+        return eval_result(v, false)
+    }
+    println("stage2: unsupported macro stmt")
+    exit(1)
+    return eval_result(macro_value_unit(), false)
+}
+
+fn macro_value_expect_string(v: &MacroValue) -> String {
+    if v.kind == MV_STRING { return string_clone(&v.str_value) }
+    println("stage2: macro expects String/str")
+    exit(1)
+    return ""
+}
+
+fn macro_value_to_string(v: &MacroValue) -> String {
+    if v.kind == MV_STRING { return string_clone(&v.str_value) }
+    if v.kind == MV_AST_EXPR || v.kind == MV_AST_STMT || v.kind == MV_AST_ITEM || v.kind == MV_AST_BLOCK {
+        if v.ast_src != "" { return string_clone(&v.ast_src) }
+    }
+    println("stage2: ast_to_string unsupported value")
+    exit(1)
+    return ""
+}
+
+fn eval_macro_fn(ctx: &mut MacroCtx, f: &Function, args: [MacroValue]) -> MacroValue {
+    if len(args) != len(f.params) {
+        println("stage2: macro arg mismatch", f.name, len(args), len(f.params))
+        exit(1)
+    }
+    let mut env = macro_env_new()
+    let mut i = 0
+    while i < len(f.params) {
+        macro_env_set(&mut env, &f.params[i].name, macro_value_clone(&args[i]))
+        i = i + 1
+    }
+    let res = eval_block(ctx, &mut env, &f.body)
+    return res.value
+}
+
+fn eval_macro_call(ctx: &mut MacroCtx, name: &str, args: [MacroValue]) -> MacroValue {
+    let idx = macro_find_fn(ctx, name)
+    if idx < 0 {
+        println("stage2: unknown macro", name)
+        exit(1)
+    }
+    return eval_macro_fn(ctx, &ctx.macro_funcs[idx], args)
+}
+
+fn eval_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue {
+    match expr.kind {
+        EXPR_INT => { return macro_value_int(expr.int_value) }
+        EXPR_BOOL => { return macro_value_bool(expr.bool_value) }
+        EXPR_CHAR => { return macro_value_int(expr.int_value) }
+        EXPR_STRING => { return macro_value_string(string_clone(&expr.name)) }
+        EXPR_IDENT => { return macro_env_get(env, &expr.name) }
+        EXPR_BLOCK => {
+            let res = eval_block(ctx, env, &expr.block)
+            return res.value
+        }
+        EXPR_QUOTE => { return eval_quote_expr(ctx, env, expr) }
+        EXPR_MACRO_CALL => {
+            let name = string_clone(&expr.name)
+            if name == "compile" {
+                if len(expr.args) != 1 { println("stage2: compile! expects 1 arg"); exit(1) }
+                let arg0 = expr_clone(&expr.args[0])
+                return eval_expr(ctx, env, &arg0)
+            }
+            let mut args: [MacroValue] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut args, eval_expr(ctx, env, &arg))
+                i = i + 1
+            }
+            return eval_macro_call(ctx, &name, args)
+        }
+        EXPR_CALL => {
+            let name = string_clone(&expr.name)
+            if name == "ast_expr" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                let s = macro_value_expect_string(&v)
+                let e = parse_expr_string(&s)
+                return macro_value_expr(e, s)
+            }
+            if name == "ast_stmt" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                let s = macro_value_expect_string(&v)
+                let st = parse_stmt_string(&s)
+                return macro_value_stmt(st, s)
+            }
+            if name == "ast_item" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                let s = macro_value_expect_string(&v)
+                let p = parse_program_loose(&s)
+                return macro_value_item(p, s)
+            }
+            if name == "ast_block" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                let s = macro_value_expect_string(&v)
+                let b = parse_block_string(&s)
+                return macro_value_block(b, s)
+            }
+            if name == "ast_to_string" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                return macro_value_string(macro_value_to_string(&v))
+            }
+            if name == "gensym" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                let prefix = macro_value_expect_string(&v)
+                let name = macro_gensym(ctx, &prefix)
+                return macro_value_string(name)
+            }
+            if name == "bind" {
+                let arg0 = expr_clone(&expr.args[0])
+                let v = eval_expr(ctx, env, &arg0)
+                let name = macro_value_expect_string(&v)
+                return macro_value_bind(name)
+            }
+        }
+    }
+    println("stage2: unsupported macro expr")
+    exit(1)
+    return macro_value_unit()
+}
+
+struct QuoteSplice {
+    id: i64,
+    value: MacroValue,
+}
+
+fn quote_splice_list_empty() -> [QuoteSplice] {
+    let mut out: [QuoteSplice] = []
+    return out
+}
+
+fn quote_placeholder_name(id: i64) -> String {
+    return "__dast_splice_" + int_to_string(id) + "__"
+}
+
+fn quote_is_placeholder(name: &str) -> bool {
+    return str_has_prefix(name, "__dast_splice_") && str_has_suffix(name, "__")
+}
+
+fn quote_placeholder_index(name: &str) -> i64 {
+    if !quote_is_placeholder(name) { return -1 }
+    let prefix = "__dast_splice_"
+    let suffix = "__"
+    let plen = str_len(prefix)
+    let slen = str_len(name)
+    let inner_len = slen - plen - str_len(suffix)
+    if inner_len <= 0 { return -1 }
+    let inner = str_substr(name, plen, inner_len)
+    return parse_int_simple(&inner)
+}
+
+fn quote_bind_marker(name: &str) -> String {
+    return "__dast_bind__" + string_clone(name)
+}
+
+fn quote_is_bind_marker(name: &str) -> bool {
+    return str_has_prefix(name, "__dast_bind__")
+}
+
+fn quote_strip_bind_marker(name: &str) -> String {
+    if !quote_is_bind_marker(name) { return string_clone(name) }
+    let prefix = "__dast_bind__"
+    let plen = str_len(prefix)
+    let slen = str_len(name)
+    if slen <= plen { return "" }
+    return str_substr(name, plen, slen - plen)
+}
+
+fn quote_is_ident_char(c: i64) -> bool {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+fn quote_join(out: String, add: &str) -> String {
+    if out == "" { return string_clone(add) }
+    if add == "" { return out }
+    let out_len = str_len(&out)
+    let add_len = str_len(add)
+    if out_len > 0 && add_len > 0 {
+        let last = str_char_at(&out, out_len - 1)
+        let first = str_char_at(add, 0)
+        if quote_is_ident_char(last) && quote_is_ident_char(first) {
+            return out + " " + string_clone(add)
+        }
+    }
+    return out + string_clone(add)
+}
+
+struct RenameMap {
+    names: [String],
+    values: [String],
+}
+
+fn rename_map_new() -> RenameMap {
+    let mut names: [String] = []
+    let mut values: [String] = []
+    return RenameMap { names: names, values: values }
+}
+
+fn rename_map_clone(m: &RenameMap) -> RenameMap {
+    let mut out = rename_map_new()
+    let mut i = 0
+    while i < len(m.names) {
+        push(&mut out.names, string_clone(&m.names[i]))
+        push(&mut out.values, string_clone(&m.values[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn rename_map_get(m: &RenameMap, name: &str) -> String {
+    let mut i = 0
+    while i < len(m.names) {
+        if m.names[i] == name { return string_clone(&m.values[i]) }
+        i = i + 1
+    }
+    return string_clone(name)
+}
+
+fn rename_map_add(m: &mut RenameMap, name: &str, renamed: &str) {
+    let mut r = m
+    push(&mut r.names, string_clone(name))
+    push(&mut r.values, string_clone(renamed))
+}
+
+fn hygiene_rename_ident(ctx: &mut MacroCtx, m: &RenameMap, name: &str) -> String {
+    if quote_is_placeholder(name) { return string_clone(name) }
+    if quote_is_bind_marker(name) { return quote_strip_bind_marker(name) }
+    return rename_map_get(m, name)
+}
+
+fn hygiene_bind_name(ctx: &mut MacroCtx, m: &mut RenameMap, name: &str) -> String {
+    if quote_is_placeholder(name) { return string_clone(name) }
+    if quote_is_bind_marker(name) { return quote_strip_bind_marker(name) }
+    let renamed = macro_gensym(ctx, name)
+    rename_map_add(m, name, &renamed)
+    return renamed
+}
+
+fn hygiene_expr(ctx: &mut MacroCtx, m: &RenameMap, expr: &Expr) -> Expr {
+    match expr.kind {
+        EXPR_IDENT => { return expr_ident(hygiene_rename_ident(ctx, m, &expr.name)) }
+        EXPR_INT => { return expr_int(expr.int_value) }
+        EXPR_BOOL => { return expr_bool(expr.bool_value) }
+        EXPR_CHAR => { return expr_char(expr.int_value) }
+        EXPR_STRING => { return expr_string(string_clone(&expr.name)) }
+        EXPR_BINARY => {
+            let lhs0 = expr_clone(&expr.args[0])
+            let rhs0 = expr_clone(&expr.args[1])
+            let lhs = hygiene_expr(ctx, m, &lhs0)
+            let rhs = hygiene_expr(ctx, m, &rhs0)
+            return expr_binary(string_clone(&expr.name), lhs, rhs)
+        }
+        EXPR_CALL => {
+            let mut args: [Expr] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut args, hygiene_expr(ctx, m, &arg))
+                i = i + 1
+            }
+            return expr_call(string_clone(&expr.name), args)
+        }
+        EXPR_MACRO_CALL => {
+            let mut args: [Expr] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut args, hygiene_expr(ctx, m, &arg))
+                i = i + 1
+            }
+            return expr_macro_call(string_clone(&expr.name), args)
+        }
+        EXPR_FIELD => {
+            let recv0 = expr_clone(&expr.args[0])
+            let recv = hygiene_expr(ctx, m, &recv0)
+            return expr_field(recv, string_clone(&expr.name))
+        }
+        EXPR_REF => {
+            let inner0 = expr_clone(&expr.args[0])
+            let inner = hygiene_expr(ctx, m, &inner0)
+            return expr_ref(inner)
+        }
+        EXPR_DEREF => {
+            let inner0 = expr_clone(&expr.args[0])
+            let inner = hygiene_expr(ctx, m, &inner0)
+            return expr_deref(inner)
+        }
+        EXPR_ARRAY => {
+            let mut elems: [Expr] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut elems, hygiene_expr(ctx, m, &arg))
+                i = i + 1
+            }
+            return expr_array(elems)
+        }
+        EXPR_INDEX => {
+            let recv0 = expr_clone(&expr.args[0])
+            let idx0 = expr_clone(&expr.args[1])
+            let recv = hygiene_expr(ctx, m, &recv0)
+            let idx = hygiene_expr(ctx, m, &idx0)
+            return expr_index(recv, idx)
+        }
+        EXPR_STRUCT_LIT => {
+            let mut fields: [FieldInit] = []
+            let mut i = 0
+            while i < len(expr.fields) {
+                let f = field_init_clone(&expr.fields[i])
+                let v = hygiene_expr(ctx, m, &f.value)
+                push(&mut fields, FieldInit { name: f.name, value: v })
+                i = i + 1
+            }
+            return expr_struct_lit(string_clone(&expr.name), fields)
+        }
+        EXPR_BLOCK => {
+            let mut map2 = rename_map_clone(m)
+            let b = hygiene_block(ctx, &mut map2, &expr.block)
+            return expr_block(b)
+        }
+        EXPR_MATCH => {
+            let scrut0 = expr_clone(&expr.args[0])
+            let scrut = hygiene_expr(ctx, m, &scrut0)
+            let arms = hygiene_match_arms(ctx, m, &expr.match_arms)
+            return expr_match(scrut, arms)
+        }
+    }
+    return expr_clone(expr)
+}
+
+fn hygiene_match_arms(ctx: &mut MacroCtx, m: &RenameMap, arms: & [MatchArm]) -> [MatchArm] {
+    let mut out: [MatchArm] = []
+    let mut i = 0
+    while i < len(*arms) {
+        let a = &(*arms)[i]
+        let mut map2 = rename_map_clone(m)
+        let mut binding = string_clone(&a.binding)
+        let mut fields = struct_pattern_field_list_clone(&a.struct_fields)
+        if a.pat_kind == PAT_VARIANT && a.has_binding {
+            binding = hygiene_bind_name(ctx, &mut map2, &binding)
+        }
+        if a.pat_kind == PAT_STRUCT {
+            let mut fi = 0
+            while fi < len(fields) {
+                if fields[fi].has_binding {
+                    let bname = hygiene_bind_name(ctx, &mut map2, &fields[fi].binding)
+                    fields[fi] = StructPatternField { name: fields[fi].name, binding: bname, has_binding: fields[fi].has_binding }
+                }
+                fi = fi + 1
+            }
+        }
+        let b = hygiene_block(ctx, &mut map2, &a.block)
+        let na = MatchArm {
+            pat_kind: a.pat_kind,
+            variant: string_clone(&a.variant),
+            binding: binding,
+            has_binding: a.has_binding,
+            int_value: a.int_value,
+            struct_name: string_clone(&a.struct_name),
+            struct_fields: fields,
+            block: b,
+        }
+        push(&mut out, na)
+        i = i + 1
+    }
+    return out
+}
+
+fn hygiene_block(ctx: &mut MacroCtx, m: &mut RenameMap, block: &Block) -> Block {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(block.stmts) {
+        let s = &block.stmts[i]
+        if s.kind == STMT_LET {
+            let expr = hygiene_expr(ctx, m, &s.expr)
+            let mut name = string_clone(&s.name)
+            if !quote_is_placeholder(&name) {
+                if quote_is_bind_marker(&name) {
+                    name = quote_strip_bind_marker(&name)
+                } else {
+                    name = hygiene_bind_name(ctx, m, &name)
+                }
+            }
+            push(&mut out, Stmt { kind: STMT_LET, name: name, mutable: s.mutable, has_type: s.has_type, typ: string_clone(&s.typ), lhs: expr_clone(&s.lhs), expr: expr, block: block_clone(&s.block), else_block: block_clone(&s.else_block), has_else: s.has_else, ret_has_value: s.ret_has_value, pat_variant: string_clone(&s.pat_variant), pat_binding: string_clone(&s.pat_binding), pat_has_binding: s.pat_has_binding, arms: match_arm_list_clone(&s.arms) })
+            i = i + 1
+            continue
+        }
+        if s.kind == STMT_IF || s.kind == STMT_WHILE || s.kind == STMT_LOOP {
+            let cond = hygiene_expr(ctx, m, &s.expr)
+            let mut map_then = rename_map_clone(m)
+            let then_b = hygiene_block(ctx, &mut map_then, &s.block)
+            let mut map_else = rename_map_clone(m)
+            let else_b = hygiene_block(ctx, &mut map_else, &s.else_block)
+            push(&mut out, Stmt { kind: s.kind, name: string_clone(&s.name), mutable: s.mutable, has_type: s.has_type, typ: string_clone(&s.typ), lhs: expr_clone(&s.lhs), expr: cond, block: then_b, else_block: else_b, has_else: s.has_else, ret_has_value: s.ret_has_value, pat_variant: string_clone(&s.pat_variant), pat_binding: string_clone(&s.pat_binding), pat_has_binding: s.pat_has_binding, arms: match_arm_list_clone(&s.arms) })
+            i = i + 1
+            continue
+        }
+        if s.kind == STMT_IFLET {
+            let cond = hygiene_expr(ctx, m, &s.expr)
+            let mut map_then = rename_map_clone(m)
+            let mut binding = string_clone(&s.pat_binding)
+            if s.pat_has_binding {
+                binding = hygiene_bind_name(ctx, &mut map_then, &binding)
+            }
+            let then_b = hygiene_block(ctx, &mut map_then, &s.block)
+            let mut map_else = rename_map_clone(m)
+            let else_b = hygiene_block(ctx, &mut map_else, &s.else_block)
+            push(&mut out, Stmt { kind: STMT_IFLET, name: string_clone(&s.name), mutable: s.mutable, has_type: s.has_type, typ: string_clone(&s.typ), lhs: expr_clone(&s.lhs), expr: cond, block: then_b, else_block: else_b, has_else: s.has_else, ret_has_value: s.ret_has_value, pat_variant: string_clone(&s.pat_variant), pat_binding: binding, pat_has_binding: s.pat_has_binding, arms: match_arm_list_clone(&s.arms) })
+            i = i + 1
+            continue
+        }
+        if s.kind == STMT_MATCH {
+            let scrut = hygiene_expr(ctx, m, &s.expr)
+            let arms = hygiene_match_arms(ctx, m, &s.arms)
+            push(&mut out, Stmt { kind: STMT_MATCH, name: string_clone(&s.name), mutable: s.mutable, has_type: s.has_type, typ: string_clone(&s.typ), lhs: expr_clone(&s.lhs), expr: scrut, block: block_clone(&s.block), else_block: block_clone(&s.else_block), has_else: s.has_else, ret_has_value: s.ret_has_value, pat_variant: string_clone(&s.pat_variant), pat_binding: string_clone(&s.pat_binding), pat_has_binding: s.pat_has_binding, arms: arms })
+            i = i + 1
+            continue
+        }
+        if s.kind == STMT_RETURN {
+            let v = hygiene_expr(ctx, m, &s.expr)
+            push(&mut out, Stmt { kind: STMT_RETURN, name: string_clone(&s.name), mutable: s.mutable, has_type: s.has_type, typ: string_clone(&s.typ), lhs: expr_clone(&s.lhs), expr: v, block: block_clone(&s.block), else_block: block_clone(&s.else_block), has_else: s.has_else, ret_has_value: s.ret_has_value, pat_variant: string_clone(&s.pat_variant), pat_binding: string_clone(&s.pat_binding), pat_has_binding: s.pat_has_binding, arms: match_arm_list_clone(&s.arms) })
+            i = i + 1
+            continue
+        }
+        if s.kind == STMT_EXPR {
+            let v = hygiene_expr(ctx, m, &s.expr)
+            push(&mut out, Stmt { kind: STMT_EXPR, name: string_clone(&s.name), mutable: s.mutable, has_type: s.has_type, typ: string_clone(&s.typ), lhs: expr_clone(&s.lhs), expr: v, block: block_clone(&s.block), else_block: block_clone(&s.else_block), has_else: s.has_else, ret_has_value: s.ret_has_value, pat_variant: string_clone(&s.pat_variant), pat_binding: string_clone(&s.pat_binding), pat_has_binding: s.pat_has_binding, arms: match_arm_list_clone(&s.arms) })
+            i = i + 1
+            continue
+        }
+        push(&mut out, stmt_clone(s))
+        i = i + 1
+    }
+    return Block { stmts: out }
+}
+
+fn replace_expr_splices(expr: &Expr, splices: & [QuoteSplice]) -> Expr {
+    if expr.kind == EXPR_IDENT {
+        let idx = quote_placeholder_index(&expr.name)
+        if idx >= 0 && idx < len(*splices) {
+            let v = &(*splices)[idx].value
+            if v.kind == MV_AST_EXPR {
+                return expr_clone(&v.expr)
+            }
+            if v.kind == MV_STRING {
+                return expr_ident(string_clone(&v.str_value))
+            }
+        }
+        return expr_clone(expr)
+    }
+    if expr.kind == EXPR_BINARY || expr.kind == EXPR_CALL || expr.kind == EXPR_MACRO_CALL || expr.kind == EXPR_FIELD || expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_ARRAY || expr.kind == EXPR_INDEX {
+        if expr.kind == EXPR_BINARY {
+            let lhs0 = expr_clone(&expr.args[0])
+            let rhs0 = expr_clone(&expr.args[1])
+            let lhs = replace_expr_splices(&lhs0, splices)
+            let rhs = replace_expr_splices(&rhs0, splices)
+            return expr_binary(string_clone(&expr.name), lhs, rhs)
+        }
+        if expr.kind == EXPR_CALL {
+            let mut args: [Expr] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut args, replace_expr_splices(&arg, splices))
+                i = i + 1
+            }
+            return expr_call(string_clone(&expr.name), args)
+        }
+        if expr.kind == EXPR_MACRO_CALL {
+            let mut args: [Expr] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut args, replace_expr_splices(&arg, splices))
+                i = i + 1
+            }
+            return expr_macro_call(string_clone(&expr.name), args)
+        }
+        if expr.kind == EXPR_FIELD {
+            let recv0 = expr_clone(&expr.args[0])
+            let recv = replace_expr_splices(&recv0, splices)
+            return expr_field(recv, string_clone(&expr.name))
+        }
+        if expr.kind == EXPR_REF {
+            let inner0 = expr_clone(&expr.args[0])
+            let inner = replace_expr_splices(&inner0, splices)
+            return expr_ref(inner)
+        }
+        if expr.kind == EXPR_DEREF {
+            let inner0 = expr_clone(&expr.args[0])
+            let inner = replace_expr_splices(&inner0, splices)
+            return expr_deref(inner)
+        }
+        if expr.kind == EXPR_ARRAY {
+            let mut elems: [Expr] = []
+            let mut i = 0
+            while i < len(expr.args) {
+                let arg = expr_clone(&expr.args[i])
+                push(&mut elems, replace_expr_splices(&arg, splices))
+                i = i + 1
+            }
+            return expr_array(elems)
+        }
+        if expr.kind == EXPR_INDEX {
+            let recv0 = expr_clone(&expr.args[0])
+            let idx0 = expr_clone(&expr.args[1])
+            let recv = replace_expr_splices(&recv0, splices)
+            let idx = replace_expr_splices(&idx0, splices)
+            return expr_index(recv, idx)
+        }
+    }
+    if expr.kind == EXPR_STRUCT_LIT {
+        let mut fields: [FieldInit] = []
+        let mut i = 0
+        while i < len(expr.fields) {
+            let f = field_init_clone(&expr.fields[i])
+            let v = replace_expr_splices(&f.value, splices)
+            push(&mut fields, FieldInit { name: f.name, value: v })
+            i = i + 1
+        }
+        return expr_struct_lit(string_clone(&expr.name), fields)
+    }
+    if expr.kind == EXPR_MATCH {
+        let scrut0 = expr_clone(&expr.args[0])
+        let scrut = replace_expr_splices(&scrut0, splices)
+        let mut arms: [MatchArm] = []
+        let mut i = 0
+        while i < len(expr.match_arms) {
+            let a = &expr.match_arms[i]
+            let nb = replace_block_splices(&a.block, splices)
+            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, int_value: a.int_value, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
+            i = i + 1
+        }
+        return expr_match(scrut, arms)
+    }
+    if expr.kind == EXPR_BLOCK {
+        let b = replace_block_splices(&expr.block, splices)
+        return expr_block(b)
+    }
+    return expr_clone(expr)
+}
+
+fn replace_stmt_splices(stmt: &Stmt, splices: & [QuoteSplice]) -> Stmt {
+    if stmt.kind == STMT_LET {
+        let v = replace_expr_splices(&stmt.expr, splices)
+        return Stmt { kind: STMT_LET, name: string_clone(&stmt.name), mutable: stmt.mutable, has_type: stmt.has_type, typ: string_clone(&stmt.typ), lhs: expr_clone(&stmt.lhs), expr: v, block: block_clone(&stmt.block), else_block: block_clone(&stmt.else_block), has_else: stmt.has_else, ret_has_value: stmt.ret_has_value, pat_variant: string_clone(&stmt.pat_variant), pat_binding: string_clone(&stmt.pat_binding), pat_has_binding: stmt.pat_has_binding, arms: match_arm_list_clone(&stmt.arms) }
+    }
+    if stmt.kind == STMT_EXPR || stmt.kind == STMT_ASSIGN || stmt.kind == STMT_RETURN || stmt.kind == STMT_IF || stmt.kind == STMT_IFLET || stmt.kind == STMT_WHILE || stmt.kind == STMT_LOOP || stmt.kind == STMT_MATCH {
+        let v = replace_expr_splices(&stmt.expr, splices)
+        let b = replace_block_splices(&stmt.block, splices)
+        let eb = replace_block_splices(&stmt.else_block, splices)
+        let mut arms: [MatchArm] = []
+        let mut ai = 0
+        while ai < len(stmt.arms) {
+            let a = &stmt.arms[ai]
+            let nb = replace_block_splices(&a.block, splices)
+            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, int_value: a.int_value, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
+            ai = ai + 1
+        }
+        return Stmt { kind: stmt.kind, name: string_clone(&stmt.name), mutable: stmt.mutable, has_type: stmt.has_type, typ: string_clone(&stmt.typ), lhs: expr_clone(&stmt.lhs), expr: v, block: b, else_block: eb, has_else: stmt.has_else, ret_has_value: stmt.ret_has_value, pat_variant: string_clone(&stmt.pat_variant), pat_binding: string_clone(&stmt.pat_binding), pat_has_binding: stmt.pat_has_binding, arms: arms }
+    }
+    return stmt_clone(stmt)
+}
+
+fn replace_block_splices(block: &Block, splices: & [QuoteSplice]) -> Block {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(block.stmts) {
+        push(&mut out, replace_stmt_splices(&block.stmts[i], splices))
+        i = i + 1
+    }
+    return Block { stmts: out }
+}
+
+fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue {
+    let mut splices = quote_splice_list_empty()
+    let mut out = ""
+    let mut i = 0
+    while i < len(expr.quote_parts) {
+        let part = &expr.quote_parts[i]
+        out = quote_join(out, &part.text)
+        if part.has_expr {
+            let v = eval_expr(ctx, env, &part.expr)
+            if v.kind == MV_BIND {
+                let marker = quote_bind_marker(&v.str_value)
+                out = quote_join(out, &marker)
+            } else if v.kind == MV_STRING {
+                out = quote_join(out, &v.str_value)
+            } else {
+                let id = len(splices)
+                push(&mut splices, QuoteSplice { id: id, value: v })
+                let name = quote_placeholder_name(id)
+                out = quote_join(out, &name)
+            }
+        }
+        i = i + 1
+    }
+    if expr.quote_kind == QUOTE_EXPR {
+        let parsed = parse_expr_string(&out)
+        let mut map = rename_map_new()
+        let renamed = hygiene_expr(ctx, &map, &parsed)
+        let final_expr = replace_expr_splices(&renamed, &splices)
+        return macro_value_expr(final_expr, out)
+    }
+    if expr.quote_kind == QUOTE_STMT {
+        let parsed = parse_stmt_string(&out)
+        let mut map = rename_map_new()
+        let mut tmp: [Stmt] = []
+        push(&mut tmp, parsed)
+        let blk = Block { stmts: tmp }
+        let renamed = hygiene_block(ctx, &mut map, &blk)
+        let stmt0 = renamed.stmts[0]
+        let final_stmt = replace_stmt_splices(&stmt0, &splices)
+        return macro_value_stmt(final_stmt, out)
+    }
+    if expr.quote_kind == QUOTE_ITEM {
+        let parsed = parse_program_loose(&out)
+        return macro_value_item(parsed, out)
+    }
+    println("stage2: unknown quote kind")
+    exit(1)
+    return macro_value_unit()
+}
+
+fn expand_expr(ctx: &mut MacroCtx, expr: Expr) -> Expr {
+    if (expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH) && len(expr.args) < 1 {
+        println("stage2: expand bad expr args", expr.kind, "len", len(expr.args), expr.name)
+        exit(1)
+    }
+    if (expr.kind == EXPR_INDEX || expr.kind == EXPR_BINARY) && len(expr.args) < 2 {
+        println("stage2: expand bad expr args", expr.kind, "len", len(expr.args), expr.name)
+        exit(1)
+    }
+    if expr.kind == EXPR_MACRO_CALL {
+        let mut env = macro_env_new()
+        let v = eval_expr(ctx, &mut env, &expr)
+        if v.kind == MV_AST_EXPR { return expr_clone(&v.expr) }
+        if v.kind == MV_AST_STMT {
+            println("stage2: macro returned stmt in expr context")
+            exit(1)
+        }
+        return expr_clone(&expr)
+    }
+    if expr.kind == EXPR_QUOTE {
+        let mut env = macro_env_new()
+        let v = eval_quote_expr(ctx, &mut env, &expr)
+        if v.kind == MV_AST_EXPR { return expr_clone(&v.expr) }
+        println("stage2: quote in expr context did not yield expr")
+        exit(1)
+    }
+    let mut out = expr_clone(&expr)
+    let mut i = 0
+    while i < len(expr.args) {
+        let arg = expr_clone(&expr.args[i])
+        out.args[i] = expand_expr(ctx, arg)
+        i = i + 1
+    }
+    if expr.kind == EXPR_STRUCT_LIT {
+        i = 0
+        while i < len(expr.fields) {
+            let f = field_init_clone(&expr.fields[i])
+            let v = expand_expr(ctx, f.value)
+            out.fields[i] = FieldInit { name: f.name, value: v }
+            i = i + 1
+        }
+    }
+    if expr.kind == EXPR_BLOCK {
+        out.block = expand_block(ctx, expr.block)
+    }
+    return out
+}
+
+fn expand_stmt(ctx: &mut MacroCtx, stmt: Stmt) -> [Stmt] {
+    if stmt.kind == STMT_EXPR {
+        let expr_ref = &stmt.expr
+        if expr_ref.kind == EXPR_MACRO_CALL {
+            let mut env = macro_env_new()
+            let v = eval_expr(ctx, &mut env, expr_ref)
+            if v.kind == MV_AST_STMT {
+                let mut out: [Stmt] = []
+                push(&mut out, stmt_clone(&v.stmt))
+                return out
+            }
+            if v.kind == MV_AST_EXPR {
+                let mut out: [Stmt] = []
+                push(&mut out, stmt_expr(expr_clone(&v.expr)))
+                return out
+            }
+        }
+    }
+    if stmt.kind == STMT_LET {
+        let mut out = stmt_clone(&stmt)
+        let expr0 = expr_clone(&out.expr)
+        out.expr = expand_expr(ctx, expr0)
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    if stmt.kind == STMT_EXPR {
+        let mut out = stmt_clone(&stmt)
+        let expr0 = expr_clone(&out.expr)
+        out.expr = expand_expr(ctx, expr0)
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    if stmt.kind == STMT_ASSIGN {
+        let mut out = stmt_clone(&stmt)
+        let lhs0 = expr_clone(&out.lhs)
+        let expr0 = expr_clone(&out.expr)
+        out.lhs = expand_expr(ctx, lhs0)
+        out.expr = expand_expr(ctx, expr0)
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    if stmt.kind == STMT_IF || stmt.kind == STMT_WHILE || stmt.kind == STMT_LOOP {
+        let mut out = stmt_clone(&stmt)
+        let expr0 = expr_clone(&out.expr)
+        out.expr = expand_expr(ctx, expr0)
+        out.block = expand_block(ctx, stmt.block)
+        out.else_block = expand_block(ctx, stmt.else_block)
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    if stmt.kind == STMT_IFLET {
+        let mut out = stmt_clone(&stmt)
+        let expr0 = expr_clone(&out.expr)
+        out.expr = expand_expr(ctx, expr0)
+        out.block = expand_block(ctx, stmt.block)
+        out.else_block = expand_block(ctx, stmt.else_block)
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    if stmt.kind == STMT_MATCH {
+        let mut out = stmt_clone(&stmt)
+        let expr0 = expr_clone(&out.expr)
+        out.expr = expand_expr(ctx, expr0)
+        let mut arms: [MatchArm] = []
+        let mut i = 0
+        while i < len(stmt.arms) {
+            let mut a = match_arm_clone(&stmt.arms[i])
+            a.block = expand_block(ctx, stmt.arms[i].block)
+            push(&mut arms, a)
+            i = i + 1
+        }
+        out.arms = arms
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    if stmt.kind == STMT_RETURN {
+        let mut out = stmt_clone(&stmt)
+        let expr0 = expr_clone(&out.expr)
+        out.expr = expand_expr(ctx, expr0)
+        let mut res: [Stmt] = []
+        push(&mut res, out)
+        return res
+    }
+    let mut res: [Stmt] = []
+    push(&mut res, stmt_clone(&stmt))
+    return res
+}
+
+fn expand_block(ctx: &mut MacroCtx, block: Block) -> Block {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(block.stmts) {
+        let stmt = stmt_clone(&block.stmts[i])
+        let expanded = expand_stmt(ctx, stmt)
+        let mut j = 0
+        while j < len(expanded) {
+            push(&mut out, expanded[j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return Block { stmts: out }
+}
+
+fn macro_expand_program(prog: Program) -> Program {
+    let mut ctx = macro_ctx_new(&prog)
+    let mut out = program_clone(&prog)
+    // Remove macro functions and expand bodies.
+    let mut funcs: [Function] = []
+    let mut i = 0
+    while i < len(out.functions) {
+        let f = &out.functions[i]
+        if !f.is_macro {
+            let mut nf = function_clone(f)
+            nf.body = expand_block(&mut ctx, block_clone(&f.body))
+            push(&mut funcs, nf)
+        }
+        i = i + 1
+    }
+    out.functions = funcs
+    // Evaluate top-level compile! items.
+    let mut ci = 0
+    while ci < len(out.compile_items) {
+        let mut env = macro_env_new()
+        let v = eval_expr(&mut ctx, &mut env, &out.compile_items[ci].expr)
+        if v.kind != MV_AST_ITEM {
+            println("stage2: compile! expects ast_item")
+            exit(1)
+        }
+        program_merge(&mut out, &v.prog)
+        ci = ci + 1
+    }
+    out.compile_items = compile_item_list_empty()
+    return out
+}

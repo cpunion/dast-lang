@@ -1,9 +1,9 @@
 // Printing builtins declared in the prelude package.
 
-fn print(x: i64) -> unit {
+fn print(x: &str) -> unit {
     return
 }
 
-fn println(x: i64) -> unit {
+fn println(x: &str) -> unit {
     return
 }
