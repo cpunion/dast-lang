@@ -26,6 +26,25 @@ fn const_decl_list_clone(items: & [ConstDecl]) -> [ConstDecl] {
     return out
 }
 
+struct ImportDecl {
+    path: String,
+    alias: String,
+}
+
+fn import_decl_clone(i: &ImportDecl) -> ImportDecl {
+    return ImportDecl { path: string_clone(&i.path), alias: string_clone(&i.alias) }
+}
+
+fn import_decl_list_clone(items: & [ImportDecl]) -> [ImportDecl] {
+    let mut out: [ImportDecl] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, import_decl_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
 fn ast_string_list_clone(items: & [String]) -> [String] {
     let mut out: [String] = []
     let mut i = 0
@@ -239,6 +258,7 @@ fn compile_item_list_empty() -> [CompileItem] {
 }
 
 struct Program {
+    imports: [ImportDecl],
     structs: [StructDecl],
     enums: [EnumDecl],
     type_aliases: [TypeAlias],

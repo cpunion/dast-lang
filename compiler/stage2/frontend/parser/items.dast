@@ -301,9 +301,22 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
     return ImplDecl { trait_name: trait_name, for_type: for_type, type_params: type_params }
 }
 
+fn parse_import(p: &mut Parser) -> ImportDecl {
+    let _ = parser_expect(p, TK_IDENT, "import")
+    let path = parser_expect(p, TK_STRING, "import path").text
+    let mut alias = ""
+    if parser_peek(p).kind == TK_IDENT && parser_peek(p).text == "as" {
+        let _ = parser_advance(p)
+        alias = parser_expect(p, TK_IDENT, "import alias").text
+    }
+    if parser_peek(p).kind == TK_SEMI { let _ = parser_advance(p) }
+    return ImportDecl { path: path, alias: alias }
+}
+
 fn parse_program(src: &str) -> Program {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
+    let mut imports: [ImportDecl] = []
     let mut structs: [StructDecl] = []
     let mut enums: [EnumDecl] = []
     let mut type_aliases: [TypeAlias] = []
@@ -335,8 +348,7 @@ fn parse_program(src: &str) -> Program {
             let imp = parse_impl(&mut p, &mut funcs)
             push(&mut impls, imp)
         } else if k == TK_IDENT && parser_peek(&p).text == "import" {
-            println("stage2: imports are not supported")
-            exit(1)
+            push(&mut imports, parse_import(&mut p))
         } else if k == TK_FN {
             let f = parse_fn(&mut p)
             if !f.is_macro && string_clone(&f.name) == "main" { has_main = true }
@@ -354,13 +366,14 @@ fn parse_program(src: &str) -> Program {
         println("parse error: missing fn main")
         exit(1)
     }
-    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
+    return Program { imports: imports, structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
 }
 
 // Parse a program without requiring fn main (used by macro expansion).
 fn parse_program_loose(src: &str) -> Program {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
+    let mut imports: [ImportDecl] = []
     let mut structs: [StructDecl] = []
     let mut enums: [EnumDecl] = []
     let mut type_aliases: [TypeAlias] = []
@@ -391,8 +404,7 @@ fn parse_program_loose(src: &str) -> Program {
             let imp = parse_impl(&mut p, &mut funcs)
             push(&mut impls, imp)
         } else if k == TK_IDENT && parser_peek(&p).text == "import" {
-            println("stage2: imports are not supported")
-            exit(1)
+            push(&mut imports, parse_import(&mut p))
         } else if k == TK_FN {
             let f = parse_fn(&mut p)
             push(&mut funcs, f)
@@ -405,5 +417,5 @@ fn parse_program_loose(src: &str) -> Program {
             exit(1)
         }
     }
-    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
+    return Program { imports: imports, structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
 }

@@ -23,6 +23,7 @@ struct MacroValue {
 }
 
 fn program_empty() -> Program {
+    let mut imports: [ImportDecl] = []
     let mut structs: [StructDecl] = []
     let mut enums: [EnumDecl] = []
     let mut type_aliases: [TypeAlias] = []
@@ -30,11 +31,12 @@ fn program_empty() -> Program {
     let mut functions: [Function] = []
     let mut traits: [TraitDecl] = []
     let mut impls: [ImplDecl] = []
-    return Program { structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: functions, compile_items: compile_item_list_empty(), traits: traits, impls: impls }
+    return Program { imports: imports, structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: functions, compile_items: compile_item_list_empty(), traits: traits, impls: impls }
 }
 
 fn program_clone(p: &Program) -> Program {
     return Program {
+        imports: import_decl_list_clone(&p.imports),
         structs: struct_decl_list_clone(&p.structs),
         enums: enum_decl_list_clone(&p.enums),
         type_aliases: type_alias_list_clone(&p.type_aliases),
@@ -51,6 +53,11 @@ fn program_merge(dest: &mut Program, src: &Program) {
     let mut i = 0
     while i < len(&src.structs) {
         push(&mut d.structs, struct_decl_clone(&src.structs[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(&src.imports) {
+        push(&mut d.imports, import_decl_clone(&src.imports[i]))
         i = i + 1
     }
     i = 0
