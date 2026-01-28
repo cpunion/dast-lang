@@ -1,0 +1,306 @@
+fn emit_store_let(e: &mut Emitter, name: &str, expr: &Expr) {
+    let typ = var_type(e, name)
+    if expr.kind == EXPR_CLOSURE {
+        closure_add(e, name, &expr.block)
+        return
+    }
+    // Moves from non-copy identifiers should transfer drop ownership.
+    if expr.kind == EXPR_IDENT {
+        let src_t = expr_type(e, expr)
+        if drop_needs_drop_type_env(e, &src_t) {
+            drop_live_remove(e, &expr.name)
+        }
+    }
+    let mut v = qbe_value("i64", "0")
+    if expr.kind == EXPR_STRUCT_LIT {
+        let declared = type_resolve(e, &typ)
+        let actual = type_resolve(e, &expr.name)
+        let db = type_strip_args(e, &declared)
+        let ab = type_strip_args(e, &actual)
+        if db != "" && db == ab && declared != actual {
+            let mut lit = expr_clone(expr)
+            lit.name = string_clone(&declared)
+            v = emit_expr(e, &lit)
+        } else {
+            v = emit_expr(e, expr)
+        }
+    } else {
+        v = emit_expr(e, expr)
+    }
+    drop_live_drop_existing(e, name)
+    let op = store_op_for_type(e, &typ)
+    emit_line(e, "  " + op + " " + v.expr + ", %" + var_slot(name))
+    drop_live_set(e, name, &typ)
+}
+
+fn emit_block(e: &mut Emitter, b: &Block) {
+    let mut i = 0
+    while i < len(&b.stmts) {
+        emit_stmt(e, &b.stmts[i])
+        i = i + 1
+    }
+}
+
+fn block_ends_with_terminator(b: &Block) -> bool {
+    let n = len(&b.stmts)
+    if n == 0 { return false }
+    let last = stmt_clone(&b.stmts[n - 1])
+    return last.kind == STMT_BREAK || last.kind == STMT_CONTINUE || last.kind == STMT_RETURN
+}
+
+fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
+    if lhs.kind == EXPR_IDENT {
+        if !var_is_mut(e, &lhs.name) {
+            println("stage2: cannot assign to immutable value", lhs.name)
+            exit(1)
+        }
+        emit_store_let(e, &lhs.name, expr)
+        return
+    }
+    if lhs.kind == EXPR_FIELD {
+        let base_name = expr_lvalue_base(lhs)
+        let base_t = var_type(e, &base_name)
+        if base_name != "" && !var_is_mut(e, &base_name) && !type_is_mut_ref(e, &base_t) {
+            println("stage2: cannot assign to immutable value", base_name)
+            exit(1)
+        }
+        if len(&lhs.args) == 0 {
+            println("stage2: field assignment missing receiver")
+            exit(1)
+        }
+        let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_field_recv"))
+        let mut recv_expr = recv.expr
+        let mut recv_base = recv.typ
+        if type_is_ref(e, &recv_base) {
+            let base_t = type_ref_base(e, &recv_base)
+            let op = load_op_for_type(e, &base_t)
+            let q = qbe_type(e, &base_t)
+            let tmp = new_temp(e)
+            let tn = temp_name(tmp)
+            emit_line(e, "  " + tn + " =" + q + " " + op + " " + recv_expr)
+            recv_expr = tn
+            recv_base = base_t
+        }
+        recv_base = type_strip_ref(e, &recv_base)
+        let fname = string_clone(&lhs.name)
+        let ftyp = struct_field_type(e, &recv_base, &fname)
+        if ftyp == "" {
+            println("stage2: unknown field", fname)
+            exit(1)
+        }
+        let v = emit_expr(e, expr)
+        let casted = cast_to_type(e, v, &ftyp)
+        let fname_ptr = string_data_ptr(e, &fname)
+        let set_fn = struct_set_fn_for_type(e, &ftyp)
+        let q = qbe_type(e, &ftyp)
+        emit_line(e, "  call $" + set_fn + "(l " + recv_expr + ", l " + fname_ptr + ", " + q + " " + casted + ")")
+        return
+    }
+    if lhs.kind == EXPR_INDEX {
+        let base_name = expr_lvalue_base(lhs)
+        let base_t = var_type(e, &base_name)
+        if base_name != "" && !var_is_mut(e, &base_name) && !type_is_mut_ref(e, &base_t) {
+            println("stage2: cannot assign to immutable value", base_name)
+            exit(1)
+        }
+        if len(&lhs.args) < 2 {
+            println("stage2: index assignment missing args")
+            exit(1)
+        }
+        let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_index_recv"))
+        let idxv = emit_expr(e, expr_arg_ref(lhs, 1, "assign_index_idx"))
+        let idx = cast_to_l(e, idxv)
+        let elem_t = expr_type(e, lhs)
+        let v = emit_expr(e, expr)
+        let casted = cast_to_type(e, v, &elem_t)
+        emit_line(e, "  call $dast_array_set(l " + recv.expr + ", l " + idx + ", l " + casted + ")")
+        return
+    }
+    if lhs.kind == EXPR_DEREF && len(&lhs.args) > 0 {
+        let ptr = emit_expr(e, expr_arg_ref(lhs, 0, "assign_deref_ptr"))
+        if !type_is_mut_ref(e, &ptr.typ) {
+            println("stage2: assignment through & requires &mut")
+            exit(1)
+        }
+        let target_t = expr_type(e, lhs)
+        let v = emit_expr(e, expr)
+        let casted = cast_to_type(e, v, &target_t)
+        let op = store_op_for_type(e, &target_t)
+        emit_line(e, "  " + op + " " + casted + ", " + ptr.expr)
+        return
+    }
+    println("stage2: unsupported assignment target")
+    exit(1)
+}
+
+fn emit_if(e: &mut Emitter, stmt: &Stmt) {
+    let cond_val = emit_expr(e, &stmt.expr)
+    let cond_expr = ensure_bool_expr(e, cond_val)
+    let then_label = new_label(e, "if_then_")
+    let else_label = new_label(e, "if_else_")
+    let end_label = new_label(e, "if_end_")
+    emit_line(e, "  jnz " + cond_expr + ", @" + string_clone(&then_label) + ", @" + string_clone(&else_label))
+    emit_label(e, &then_label)
+    emit_block(e, &stmt.block)
+    if !block_ends_with_terminator(&stmt.block) {
+        emit_line(e, "  jmp @" + string_clone(&end_label))
+    }
+    emit_label(e, &else_label)
+    if stmt.has_else { emit_block(e, &stmt.else_block) }
+    if !stmt.has_else || !block_ends_with_terminator(&stmt.else_block) {
+        emit_line(e, "  jmp @" + string_clone(&end_label))
+    }
+    emit_label(e, &end_label)
+}
+
+fn emit_store_value(e: &mut Emitter, name: &str, typ: &str, value_expr: &str) {
+    if name == "" { return }
+    drop_live_drop_existing(e, name)
+    let op = store_op_for_type(e, typ)
+    emit_line(e, "  " + op + " " + string_clone(value_expr) + ", %" + var_slot(name))
+    drop_live_set(e, name, typ)
+}
+
+fn emit_iflet(e: &mut Emitter, stmt: &Stmt) {
+    let scrut = emit_expr(e, &stmt.expr)
+    let mut enum_t = expr_type(e, &stmt.expr)
+    if !type_is_enum(e, &enum_t) && stmt.expr.kind == EXPR_IDENT {
+        let hint = enum_var_hint(e, &stmt.expr.name)
+        if hint != "" { enum_t = hint }
+    }
+    if !type_is_enum(e, &enum_t) && enum_t == "" {
+        let guess = enum_name_for_variant(e, &stmt.pat_variant)
+        if guess != "" { enum_t = guess }
+    }
+    if !type_is_enum(e, &enum_t) {
+        println("stage2: if let requires enum expression")
+        exit(1)
+    }
+    let tag_t = enum_tag_type(e, &enum_t)
+    let tagv = enum_tag_from_value(e, &scrut, &enum_t)
+    let tag_val = enum_variant_value(e, &enum_t, &stmt.pat_variant)
+    let cond_tmp = new_temp(e)
+    let cond_tn = temp_name(cond_tmp)
+    let cmp = if type_is_bool(e, &tag_t) || type_is_i32(e, &tag_t) { "ceqw" } else { "ceql" }
+    emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tagv.expr + ", " + int_to_string(tag_val))
+    let then_label = new_label(e, "iflet_then_")
+    let else_label = new_label(e, "iflet_else_")
+    let end_label = new_label(e, "iflet_end_")
+    emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&then_label) + ", @" + string_clone(&else_label))
+    emit_label(e, &then_label)
+    if stmt.pat_has_binding {
+        let payload_t = enum_variant_payload_type(e, &enum_t, &stmt.pat_variant)
+        let payload_v = enum_payload_from_value(e, &scrut, &enum_t, &stmt.pat_variant)
+        let casted = cast_to_type(e, payload_v, &payload_t)
+        let mut bind_t = var_type(e, &stmt.pat_binding)
+        if bind_t == "" { bind_t = payload_t }
+        emit_store_value(e, &stmt.pat_binding, &bind_t, &casted)
+    }
+    emit_block(e, &stmt.block)
+    if !block_ends_with_terminator(&stmt.block) {
+        emit_line(e, "  jmp @" + string_clone(&end_label))
+    }
+    emit_label(e, &else_label)
+    if stmt.has_else { emit_block(e, &stmt.else_block) }
+    if !stmt.has_else || !block_ends_with_terminator(&stmt.else_block) {
+        emit_line(e, "  jmp @" + string_clone(&end_label))
+    }
+    emit_label(e, &end_label)
+}
+
+fn emit_match(e: &mut Emitter, stmt: &Stmt) {
+    let scrut = emit_expr(e, &stmt.expr)
+    let mut scrut_t = expr_type(e, &stmt.expr)
+    let mut is_enum = type_is_enum(e, &scrut_t)
+    if !is_enum {
+        let mut guess = ""
+        let mut ai = 0
+        while ai < len(&stmt.arms) {
+            if stmt.arms[ai].pat_kind == PAT_VARIANT {
+                guess = enum_name_for_variant(e, &stmt.arms[ai].variant)
+                break
+            }
+            ai = ai + 1
+        }
+        if guess != "" { scrut_t = guess; is_enum = true }
+    }
+    let mut tag_t = string_clone(&scrut.typ)
+    let mut tag_expr = string_clone(&scrut.expr)
+    if is_enum {
+        let tagv = enum_tag_from_value(e, &scrut, &scrut_t)
+        tag_t = enum_tag_type(e, &scrut_t)
+        tag_expr = string_clone(&tagv.expr)
+    }
+    let cmp = if type_is_bool(e, &tag_t) || type_is_i32(e, &tag_t) { "ceqw" } else { "ceql" }
+    let end_label = new_label(e, "match_end_")
+    let mut i = 0
+    let mut next_label = new_label(e, "match_next_")
+    while i < len(&stmt.arms) {
+        let arm = &stmt.arms[i]
+        let arm_label = new_label(e, "match_arm_")
+        if arm.pat_kind == PAT_WILDCARD || arm.pat_kind == PAT_STRUCT {
+            emit_line(e, "  jmp @" + string_clone(&arm_label))
+        } else {
+            let cond_tmp = new_temp(e)
+            let cond_tn = temp_name(cond_tmp)
+            if arm.pat_kind == PAT_VARIANT {
+                let tag_val = enum_variant_value(e, &scrut_t, &arm.variant)
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(tag_val))
+            } else if arm.pat_kind == PAT_INT {
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
+            } else {
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
+            }
+            emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&arm_label) + ", @" + string_clone(&next_label))
+        }
+        emit_label(e, &arm_label)
+        if arm.has_binding && arm.pat_kind == PAT_VARIANT && is_enum {
+            let payload_t = enum_variant_payload_type(e, &scrut_t, &arm.variant)
+            let payload_v = enum_payload_from_value(e, &scrut, &scrut_t, &arm.variant)
+            let casted = cast_to_type(e, payload_v, &payload_t)
+            let mut bind_t = var_type(e, &arm.binding)
+            if bind_t == "" { bind_t = payload_t }
+            emit_store_value(e, &arm.binding, &bind_t, &casted)
+        } else if arm.pat_kind == PAT_STRUCT {
+            let st_name = type_strip_ref(e, &scrut_t)
+            if !type_is_struct(e, &st_name) {
+                println("stage2: struct pattern requires struct scrutinee")
+                exit(1)
+            }
+            if arm.struct_name != "" && arm.struct_name != st_name {
+                println("stage2: struct pattern type mismatch", arm.struct_name, "vs", st_name)
+                exit(1)
+            }
+            let mut fi = 0
+            while fi < len(&arm.struct_fields) {
+                let f = &arm.struct_fields[fi]
+                if f.has_binding {
+                    let ftyp = struct_field_type(e, &st_name, &f.name)
+                    if ftyp == "" {
+                        println("stage2: unknown struct field", f.name)
+                        exit(1)
+                    }
+                    let fname_ptr = string_data_ptr(e, &f.name)
+                    let get_fn = struct_get_fn_for_type(e, &ftyp)
+                    let q = qbe_type(e, &ftyp)
+                    let tmp = new_temp(e)
+                    let tn = temp_name(tmp)
+                    emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + scrut.expr + ", l " + fname_ptr + ")")
+                    let mut bind_t = var_type(e, &f.binding)
+                    if bind_t == "" { bind_t = ftyp }
+                    emit_store_value(e, &f.binding, &bind_t, &tn)
+                }
+                fi = fi + 1
+            }
+        }
+        emit_block(e, &arm.block)
+        if !block_ends_with_terminator(&arm.block) {
+            emit_line(e, "  jmp @" + string_clone(&end_label))
+        }
+        emit_label(e, &next_label)
+        next_label = new_label(e, "match_next_")
+        i = i + 1
+    }
+    emit_label(e, &end_label)
+}
+
