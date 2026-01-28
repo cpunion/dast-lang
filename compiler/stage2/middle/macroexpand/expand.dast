@@ -106,7 +106,7 @@ fn hygiene_match_arms(ctx: &mut MacroCtx, m: &RenameMap, arms: & [MatchArm]) -> 
             while fi < len(&fields) {
                 if fields[fi].has_binding {
                     let bname = hygiene_bind_name(ctx, &mut map2, &fields[fi].binding)
-                    fields[fi] = StructPatternField { name: fields[fi].name, binding: bname, has_binding: fields[fi].has_binding, has_pattern: fields[fi].has_pattern, pat_kind: fields[fi].pat_kind, int_value: fields[fi].int_value }
+                    fields[fi] = StructPatternField { name: fields[fi].name, binding: bname, has_binding: fields[fi].has_binding, has_pattern: fields[fi].has_pattern, pat_kind: fields[fi].pat_kind, int_value: fields[fi].int_value, range_end: fields[fi].range_end, range_inclusive: fields[fi].range_inclusive }
                 }
                 fi = fi + 1
             }

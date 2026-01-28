@@ -45,6 +45,8 @@ struct StructPatternField {
     has_pattern: bool,
     pat_kind: i32,
     int_value: i64,
+    range_end: i64,
+    range_inclusive: bool,
 }
 
 fn struct_pattern_field_list_empty() -> [StructPatternField] {
@@ -60,6 +62,8 @@ fn struct_pattern_field_clone(f: &StructPatternField) -> StructPatternField {
         has_pattern: f.has_pattern,
         pat_kind: f.pat_kind,
         int_value: f.int_value,
+        range_end: f.range_end,
+        range_inclusive: f.range_inclusive,
     }
 }
 
