@@ -38,16 +38,19 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
                 let mut fi = 0
                 while fi < len(&a.struct_fields) {
                     let f = &a.struct_fields[fi]
+                    let ftyp = struct_field_type(e, &st_name, &f.name)
+                    if ftyp == "" {
+                        println("stage2: unknown struct field", f.name)
+                        exit(1)
+                    }
                     if f.has_binding {
-                        let ftyp = struct_field_type(e, &st_name, &f.name)
-                        if ftyp == "" {
-                            println("stage2: unknown struct field", f.name)
-                            exit(1)
-                        }
                         collect_var_add(e, &f.binding, ftyp, false)
                     }
                     fi = fi + 1
                 }
+            }
+            if a.has_guard {
+                collect_vars_from_expr(e, &a.guard)
             }
             collect_vars_from_block(e, &a.block)
             ai = ai + 1
@@ -111,6 +114,9 @@ fn validate_expr_args(expr: &Expr, ctx: &str) {
     if expr.kind == EXPR_MATCH {
         let mut ai = 0
         while ai < len(&expr.match_arms) {
+            if expr.match_arms[ai].has_guard {
+                validate_expr_args(&expr.match_arms[ai].guard, ctx)
+            }
             validate_block_args(&expr.match_arms[ai].block, ctx)
             ai = ai + 1
         }
@@ -132,6 +138,9 @@ fn validate_stmt_args(stmt: &Stmt, ctx: &str) {
         validate_expr_args(&stmt.expr, ctx)
         let mut ai = 0
         while ai < len(&stmt.arms) {
+            if stmt.arms[ai].has_guard {
+                validate_expr_args(&stmt.arms[ai].guard, ctx)
+            }
             validate_block_args(&stmt.arms[ai].block, ctx)
             ai = ai + 1
         }
@@ -228,16 +237,19 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     let mut fi = 0
                     while fi < len(&a.struct_fields) {
                         let f = &a.struct_fields[fi]
+                        let ftyp = struct_field_type(e, &st_name, &f.name)
+                        if ftyp == "" {
+                            println("stage2: unknown struct field", f.name)
+                            exit(1)
+                        }
                         if f.has_binding {
-                            let ftyp = struct_field_type(e, &st_name, &f.name)
-                            if ftyp == "" {
-                                println("stage2: unknown struct field", f.name)
-                                exit(1)
-                            }
                             collect_var_add(e, &f.binding, ftyp, false)
                         }
                         fi = fi + 1
                     }
+                }
+                if a.has_guard {
+                    collect_vars_from_expr(e, &a.guard)
                 }
                 collect_vars_from_block(e, &a.block)
                 ai = ai + 1
@@ -297,6 +309,9 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
         }
         let mut ai = 0
         while ai < len(&expr.match_arms) {
+            if expr.match_arms[ai].has_guard {
+                collect_strings_from_expr(e, &expr.match_arms[ai].guard)
+            }
             collect_strings_from_block(e, &expr.match_arms[ai].block)
             ai = ai + 1
         }
@@ -354,6 +369,9 @@ fn collect_strings_from_stmts(e: &mut Emitter, items: & [Stmt]) {
         } else if s.kind == STMT_MATCH {
             let mut ai = 0
             while ai < len(&s.arms) {
+                if s.arms[ai].has_guard {
+                    collect_strings_from_expr(e, &s.arms[ai].guard)
+                }
                 collect_strings_from_block(e, &s.arms[ai].block)
                 ai = ai + 1
             }

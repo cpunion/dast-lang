@@ -129,6 +129,23 @@ fn desugar_let_pattern(p: &mut Parser, names: & [String], rhs: Expr, mutable: bo
     return stmt_expr(expr_block(Block { stmts: stmts }))
 }
 
+fn desugar_struct_pattern_let(p: &mut Parser, pat: &MatchArm, rhs: Expr, mutable: bool) -> Stmt {
+    let tmp = parser_gensym(p, "__pat")
+    let mut stmts: [Stmt] = []
+    push(&mut stmts, stmt_let(string_clone(&tmp), false, false, "", rhs))
+    let base = expr_ident(string_clone(&tmp))
+    let mut i = 0
+    while i < len(&pat.struct_fields) {
+        let f = &pat.struct_fields[i]
+        if f.has_binding && f.binding != "_" {
+            let field_expr = expr_field(expr_clone(&base), string_clone(&f.name))
+            push(&mut stmts, stmt_let(string_clone(&f.binding), mutable, false, "", field_expr))
+        }
+        i = i + 1
+    }
+    return stmt_expr(expr_block(Block { stmts: stmts }))
+}
+
 fn desugar_loop_expr(p: &mut Parser, name: String, mutable: bool, has_type: bool, typ: String, body: Block) -> Stmt {
     let res = parser_gensym(p, "__loop_res")
     let mut stmts: [Stmt] = []
@@ -137,6 +154,16 @@ fn desugar_loop_expr(p: &mut Parser, name: String, mutable: bool, has_type: bool
     push(&mut stmts, stmt_loop(rb))
     push(&mut stmts, stmt_expr(expr_ident(res)))
     return stmt_let(name, mutable, has_type, typ, expr_block(Block { stmts: stmts }))
+}
+
+fn desugar_while_let(p: &mut Parser, scrut: Expr, pat: MatchArm, body: Block) -> Stmt {
+    let mut else_stmts: [Stmt] = []
+    push(&mut else_stmts, stmt_break())
+    let else_block = Block { stmts: else_stmts }
+    let iflet = stmt_iflet(scrut, string_clone(&pat.variant), string_clone(&pat.binding), pat.has_binding, body, else_block, true)
+    let mut loop_stmts: [Stmt] = []
+    push(&mut loop_stmts, iflet)
+    return stmt_loop(Block { stmts: loop_stmts })
 }
 
 fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Block) -> Stmt {

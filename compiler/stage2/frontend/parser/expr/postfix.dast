@@ -37,11 +37,11 @@ fn parse_unary(p: &mut Parser) -> Expr {
         let inner = parse_unary(p)
         return expr_deref(inner)
     }
-    return parse_primary(p)
+    return parse_postfix(p)
 }
 
 fn parse_postfix(p: &mut Parser) -> Expr {
-    let mut cur = parse_unary(p)
+    let mut cur = parse_primary(p)
     let mut done = false
     while !done {
         let t = parser_peek(p)
@@ -137,4 +137,3 @@ fn is_type_arg_struct_lit(p: &Parser) -> bool {
     }
     return false
 }
-

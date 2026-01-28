@@ -41,6 +41,12 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
             let e = parse_expr(p)
             return desugar_let_pattern(p, &names, e, is_mut)
         }
+        if parser_peek(p).kind == TK_IDENT && parser_peek_next(p).kind == TK_LBRACE {
+            let pat = parse_struct_pattern(p)
+            let _ = parser_expect(p, TK_ASSIGN, "=")
+            let e = parse_expr(p)
+            return desugar_struct_pattern_let(p, &pat, e, is_mut)
+        }
         let name = parser_expect(p, TK_IDENT, "ident").text
         let mut has_type = false
         let mut typ = ""
@@ -123,6 +129,11 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
         let mut arms = match_arm_list_empty()
         while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
             let mut arm = parse_match_pattern(p)
+            if parser_peek(p).kind == TK_IF {
+                let _ = parser_advance(p)
+                arm.guard = parse_expr(p)
+                arm.has_guard = true
+            }
             let _ = parser_expect(p, TK_FATARROW, "=>")
             arm.block = parse_match_arm_body(p)
             push(&mut arms, arm)
@@ -133,6 +144,14 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
     }
     if t.kind == TK_WHILE {
         let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_LET {
+            let _ = parser_advance(p)
+            let pat = parse_variant_pattern(p)
+            let _ = parser_expect(p, TK_ASSIGN, "=")
+            let scrut = parse_expr_before_block(p)
+            let body = parse_block(p)
+            return desugar_while_let(p, scrut, pat, body)
+        }
         let cond = parse_expr_before_block(p)
         let body = parse_block(p)
         return stmt_while(cond, body)

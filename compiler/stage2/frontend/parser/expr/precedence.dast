@@ -1,11 +1,11 @@
 fn parse_add(p: &mut Parser) -> Expr {
-    let mut left = parse_postfix(p)
+    let mut left = parse_unary(p)
     let mut done = false
     while !done {
         let t = parser_peek(p)
         if t.kind == TK_PLUS || t.kind == TK_MINUS {
             let op = parser_advance(p).text
-            let rhs = parse_postfix(p)
+            let rhs = parse_unary(p)
             left = expr_binary(op, left, rhs)
         } else {
             done = true

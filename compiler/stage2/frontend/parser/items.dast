@@ -334,6 +334,9 @@ fn parse_program(src: &str) -> Program {
         } else if k == TK_IMPL {
             let imp = parse_impl(&mut p, &mut funcs)
             push(&mut impls, imp)
+        } else if k == TK_IDENT && parser_peek(&p).text == "import" {
+            println("stage2: imports are not supported")
+            exit(1)
         } else if k == TK_FN {
             let f = parse_fn(&mut p)
             if !f.is_macro && string_clone(&f.name) == "main" { has_main = true }
@@ -387,6 +390,9 @@ fn parse_program_loose(src: &str) -> Program {
         } else if k == TK_IMPL {
             let imp = parse_impl(&mut p, &mut funcs)
             push(&mut impls, imp)
+        } else if k == TK_IDENT && parser_peek(&p).text == "import" {
+            println("stage2: imports are not supported")
+            exit(1)
         } else if k == TK_FN {
             let f = parse_fn(&mut p)
             push(&mut funcs, f)

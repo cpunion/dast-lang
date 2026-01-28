@@ -121,6 +121,11 @@ fn parse_match_expr(p: &mut Parser) -> Expr {
     let mut arms = match_arm_list_empty()
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
         let mut arm = parse_match_pattern(p)
+        if parser_peek(p).kind == TK_IF {
+            let _ = parser_advance(p)
+            arm.guard = parse_expr(p)
+            arm.has_guard = true
+        }
         let _ = parser_expect(p, TK_FATARROW, "=>")
         arm.block = parse_match_arm_body(p)
         push(&mut arms, arm)
@@ -155,6 +160,8 @@ fn parse_if_expr(p: &mut Parser) -> Expr {
         variant: "",
         binding: "",
         has_binding: false,
+        has_guard: false,
+        guard: expr_int(0),
         int_value: 1,
         struct_name: "",
         struct_fields: struct_pattern_field_list_empty(),
@@ -165,6 +172,8 @@ fn parse_if_expr(p: &mut Parser) -> Expr {
         variant: "",
         binding: "",
         has_binding: false,
+        has_guard: false,
+        guard: expr_int(0),
         int_value: 0,
         struct_name: "",
         struct_fields: struct_pattern_field_list_empty(),
@@ -304,4 +313,3 @@ fn parse_quote_expr(p: &mut Parser) -> Expr {
     let parts = parse_quote_parts(p)
     return expr_quote(kind, parts)
 }
-

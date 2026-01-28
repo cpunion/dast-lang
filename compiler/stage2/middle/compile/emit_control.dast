@@ -77,12 +77,12 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let mut fi = 0
             while fi < len(&arm.struct_fields) {
                 let f = &arm.struct_fields[fi]
+                let ftyp = struct_field_type(e, &st_name, &f.name)
+                if ftyp == "" {
+                    println("stage2: unknown struct field", f.name)
+                    exit(1)
+                }
                 if f.has_binding {
-                    let ftyp = struct_field_type(e, &st_name, &f.name)
-                    if ftyp == "" {
-                        println("stage2: unknown struct field", f.name)
-                        exit(1)
-                    }
                     let fname_ptr = string_data_ptr(e, &f.name)
                     let get_fn = struct_get_fn_for_type(e, &ftyp)
                     let q = qbe_type(e, &ftyp)
@@ -95,6 +95,18 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 }
                 fi = fi + 1
             }
+        }
+        if arm.has_guard {
+            let gt = expr_type(e, &arm.guard)
+            if !type_is_bool(e, &gt) {
+                println("stage2: match guard must be bool")
+                exit(1)
+            }
+            let gv = emit_expr(e, &arm.guard)
+            let cond = ensure_bool_expr(e, gv)
+            let guard_label = new_label(e, "match_guard_")
+            emit_line(e, "  jnz " + cond + ", @" + string_clone(&guard_label) + ", @" + string_clone(&next_label))
+            emit_label(e, &guard_label)
         }
         let arm_val = emit_block_expr(e, &arm.block)
         if !block_ends_with_terminator(&arm.block) {

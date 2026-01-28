@@ -112,11 +112,17 @@ fn hygiene_match_arms(ctx: &mut MacroCtx, m: &RenameMap, arms: & [MatchArm]) -> 
             }
         }
         let b = hygiene_block(ctx, &mut map2, &a.block)
+        let mut g = expr_int(0)
+        if a.has_guard {
+            g = hygiene_expr(ctx, &mut map2, &a.guard)
+        }
         let na = MatchArm {
             pat_kind: a.pat_kind,
             variant: string_clone(&a.variant),
             binding: binding,
             has_binding: a.has_binding,
+            has_guard: a.has_guard,
+            guard: g,
             int_value: a.int_value,
             struct_name: string_clone(&a.struct_name),
             struct_fields: fields,
@@ -290,7 +296,7 @@ fn replace_expr_splices(expr: &Expr, splices: & [QuoteSplice]) -> Expr {
         while i < len(&expr.match_arms) {
             let a = &expr.match_arms[i]
             let nb = replace_block_splices(&a.block, splices)
-            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, int_value: a.int_value, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
+            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, has_guard: a.has_guard, guard: expr_clone(&a.guard), int_value: a.int_value, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
             i = i + 1
         }
         return expr_match(scrut, arms)
@@ -316,7 +322,7 @@ fn replace_stmt_splices(stmt: &Stmt, splices: & [QuoteSplice]) -> Stmt {
         while ai < len(&stmt.arms) {
             let a = &stmt.arms[ai]
             let nb = replace_block_splices(&a.block, splices)
-            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, int_value: a.int_value, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
+            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, has_guard: a.has_guard, guard: expr_clone(&a.guard), int_value: a.int_value, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
             ai = ai + 1
         }
         return Stmt { kind: stmt.kind, name: string_clone(&stmt.name), mutable: stmt.mutable, has_type: stmt.has_type, typ: string_clone(&stmt.typ), lhs: expr_clone(&stmt.lhs), expr: v, block: b, else_block: eb, has_else: stmt.has_else, ret_has_value: stmt.ret_has_value, pat_variant: string_clone(&stmt.pat_variant), pat_binding: string_clone(&stmt.pat_binding), pat_has_binding: stmt.pat_has_binding, arms: arms }

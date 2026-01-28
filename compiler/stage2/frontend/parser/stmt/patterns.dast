@@ -16,6 +16,8 @@ fn parse_variant_pattern(p: &mut Parser) -> MatchArm {
         variant: variant,
         binding: binding,
         has_binding: has_binding,
+        has_guard: false,
+        guard: expr_int(0),
         int_value: 0,
         struct_name: "",
         struct_fields: struct_pattern_field_list_empty(),
@@ -35,8 +37,14 @@ fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
             let mut has_binding = true
             if parser_peek(p).kind == TK_COLON {
                 let _ = parser_advance(p)
-                binding = parser_expect(p, TK_IDENT, "binding").text
-                has_binding = true
+                if parser_peek(p).kind == TK_IDENT {
+                    binding = parser_advance(p).text
+                    has_binding = true
+                } else {
+                    let _ = parse_expr(p)
+                    binding = "_"
+                    has_binding = false
+                }
             }
             push(&mut fields, StructPatternField { name: fname, binding: binding, has_binding: has_binding })
             if parser_peek(p).kind == TK_COMMA {
@@ -52,6 +60,8 @@ fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
         variant: "",
         binding: "",
         has_binding: false,
+        has_guard: false,
+        guard: expr_int(0),
         int_value: 0,
         struct_name: name,
         struct_fields: fields,
@@ -61,40 +71,61 @@ fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
 
 fn parse_match_pattern(p: &mut Parser) -> MatchArm {
     let t = parser_peek(p)
+    let mut arm = MatchArm {
+        pat_kind: PAT_WILDCARD,
+        variant: "",
+        binding: "",
+        has_binding: false,
+        has_guard: false,
+        guard: expr_int(0),
+        int_value: 0,
+        struct_name: "",
+        struct_fields: struct_pattern_field_list_empty(),
+        block: block_empty(),
+    }
     if t.kind == TK_DOT {
-        return parse_variant_pattern(p)
-    }
-    if t.kind == TK_IDENT && parser_peek_next(p).kind == TK_LBRACE {
-        return parse_struct_pattern(p)
-    }
-    if t.kind == TK_INT {
+        arm = parse_variant_pattern(p)
+    } else if t.kind == TK_IDENT && parser_peek_next(p).kind == TK_LBRACE {
+        arm = parse_struct_pattern(p)
+    } else if t.kind == TK_INT {
         let v = parser_advance(p).int_value
-        return MatchArm {
+        if parser_peek(p).kind == TK_DOT {
+            println("stage2: range patterns are not supported")
+            exit(1)
+        }
+        arm = MatchArm {
             pat_kind: PAT_INT,
             variant: "",
             binding: "",
             has_binding: false,
+            has_guard: false,
+            guard: expr_int(0),
             int_value: v,
             struct_name: "",
             struct_fields: struct_pattern_field_list_empty(),
             block: block_empty(),
         }
-    }
-    if t.kind == TK_IDENT && t.text == "_" {
+    } else if t.kind == TK_IDENT && t.text == "_" {
         let _ = parser_advance(p)
-        return MatchArm {
+        arm = MatchArm {
             pat_kind: PAT_WILDCARD,
             variant: "",
             binding: "",
             has_binding: false,
+            has_guard: false,
+            guard: expr_int(0),
             int_value: 0,
             struct_name: "",
             struct_fields: struct_pattern_field_list_empty(),
             block: block_empty(),
         }
+    } else {
+        println("parse error: expected pattern got", t.kind, t.text)
+        exit(1)
     }
-    println("parse error: expected pattern got", t.kind, t.text)
-    exit(1)
-    return parse_variant_pattern(p)
+    if parser_peek(p).kind == TK_PIPE {
+        println("stage2: or-patterns with bindings are not supported")
+        exit(1)
+    }
+    return arm
 }
-
