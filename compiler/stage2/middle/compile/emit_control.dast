@@ -541,7 +541,8 @@ fn run_exec(cmd: String, args: [String]) {
 }
 
 fn load_prelude_dir(dir: String) -> String {
-    let names = read_dir(string_clone(&dir))
+    let names0 = read_dir(string_clone(&dir))
+    let names = string_list_sorted(&names0)
     let mut out = ""
     let mut i = 0
     while i < len(&names) {
@@ -624,7 +625,8 @@ fn resolve_import_dir(base_dir: &str, path: &str) -> ImportLoad {
     }
     let rel = if str_has_prefix(path, &cur_prefix) { str_substr(path, 2, str_len(path) - 2) } else { string_clone(path) }
     let dir = string_clone(base_dir) + "/" + rel
-    let names = read_dir(string_clone(&dir))
+    let names0 = read_dir(string_clone(&dir))
+    let names = string_list_sorted(&names0)
     if len(&names) == 0 {
         return ImportLoad { ok: false, imports: "", source: "", err: "import not found: " + path }
     }
