@@ -168,17 +168,7 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     let declared = type_resolve(e, &s.typ)
                     let actual = type_resolve(e, &typ)
                     if declared != "" && actual != "" && declared != actual {
-                        let mut ok = false
-                        if type_is_int(e, &declared) && type_is_int(e, &actual) { ok = true }
-                        if type_is_array(e, &declared) && type_is_array(e, &actual) {
-                            let de = type_array_elem(e, &declared)
-                            let ae = type_array_elem(e, &actual)
-                            if type_is_int(e, &de) && type_is_int(e, &ae) { ok = true }
-                        }
-                        let db = type_strip_args(e, &declared)
-                        let ab = type_strip_args(e, &actual)
-                        if db != "" && db == ab { ok = true }
-                        if !ok {
+                        if !type_compatible(e, &declared, &actual) {
                             println("stage2: let type mismatch expected", declared, "got", actual)
                             exit(1)
                         }
@@ -426,4 +416,3 @@ fn collect_strings(e: &mut Emitter, prog: &Program) {
         fi = fi + 1
     }
 }
-

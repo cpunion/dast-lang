@@ -1,4 +1,6 @@
 // Printing builtins declared in the prelude package.
+// NOTE: print/println are compiler builtins and accept a variable number of
+// arguments. These signatures are placeholders for documentation only.
 
 fn print(x: &str) -> unit {
     return
