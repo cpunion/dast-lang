@@ -41,11 +41,11 @@ fn live_index(live: & [LiveVar], name: &str) -> i32 {
 fn live_set(live: &mut [LiveVar], name: String, typ: String) {
     let idx = live_index(live, &name)
     if idx >= 0 {
-        let mut out: [LiveVar] = []
-        let mut i = 0
-        while i < len(live) {
-            if i == idx {
-                let v = (*live)[i]
+    let mut out: [LiveVar] = []
+    let mut i = 0
+    while i < len(live) {
+        if i == idx {
+            let v = (*live)[i]
                 push(&mut out, LiveVar { name: v.name, typ: string_clone(&typ) })
             } else {
                 push(&mut out, (*live)[i])
@@ -87,7 +87,7 @@ fn drop_pass(instrs: [DropInstr]) -> [DropInstr] {
     let mut live: [LiveVar] = []
     let mut out: [DropInstr] = []
     let mut i = 0
-    while i < len(instrs) {
+    while i < len(&instrs) {
         let inst = instrs[i]
         if inst.kind == drop_kind_store() {
             let idx = live_index(&live, &inst.name)

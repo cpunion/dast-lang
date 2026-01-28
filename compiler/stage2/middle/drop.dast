@@ -3,7 +3,7 @@
 
 fn drop_trim_space(s: String) -> String {
     let mut start = 0
-    let mut end = len(string_clone(&s))
+    let mut end = len(&s)
     while start < end && (str_char_at(&s, start) == 32 || str_char_at(&s, start) == 9) {
         start = start + 1
     }
@@ -28,14 +28,14 @@ fn drop_is_ref_type_name(t: String) -> bool {
 
 fn drop_is_array_type_name(t: String) -> bool {
     let n = drop_normalize_type_name(t)
-    let nlen = len(string_clone(&n))
+    let nlen = len(&n)
     if nlen < 2 { return false }
     return str_char_at(&n, 0) == 91 && str_char_at(&n, nlen - 1) == 93
 }
 
 fn drop_array_elem_type_name(t: String) -> String {
     let n = drop_normalize_type_name(t)
-    let nlen = len(string_clone(&n))
+    let nlen = len(&n)
     if nlen < 2 { return "" }
     if str_char_at(&n, 0) != 91 || str_char_at(&n, nlen - 1) != 93 { return "" }
     return drop_trim_space(substr(n, 1, nlen - 2))

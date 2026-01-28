@@ -244,6 +244,10 @@ func (p *Parser) parseParam() ast.Param {
 	} else {
 		p.advance()
 	}
+	if nameTok.Kind == lexer.TokenSelf && !p.at(lexer.TokenColon) {
+		t := ast.Type{Name: "Self", Span: nameTok.Span}
+		return ast.Param{Name: nameTok.Lexeme, Type: t, Span: mergeSpan(nameTok.Span, t.Span)}
+	}
 	p.expect(lexer.TokenColon, "expected ':' in parameter")
 	t := p.parseType()
 	return ast.Param{Name: nameTok.Lexeme, Type: t, Span: mergeSpan(nameTok.Span, t.Span)}

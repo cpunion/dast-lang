@@ -1,8 +1,10 @@
-fn slen(s: String) -> i64 {
-    return len(&s)
+fn slen(s: &String) -> i64 {
+    return len(s)
 }
 
 fn main() {
-    println("a", slen("hello"))
-    println("b", slen("world"))
+    let a = "hello"
+    let b = "world"
+    println("a", slen(&a))
+    println("b", slen(&b))
 }

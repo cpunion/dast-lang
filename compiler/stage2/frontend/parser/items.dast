@@ -150,7 +150,7 @@ fn parse_type_suffix(p: &mut Parser, base: String) -> String {
         let _ = parser_expect(p, TK_RBRACKET, "]")
         let mut s = out + "["
         let mut i = 0
-        while i < len(args) {
+        while i < len(&args) {
             if i > 0 { s = s + "," }
             s = s + args[i]
             i = i + 1
@@ -271,7 +271,7 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
         let mut m = parse_fn(p)
         let mut pi = 0
-        while pi < len(m.params) {
+        while pi < len(&m.params) {
             let name = m.params[pi].name
             let mut pt = m.params[pi].typ
             let mut has_type = m.params[pi].has_type
@@ -286,10 +286,10 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
             pi = pi + 1
         }
         if m.ret_type == "Self" { m.ret_type = string_clone(&for_type) }
-        if len(type_params) > 0 {
+        if len(&type_params) > 0 {
             let mut combined = generic_param_list_clone(&type_params)
             let mut ti = 0
-            while ti < len(m.type_params) {
+            while ti < len(&m.type_params) {
                 push(&mut combined, generic_param_clone(&m.type_params[ti]))
                 ti = ti + 1
             }

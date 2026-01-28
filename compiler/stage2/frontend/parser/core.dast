@@ -13,7 +13,7 @@ fn token_clone(t: &Token) -> Token {
 }
 
 fn parser_new(tokens: [Token]) -> Parser {
-    let n = len(tokens)
+    let n = len(&tokens)
     return Parser { tokens: tokens, idx: 0, n: n, no_struct_lit: false, gensym: 0 }
 }
 

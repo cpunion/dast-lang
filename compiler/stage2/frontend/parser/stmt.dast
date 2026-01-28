@@ -151,10 +151,10 @@ fn desugar_pattern_lets(names: & [String], base_expr: &Expr, mutable: bool) -> [
 fn rewrite_break_values_block(b: &Block, target: &str) -> Block {
     let mut out: [Stmt] = []
     let mut i = 0
-    while i < len(b.stmts) {
+    while i < len(&b.stmts) {
         let mut items = rewrite_break_values_stmt(&b.stmts[i], target)
         let mut j = 0
-        while j < len(items) {
+        while j < len(&items) {
             push(&mut out, items[j])
             j = j + 1
         }
@@ -187,7 +187,7 @@ fn rewrite_break_values_stmt(s: &Stmt, target: &str) -> [Stmt] {
     if s.kind == STMT_MATCH {
         let mut arms = match_arm_list_empty()
         let mut ai = 0
-        while ai < len(s.arms) {
+        while ai < len(&s.arms) {
             let mut a = match_arm_clone(&s.arms[ai])
             a.block = rewrite_break_values_block(&a.block, target)
             push(&mut arms, a)
@@ -222,7 +222,7 @@ fn desugar_let_pattern(p: &mut Parser, names: & [String], rhs: Expr, mutable: bo
     let base = expr_ident(string_clone(&tmp))
     let mut binds = desugar_pattern_lets(&names, &base, mutable)
     let mut i = 0
-    while i < len(binds) {
+    while i < len(&binds) {
         push(&mut stmts, binds[i])
         i = i + 1
     }
@@ -246,7 +246,8 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
     let mut stmts: [Stmt] = []
     push(&mut stmts, stmt_let(string_clone(&arr_name), false, false, "", iter_expr))
     push(&mut stmts, stmt_let(string_clone(&idx_name), true, false, "", expr_int(0)))
-    let cond = expr_binary("<", expr_ident(string_clone(&idx_name)), expr_call("len", [expr_ident(string_clone(&arr_name))]))
+    let arr_ident = expr_ident(string_clone(&arr_name))
+    let cond = expr_binary("<", expr_ident(string_clone(&idx_name)), expr_call("len", [expr_ref(arr_ident)]))
     let mut body_stmts: [Stmt] = []
     let elem_expr = expr_index(expr_ident(string_clone(&arr_name)), expr_ident(string_clone(&idx_name)))
     if len(names) <= 1 {
@@ -258,7 +259,7 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
         let base = expr_ident(string_clone(&elem_name))
         let mut binds = desugar_pattern_lets(&names, &base, false)
         let mut bi = 0
-        while bi < len(binds) {
+        while bi < len(&binds) {
             push(&mut body_stmts, binds[bi])
             bi = bi + 1
         }
@@ -266,7 +267,7 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
     let inc = expr_binary("+", expr_ident(string_clone(&idx_name)), expr_int(1))
     push(&mut body_stmts, stmt_assign(string_clone(&idx_name), inc))
     let mut i = 0
-    while i < len(body.stmts) {
+    while i < len(&body.stmts) {
         push(&mut body_stmts, body.stmts[i])
         i = i + 1
     }

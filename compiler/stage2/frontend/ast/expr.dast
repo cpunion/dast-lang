@@ -93,12 +93,12 @@ fn expr_list_empty() -> [Expr] {
 }
 
 fn expr_clone(e: &Expr) -> Expr {
-    if (e.kind == EXPR_REF || e.kind == EXPR_DEREF || e.kind == EXPR_FIELD || e.kind == EXPR_MATCH) && len(e.args) < 1 {
-        println("stage2: clone bad expr args", e.kind, "len", len(e.args), e.name)
+    if (e.kind == EXPR_REF || e.kind == EXPR_DEREF || e.kind == EXPR_FIELD || e.kind == EXPR_MATCH) && len(&e.args) < 1 {
+        println("stage2: clone bad expr args", e.kind, "len", len(&e.args), e.name)
         exit(1)
     }
-    if (e.kind == EXPR_INDEX || e.kind == EXPR_BINARY) && len(e.args) < 2 {
-        println("stage2: clone bad expr args", e.kind, "len", len(e.args), e.name)
+    if (e.kind == EXPR_INDEX || e.kind == EXPR_BINARY) && len(&e.args) < 2 {
+        println("stage2: clone bad expr args", e.kind, "len", len(&e.args), e.name)
         exit(1)
     }
     return Expr {

@@ -6,7 +6,7 @@ fn usage() {
 
 fn main() {
     let argv = args()
-    if len(argv) == 0 {
+    if len(&argv) == 0 {
         println("stage2", "scaffold")
         usage()
         return
@@ -36,7 +36,7 @@ fn main() {
         exit(2)
         return
     }
-    if len(argv) < 2 {
+    if len(&argv) < 2 {
         println("error", "missing input file")
         usage()
         exit(2)
@@ -46,11 +46,11 @@ fn main() {
     let mut out_bin = "compiler/stage2/target/min/main"
     let mut stats = false
     let mut arg_idx = 1
-    if len(argv) > 1 && argv[1] == "--stats" {
+    if len(&argv) > 1 && argv[1] == "--stats" {
         stats = true
         arg_idx = 2
     }
-    if len(argv) <= arg_idx {
+    if len(&argv) <= arg_idx {
         println("error", "missing input file")
         usage()
         exit(2)
@@ -60,14 +60,14 @@ fn main() {
     let mut run_args: [String] = []
     let mut i = arg_idx + 1
     let mut after_sep = false
-    while i < len(argv) {
+    while i < len(&argv) {
         let a = string_clone(&argv[i])
         if !after_sep && a == "--" {
             after_sep = true
             i = i + 1
             continue
         }
-        if !after_sep && a == "-o" && i + 1 < len(argv) {
+        if !after_sep && a == "-o" && i + 1 < len(&argv) {
             out_bin = string_clone(&argv[i + 1])
             i = i + 2
             continue

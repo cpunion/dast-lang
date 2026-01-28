@@ -358,10 +358,10 @@ fn parse_postfix(p: &mut Parser) -> Expr {
             let _ = parser_expect(p, TK_RPAREN, ")")
             if cur.kind == EXPR_IDENT {
                 cur = expr_call(cur.name, args)
-            } else if cur.kind == EXPR_FIELD && len(cur.args) > 0 && cur.args[0].kind == EXPR_IDENT {
+            } else if cur.kind == EXPR_FIELD && len(&cur.args) > 0 && cur.args[0].kind == EXPR_IDENT {
                 let recv_name = string_clone(&cur.args[0].name)
                 let mut is_type = false
-                if len(recv_name) > 0 {
+                if len(&recv_name) > 0 {
                     let c = str_char_at(&recv_name, 0)
                     if c >= 65 && c <= 90 { is_type = true }
                 }
@@ -372,7 +372,7 @@ fn parse_postfix(p: &mut Parser) -> Expr {
                     let mut full_args: [Expr] = []
                     push(&mut full_args, expr_clone(&cur.args[0]))
                     let mut i = 0
-                    while i < len(args) {
+                    while i < len(&args) {
                         push(&mut full_args, args[i])
                         i = i + 1
                     }

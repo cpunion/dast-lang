@@ -252,11 +252,13 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					return Type{Kind: TypeInt, Name: "int"}
 				}
 				argType := c.checkExpr(e.Args[0])
-				if argType.Ref {
-					argType = derefType(argType)
+				if !argType.Ref {
+					c.diag.Add(e.Span(), "len expects reference to String/str or array")
+					return Type{Kind: TypeInt, Name: "int"}
 				}
+				argType = derefType(argType)
 				if argType.Kind != TypeString && argType.Kind != TypeStr && argType.Kind != TypeArray {
-					c.diag.Add(e.Span(), "len expects String/str or array")
+					c.diag.Add(e.Span(), "len expects reference to String/str or array")
 				}
 				return Type{Kind: TypeInt, Name: "int"}
 			case "push":
