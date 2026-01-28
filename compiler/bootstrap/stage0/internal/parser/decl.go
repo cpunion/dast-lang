@@ -351,6 +351,9 @@ func (p *Parser) parseType() ast.Type {
 		return t
 	}
 	name, span := p.parseQualifiedName()
+	if name == "string" {
+		p.diag.Add(span, "use String/str instead of string")
+	}
 	t.Name = name
 	if t.Span == (source.Span{}) {
 		t.Span = mergeSpan(start, span)
