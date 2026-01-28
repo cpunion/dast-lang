@@ -1,0 +1,23 @@
+fn main() {
+    let v = 2
+    let mut out = 0
+    match v {
+        1 => { out = 10 },
+        2 => { out = 20 },
+        _ => { out = 30 },
+    }
+
+    let mut acc = 0
+    let mut i = 0
+    while i < 3 {
+        match i {
+            0 => { acc = acc + 1 },
+            1 => { acc = acc + 2 },
+            _ => { acc = acc + 3 },
+        }
+        i = i + 1
+    }
+
+    println("out", out)
+    println("acc", acc)
+}

@@ -1,0 +1,39 @@
+enum Num {
+    One(i64),
+    Two(i64),
+    None,
+}
+
+fn pick(x: i64) -> Num {
+    if x == 1 { return Num.One(7) }
+    if x == 2 { return Num.Two(5) }
+    return Num.None
+}
+
+fn main() {
+    let a = pick(1)
+    let b = pick(2)
+    let c = pick(3)
+    let mut sum = 0
+
+    match a {
+        .One(v) => { sum = sum + v },
+        _ => { sum = sum + 100 },
+    }
+    match b {
+        .Two(v) => { sum = sum + v },
+        _ => { sum = sum + 200 },
+    }
+    match c {
+        .None => { sum = sum + 1 },
+        _ => { sum = sum + 300 },
+    }
+
+    if let .One(x) = a {
+        sum = sum + x
+    } else {
+        sum = sum + 1000
+    }
+
+    println("sum", sum)
+}

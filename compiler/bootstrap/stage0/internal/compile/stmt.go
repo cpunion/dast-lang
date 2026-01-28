@@ -93,9 +93,16 @@ func (c *Compiler) compileLetPattern(s *ast.LetPatternStmt) {
 	}
 	scrutTemp := !isLvalueExpr(s.Init)
 	bindsDroppable := c.patternBindsDroppable(scrutType, s.Pattern)
+	moveScrut := scrutTemp || bindsDroppable
+	if !scrutTemp && bindsDroppable {
+		c.markMovedExpr(s.Init)
+	}
 	cond, always := c.compilePatternCond(scrut, s.Pattern)
 	if always {
-		c.bindPattern(scrut, s.Pattern, false)
+		c.bindPattern(scrut, s.Pattern, false, moveScrut)
+		if !scrutTemp && moveScrut {
+			c.emitClearLvalue(s.Init)
+		}
 		if scrutTemp {
 			if bindsDroppable {
 				c.emitShallowFree(ir.TempOperand(scrut), scrutType)
@@ -112,7 +119,10 @@ func (c *Compiler) compileLetPattern(s *ast.LetPatternStmt) {
 	c.emitTerm(&ir.Branch{Cond: cond, Then: thenBlock.Label, Else: elseBlock.Label})
 
 	c.setCurrentBlock(thenBlock)
-	c.bindPattern(scrut, s.Pattern, false)
+	c.bindPattern(scrut, s.Pattern, false, moveScrut)
+	if !scrutTemp && moveScrut {
+		c.emitClearLvalue(s.Init)
+	}
 	if scrutTemp {
 		if bindsDroppable {
 			c.emitShallowFree(ir.TempOperand(scrut), scrutType)
@@ -254,6 +264,16 @@ func (c *Compiler) compileIf(s *ast.IfStmt) {
 
 func (c *Compiler) compileIfLet(s *ast.IfLetStmt) {
 	scrut := c.compileExpr(s.Expr)
+	scrutType := c.tempTypes[scrut]
+	if scrutType == "" {
+		scrutType = c.inferExprType(s.Expr)
+	}
+	scrutTemp := !isLvalueExpr(s.Expr)
+	armMove := c.patternBindsDroppable(scrutType, s.Pattern)
+	moveScrut := scrutTemp || armMove
+	if !scrutTemp && armMove {
+		c.markMovedExpr(s.Expr)
+	}
 	thenBlock := c.newBlock("iflet_then")
 	elseBlock := c.newBlock("iflet_else")
 	mergeBlock := c.newBlock("iflet_merge")
@@ -289,11 +309,21 @@ func (c *Compiler) compileIfLet(s *ast.IfLetStmt) {
 
 	c.setCurrentBlock(thenBlock)
 	arm := ast.MatchArm{Pattern: s.Pattern, Body: s.Then, SpanInfo: s.Then.Span()}
-	c.compileMatchArm(&arm, scrut, elseBlock.Label)
+	c.compileMatchArm(&arm, scrut, moveScrut, elseBlock.Label)
 	thenReturns := termIsReturn(c.currentBlock().Term)
 	thenState := c.captureVarState(base)
 	c.restoreScopes(base)
 	if c.currentBlock().Term == nil {
+		if !scrutTemp && moveScrut {
+			c.emitClearLvalue(s.Expr)
+		}
+		if scrutTemp {
+			if armMove {
+				c.emitShallowFree(ir.TempOperand(scrut), scrutType)
+			} else {
+				c.emitDropCall(ir.TempOperand(scrut), scrutType)
+			}
+		}
 		c.emitTerm(&ir.Jump{Target: mergeBlock.Label})
 	}
 
@@ -305,6 +335,12 @@ func (c *Compiler) compileIfLet(s *ast.IfLetStmt) {
 	elseState := c.captureVarState(base)
 	c.restoreScopes(base)
 	if c.currentBlock().Term == nil {
+		if !scrutTemp && moveScrut {
+			c.emitClearLvalue(s.Expr)
+		}
+		if scrutTemp {
+			c.emitDropCall(ir.TempOperand(scrut), scrutType)
+		}
 		c.emitTerm(&ir.Jump{Target: mergeBlock.Label})
 	}
 
@@ -392,6 +428,16 @@ func (c *Compiler) compileWhileLet(s *ast.WhileLetStmt) {
 
 	c.setCurrentBlock(condBlock)
 	scrut := c.compileExpr(s.Expr)
+	scrutType := c.tempTypes[scrut]
+	if scrutType == "" {
+		scrutType = c.inferExprType(s.Expr)
+	}
+	scrutTemp := !isLvalueExpr(s.Expr)
+	armMove := c.patternBindsDroppable(scrutType, s.Pattern)
+	moveScrut := scrutTemp || armMove
+	if !scrutTemp && armMove {
+		c.markMovedExpr(s.Expr)
+	}
 	switch p := s.Pattern.(type) {
 	case *ast.WildcardPattern:
 		c.emitTerm(&ir.Jump{Target: bodyBlock.Label})
@@ -423,13 +469,29 @@ func (c *Compiler) compileWhileLet(s *ast.WhileLetStmt) {
 	c.setCurrentBlock(bodyBlock)
 	arm := ast.MatchArm{Pattern: s.Pattern, Body: s.Body, SpanInfo: s.Body.Span()}
 	c.pushLoop(afterBlock.Label, condBlock.Label, s.Label, "")
-	c.compileMatchArm(&arm, scrut, afterBlock.Label)
+	c.compileMatchArm(&arm, scrut, moveScrut, afterBlock.Label)
 	c.popLoop()
 	if c.currentBlock().Term == nil {
+		if !scrutTemp && moveScrut {
+			c.emitClearLvalue(s.Expr)
+		}
+		if scrutTemp {
+			if armMove {
+				c.emitShallowFree(ir.TempOperand(scrut), scrutType)
+			} else {
+				c.emitDropCall(ir.TempOperand(scrut), scrutType)
+			}
+		}
 		c.emitTerm(&ir.Jump{Target: condBlock.Label})
 	}
 
 	c.setCurrentBlock(afterBlock)
+	if !scrutTemp && moveScrut {
+		c.emitClearLvalue(s.Expr)
+	}
+	if scrutTemp {
+		c.emitDropCall(ir.TempOperand(scrut), scrutType)
+	}
 }
 
 func (c *Compiler) compileLoop(s *ast.LoopStmt) {
@@ -538,7 +600,7 @@ func (c *Compiler) compileFor(s *ast.ForStmt) {
 	elemTemp := c.newTemp()
 	c.setTempType(elemTemp, elemType)
 	c.emit(&ir.Index{Dst: elemTemp, Array: ir.TempOperand(iterTemp), Index: ir.TempOperand(idxTempBody)})
-	c.bindPattern(elemTemp, s.Pattern, false)
+	c.bindPattern(elemTemp, s.Pattern, false, false)
 	for _, stmt := range s.Body.Stmts {
 		if c.currentBlock().Term != nil {
 			break
@@ -597,6 +659,22 @@ func (c *Compiler) compileContinue(s *ast.ContinueStmt) {
 
 func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 	scrut := c.compileExpr(s.Expr)
+	scrutType := c.tempTypes[scrut]
+	if scrutType == "" {
+		scrutType = c.inferExprType(s.Expr)
+	}
+	scrutTemp := !isLvalueExpr(s.Expr)
+	anyMove := false
+	for _, arm := range s.Arms {
+		if c.patternBindsDroppable(scrutType, arm.Pattern) {
+			anyMove = true
+			break
+		}
+	}
+	moveScrut := scrutTemp || anyMove
+	if !scrutTemp && anyMove {
+		c.markMovedExpr(s.Expr)
+	}
 	after := c.newBlock("match_after")
 
 	for i, arm := range s.Arms {
@@ -609,8 +687,19 @@ func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 			c.emitTerm(&ir.Branch{Cond: cond, Then: armBlock.Label, Else: next.Label})
 		}
 		c.setCurrentBlock(armBlock)
-		c.compileMatchArm(&arm, scrut, next.Label)
+		armMove := c.patternBindsDroppable(scrutType, arm.Pattern)
+		c.compileMatchArm(&arm, scrut, moveScrut, next.Label)
 		if c.currentBlock().Term == nil {
+			if !scrutTemp && moveScrut {
+				c.emitClearLvalue(s.Expr)
+			}
+			if scrutTemp {
+				if armMove {
+					c.emitShallowFree(ir.TempOperand(scrut), scrutType)
+				} else {
+					c.emitDropCall(ir.TempOperand(scrut), scrutType)
+				}
+			}
 			c.emitTerm(&ir.Jump{Target: after.Label})
 		}
 		c.setCurrentBlock(next)
@@ -626,6 +715,22 @@ func (c *Compiler) compileMatch(s *ast.MatchStmt) {
 
 func (c *Compiler) compileTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 	scrut := c.compileExpr(s.Expr)
+	scrutType := c.tempTypes[scrut]
+	if scrutType == "" {
+		scrutType = c.inferExprType(s.Expr)
+	}
+	scrutTemp := !isLvalueExpr(s.Expr)
+	anyMove := false
+	for _, arm := range s.Arms {
+		if c.patternBindsDroppable(scrutType, arm.Pattern) {
+			anyMove = true
+			break
+		}
+	}
+	moveScrut := scrutTemp || anyMove
+	if !scrutTemp && anyMove {
+		c.markMovedExpr(s.Expr)
+	}
 	after := c.newBlock("match_after")
 
 	for i, arm := range s.Arms {
@@ -638,8 +743,19 @@ func (c *Compiler) compileTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 			c.emitTerm(&ir.Branch{Cond: cond, Then: armBlock.Label, Else: next.Label})
 		}
 		c.setCurrentBlock(armBlock)
-		c.compileMatchArmTail(&arm, scrut, allowImplicit, next.Label)
+		armMove := c.patternBindsDroppable(scrutType, arm.Pattern)
+		c.compileMatchArmTail(&arm, scrut, moveScrut, allowImplicit, next.Label)
 		if c.currentBlock().Term == nil {
+			if !scrutTemp && moveScrut {
+				c.emitClearLvalue(s.Expr)
+			}
+			if scrutTemp {
+				if armMove {
+					c.emitShallowFree(ir.TempOperand(scrut), scrutType)
+				} else {
+					c.emitDropCall(ir.TempOperand(scrut), scrutType)
+				}
+			}
 			c.emitTerm(&ir.Jump{Target: after.Label})
 		}
 		c.setCurrentBlock(next)
@@ -729,6 +845,22 @@ func (c *Compiler) compileIfExpr(e *ast.IfExpr) int {
 
 func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) int {
 	scrut := c.compileExpr(e.Expr)
+	scrutType := c.tempTypes[scrut]
+	if scrutType == "" {
+		scrutType = c.inferExprType(e.Expr)
+	}
+	scrutTemp := !isLvalueExpr(e.Expr)
+	anyMove := false
+	for _, arm := range e.Arms {
+		if c.patternBindsDroppable(scrutType, arm.Pattern) {
+			anyMove = true
+			break
+		}
+	}
+	moveScrut := scrutTemp || anyMove
+	if !scrutTemp && anyMove {
+		c.markMovedExpr(e.Expr)
+	}
 	after := c.newBlock("match_after")
 	dstName := c.declareMutVar("__match", c.inferExprType(e))
 	c.emit(&ir.StoreVar{Name: dstName, Src: ir.ConstOperand(ir.Value{Kind: ir.KindUnit})})
@@ -743,9 +875,20 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) int {
 			c.emitTerm(&ir.Branch{Cond: cond, Then: armBlock.Label, Else: next.Label})
 		}
 		c.setCurrentBlock(armBlock)
-		op := c.compileMatchArmExpr(&arm, scrut, next.Label)
+		armMove := c.patternBindsDroppable(scrutType, arm.Pattern)
+		op := c.compileMatchArmExpr(&arm, scrut, moveScrut, next.Label)
 		if c.currentBlock().Term == nil {
 			c.emit(&ir.StoreVar{Name: dstName, Src: op})
+			if !scrutTemp && moveScrut {
+				c.emitClearLvalue(e.Expr)
+			}
+			if scrutTemp {
+				if armMove {
+					c.emitShallowFree(ir.TempOperand(scrut), scrutType)
+				} else {
+					c.emitDropCall(ir.TempOperand(scrut), scrutType)
+				}
+			}
 			c.emitTerm(&ir.Jump{Target: after.Label})
 		}
 		c.setCurrentBlock(next)
@@ -763,9 +906,9 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) int {
 	return dst
 }
 
-func (c *Compiler) compileMatchArmExpr(arm *ast.MatchArm, scrut int, nextLabel string) ir.Operand {
+func (c *Compiler) compileMatchArmExpr(arm *ast.MatchArm, scrut int, moveScrut bool, nextLabel string) ir.Operand {
 	c.pushScope()
-	c.bindPattern(scrut, arm.Pattern, false)
+	c.bindPattern(scrut, arm.Pattern, false, moveScrut)
 	if arm.Guard != nil {
 		if nextLabel == "" {
 			c.diag.Add(arm.Guard.Span(), "match guard requires next arm")
@@ -781,7 +924,7 @@ func (c *Compiler) compileMatchArmExpr(arm *ast.MatchArm, scrut int, nextLabel s
 	return op
 }
 
-func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
+func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool, moveScrut bool) {
 	switch p := pat.(type) {
 	case *ast.BindingPattern:
 		if _, _, ok := c.constPatternInfo(p.Name); ok {
@@ -795,16 +938,28 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
 		if !mutable {
 			c.markImmutable(p.Name)
 		}
+		borrowed := false
+		if !moveScrut {
+			borrowed = c.operandBorrowed(ir.TempOperand(scrut))
+		}
 		c.emit(&ir.StoreVar{Name: name, Src: ir.TempOperand(scrut)})
+		c.updateVar(p.Name, func(v *VarInfo) {
+			v.Borrowed = borrowed
+			v.Moved = false
+		})
 	case *ast.VariantPattern:
 		if p.Binding != "" {
 			// Borrow the scrutinee when extracting payload to avoid
 			// dropping the base enum while the payload is in use.
-			c.setTempBorrowed(scrut, true)
-			c.markTempBorrowedVar(scrut)
+			if !moveScrut {
+				c.setTempBorrowed(scrut, true)
+				c.markTempBorrowedVar(scrut)
+			}
 			payload := c.newTemp()
 			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
-			c.setTempBorrowed(payload, true)
+			if !moveScrut {
+				c.setTempBorrowed(payload, true)
+			}
 			typ := "unit"
 			enumName := p.EnumName
 			if enumName == "" {
@@ -821,16 +976,28 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
 			if !mutable {
 				c.markImmutable(p.Binding)
 			}
+			borrowed := false
+			if !moveScrut {
+				borrowed = c.operandBorrowed(ir.TempOperand(payload))
+			}
 			c.emit(&ir.StoreVar{Name: name, Src: ir.TempOperand(payload)})
+			c.updateVar(p.Binding, func(v *VarInfo) {
+				v.Borrowed = borrowed
+				v.Moved = false
+			})
 		}
 	case *ast.StructPattern:
-		c.setTempBorrowed(scrut, true)
-		c.markTempBorrowedVar(scrut)
+		if !moveScrut {
+			c.setTempBorrowed(scrut, true)
+			c.markTempBorrowedVar(scrut)
+		}
 		for _, f := range p.Fields {
 			if f.Pattern == nil {
 				fieldTemp := c.newTemp()
 				c.emit(&ir.GetField{Dst: fieldTemp, Src: scrut, Field: f.Name})
-				c.setTempBorrowed(fieldTemp, true)
+				if !moveScrut {
+					c.setTempBorrowed(fieldTemp, true)
+				}
 				binding := f.Binding
 				if binding == "" {
 					binding = f.Name
@@ -849,31 +1016,47 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
 				if !mutable {
 					c.markImmutable(binding)
 				}
+				borrowed := false
+				if !moveScrut {
+					borrowed = c.operandBorrowed(ir.TempOperand(fieldTemp))
+				}
 				c.emit(&ir.StoreVar{Name: name, Src: ir.TempOperand(fieldTemp)})
+				c.updateVar(binding, func(v *VarInfo) {
+					v.Borrowed = borrowed
+					v.Moved = false
+				})
 				continue
 			}
 			if c.patternHasBinding(f.Pattern) {
 				fieldTemp := c.newTemp()
 				c.emit(&ir.GetField{Dst: fieldTemp, Src: scrut, Field: f.Name})
-				c.setTempBorrowed(fieldTemp, true)
-				c.bindPattern(fieldTemp, f.Pattern, mutable)
+				if !moveScrut {
+					c.setTempBorrowed(fieldTemp, true)
+				}
+				c.bindPattern(fieldTemp, f.Pattern, mutable, moveScrut)
 			}
 		}
 	case *ast.TuplePattern:
-		c.setTempBorrowed(scrut, true)
-		c.markTempBorrowedVar(scrut)
+		if !moveScrut {
+			c.setTempBorrowed(scrut, true)
+			c.markTempBorrowedVar(scrut)
+		}
 		for i, el := range p.Elems {
 			if !c.patternHasBinding(el) {
 				continue
 			}
 			fieldTemp := c.newTemp()
 			c.emit(&ir.GetField{Dst: fieldTemp, Src: scrut, Field: fmt.Sprintf("%d", i)})
-			c.setTempBorrowed(fieldTemp, true)
-			c.bindPattern(fieldTemp, el, mutable)
+			if !moveScrut {
+				c.setTempBorrowed(fieldTemp, true)
+			}
+			c.bindPattern(fieldTemp, el, mutable, moveScrut)
 		}
 	case *ast.ArrayPattern:
-		c.setTempBorrowed(scrut, true)
-		c.markTempBorrowedVar(scrut)
+		if !moveScrut {
+			c.setTempBorrowed(scrut, true)
+			c.markTempBorrowedVar(scrut)
+		}
 		elemType := "i64"
 		arrType := derefTypeName(c.tempTypes[scrut])
 		if isArrayTypeName(arrType) {
@@ -888,8 +1071,10 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool) {
 			elemTemp := c.newTemp()
 			c.setTempType(elemTemp, elemType)
 			c.emit(&ir.Index{Dst: elemTemp, Array: ir.TempOperand(scrut), Index: ir.IntOperand(int64(i))})
-			c.setTempBorrowed(elemTemp, true)
-			c.bindPattern(elemTemp, el, mutable)
+			if !moveScrut {
+				c.setTempBorrowed(elemTemp, true)
+			}
+			c.bindPattern(elemTemp, el, mutable, moveScrut)
 		}
 	case *ast.OrPattern:
 		// bindings in or-patterns are not supported
@@ -1057,6 +1242,26 @@ func isLvalueExpr(expr ast.Expr) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (c *Compiler) emitClearLvalue(expr ast.Expr) {
+	zero := ir.IntOperand(0)
+	switch t := expr.(type) {
+	case *ast.IdentExpr:
+		if info, ok := c.lookupVar(t.Name); ok {
+			c.emit(&ir.StoreVar{Name: info.Name, Src: zero})
+		}
+	case *ast.AccessExpr:
+		recv := c.compileExpr(t.Receiver)
+		c.emit(&ir.SetField{Src: recv, Field: t.Field, Value: zero})
+	case *ast.IndexExpr:
+		arrayTemp := c.compileOperandBorrow(t.Receiver)
+		indexTemp := c.compileOperandBorrow(t.Index)
+		c.emit(&ir.SetIndex{Array: arrayTemp, Index: indexTemp, Src: zero})
+	case *ast.DerefExpr:
+		refTemp := c.compileExpr(t.Expr)
+		c.emit(&ir.StoreVar{Ref: true, RefTemp: refTemp, Src: zero})
 	}
 }
 
@@ -1255,9 +1460,9 @@ func (c *Compiler) compileOrPatternCond(scrut int, pat *ast.OrPattern) (ir.Opera
 	return cond, false
 }
 
-func (c *Compiler) compileMatchArm(arm *ast.MatchArm, scrut int, nextLabel string) {
+func (c *Compiler) compileMatchArm(arm *ast.MatchArm, scrut int, moveScrut bool, nextLabel string) {
 	c.pushScope()
-	c.bindPattern(scrut, arm.Pattern, false)
+	c.bindPattern(scrut, arm.Pattern, false, moveScrut)
 	if arm.Guard != nil {
 		if nextLabel == "" {
 			c.diag.Add(arm.Guard.Span(), "match guard requires next arm")
@@ -1277,9 +1482,9 @@ func (c *Compiler) compileMatchArm(arm *ast.MatchArm, scrut int, nextLabel strin
 	c.popScope()
 }
 
-func (c *Compiler) compileMatchArmTail(arm *ast.MatchArm, scrut int, allowImplicit bool, nextLabel string) {
+func (c *Compiler) compileMatchArmTail(arm *ast.MatchArm, scrut int, moveScrut bool, allowImplicit bool, nextLabel string) {
 	c.pushScope()
-	c.bindPattern(scrut, arm.Pattern, false)
+	c.bindPattern(scrut, arm.Pattern, false, moveScrut)
 	if arm.Guard != nil {
 		if nextLabel == "" {
 			c.diag.Add(arm.Guard.Span(), "match guard requires next arm")

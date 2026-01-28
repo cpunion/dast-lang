@@ -287,6 +287,13 @@ func (rt *Runtime) builtinReadFile() Builtin {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_file expects 1 argument")
 		}
 		pathVal := args[0]
+		if pathVal.Kind == ir.KindRef {
+			val, err := rt.deref(pathVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			pathVal = val
+		}
 		if pathVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_file expects string path")
 		}
@@ -304,6 +311,13 @@ func (rt *Runtime) builtinReadDir() Builtin {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_dir expects 1 argument")
 		}
 		pathVal := args[0]
+		if pathVal.Kind == ir.KindRef {
+			val, err := rt.deref(pathVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			pathVal = val
+		}
 		if pathVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_dir expects string path")
 		}
@@ -328,6 +342,13 @@ func (rt *Runtime) builtinCharAt() Builtin {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("char_at expects 2 arguments")
 		}
 		strVal := args[0]
+		if strVal.Kind == ir.KindRef {
+			val, err := rt.deref(strVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			strVal = val
+		}
 		idxVal := args[1]
 		if strVal.Kind != ir.KindString || idxVal.Kind != ir.KindInt {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("char_at expects string and int")
@@ -347,6 +368,13 @@ func (rt *Runtime) builtinSubstr() Builtin {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("substr expects 3 arguments")
 		}
 		strVal := args[0]
+		if strVal.Kind == ir.KindRef {
+			val, err := rt.deref(strVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			strVal = val
+		}
 		startVal := args[1]
 		lenVal := args[2]
 		if strVal.Kind != ir.KindString || startVal.Kind != ir.KindInt || lenVal.Kind != ir.KindInt {
@@ -368,6 +396,20 @@ func (rt *Runtime) builtinWriteFile() Builtin {
 		}
 		pathVal := args[0]
 		dataVal := args[1]
+		if pathVal.Kind == ir.KindRef {
+			val, err := rt.deref(pathVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			pathVal = val
+		}
+		if dataVal.Kind == ir.KindRef {
+			val, err := rt.deref(dataVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			dataVal = val
+		}
 		if pathVal.Kind != ir.KindString || dataVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("write_file expects string path and data")
 		}
@@ -384,6 +426,13 @@ func (rt *Runtime) builtinMkdir() Builtin {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("mkdir expects 1 argument")
 		}
 		pathVal := args[0]
+		if pathVal.Kind == ir.KindRef {
+			val, err := rt.deref(pathVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			pathVal = val
+		}
 		if pathVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("mkdir expects string path")
 		}
@@ -442,10 +491,18 @@ func (rt *Runtime) builtinReadBytes() Builtin {
 		if len(args) != 1 {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_bytes expects 1 argument")
 		}
-		if args[0].Kind != ir.KindInt {
+		countVal := args[0]
+		if countVal.Kind == ir.KindRef {
+			val, err := rt.deref(countVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			countVal = val
+		}
+		if countVal.Kind != ir.KindInt {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_bytes expects int count")
 		}
-		count := int(args[0].Int)
+		count := int(countVal.Int)
 		if count < 0 {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("read_bytes count must be non-negative")
 		}
@@ -470,7 +527,15 @@ func (rt *Runtime) builtinExec() Builtin {
 		if len(args) != 2 {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("exec expects 2 arguments")
 		}
-		if args[0].Kind != ir.KindString {
+		cmdVal := args[0]
+		if cmdVal.Kind == ir.KindRef {
+			val, err := rt.deref(cmdVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			cmdVal = val
+		}
+		if cmdVal.Kind != ir.KindString {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("exec expects string command")
 		}
 		if args[1].Kind != ir.KindArray || args[1].Array == nil {
@@ -483,7 +548,7 @@ func (rt *Runtime) builtinExec() Builtin {
 			}
 			argv = append(argv, v.Str)
 		}
-		cmd := exec.Command(args[0].Str, argv...)
+		cmd := exec.Command(cmdVal.Str, argv...)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = rt.Stdout
 		cmd.Stderr = os.Stderr

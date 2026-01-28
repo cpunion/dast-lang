@@ -321,6 +321,7 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		recv := c.compileExpr(e.Receiver)
 		recvTypeRaw := c.inferExprType(e.Receiver)
 		c.markTempBorrowedVar(recv)
+		c.setTempBorrowed(recv, true)
 		// Field access yields a borrowed view by default to avoid
 		// double-drops when the base value remains owned elsewhere.
 		borrowed := true
@@ -348,16 +349,13 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		c.setTempType(dst, fieldType)
 		c.setTempBorrowed(dst, borrowed)
 		c.emit(&ir.GetField{Dst: dst, Src: recv, Field: e.Field})
-		if fieldType == "String" {
-			cloneTemp := c.newTempWithType("String")
-			c.emit(&ir.Call{Dst: cloneTemp, Callee: "string_clone", Args: []ir.Operand{ir.TempOperand(dst)}})
-			c.setTempBorrowed(cloneTemp, false)
-			return cloneTemp
-		}
 		return dst
 	case *ast.IndexExpr:
 		recv := c.compileOperandBorrow(e.Receiver)
 		index := c.compileOperandBorrow(e.Index)
+		if !recv.IsConst {
+			c.setTempBorrowed(recv.Temp, true)
+		}
 		recvTypeRaw := c.inferExprType(e.Receiver)
 		c.markTempBorrowedVar(recv.Temp)
 		// Indexing borrows the element; moving out of containers is not
@@ -486,6 +484,7 @@ func (c *Compiler) compileRefTarget(expr ast.Expr, mutable bool) int {
 			}
 		}
 		base := c.compileRefTarget(e.Receiver, mutable)
+		c.setTempBorrowed(base, true)
 		dst := c.newTemp()
 		c.setTempType(dst, "*i64")
 		c.emit(&ir.FieldAddr{Dst: dst, Src: base, Field: e.Field})
@@ -502,6 +501,7 @@ func (c *Compiler) compileRefTarget(expr ast.Expr, mutable bool) int {
 			}
 		}
 		base := c.compileRefTarget(e.Receiver, mutable)
+		c.setTempBorrowed(base, true)
 		index := c.compileOperandBorrow(e.Index)
 		dst := c.newTemp()
 		c.setTempType(dst, "*i64")

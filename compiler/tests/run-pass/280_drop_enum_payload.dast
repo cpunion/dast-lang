@@ -1,0 +1,28 @@
+struct Wrap {
+    s: String,
+}
+
+enum Boxed {
+    Some(Wrap),
+    None,
+}
+
+fn main() {
+    let mut i = 0
+    let mut count = 0
+    let mut cur = Boxed.None
+    while i < 4 {
+        if i < 2 {
+            cur = Boxed.Some(Wrap { s: string_clone("hi") })
+        } else {
+            cur = Boxed.None
+        }
+        if let .Some(w) = cur {
+            count = count + len(w.s)
+        } else {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    println("count", count)
+}
