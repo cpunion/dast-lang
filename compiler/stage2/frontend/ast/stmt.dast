@@ -17,6 +17,7 @@ const PAT_VARIANT = 1
 const PAT_INT = 2
 const PAT_WILDCARD = 3
 const PAT_STRUCT = 4
+const PAT_RANGE = 5
 
 struct Block {
     stmts: [Stmt],
@@ -30,6 +31,8 @@ struct MatchArm {
     has_guard: bool,
     guard: Expr,
     int_value: i64,
+    range_end: i64,
+    range_inclusive: bool,
     struct_name: String,
     struct_fields: [StructPatternField],
     block: Block,
@@ -84,6 +87,8 @@ fn match_arm_clone(a: &MatchArm) -> MatchArm {
         has_guard: a.has_guard,
         guard: expr_clone(&a.guard),
         int_value: a.int_value,
+        range_end: a.range_end,
+        range_inclusive: a.range_inclusive,
         struct_name: string_clone(&a.struct_name),
         struct_fields: struct_pattern_field_list_clone(&a.struct_fields),
         block: block_clone(&a.block),

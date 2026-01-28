@@ -128,15 +128,27 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
         let _ = parser_expect(p, TK_LBRACE, "{")
         let mut arms = match_arm_list_empty()
         while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
-            let mut arm = parse_match_pattern(p)
+            let mut pats = parse_match_pattern_list(p)
+            let mut guard = expr_int(0)
+            let mut has_guard = false
             if parser_peek(p).kind == TK_IF {
                 let _ = parser_advance(p)
-                arm.guard = parse_expr(p)
-                arm.has_guard = true
+                guard = parse_expr(p)
+                has_guard = true
             }
             let _ = parser_expect(p, TK_FATARROW, "=>")
-            arm.block = parse_match_arm_body(p)
-            push(&mut arms, arm)
+            let block = parse_match_arm_body(p)
+            let mut pi = 0
+            while pi < len(&pats) {
+                let mut arm = pats[pi]
+                if has_guard {
+                    arm.guard = expr_clone(&guard)
+                    arm.has_guard = true
+                }
+                arm.block = block_clone(&block)
+                push(&mut arms, arm)
+                pi = pi + 1
+            }
             if parser_peek(p).kind == TK_COMMA { let _ = parser_advance(p) }
         }
         let _ = parser_expect(p, TK_RBRACE, "}")

@@ -19,6 +19,8 @@ fn parse_variant_pattern(p: &mut Parser) -> MatchArm {
         has_guard: false,
         guard: expr_int(0),
         int_value: 0,
+        range_end: 0,
+        range_inclusive: false,
         struct_name: "",
         struct_fields: struct_pattern_field_list_empty(),
         block: block_empty(),
@@ -78,13 +80,27 @@ fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
         has_guard: false,
         guard: expr_int(0),
         int_value: 0,
+        range_end: 0,
+        range_inclusive: false,
         struct_name: name,
         struct_fields: fields,
         block: block_empty(),
     }
 }
 
-fn parse_match_pattern(p: &mut Parser) -> MatchArm {
+fn pattern_has_binding(pat: &MatchArm) -> bool {
+    if pat.has_binding { return true }
+    if pat.pat_kind == PAT_STRUCT {
+        let mut i = 0
+        while i < len(&pat.struct_fields) {
+            if pat.struct_fields[i].has_binding { return true }
+            i = i + 1
+        }
+    }
+    return false
+}
+
+fn parse_match_pattern_single(p: &mut Parser) -> MatchArm {
     let t = parser_peek(p)
     let mut arm = MatchArm {
         pat_kind: PAT_WILDCARD,
@@ -94,6 +110,8 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
         has_guard: false,
         guard: expr_int(0),
         int_value: 0,
+        range_end: 0,
+        range_inclusive: false,
         struct_name: "",
         struct_fields: struct_pattern_field_list_empty(),
         block: block_empty(),
@@ -104,9 +122,30 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
         arm = parse_struct_pattern(p)
     } else if t.kind == TK_INT {
         let v = parser_advance(p).int_value
-        if parser_peek(p).kind == TK_DOT {
-            println("stage2: range patterns are not supported")
-            exit(1)
+        if parser_peek(p).kind == TK_DOT && parser_peek_next(p).kind == TK_DOT {
+            let _ = parser_advance(p)
+            let _ = parser_advance(p)
+            let mut inclusive = false
+            if parser_peek(p).kind == TK_ASSIGN {
+                let _ = parser_advance(p)
+                inclusive = true
+            }
+            let end = parser_expect(p, TK_INT, "range end").int_value
+            arm = MatchArm {
+                pat_kind: PAT_RANGE,
+                variant: "",
+                binding: "",
+                has_binding: false,
+                has_guard: false,
+                guard: expr_int(0),
+                int_value: v,
+                range_end: end,
+                range_inclusive: inclusive,
+                struct_name: "",
+                struct_fields: struct_pattern_field_list_empty(),
+                block: block_empty(),
+            }
+            return arm
         }
         arm = MatchArm {
             pat_kind: PAT_INT,
@@ -116,6 +155,8 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
             has_guard: false,
             guard: expr_int(0),
             int_value: v,
+            range_end: 0,
+            range_inclusive: false,
             struct_name: "",
             struct_fields: struct_pattern_field_list_empty(),
             block: block_empty(),
@@ -130,6 +171,8 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
             has_guard: false,
             guard: expr_int(0),
             int_value: 0,
+            range_end: 0,
+            range_inclusive: false,
             struct_name: "",
             struct_fields: struct_pattern_field_list_empty(),
             block: block_empty(),
@@ -138,9 +181,23 @@ fn parse_match_pattern(p: &mut Parser) -> MatchArm {
         println("parse error: expected pattern got", t.kind, t.text)
         exit(1)
     }
-    if parser_peek(p).kind == TK_PIPE {
+    return arm
+}
+
+fn parse_match_pattern_list(p: &mut Parser) -> [MatchArm] {
+    let mut out: [MatchArm] = []
+    let first = parse_match_pattern_single(p)
+    let mut has_binding = pattern_has_binding(&first)
+    push(&mut out, first)
+    while parser_peek(p).kind == TK_PIPE {
+        let _ = parser_advance(p)
+        let next = parse_match_pattern_single(p)
+        if pattern_has_binding(&next) { has_binding = true }
+        push(&mut out, next)
+    }
+    if has_binding && len(&out) > 1 {
         println("stage2: or-patterns with bindings are not supported")
         exit(1)
     }
-    return arm
+    return out
 }
