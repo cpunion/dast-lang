@@ -84,7 +84,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		if !ok {
 			return Type{Kind: TypeInvalid}
 		}
-		if baseType.Kind == TypeString || baseType.Kind == TypeStr {
+		if baseType.Kind == TypeStr {
 			if e.Mutable {
 				c.diag.Add(e.Span(), "cannot take &mut of string")
 			}
