@@ -1,0 +1,796 @@
+fn enum_tag_type(e: &Emitter, enum_name: &str) -> String {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return "i32" }
+    let mut tt = string_clone(&e.enum_sigs[ei].tag_type)
+    let sig = &e.enum_sigs[ei]
+    if len(&sig.type_params) > 0 {
+        let base_name = type_strip_ref(e, enum_name)
+        let parsed = type_args_parse(&base_name)
+        if parsed.has && len(&parsed.args) == len(&sig.type_params) {
+            tt = type_subst(e, &tt, &sig.type_params, &parsed.args)
+        }
+    }
+    tt = type_resolve(e, &tt)
+    if tt == "" { return "i32" }
+    return tt
+}
+
+fn enum_variant_index(e: &Emitter, enum_name: &str, variant: &str) -> i64 {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return -1 }
+    let mut i = 0
+    while i < len(&e.enum_sigs[ei].variants) {
+        if e.enum_sigs[ei].variants[i].name == variant { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn enum_variant_value(e: &Emitter, enum_name: &str, variant: &str) -> i64 {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return -1 }
+    let vi = enum_variant_index(e, enum_name, variant)
+    if vi < 0 { return -1 }
+    return e.enum_sigs[ei].variants[vi].value
+}
+
+fn enum_has_payload(e: &Emitter, enum_name: &str) -> bool {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return false }
+    let mut i = 0
+    while i < len(&e.enum_sigs[ei].variants) {
+        if e.enum_sigs[ei].variants[i].has_payload { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn enum_variant_has_payload(e: &Emitter, enum_name: &str, variant: &str) -> bool {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return false }
+    let vi = enum_variant_index(e, enum_name, variant)
+    if vi < 0 { return false }
+    return e.enum_sigs[ei].variants[vi].has_payload
+}
+
+fn enum_name_for_variant(e: &Emitter, variant: &str) -> String {
+    let mut i = 0
+    while i < len(&e.enum_sigs) {
+        let mut vi = 0
+        while vi < len(&e.enum_sigs[i].variants) {
+            if e.enum_sigs[i].variants[vi].name == variant {
+                return string_clone(&e.enum_sigs[i].name)
+            }
+            vi = vi + 1
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+fn enum_variant_payload_type(e: &Emitter, enum_name: &str, variant: &str) -> String {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return "i64" }
+    let vi = enum_variant_index(e, enum_name, variant)
+    if vi < 0 { return "i64" }
+    let mut pt = string_clone(&e.enum_sigs[ei].variants[vi].payload_type)
+    let sig = &e.enum_sigs[ei]
+    if len(&sig.type_params) > 0 {
+        let base_name = type_strip_ref(e, enum_name)
+        let parsed = type_args_parse(&base_name)
+        if parsed.has && len(&parsed.args) == len(&sig.type_params) {
+            pt = type_subst(e, &pt, &sig.type_params, &parsed.args)
+        }
+    }
+    if pt == "" { return "i64" }
+    return type_resolve(e, &pt)
+}
+
+fn func_index(e: &Emitter, name: &str) -> i64 {
+    let mut i = 0
+    while i < len(&e.func_sigs) {
+        if e.func_sigs[i].name == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn func_decl_index(e: &Emitter, name: &str) -> i64 {
+    let mut i = 0
+    while i < len(&e.func_decls) {
+        if e.func_decls[i].name == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn func_ret_type(e: &Emitter, name: &str) -> String {
+    let idx = func_index(e, name)
+    if idx < 0 { return "i64" }
+    return string_clone(&e.func_sigs[idx].ret_type)
+}
+
+fn bind_type_params(e: &Emitter, pat: &str, act: &str, params: & [String], values: &mut [String]) {
+    if len(params) == 0 { return }
+    let pat_rt = string_clone(pat)
+    let act_rt = type_resolve(e, act)
+    if type_is_ref_raw(&pat_rt) && type_is_ref_raw(&act_rt) {
+        let pb = type_ref_base_raw(&pat_rt)
+        let ab = type_ref_base_raw(&act_rt)
+        bind_type_params(e, &pb, &ab, params, values)
+        return
+    }
+    if type_is_array_raw(&pat_rt) && type_is_array_raw(&act_rt) {
+        let pe = type_array_elem_raw(&pat_rt)
+        let ae = type_array_elem_raw(&act_rt)
+        bind_type_params(e, &pe, &ae, params, values)
+        return
+    }
+    let pat_args = type_args_parse(&pat_rt)
+    let act_args = type_args_parse(&act_rt)
+    if pat_args.has {
+        if act_args.has && pat_args.base == act_args.base && len(&pat_args.args) == len(&act_args.args) {
+            let mut i = 0
+            while i < len(&pat_args.args) {
+                bind_type_params(e, &pat_args.args[i], &act_args.args[i], params, values)
+                i = i + 1
+            }
+        }
+        return
+    }
+    let idx = list_index(&params, &pat_rt)
+    if idx >= 0 {
+        if (*values)[idx] == "" {
+            (*values)[idx] = act_rt
+        }
+    }
+}
+
+fn func_ret_type_for_call(e: &Emitter, name: &str, args: & [Expr]) -> String {
+    let di = func_decl_index(e, name)
+    if di < 0 { return func_ret_type(e, name) }
+    let f = &e.func_decls[di]
+    if len(&f.type_params) == 0 { return func_ret_type(e, name) }
+    let mut params: [String] = []
+    let mut pi = 0
+    while pi < len(&f.type_params) {
+        push(&mut params, string_clone(&f.type_params[pi].name))
+        pi = pi + 1
+    }
+    let mut values: [String] = []
+    let mut vi = 0
+    while vi < len(&params) {
+        push(&mut values, "")
+        vi = vi + 1
+    }
+    let mut ai = 0
+    while ai < len(&f.params) && ai < len(args) {
+        let p = &f.params[ai]
+        if p.has_type {
+            let at = expr_type(e, &(*args)[ai])
+            bind_type_params(e, &p.typ, &at, &params, &mut values)
+        }
+        ai = ai + 1
+    }
+    let rt = type_subst(e, &f.ret_type, &params, &values)
+    return type_resolve(e, &rt)
+}
+
+fn func_type_param_names(f: &Function) -> [String] {
+    let mut params: [String] = []
+    let mut i = 0
+    while i < len(&f.type_params) {
+        push(&mut params, string_clone(&f.type_params[i].name))
+        i = i + 1
+    }
+    return params
+}
+
+fn impl_type_param_names(imp: &ImplDecl) -> [String] {
+    let mut params: [String] = []
+    let mut i = 0
+    while i < len(&imp.type_params) {
+        push(&mut params, string_clone(&imp.type_params[i].name))
+        i = i + 1
+    }
+    return params
+}
+
+fn type_matches_pattern(e: &Emitter, pat: &str, act: &str, params: & [String]) -> bool {
+    let pat_rt = string_clone(pat)
+    let act_rt = type_resolve(e, act)
+    if type_is_ref_raw(&pat_rt) {
+        if !type_is_ref_raw(&act_rt) { return false }
+        let pb = type_ref_base_raw(&pat_rt)
+        let ab = type_ref_base_raw(&act_rt)
+        return type_matches_pattern(e, &pb, &ab, params)
+    }
+    if type_is_array_raw(&pat_rt) {
+        if !type_is_array_raw(&act_rt) { return false }
+        let pe = type_array_elem_raw(&pat_rt)
+        let ae = type_array_elem_raw(&act_rt)
+        return type_matches_pattern(e, &pe, &ae, params)
+    }
+    let pat_args = type_args_parse(&pat_rt)
+    let act_args = type_args_parse(&act_rt)
+    if pat_args.has {
+        if !act_args.has { return false }
+        if pat_args.base != act_args.base { return false }
+        if len(&pat_args.args) != len(&act_args.args) { return false }
+        let mut i = 0
+        while i < len(&pat_args.args) {
+            if !type_matches_pattern(e, &pat_args.args[i], &act_args.args[i], params) { return false }
+            i = i + 1
+        }
+        return true
+    }
+    if list_index(params, &pat_rt) >= 0 { return true }
+    return type_resolve(e, &pat_rt) == act_rt
+}
+
+fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
+    let mut i = 0
+    while i < len(&e.impls) {
+        let imp = &e.impls[i]
+        if imp.trait_name == trait_name {
+            let pat_res = type_resolve(e, &imp.for_type)
+            let act_res = type_resolve(e, for_type)
+            if pat_res == act_res { return true }
+            let params = impl_type_param_names(imp)
+            if type_matches_pattern(e, &imp.for_type, for_type, &params) { return true }
+            let pb = type_strip_args(e, &imp.for_type)
+            let ab = type_strip_args(e, for_type)
+            if pb != "" && pb == ab { return true }
+        }
+        i = i + 1
+    }
+    return false
+}
+
+fn check_type_param_bounds(e: &Emitter, f: &Function, values: & [String]) {
+    let mut i = 0
+    while i < len(&f.type_params) {
+        let tp = &f.type_params[i]
+        if tp.has_bound {
+            if i >= len(values) || (*values)[i] == "" {
+                println("stage2: cannot infer type for", tp.name)
+                exit(1)
+            }
+            let val = &(*values)[i]
+            if !impl_has_trait(e, &tp.bound, val) {
+                println("stage2: type", val, "does not implement trait", tp.bound)
+                exit(1)
+            }
+        }
+        i = i + 1
+    }
+}
+
+fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String] {
+    let params = func_type_param_names(f)
+    let mut values: [String] = []
+    let mut vi = 0
+    while vi < len(&params) {
+        push(&mut values, "")
+        vi = vi + 1
+    }
+    let mut ai = 0
+    while ai < len(&f.params) && ai < len(args) {
+        let p = &f.params[ai]
+        if p.has_type {
+            let at = expr_type(e, &(*args)[ai])
+            bind_type_params(e, &p.typ, &at, &params, &mut values)
+        }
+        ai = ai + 1
+    }
+    check_type_param_bounds(e, f, &values)
+    return values
+}
+
+fn func_inst_name(base: &str, values: & [String]) -> String {
+    let mut out = string_clone(base) + "["
+    let mut i = 0
+    while i < len(values) {
+        if i > 0 { out = out + ", " }
+        out = out + (*values)[i]
+        i = i + 1
+    }
+    out = out + "]"
+    return out
+}
+
+fn ensure_inst_func(e: &mut Emitter, f: &Function, values: & [String]) -> String {
+    let inst_name = func_inst_name(&f.name, values)
+    if list_index(&e.inst_func_names, &inst_name) >= 0 { return inst_name }
+    let mut inst = function_clone(f)
+    inst.name = string_clone(&inst_name)
+    let mut empty_params: [GenericParam] = []
+    inst.type_params = empty_params
+    let params = func_type_param_names(f)
+    let mut pi = 0
+    while pi < len(&inst.params) {
+        let p = &inst.params[pi]
+        if p.has_type {
+            let nt = type_subst(e, &p.typ, &params, &values)
+            inst.params[pi] = Param { name: string_clone(&p.name), typ: nt, has_type: true }
+        }
+        pi = pi + 1
+    }
+    inst.ret_type = type_subst(e, &inst.ret_type, &params, &values)
+    let mut names = e.inst_func_names
+    let mut funcs = e.inst_funcs
+    push(&mut names, string_clone(&inst_name))
+    push(&mut funcs, inst)
+    e.inst_func_names = names
+    e.inst_funcs = funcs
+    return inst_name
+}
+
+fn func_param_types_for_call(e: &Emitter, f: &Function, values: & [String]) -> [String] {
+    let params = func_type_param_names(f)
+    let mut out: [String] = []
+    let mut i = 0
+    while i < len(&f.params) {
+        let p = &f.params[i]
+        if p.has_type {
+            let mut t = string_clone(&p.typ)
+            if len(values) > 0 {
+                t = type_subst(e, &t, &params, &values)
+            }
+            push(&mut out, type_resolve(e, &t))
+        } else {
+            push(&mut out, "")
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn emit_auto_borrow(e: &mut Emitter, inner: &Expr, expected_ref: &str) -> QbeValue {
+    let base_t = type_ref_base(e, expected_ref)
+    let mut ref_t = "&" + string_clone(&base_t)
+    let want_mut = type_is_mut_ref_raw(expected_ref)
+    if want_mut {
+        ref_t = "&mut " + string_clone(&base_t)
+    }
+    if want_mut {
+        check_ref_target(e, inner, true)
+    }
+    if inner.kind == EXPR_IDENT {
+        let name = string_clone(&inner.name)
+        if var_index(e, &name) >= 0 {
+            return qbe_value(ref_t, "%" + var_slot(&name))
+        }
+    }
+    let v = emit_expr(e, inner)
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    emit_line(e, "  " + tn + " =l alloc8 8")
+    let casted = cast_to_type(e, v, &base_t)
+    let op = store_op_for_type(e, &base_t)
+    emit_line(e, "  " + op + " " + casted + ", " + tn)
+    return qbe_value(ref_t, tn)
+}
+
+fn const_type(e: &Emitter, name: &str) -> String {
+    let idx = const_index(e, name)
+    if idx < 0 { return "" }
+    return string_clone(&e.const_types[idx])
+}
+
+fn var_type(e: &Emitter, name: &str) -> String {
+    let idx = var_index(e, name)
+    if idx < 0 { return "" }
+    return string_clone(&e.var_types[idx])
+}
+
+fn var_is_mut(e: &Emitter, name: &str) -> bool {
+    let idx = var_index(e, name)
+    if idx < 0 { return false }
+    if idx >= len(&e.var_mut) { return false }
+    return e.var_mut[idx]
+}
+
+fn closure_index(e: &Emitter, name: &str) -> i64 {
+    let mut i = 0
+    while i < len(&e.closure_names) {
+        if e.closure_names[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn closure_add(e: &mut Emitter, name: &str, body: &Block) {
+    if name == "" { return }
+    if closure_index(e, name) >= 0 { return }
+    let mut names = e.closure_names
+    let mut blocks = e.closure_blocks
+    push(&mut names, string_clone(name))
+    push(&mut blocks, block_clone(body))
+    e.closure_names = names
+    e.closure_blocks = blocks
+}
+
+fn drop_live_index(e: &Emitter, name: &str) -> i64 {
+    let mut i = 0
+    while i < len(&e.drop_live_names) {
+        if e.drop_live_names[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn drop_needs_drop_type_env(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    if type_is_ref(e, &rt) { return false }
+    if drop_needs_drop_type(string_clone(&rt)) { return true }
+    if type_is_struct(e, &rt) { return true }
+    if type_is_enum(e, &rt) && enum_has_payload(e, &rt) { return true }
+    return false
+}
+
+fn drop_fn_for_type(e: &Emitter, t: &str) -> String {
+    let rt = type_resolve(e, t)
+    if rt == "String" { return "dast_string_free" }
+    if drop_is_array_type_name(string_clone(&rt)) { return "dast_array_free" }
+    if type_is_struct(e, &rt) { return "dast_struct_free" }
+    if type_is_enum(e, &rt) && enum_has_payload(e, &rt) { return "dast_struct_free" }
+    return ""
+}
+
+fn drop_emit_for_slot(e: &mut Emitter, name: &str, typ: &str) {
+    if !drop_needs_drop_type_env(e, typ) { return }
+    let fn_name = drop_fn_for_type(e, typ)
+    if fn_name == "" { return }
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let op = load_op_for_type(e, typ)
+    emit_line(e, "  " + tn + " =l " + op + " %" + var_slot(name))
+    emit_line(e, "  call $" + fn_name + "(l " + tn + ")")
+}
+
+fn drop_live_remove(e: &mut Emitter, name: &str) {
+    let idx = drop_live_index(e, name)
+    if idx < 0 { return }
+    let mut names: [String] = []
+    let mut types: [String] = []
+    let mut i = 0
+    while i < len(&e.drop_live_names) {
+        if i != idx {
+            push(&mut names, e.drop_live_names[i])
+            push(&mut types, e.drop_live_types[i])
+        }
+        i = i + 1
+    }
+    e.drop_live_names = names
+    e.drop_live_types = types
+}
+
+fn drop_live_set(e: &mut Emitter, name: &str, typ: &str) {
+    if !drop_needs_drop_type_env(e, typ) { return }
+    let idx = drop_live_index(e, name)
+    if idx >= 0 {
+        let mut types = e.drop_live_types
+        types[idx] = string_clone(typ)
+        e.drop_live_types = types
+        return
+    }
+    let mut names = e.drop_live_names
+    let mut types = e.drop_live_types
+    push(&mut names, string_clone(name))
+    push(&mut types, string_clone(typ))
+    e.drop_live_names = names
+    e.drop_live_types = types
+}
+
+fn drop_live_drop_existing(e: &mut Emitter, name: &str) {
+    let idx = drop_live_index(e, name)
+    if idx < 0 { return }
+    let typ = string_clone(&e.drop_live_types[idx])
+    drop_emit_for_slot(e, name, &typ)
+    drop_live_remove(e, name)
+}
+
+fn drop_live_remove_returned_expr(e: &mut Emitter, expr: &Expr) {
+    if expr.kind == EXPR_IDENT {
+        drop_live_remove(e, &expr.name)
+    }
+}
+
+fn drop_live_drop_all(e: &mut Emitter) {
+    let mut i = 0
+    while i < len(&e.drop_live_names) {
+        let name = string_clone(&e.drop_live_names[i])
+        let typ = string_clone(&e.drop_live_types[i])
+        drop_emit_for_slot(e, &name, &typ)
+        i = i + 1
+    }
+    e.drop_live_names = string_list_empty()
+    e.drop_live_types = string_list_empty()
+}
+
+fn ensure_string(e: &mut Emitter, s: String) -> i64 {
+    let mut i = 0
+    while i < len(&e.strings) {
+        if e.strings[i] == string_clone(&s) { return i }
+        i = i + 1
+    }
+    let id = len(&e.strings)
+    let mut strings = e.strings
+    push(&mut strings, s)
+    e.strings = strings
+    return id
+}
+
+fn str_data_label(id: i64) -> String {
+    return "str_data_" + int_to_string(id)
+}
+
+fn str_struct_label(id: i64) -> String {
+    return "str_" + int_to_string(id)
+}
+
+fn string_data_ptr(e: &mut Emitter, s: &str) -> String {
+    let id = ensure_string(e, string_clone(s))
+    return "$" + str_data_label(id)
+}
+
+fn escape_qbe_string(s: &str) -> String {
+    let mut out = ""
+    let mut i = 0
+    let n = str_len(&s)
+    while i < n {
+        let c = str_char_at(s, i)
+        if c == '\n' { out = out + "\\n" }
+        else if c == '\r' { out = out + "\\r" }
+        else if c == '\t' { out = out + "\\t" }
+        else if c == '\\' { out = out + "\\\\" }
+        else if c == '"' { out = out + "\\\"" }
+        else { out = out + str_substr(s, i, 1) }
+        i = i + 1
+    }
+    return out
+}
+
+fn expr_type(e: &Emitter, expr: &Expr) -> String {
+    match expr.kind {
+        EXPR_INT => { return "i64" }
+        EXPR_CHAR => { return "i64" }
+        EXPR_BOOL => { return "bool" }
+        EXPR_STRING => { return "String" }
+        EXPR_IDENT => {
+            let ct = const_type(e, &expr.name)
+            if ct != "" { return ct }
+            let vt = var_type(e, &expr.name)
+            if vt != "" { return vt }
+            return "i64"
+        }
+        EXPR_STRUCT_LIT => {
+            return type_resolve(e, &expr.name)
+        }
+        EXPR_REF => {
+            if len(&expr.args) == 0 { return "&i64" }
+            let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_ref"))
+            if expr.ref_mut {
+                return "&mut " + type_resolve(e, &base)
+            }
+            return "&" + type_resolve(e, &base)
+        }
+        EXPR_DEREF => {
+            if len(&expr.args) == 0 { return "i64" }
+            let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_deref"))
+            if type_is_ref(e, &base) { return type_ref_base(e, &base) }
+            return type_resolve(e, &base)
+        }
+        EXPR_ARRAY => {
+            if len(&expr.args) == 0 { return "[i64]" }
+            let elem = expr_type(e, expr_arg_ref(expr, 0, "expr_type_array"))
+            return "[" + type_resolve(e, &elem) + "]"
+        }
+        EXPR_INDEX => {
+            if len(&expr.args) < 1 { return "i64" }
+            let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_index_recv"))
+            if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
+            if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
+            return "i64"
+        }
+        EXPR_CLOSURE => {
+            return "unit"
+        }
+        EXPR_BLOCK => {
+            let n = len(&expr.block.stmts)
+            if n == 0 { return "unit" }
+            let last = &expr.block.stmts[n - 1]
+            if last.kind == STMT_EXPR { return expr_type(e, &last.expr) }
+            return "unit"
+        }
+        EXPR_MATCH => {
+            let mut out = ""
+            let mut i = 0
+            while i < len(&expr.match_arms) {
+                let arm = &expr.match_arms[i]
+                let bt = block_expr_type(e, &arm.block)
+                if out == "" { out = bt }
+                else {
+                    let a = type_resolve(e, &out)
+                    let b = type_resolve(e, &bt)
+                    if a != b {
+                        println("stage2: match arms must have same type:", a, "vs", b)
+                        exit(1)
+                    }
+                }
+                i = i + 1
+            }
+            if out == "" { return "unit" }
+            return out
+        }
+        EXPR_FIELD => {
+            if len(&expr.args) == 0 { return "i64" }
+            if is_digit_str(&expr.name) {
+                let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_digit"))
+                if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
+                if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
+                return "i64"
+            }
+            let recv_expr = expr_arg_ref(expr, 0, "expr_type_field_recv_expr")
+            if recv_expr.kind == EXPR_IDENT {
+                let recv_name = type_resolve(e, &recv_expr.name)
+                let ct = const_type(e, &recv_name)
+                let vt = var_type(e, &recv_name)
+                if ct == "" && vt == "" && type_is_enum(e, &recv_name) {
+                    let vi = enum_variant_index(e, &recv_name, &expr.name)
+                    if vi >= 0 { return recv_name }
+                }
+            }
+            let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_recv"))
+            if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
+            let ft = struct_field_type(e, &recv_t, &expr.name)
+            if ft != "" { return type_resolve(e, &ft) }
+            return "i64"
+        }
+        EXPR_BINARY => {
+            if expr.name == "==" || expr.name == "<" || expr.name == ">" { return "bool" }
+            if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs")) }
+            return "i64"
+        }
+        EXPR_CALL => {
+            if expr.name == "print" || expr.name == "println" { return "unit" }
+            if expr.name == "len" {
+                if len(&expr.args) != 1 {
+                    println("stage2: len expects 1 argument")
+                    exit(1)
+                }
+                let t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_len_arg"))
+                if !type_is_ref(e, &t) {
+                    println("stage2: len expects reference to String/str or array")
+                    exit(1)
+                }
+                let base = type_ref_base(e, &t)
+                if !type_is_string(e, &base) && !type_is_array(e, &base) {
+                    println("stage2: len expects reference to String/str or array")
+                    exit(1)
+                }
+                return "i64"
+            }
+            let ec = enum_call_parse(&expr.name)
+            if ec.ok { return ec.enum_name }
+            let rt = func_ret_type_for_call(e, &expr.name, &expr.args)
+            return type_resolve(e, &rt)
+        }
+        EXPR_MACRO_CALL => { return "unit" }
+        EXPR_QUOTE => { return "unit" }
+        _ => { return "i64" }
+    }
+}
+
+fn collect_type_aliases(e: &mut Emitter, prog: &Program) {
+    let mut names = string_list_empty()
+    let mut targets = string_list_empty()
+    let mut i = 0
+    while i < len(&prog.type_aliases) {
+        let a = &prog.type_aliases[i]
+        push(&mut names, string_clone(&a.name))
+        push(&mut targets, string_clone(&a.target))
+        i = i + 1
+    }
+    e.type_alias_names = names
+    e.type_alias_targets = targets
+    // Resolve alias targets after the table is populated.
+    let mut j = 0
+    while j < len(&e.type_alias_targets) {
+        e.type_alias_targets[j] = type_resolve(e, &e.type_alias_targets[j])
+        j = j + 1
+    }
+}
+
+fn collect_structs(e: &mut Emitter, prog: &Program) {
+    let mut i = 0
+    while i < len(&prog.structs) {
+        let s = &prog.structs[i]
+        let mut tparams: [String] = []
+        let mut tp = 0
+        while tp < len(&s.type_params) {
+            push(&mut tparams, string_clone(&s.type_params[tp].name))
+            tp = tp + 1
+        }
+        let mut fields = struct_field_sig_list_empty()
+        let mut fi = 0
+        while fi < len(&s.fields) {
+            let f = &s.fields[fi]
+            push(&mut fields, StructFieldSig { name: string_clone(&f.name), typ: type_resolve(e, &f.typ) })
+            fi = fi + 1
+        }
+        let mut sigs = e.struct_sigs
+        push(&mut sigs, StructSig { name: string_clone(&s.name), type_params: tparams, fields: fields })
+        e.struct_sigs = sigs
+        i = i + 1
+    }
+}
+
+fn collect_enums(e: &mut Emitter, prog: &Program) {
+    let mut i = 0
+    while i < len(&prog.enums) {
+        let en = &prog.enums[i]
+        let mut tparams: [String] = []
+        let mut tp = 0
+        while tp < len(&en.type_params) {
+            push(&mut tparams, string_clone(&en.type_params[tp].name))
+            tp = tp + 1
+        }
+        let mut variants = enum_variant_sig_list_empty()
+        let mut vi = 0
+        while vi < len(&en.variants) {
+            let v = &en.variants[vi]
+            push(&mut variants, EnumVariantSig { name: string_clone(&v.name), value: vi, has_payload: v.has_payload, payload_type: type_resolve(e, &v.payload_type) })
+            vi = vi + 1
+        }
+        let mut sigs = e.enum_sigs
+        push(&mut sigs, EnumSig { name: string_clone(&en.name), type_params: tparams, tag_type: type_resolve(e, &en.tag_type), variants: variants })
+        e.enum_sigs = sigs
+        i = i + 1
+    }
+}
+
+fn collect_funcs(e: &mut Emitter, prog: &Program) {
+    let mut i = 0
+    while i < len(&prog.functions) {
+        let f = &prog.functions[i]
+        if f.is_macro { i = i + 1; continue }
+        let mut sigs = e.func_sigs
+        let mut decls = e.func_decls
+        let rt = effective_ret_type(e, f)
+        push(&mut sigs, FuncSig { name: string_clone(&f.name), ret_type: rt })
+        push(&mut decls, function_clone(f))
+        e.func_sigs = sigs
+        e.func_decls = decls
+        i = i + 1
+    }
+}
+
+fn collect_impls(e: &mut Emitter, prog: &Program) {
+    e.impls = impl_decl_list_clone(&prog.impls)
+}
+
+fn collect_consts(e: &mut Emitter, prog: &Program) {
+    let mut i = 0
+    while i < len(&prog.consts) {
+        let c = &prog.consts[i]
+        let mut ct = expr_type(e, &c.expr)
+        if c.has_type { ct = string_clone(&c.typ) }
+        let mut names = e.const_names
+        let mut exprs = e.const_exprs
+        let mut types = e.const_types
+        push(&mut names, string_clone(&c.name))
+        push(&mut exprs, expr_clone(&c.expr))
+        push(&mut types, ct)
+        e.const_names = names
+        e.const_exprs = exprs
+        e.const_types = types
+        i = i + 1
+    }
+}
+
+fn collect_vars_from_block(e: &mut Emitter, b: &Block) {
+    collect_vars_from_stmts(e, &b.stmts)
+}
+

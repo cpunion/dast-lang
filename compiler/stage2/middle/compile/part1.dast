@@ -1,0 +1,794 @@
+// stage2: minimal compiler pipeline (parse -> QBE -> native).
+
+struct QbeValue {
+    typ: String,
+    expr: String,
+    lines: [String],
+}
+
+fn string_list_empty() -> [String] {
+    let mut out: [String] = []
+    return out
+}
+
+fn bool_list_empty() -> [bool] {
+    let mut out: [bool] = []
+    return out
+}
+
+fn qbe_lines_empty() -> [String] {
+    return string_list_empty()
+}
+
+fn str_clone(s: &str) -> String {
+    return substr(s, 0, len(&s))
+}
+
+fn clone_expr_list(items: & [Expr]) -> [Expr] {
+    let mut out: [Expr] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, expr_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn string_has_prefix(s: &str, prefix: &str) -> bool {
+    let sl = len(&s)
+    let pl = len(&prefix)
+    if pl > sl { return false }
+    return substr(string_clone(s), 0, pl) == string_clone(prefix)
+}
+
+fn is_digit_str(s: &str) -> bool {
+    let n = len(&s)
+    if n == 0 { return false }
+    let mut i = 0
+    while i < n {
+        let c = str_char_at(s, i)
+        if c < 48 || c > 57 { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn qbe_value(typ: String, expr: String) -> QbeValue {
+    return QbeValue { typ: typ, expr: expr, lines: qbe_lines_empty() }
+}
+
+fn qbe_value_with_lines(typ: String, expr: String, lines: [String]) -> QbeValue {
+    return QbeValue { typ: typ, expr: expr, lines: lines }
+}
+
+struct FuncSig {
+    name: String,
+    ret_type: String,
+}
+
+fn func_sig_list_empty() -> [FuncSig] {
+    let mut out: [FuncSig] = []
+    return out
+}
+
+fn func_sig_clone(s: &FuncSig) -> FuncSig {
+    return FuncSig { name: string_clone(&s.name), ret_type: string_clone(&s.ret_type) }
+}
+
+fn func_sig_list_clone(items: & [FuncSig]) -> [FuncSig] {
+    let mut out: [FuncSig] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, func_sig_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct StructFieldSig {
+    name: String,
+    typ: String,
+}
+
+fn struct_field_sig_list_empty() -> [StructFieldSig] {
+    let mut out: [StructFieldSig] = []
+    return out
+}
+
+fn struct_field_sig_clone(f: &StructFieldSig) -> StructFieldSig {
+    return StructFieldSig { name: string_clone(&f.name), typ: string_clone(&f.typ) }
+}
+
+fn struct_field_sig_list_clone(items: & [StructFieldSig]) -> [StructFieldSig] {
+    let mut out: [StructFieldSig] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, struct_field_sig_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct StructSig {
+    name: String,
+    type_params: [String],
+    fields: [StructFieldSig],
+}
+
+fn struct_sig_list_empty() -> [StructSig] {
+    let mut out: [StructSig] = []
+    return out
+}
+
+fn struct_sig_clone(s: &StructSig) -> StructSig {
+    return StructSig { name: string_clone(&s.name), type_params: ast_string_list_clone(&s.type_params), fields: struct_field_sig_list_clone(&s.fields) }
+}
+
+fn struct_sig_list_clone(items: & [StructSig]) -> [StructSig] {
+    let mut out: [StructSig] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, struct_sig_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct EnumVariantSig {
+    name: String,
+    value: i64,
+    has_payload: bool,
+    payload_type: String,
+}
+
+fn enum_variant_sig_list_empty() -> [EnumVariantSig] {
+    let mut out: [EnumVariantSig] = []
+    return out
+}
+
+fn enum_variant_sig_clone(v: &EnumVariantSig) -> EnumVariantSig {
+    return EnumVariantSig { name: string_clone(&v.name), value: v.value, has_payload: v.has_payload, payload_type: string_clone(&v.payload_type) }
+}
+
+fn enum_variant_sig_list_clone(items: & [EnumVariantSig]) -> [EnumVariantSig] {
+    let mut out: [EnumVariantSig] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, enum_variant_sig_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct EnumSig {
+    name: String,
+    type_params: [String],
+    tag_type: String,
+    variants: [EnumVariantSig],
+}
+
+fn enum_sig_list_empty() -> [EnumSig] {
+    let mut out: [EnumSig] = []
+    return out
+}
+
+fn enum_sig_clone(s: &EnumSig) -> EnumSig {
+    return EnumSig { name: string_clone(&s.name), type_params: ast_string_list_clone(&s.type_params), tag_type: string_clone(&s.tag_type), variants: enum_variant_sig_list_clone(&s.variants) }
+}
+
+fn enum_sig_list_clone(items: & [EnumSig]) -> [EnumSig] {
+    let mut out: [EnumSig] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, enum_sig_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct Emitter {
+    // String table.
+    strings: [String],
+    // Const table.
+    const_names: [String],
+    const_exprs: [Expr],
+    const_types: [String],
+    // Type alias table.
+    type_alias_names: [String],
+    type_alias_targets: [String],
+    // Struct table.
+    struct_sigs: [StructSig],
+    // Enum table.
+    enum_sigs: [EnumSig],
+    // Function table.
+    func_sigs: [FuncSig],
+    func_decls: [Function],
+    // Trait impls.
+    impls: [ImplDecl],
+    // Monomorphized functions.
+    inst_func_names: [String],
+    inst_funcs: [Function],
+    // Vars.
+    var_names: [String],
+    var_types: [String],
+    var_mut: [bool],
+    enum_var_names: [String],
+    enum_var_types: [String],
+    // Local closures (simple inlining).
+    closure_names: [String],
+    closure_blocks: [Block],
+    // Live drop candidates in current function.
+    drop_live_names: [String],
+    drop_live_types: [String],
+    // Current function return type.
+    cur_ret_type: String,
+    // Temp id counter.
+    temp_id: i64,
+    // Label id counter.
+    label_id: i64,
+    // Loop control stacks.
+    break_labels: [String],
+    continue_labels: [String],
+    // Emitted body lines.
+    body: [String],
+    // Emitted line count.
+    emit_lines: i64,
+}
+
+fn emitter_new() -> Emitter {
+    return Emitter {
+        strings: string_list_empty(),
+        const_names: string_list_empty(),
+        const_exprs: expr_list_empty(),
+        const_types: string_list_empty(),
+        type_alias_names: string_list_empty(),
+        type_alias_targets: string_list_empty(),
+        struct_sigs: struct_sig_list_empty(),
+        enum_sigs: enum_sig_list_empty(),
+        func_sigs: func_sig_list_empty(),
+        func_decls: function_list_empty(),
+        impls: impl_decl_list_empty(),
+        inst_func_names: string_list_empty(),
+        inst_funcs: function_list_empty(),
+        var_names: string_list_empty(),
+        var_types: string_list_empty(),
+        var_mut: bool_list_empty(),
+        enum_var_names: string_list_empty(),
+        enum_var_types: string_list_empty(),
+        closure_names: string_list_empty(),
+        closure_blocks: block_list_empty(),
+        drop_live_names: string_list_empty(),
+        drop_live_types: string_list_empty(),
+        cur_ret_type: "unit",
+        temp_id: 0,
+        label_id: 0,
+        break_labels: string_list_empty(),
+        continue_labels: string_list_empty(),
+        body: string_list_empty(),
+        emit_lines: 0,
+    }
+}
+
+fn emitter_with_globals(glob: &Emitter) -> Emitter {
+    let mut e = emitter_new()
+    e.strings = ast_string_list_clone(&glob.strings)
+    e.const_names = ast_string_list_clone(&glob.const_names)
+    e.const_exprs = clone_expr_list(&glob.const_exprs)
+    e.const_types = ast_string_list_clone(&glob.const_types)
+    e.type_alias_names = ast_string_list_clone(&glob.type_alias_names)
+    e.type_alias_targets = ast_string_list_clone(&glob.type_alias_targets)
+    e.struct_sigs = struct_sig_list_clone(&glob.struct_sigs)
+    e.enum_sigs = enum_sig_list_clone(&glob.enum_sigs)
+    e.func_sigs = func_sig_list_clone(&glob.func_sigs)
+    e.func_decls = function_list_clone(&glob.func_decls)
+    e.impls = impl_decl_list_clone(&glob.impls)
+    e.inst_func_names = ast_string_list_clone(&glob.inst_func_names)
+    e.inst_funcs = function_list_clone(&glob.inst_funcs)
+    e.closure_names = string_list_empty()
+    e.closure_blocks = block_list_empty()
+    e.drop_live_names = string_list_empty()
+    e.drop_live_types = string_list_empty()
+    e.cur_ret_type = string_clone(&glob.cur_ret_type)
+    e.enum_var_names = string_list_empty()
+    e.enum_var_types = string_list_empty()
+    return e
+}
+
+fn emit_line(e: &mut Emitter, line: String) {
+    let mut body = e.body
+    push(&mut body, line)
+    e.body = body
+    e.emit_lines = e.emit_lines + 1
+}
+
+fn mangle_name(name: &str) -> String {
+    let mut out = ""
+    let mut i = 0
+    let n = str_len(&name)
+    while i < n {
+        let c = str_char_at(name, i)
+        let is_alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        let is_digit = c >= '0' && c <= '9'
+        if is_alpha || is_digit || c == '_' {
+            out = out + str_substr(name, i, 1)
+        } else {
+            out = out + "_"
+        }
+        i = i + 1
+    }
+    if out == "" { return "_" }
+    return out
+}
+
+struct EnumCall {
+    ok: bool,
+    enum_name: String,
+    variant: String,
+}
+
+fn enum_call_parse(name: &str) -> EnumCall {
+    let mut dot = -1
+    let mut i = 0
+    let n = str_len(&name)
+    while i < n {
+        if str_char_at(name, i) == '.' {
+            dot = i
+            break
+        }
+        i = i + 1
+    }
+    if dot < 0 {
+        return EnumCall { ok: false, enum_name: "", variant: "" }
+    }
+    let enum_name = str_substr(name, 0, dot)
+    let variant = str_substr(name, dot + 1, n - dot - 1)
+    return EnumCall { ok: true, enum_name: enum_name, variant: variant }
+}
+
+fn var_slot(name: &str) -> String {
+    return "v_" + mangle_name(name)
+}
+
+fn int_to_string(n: i64) -> String {
+    if n == 0 { return "0" }
+    let mut v = n
+    let mut neg = false
+    if v < 0 {
+        neg = true
+        v = -v
+    }
+    let mut out = ""
+    while v > 0 {
+        let d = v % 10
+        out = str_substr("0123456789", d, 1) + out
+        v = v / 10
+    }
+    if neg { out = "-" + out }
+    return out
+}
+
+fn temp_name(id: i64) -> String {
+    return "%t" + int_to_string(id)
+}
+
+fn new_temp(e: &mut Emitter) -> i64 {
+    let id = e.temp_id
+    e.temp_id = id + 1
+    return id
+}
+
+fn new_label(e: &mut Emitter, prefix: &str) -> String {
+    let id = e.label_id
+    e.label_id = id + 1
+    return prefix + int_to_string(id)
+}
+
+fn push_break_label(e: &mut Emitter, label: String) {
+    let mut ls = e.break_labels
+    push(&mut ls, label)
+    e.break_labels = ls
+}
+
+fn push_continue_label(e: &mut Emitter, label: String) {
+    let mut ls = e.continue_labels
+    push(&mut ls, label)
+    e.continue_labels = ls
+}
+
+fn pop_break_label(e: &mut Emitter) {
+    let n = len(&e.break_labels)
+    if n == 0 { return }
+    let mut ls = e.break_labels
+    let mut out: [String] = []
+    let mut i = 0
+    while i < n - 1 {
+        push(&mut out, ls[i])
+        i = i + 1
+    }
+    e.break_labels = out
+}
+
+fn pop_continue_label(e: &mut Emitter) {
+    let n = len(&e.continue_labels)
+    if n == 0 { return }
+    let mut ls = e.continue_labels
+    let mut out: [String] = []
+    let mut i = 0
+    while i < n - 1 {
+        push(&mut out, ls[i])
+        i = i + 1
+    }
+    e.continue_labels = out
+}
+
+fn top_break_label(e: &Emitter) -> String {
+    let n = len(&e.break_labels)
+    if n == 0 { return "" }
+    return string_clone(&e.break_labels[n - 1])
+}
+
+fn top_continue_label(e: &Emitter) -> String {
+    let n = len(&e.continue_labels)
+    if n == 0 { return "" }
+    return string_clone(&e.continue_labels[n - 1])
+}
+
+fn emit_label(e: &mut Emitter, label: &str) {
+    emit_line(e, "@" + label)
+}
+
+fn type_is_ref_raw(t: &str) -> bool {
+    return string_has_prefix(t, "&")
+}
+
+fn type_is_mut_ref_raw(t: &str) -> bool {
+    return string_has_prefix(t, "&mut ")
+}
+
+fn type_ref_base_raw(t: &str) -> String {
+    if string_has_prefix(t, "&mut ") {
+        let n = str_len(t)
+        return substr(string_clone(t), 5, n - 5)
+    }
+    if string_has_prefix(t, "&") {
+        let n = str_len(t)
+        return substr(string_clone(t), 1, n - 1)
+    }
+    return string_clone(t)
+}
+
+fn type_is_array_raw(t: &str) -> bool {
+    return string_has_prefix(t, "[")
+}
+
+fn type_array_elem_raw(t: &str) -> String {
+    let n = str_len(t)
+    if n <= 2 { return "i64" }
+    return substr(string_clone(t), 1, n - 2)
+}
+
+struct TypeArgs {
+    base: String,
+    args: [String],
+    has: bool,
+}
+
+fn type_args_parse(t: &str) -> TypeArgs {
+    let n = str_len(t)
+    let mut i = 0
+    let mut idx = -1
+    while i < n {
+        if str_char_at(t, i) == '[' { idx = i; break }
+        i = i + 1
+    }
+    if idx < 0 {
+        return TypeArgs { base: string_clone(t), args: string_list_empty(), has: false }
+    }
+    let base = str_substr(t, 0, idx)
+    let mut args: [String] = []
+    let mut depth = 0
+    let mut start = idx + 1
+    let mut j = idx + 1
+    while j < n {
+        let c = str_char_at(t, j)
+        if c == '[' { depth = depth + 1 }
+        if c == ']' {
+            if depth == 0 {
+                let part = str_substr(t, start, j - start)
+                if part != "" { push(&mut args, part) }
+                break
+            }
+            depth = depth - 1
+        } else if c == ',' && depth == 0 {
+            let part = str_substr(t, start, j - start)
+            if part != "" { push(&mut args, part) }
+            start = j + 1
+        }
+        j = j + 1
+    }
+    return TypeArgs { base: base, args: args, has: true }
+}
+
+fn type_subst(e: &Emitter, t: &str, params: & [String], args: & [String]) -> String {
+    if len(params) == 0 || len(args) == 0 { return string_clone(t) }
+    let rt = type_resolve(e, t)
+    if type_is_ref_raw(&rt) {
+        let base = type_ref_base_raw(&rt)
+        return "&" + type_subst(e, &base, params, args)
+    }
+    if type_is_array_raw(&rt) {
+        let elem = type_array_elem_raw(&rt)
+        return "[" + type_subst(e, &elem, params, args) + "]"
+    }
+    let parsed = type_args_parse(&rt)
+    if parsed.has {
+        let mut out_args: [String] = []
+        let mut i = 0
+        while i < len(&parsed.args) {
+            push(&mut out_args, type_subst(e, &parsed.args[i], params, args))
+            i = i + 1
+        }
+        let mut s = parsed.base + "["
+        let mut j = 0
+        while j < len(&out_args) {
+            if j > 0 { s = s + "," }
+            s = s + out_args[j]
+            j = j + 1
+        }
+        s = s + "]"
+        return s
+    }
+    let mut k = 0
+    while k < len(params) {
+        if rt == (*params)[k] {
+            if (*args)[k] == "" { return rt }
+            return string_clone(&(*args)[k])
+        }
+        k = k + 1
+    }
+    return rt
+}
+
+fn type_alias_index(e: &Emitter, name: &str) -> i64 {
+    let mut i = 0
+    while i < len(&e.type_alias_names) {
+        if e.type_alias_names[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn type_resolve(e: &Emitter, t: &str) -> String {
+    let cur = string_clone(t)
+    if cur == "" { return cur }
+    if cur == "string" {
+        println("stage2: use String/str instead of string")
+        exit(1)
+    }
+    if type_is_ref_raw(&cur) {
+        let base = type_ref_base_raw(&cur)
+        if type_is_mut_ref_raw(&cur) {
+            return "&mut " + type_resolve(e, &base)
+        }
+        return "&" + type_resolve(e, &base)
+    }
+    if type_is_array_raw(&cur) {
+        let elem = type_array_elem_raw(&cur)
+        return "[" + type_resolve(e, &elem) + "]"
+    }
+    let mut out = cur
+    let mut steps = 0
+    while steps < 32 {
+        let idx = type_alias_index(e, &out)
+        if idx < 0 { return out }
+        out = string_clone(&e.type_alias_targets[idx])
+        steps = steps + 1
+    }
+    return out
+}
+
+fn type_is_bool(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "bool"
+}
+
+fn type_is_string(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    if type_is_ref_raw(&rt) {
+        let base = type_ref_base_raw(&rt)
+        return base == "String" || base == "str"
+    }
+    return rt == "String" || rt == "str"
+}
+
+fn type_is_unit(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "unit"
+}
+
+fn block_expr_type(e: &Emitter, b: &Block) -> String {
+    let n = len(&b.stmts)
+    if n == 0 { return "unit" }
+    let last = &b.stmts[n - 1]
+    if last.kind == STMT_EXPR { return expr_type(e, &last.expr) }
+    return "unit"
+}
+
+fn type_is_i32(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "i32"
+}
+
+fn type_is_i64(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "i64"
+}
+
+fn type_is_int(e: &Emitter, t: &str) -> bool {
+    return type_is_i32(e, t) || type_is_i64(e, t)
+}
+
+fn type_is_ref(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    return type_is_ref_raw(&rt)
+}
+
+fn type_is_mut_ref(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    return type_is_mut_ref_raw(&rt)
+}
+
+fn type_ref_base(e: &Emitter, t: &str) -> String {
+    let rt = type_resolve(e, t)
+    if type_is_ref_raw(&rt) { return type_ref_base_raw(&rt) }
+    return rt
+}
+
+fn type_is_array(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    return type_is_array_raw(&rt)
+}
+
+fn type_array_elem(e: &Emitter, t: &str) -> String {
+    let rt = type_resolve(e, t)
+    if !type_is_array_raw(&rt) { return "i64" }
+    return type_array_elem_raw(&rt)
+}
+
+fn type_strip_ref(e: &Emitter, t: &str) -> String {
+    if type_is_ref(e, t) { return type_ref_base(e, t) }
+    return type_resolve(e, t)
+}
+
+fn type_strip_args(e: &Emitter, t: &str) -> String {
+    let rt = type_strip_ref(e, t)
+    let mut i = 0
+    let n = str_len(&rt)
+    while i < n {
+        if str_char_at(&rt, i) == '[' { return str_substr(&rt, 0, i) }
+        i = i + 1
+    }
+    return rt
+}
+
+fn qbe_type(e: &Emitter, t: &str) -> String {
+    if type_is_ref(e, t) { return "l" }
+    if type_is_array(e, t) { return "l" }
+    if type_is_bool(e, t) { return "w" }
+    return "l"
+}
+
+fn store_op_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_ref(e, t) { return "storel" }
+    if type_is_array(e, t) { return "storel" }
+    if type_is_bool(e, t) { return "storew" }
+    return "storel"
+}
+
+fn load_op_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_ref(e, t) { return "load" }
+    if type_is_array(e, t) { return "load" }
+    if type_is_bool(e, t) { return "loadw" }
+    return "load"
+}
+
+fn list_index(items: & [String], name: &str) -> i64 {
+    let mut i = 0
+    while i < len(items) {
+        if (*items)[i] == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn const_index(e: &Emitter, name: &str) -> i64 {
+    return list_index(&e.const_names, name)
+}
+
+fn var_index(e: &Emitter, name: &str) -> i64 {
+    return list_index(&e.var_names, name)
+}
+
+fn enum_var_index(e: &Emitter, name: &str) -> i64 {
+    return list_index(&e.enum_var_names, name)
+}
+
+fn enum_var_hint(e: &Emitter, name: &str) -> String {
+    let idx = enum_var_index(e, name)
+    if idx < 0 { return "" }
+    return string_clone(&e.enum_var_types[idx])
+}
+
+fn enum_var_set(e: &mut Emitter, name: &str, typ: &str) {
+    if name == "" { return }
+    let idx = enum_var_index(e, name)
+    if idx >= 0 {
+        e.enum_var_types[idx] = string_clone(typ)
+        return
+    }
+    let mut names = e.enum_var_names
+    let mut types = e.enum_var_types
+    push(&mut names, string_clone(name))
+    push(&mut types, string_clone(typ))
+    e.enum_var_names = names
+    e.enum_var_types = types
+}
+
+fn struct_index(e: &Emitter, name: &str) -> i64 {
+    let key = type_strip_args(e, name)
+    let mut i = 0
+    while i < len(&e.struct_sigs) {
+        if e.struct_sigs[i].name == key { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn type_is_struct(e: &Emitter, t: &str) -> bool {
+    return struct_index(e, t) >= 0
+}
+
+fn struct_field_index(e: &Emitter, struct_name: &str, field: &str) -> i64 {
+    let si = struct_index(e, struct_name)
+    if si < 0 { return -1 }
+    let mut i = 0
+    while i < len(&e.struct_sigs[si].fields) {
+        if e.struct_sigs[si].fields[i].name == field { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn struct_field_type(e: &Emitter, struct_name: &str, field: &str) -> String {
+    let si = struct_index(e, struct_name)
+    if si < 0 { return "" }
+    let fi = struct_field_index(e, struct_name, field)
+    if fi < 0 { return "" }
+    let mut ft = string_clone(&e.struct_sigs[si].fields[fi].typ)
+    let sig = &e.struct_sigs[si]
+    if len(&sig.type_params) > 0 {
+        let base_name = type_strip_ref(e, struct_name)
+        let parsed = type_args_parse(&base_name)
+        if parsed.has && len(&parsed.args) == len(&sig.type_params) {
+            ft = type_subst(e, &ft, &sig.type_params, &parsed.args)
+        }
+    }
+    return type_resolve(e, &ft)
+}
+
+fn struct_field_count(e: &Emitter, struct_name: &str) -> i64 {
+    let si = struct_index(e, struct_name)
+    if si < 0 { return 0 }
+    return len(&e.struct_sigs[si].fields)
+}
+
+fn enum_index(e: &Emitter, name: &str) -> i64 {
+    let key = type_strip_args(e, name)
+    let mut i = 0
+    while i < len(&e.enum_sigs) {
+        if e.enum_sigs[i].name == key { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn type_is_enum(e: &Emitter, t: &str) -> bool {
+    return enum_index(e, t) >= 0
+}
+

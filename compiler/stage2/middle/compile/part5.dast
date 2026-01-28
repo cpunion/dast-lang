@@ -1,0 +1,545 @@
+fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
+    if len(&expr.args) == 0 { return qbe_value("unit", "0") }
+    let scrut_expr = expr_clone(expr_arg_ref(expr, 0, "emit_match_scrut"))
+    let scrut = emit_expr(e, &scrut_expr)
+    let mut scrut_t = expr_type(e, &scrut_expr)
+    let mut is_enum = type_is_enum(e, &scrut_t)
+    if !is_enum {
+        let mut guess = ""
+        let mut ai = 0
+        while ai < len(&expr.match_arms) {
+            let a = &expr.match_arms[ai]
+            if a.pat_kind == PAT_VARIANT {
+                guess = enum_name_for_variant(e, &a.variant)
+                break
+            }
+            ai = ai + 1
+        }
+        if guess != "" { scrut_t = guess; is_enum = true }
+    }
+    let mut tag_t = string_clone(&scrut.typ)
+    let mut tag_expr = string_clone(&scrut.expr)
+    if is_enum {
+        let tagv = enum_tag_from_value(e, &scrut, &scrut_t)
+        tag_t = enum_tag_type(e, &scrut_t)
+        tag_expr = string_clone(&tagv.expr)
+    }
+    let cmp = if type_is_bool(e, &tag_t) || type_is_i32(e, &tag_t) { "ceqw" } else { "ceql" }
+    let end_label = new_label(e, "match_end_")
+    let ret0 = expr_type(e, expr)
+    let ret_t = type_resolve(e, &ret0)
+    let mut res_ptr = ""
+    let need_res = !type_is_unit(e, &ret_t)
+    if need_res {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l alloc8 8")
+        res_ptr = tn
+    }
+    let mut i = 0
+    let mut next_label = new_label(e, "match_next_")
+    while i < len(&expr.match_arms) {
+        let arm = &expr.match_arms[i]
+        let arm_label = new_label(e, "match_arm_")
+        if arm.pat_kind == PAT_WILDCARD || arm.pat_kind == PAT_STRUCT {
+            emit_line(e, "  jmp @" + string_clone(&arm_label))
+        } else {
+            let cond_tmp = new_temp(e)
+            let cond_tn = temp_name(cond_tmp)
+            if arm.pat_kind == PAT_VARIANT {
+                let tag_val = enum_variant_value(e, &scrut_t, &arm.variant)
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(tag_val))
+            } else if arm.pat_kind == PAT_INT {
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
+            } else {
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
+            }
+            emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&arm_label) + ", @" + string_clone(&next_label))
+        }
+        emit_label(e, &arm_label)
+        if arm.has_binding && arm.pat_kind == PAT_VARIANT && is_enum {
+            let payload_t = enum_variant_payload_type(e, &scrut_t, &arm.variant)
+            let payload_v = enum_payload_from_value(e, &scrut, &scrut_t, &arm.variant)
+            let casted = cast_to_type(e, payload_v, &payload_t)
+            let mut bind_t = var_type(e, &arm.binding)
+            if bind_t == "" { bind_t = payload_t }
+            emit_store_value(e, &arm.binding, &bind_t, &casted)
+        } else if arm.pat_kind == PAT_STRUCT {
+            let st_name = type_strip_ref(e, &scrut_t)
+            if !type_is_struct(e, &st_name) {
+                println("stage2: struct pattern requires struct scrutinee")
+                exit(1)
+            }
+            if arm.struct_name != "" && arm.struct_name != st_name {
+                println("stage2: struct pattern type mismatch", arm.struct_name, "vs", st_name)
+                exit(1)
+            }
+            let mut fi = 0
+            while fi < len(&arm.struct_fields) {
+                let f = &arm.struct_fields[fi]
+                if f.has_binding {
+                    let ftyp = struct_field_type(e, &st_name, &f.name)
+                    if ftyp == "" {
+                        println("stage2: unknown struct field", f.name)
+                        exit(1)
+                    }
+                    let fname_ptr = string_data_ptr(e, &f.name)
+                    let get_fn = struct_get_fn_for_type(e, &ftyp)
+                    let q = qbe_type(e, &ftyp)
+                    let tmp = new_temp(e)
+                    let tn = temp_name(tmp)
+                    emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + scrut.expr + ", l " + fname_ptr + ")")
+                    let mut bind_t = var_type(e, &f.binding)
+                    if bind_t == "" { bind_t = ftyp }
+                    emit_store_value(e, &f.binding, &bind_t, &tn)
+                }
+                fi = fi + 1
+            }
+        }
+        let arm_val = emit_block_expr(e, &arm.block)
+        if !block_ends_with_terminator(&arm.block) {
+            if need_res {
+                let casted = cast_to_type(e, arm_val, &ret_t)
+                let op = store_op_for_type(e, &ret_t)
+                emit_line(e, "  " + op + " " + casted + ", " + res_ptr)
+            }
+            emit_line(e, "  jmp @" + string_clone(&end_label))
+        }
+        emit_label(e, &next_label)
+        next_label = new_label(e, "match_next_")
+        i = i + 1
+    }
+    emit_label(e, &end_label)
+    if !need_res { return qbe_value("unit", "0") }
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let op = load_op_for_type(e, &ret_t)
+    let q = qbe_type(e, &ret_t)
+    emit_line(e, "  " + tn + " =" + q + " " + op + " " + res_ptr)
+    return qbe_value(ret_t, tn)
+}
+
+fn emit_while(e: &mut Emitter, stmt: &Stmt) {
+    let cond_label = new_label(e, "while_cond_")
+    let body_label = new_label(e, "while_body_")
+    let end_label = new_label(e, "while_end_")
+    emit_line(e, "  jmp @" + string_clone(&cond_label))
+    emit_label(e, &cond_label)
+    let cond_val = emit_expr(e, &stmt.expr)
+    let cond_expr = ensure_bool_expr(e, cond_val)
+    emit_line(e, "  jnz " + cond_expr + ", @" + string_clone(&body_label) + ", @" + string_clone(&end_label))
+    emit_label(e, &body_label)
+    push_break_label(e, string_clone(&end_label))
+    push_continue_label(e, string_clone(&cond_label))
+    emit_block(e, &stmt.block)
+    pop_continue_label(e)
+    pop_break_label(e)
+    if !block_ends_with_terminator(&stmt.block) {
+        emit_line(e, "  jmp @" + string_clone(&cond_label))
+    }
+    emit_label(e, &end_label)
+}
+
+fn emit_loop(e: &mut Emitter, stmt: &Stmt) {
+    let body_label = new_label(e, "loop_body_")
+    let end_label = new_label(e, "loop_end_")
+    emit_line(e, "  jmp @" + string_clone(&body_label))
+    emit_label(e, &body_label)
+    push_break_label(e, string_clone(&end_label))
+    push_continue_label(e, string_clone(&body_label))
+    emit_block(e, &stmt.block)
+    pop_continue_label(e)
+    pop_break_label(e)
+    if !block_ends_with_terminator(&stmt.block) {
+        emit_line(e, "  jmp @" + string_clone(&body_label))
+    }
+    emit_label(e, &end_label)
+}
+
+fn emit_break(e: &mut Emitter) {
+    let target = top_break_label(e)
+    if target == "" {
+        println("stage2: break outside loop")
+        exit(1)
+    }
+    emit_line(e, "  jmp @" + target)
+}
+
+fn emit_continue(e: &mut Emitter) {
+    let target = top_continue_label(e)
+    if target == "" {
+        println("stage2: continue outside loop")
+        exit(1)
+    }
+    emit_line(e, "  jmp @" + target)
+}
+
+fn emit_return(e: &mut Emitter, stmt: &Stmt) {
+    let target_t = string_clone(&e.cur_ret_type)
+    let mut rexpr = "0"
+    if stmt.ret_has_value {
+        let v = emit_expr(e, &stmt.expr)
+        rexpr = cast_to_type(e, v, &target_t)
+        drop_live_remove_returned_expr(e, &stmt.expr)
+    }
+    drop_live_drop_all(e)
+    emit_line(e, "  ret " + rexpr)
+}
+
+fn emit_stmt(e: &mut Emitter, stmt: &Stmt) {
+    if stmt.kind == STMT_LET {
+        emit_store_let(e, &stmt.name, &stmt.expr)
+        return
+    }
+    if stmt.kind == STMT_ASSIGN {
+        emit_store_assign(e, &stmt.lhs, &stmt.expr)
+        return
+    }
+    if stmt.kind == STMT_IF {
+        emit_if(e, stmt)
+        return
+    }
+    if stmt.kind == STMT_IFLET {
+        emit_iflet(e, stmt)
+        return
+    }
+    if stmt.kind == STMT_MATCH {
+        emit_match(e, stmt)
+        return
+    }
+    if stmt.kind == STMT_WHILE {
+        emit_while(e, stmt)
+        return
+    }
+    if stmt.kind == STMT_LOOP {
+        emit_loop(e, stmt)
+        return
+    }
+    if stmt.kind == STMT_BREAK {
+        emit_break(e)
+        return
+    }
+    if stmt.kind == STMT_BREAK_VALUE {
+        println("stage2: break value only allowed in loop expression desugar")
+        exit(1)
+    }
+    if stmt.kind == STMT_CONTINUE {
+        emit_continue(e)
+        return
+    }
+    if stmt.kind == STMT_RETURN {
+        emit_return(e, stmt)
+        return
+    }
+    let _ = emit_expr(e, &stmt.expr)
+}
+
+fn emit_var_allocs(e: &Emitter) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(&e.var_names) {
+        let name = &e.var_names[i]
+        let typ = &e.var_types[i]
+        let alloc = if type_is_bool(e, typ) { "alloc4 4" } else { "alloc8 8" }
+        out = out + "  %" + var_slot(name) + " =l " + alloc + "\n"
+        i = i + 1
+    }
+    return out
+}
+
+fn func_param_sig(e: &Emitter, params: & [Param]) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(params) {
+        if i > 0 { out = out + ", " }
+        let p = &(*params)[i]
+        let mut ptyp = "i64"
+        if p.has_type { ptyp = type_resolve(e, &p.typ) }
+        let qt = qbe_type(e, &ptyp)
+        out = out + qt + " %p" + int_to_string(i)
+        i = i + 1
+    }
+    return out
+}
+
+fn body_ends_with_ret_line(e: &Emitter) -> bool {
+    let n = len(&e.body)
+    if n == 0 { return false }
+    let mut i = n - 1
+    while i >= 0 {
+        let line = string_clone(&e.body[i])
+        if string_has_prefix(&line, "@") {
+            i = i - 1
+        } else {
+            return string_has_prefix(&line, "  ret ")
+        }
+    }
+    return false
+}
+
+fn emit_param_store_lines(e: &Emitter, params: & [Param]) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(params) {
+        let p = &(*params)[i]
+        let pname = &p.name
+        let mut ptyp = "i64"
+        if p.has_type { ptyp = type_resolve(e, &p.typ) }
+        let ptemp = "%p" + int_to_string(i)
+        let op = store_op_for_type(e, &ptyp)
+        out = out + "  " + op + " " + ptemp + ", %" + var_slot(pname) + "\n"
+        i = i + 1
+    }
+    return out
+}
+
+fn effective_ret_type(e: &Emitter, f: &Function) -> String {
+    if f.ret_type == "" { return "unit" }
+    return type_resolve(e, &f.ret_type)
+}
+
+fn emit_function_text(e: &Emitter, f: &Function) -> String {
+    let mut out = ""
+    let export_kw = if f.name == "main" { "export " } else { "" }
+    let fname = "dast_user_" + mangle_name(&f.name)
+    let sig = func_param_sig(e, &f.params)
+    let ret_t = effective_ret_type(e, f)
+    let ret_q = qbe_type(e, &ret_t)
+    out = out + export_kw + "function " + ret_q + " $" + fname + "(" + sig + ") {\n"
+    out = out + "@entry\n"
+    out = out + emit_var_allocs(e)
+    out = out + emit_param_store_lines(e, &f.params)
+    out = out + "\n@L_entry\n"
+    let mut i = 0
+    while i < len(&e.body) {
+        out = out + string_clone(&e.body[i]) + "\n"
+        i = i + 1
+    }
+    if !block_ends_with_terminator(&f.body) && !body_ends_with_ret_line(e) {
+        out = out + "  ret 0\n\n}\n"
+    } else {
+        out = out + "\n}\n"
+    }
+    return out
+}
+
+struct FuncEmitResult {
+    text: String,
+    lines: i64,
+}
+
+fn emit_compiled_function(glob: &mut Emitter, f: &Function) -> FuncEmitResult {
+    let mut e = emitter_with_globals(glob)
+    let eff_rt = effective_ret_type(&e, f)
+    e.cur_ret_type = string_clone(&eff_rt)
+    validate_block_args(&f.body, f.name)
+    collect_vars(&mut e, f)
+    let stmt_count = len(&f.body.stmts)
+    if stmt_count > 0 {
+        let last = stmt_clone(&f.body.stmts[stmt_count - 1])
+        if last.kind == STMT_EXPR && !block_ends_with_terminator(&f.body) && eff_rt != "unit" {
+            let mut i = 0
+            while i + 1 < stmt_count {
+                emit_stmt(&mut e, &f.body.stmts[i])
+                i = i + 1
+            }
+            let ret_stmt = stmt_return(last.expr)
+            emit_return(&mut e, &ret_stmt)
+        } else {
+            emit_block(&mut e, &f.body)
+        }
+    } else {
+        emit_block(&mut e, &f.body)
+    }
+    let has_term = block_ends_with_terminator(&f.body)
+    let has_ret = body_ends_with_ret_line(&e)
+    if !has_term && !has_ret {
+        drop_live_drop_all(&mut e)
+    }
+    let text = emit_function_text(&e, f)
+    glob.strings = ast_string_list_clone(&e.strings)
+    glob.inst_func_names = ast_string_list_clone(&e.inst_func_names)
+    glob.inst_funcs = function_list_clone(&e.inst_funcs)
+    return FuncEmitResult { text: text, lines: e.emit_lines }
+}
+
+struct CompileStats {
+    func_count: i64,
+    total_lines: i64,
+    max_lines: i64,
+    max_func: String,
+    string_count: i64,
+    const_count: i64,
+}
+
+fn compile_stats_new() -> CompileStats {
+    return CompileStats { func_count: 0, total_lines: 0, max_lines: 0, max_func: "", string_count: 0, const_count: 0 }
+}
+
+fn compile_to_qbe(prog: Program) -> String {
+    let mut stats = compile_stats_new()
+    return compile_to_qbe_with_stats(prog, &mut stats)
+}
+
+fn compile_to_qbe_with_stats(prog: Program, stats: &mut CompileStats) -> String {
+    let mut glob = emitter_new()
+    collect_type_aliases(&mut glob, &prog)
+    collect_structs(&mut glob, &prog)
+    collect_enums(&mut glob, &prog)
+    collect_funcs(&mut glob, &prog)
+    collect_impls(&mut glob, &prog)
+    collect_consts(&mut glob, &prog)
+    collect_strings(&mut glob, &prog)
+    stats.string_count = len(&glob.strings)
+    stats.const_count = len(&glob.const_names)
+
+    let mut out_funcs = ""
+    let mut i = 0
+    while i < len(&prog.functions) {
+        let f = &prog.functions[i]
+        if !f.is_macro {
+            let res = emit_compiled_function(&mut glob, f)
+            out_funcs = out_funcs + res.text + "\n"
+            stats.func_count = stats.func_count + 1
+            stats.total_lines = stats.total_lines + res.lines
+            if res.lines > stats.max_lines {
+                stats.max_lines = res.lines
+                stats.max_func = f.name
+            }
+        }
+        i = i + 1
+    }
+    let mut inst_i = 0
+    while inst_i < len(&glob.inst_funcs) {
+        let res = emit_compiled_function(&mut glob, &glob.inst_funcs[inst_i])
+        out_funcs = out_funcs + res.text + "\n"
+        stats.func_count = stats.func_count + 1
+        stats.total_lines = stats.total_lines + res.lines
+        if res.lines > stats.max_lines {
+            stats.max_lines = res.lines
+            stats.max_func = glob.inst_funcs[inst_i].name
+        }
+        inst_i = inst_i + 1
+    }
+    let data = emit_string_data(&glob)
+    return data + out_funcs
+}
+
+fn c_ret_type(e: &Emitter, t: &str) -> String {
+    if type_is_bool(e, t) { return "int32_t" }
+    return "int64_t"
+}
+
+fn main_ret_type(prog: &Program) -> String {
+    let mut e = emitter_new()
+    collect_type_aliases(&mut e, prog)
+    let mut i = 0
+    while i < len(&prog.functions) {
+        let f = &prog.functions[i]
+        if !f.is_macro && f.name == "main" { return effective_ret_type(&e, f) }
+        i = i + 1
+    }
+    return "unit"
+}
+
+fn build_entry_c(e: &Emitter, main_ret_t: &str) -> String {
+    // Keep it tiny; args() is rarely needed in early tests.
+    let mut out = ""
+    out = out + "#include <stdint.h>\n\n"
+    out = out + "void dast_set_args(int argc, char **argv);\n"
+    let c_rt = c_ret_type(e, main_ret_t)
+    out = out + c_rt + " dast_user_main(void);\n\n"
+    out = out + "int main(int argc, char **argv) {\n"
+    out = out + "    dast_set_args(argc - 1, argv + 1);\n"
+    out = out + "    " + c_rt + " r = dast_user_main();\n"
+    out = out + "    return (int)r;\n"
+    out = out + "}\n"
+    return out
+}
+
+fn run_exec(cmd: String, args: [String]) {
+    let code = exec(cmd, args)
+    if code != 0 {
+        println("exec failed", code)
+        exit(code)
+    }
+}
+
+fn load_prelude_dir(dir: String) -> String {
+    let names = read_dir(string_clone(&dir))
+    let mut out = ""
+    let mut i = 0
+    while i < len(&names) {
+        let name = names[i]
+        if str_has_suffix(&name, ".dast") {
+            let path = string_clone(&dir) + "/" + name
+            let text = read_file(path)
+            out = out + text + "\n"
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn compile_native_single(src_path: String, out_bin: String) {
+    let src = read_file(src_path)
+    let prelude_dir = "compiler/stage2/stdlib/prelude"
+    let prelude = load_prelude_dir(prelude_dir)
+    let src_all = prelude + "\n" + src
+    let prog = macro_expand_program(parse_program(&src_all))
+    let mut alias_e = emitter_new()
+    collect_type_aliases(&mut alias_e, &prog)
+    let main_rt = main_ret_type(&prog)
+    let qbe = compile_to_qbe(prog)
+
+    // Use a deterministic target directory.
+    let target_dir = "compiler/stage2/target/min"
+    mkdir(target_dir)
+    let qbe_path = target_dir + "/main.qbe"
+    let asm_path = target_dir + "/main.s"
+    let entry_path = target_dir + "/entry.c"
+    let runtime_path = "compiler/bootstrap/stage0/runtime/c_runtime.c"
+
+    write_file(qbe_path, qbe)
+    write_file(entry_path, build_entry_c(&alias_e, &main_rt))
+
+    run_exec("qbe", ["-o", string_clone(&asm_path), string_clone(&qbe_path)])
+    run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
+}
+
+fn compile_native_single_stats(src_path: String, out_bin: String) {
+    let src = read_file(src_path)
+    let prelude_dir = "compiler/stage2/stdlib/prelude"
+    let prelude = load_prelude_dir(prelude_dir)
+    let src_all = prelude + "\n" + src
+    let prog = macro_expand_program(parse_program(&src_all))
+    let mut alias_e = emitter_new()
+    collect_type_aliases(&mut alias_e, &prog)
+    let main_rt = main_ret_type(&prog)
+    let mut stats = compile_stats_new()
+    let qbe = compile_to_qbe_with_stats(prog, &mut stats)
+
+    println("stats", "funcs", stats.func_count, "lines", stats.total_lines, "strings", stats.string_count, "consts", stats.const_count)
+    if stats.max_func != "" {
+        println("stats-max-func", stats.max_func, stats.max_lines)
+    }
+
+    let target_dir = "compiler/stage2/target/min"
+    mkdir(target_dir)
+    let qbe_path = target_dir + "/main.qbe"
+    let asm_path = target_dir + "/main.s"
+    let entry_path = target_dir + "/entry.c"
+    let runtime_path = "compiler/bootstrap/stage0/runtime/c_runtime.c"
+
+    write_file(qbe_path, qbe)
+    write_file(entry_path, build_entry_c(&alias_e, &main_rt))
+
+    run_exec("qbe", ["-o", string_clone(&asm_path), string_clone(&qbe_path)])
+    run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
+}
+
+fn compile_and_run_single(src_path: String, run_args: [String]) {
+    let out_bin = "compiler/stage2/target/min/main"
+    compile_native_single(src_path, string_clone(&out_bin))
+    let _ = exec(out_bin, run_args)
+}

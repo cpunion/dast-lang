@@ -1,0 +1,694 @@
+fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
+    if expr.kind == EXPR_BLOCK {
+        collect_vars_from_block(e, &expr.block)
+        return
+    }
+    if expr.kind == EXPR_CLOSURE {
+        return
+    }
+    if expr.kind == EXPR_MATCH {
+        if len(&expr.args) > 0 {
+            collect_vars_from_expr(e, expr_arg_ref(expr, 0, "collect_vars_field_recv"))
+        }
+        let enum_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { "" }
+        let mut ai = 0
+        while ai < len(&expr.match_arms) {
+            let a = &expr.match_arms[ai]
+            if a.has_binding && a.pat_kind == PAT_VARIANT {
+                let mut bt = "i64"
+                if type_is_enum(e, &enum_t) {
+                    bt = enum_variant_payload_type(e, &enum_t, &a.variant)
+                }
+                collect_var_add(e, &a.binding, bt, false)
+            } else if a.pat_kind == PAT_STRUCT {
+                let st_name = type_strip_ref(e, &enum_t)
+                if !type_is_struct(e, &st_name) {
+                    println("stage2: struct pattern requires struct scrutinee")
+                    exit(1)
+                }
+                if a.struct_name != "" && a.struct_name != st_name {
+                    println("stage2: struct pattern type mismatch", a.struct_name, "vs", st_name)
+                    exit(1)
+                }
+                let mut fi = 0
+                while fi < len(&a.struct_fields) {
+                    let f = &a.struct_fields[fi]
+                    if f.has_binding {
+                        let ftyp = struct_field_type(e, &st_name, &f.name)
+                        if ftyp == "" {
+                            println("stage2: unknown struct field", f.name)
+                            exit(1)
+                        }
+                        collect_var_add(e, &f.binding, ftyp, false)
+                    }
+                    fi = fi + 1
+                }
+            }
+            collect_vars_from_block(e, &a.block)
+            ai = ai + 1
+        }
+        return
+    }
+    let mut i = 0
+    while i < len(&expr.args) {
+        collect_vars_from_expr(e, expr_arg_ref(expr, i, "collect_vars_arg"))
+        i = i + 1
+    }
+    let mut fi = 0
+    while fi < len(&expr.fields) {
+        let f = &expr.fields[fi]
+        collect_vars_from_expr(e, &f.value)
+        fi = fi + 1
+    }
+}
+
+fn collect_var_add(e: &mut Emitter, name: &str, typ: &str, mutable: bool) {
+    if name == "" { return }
+    if var_index(e, name) >= 0 { return }
+    let mut names = e.var_names
+    let mut types = e.var_types
+    let mut muts = e.var_mut
+    push(&mut names, string_clone(name))
+    push(&mut types, string_clone(typ))
+    push(&mut muts, mutable)
+    e.var_names = names
+    e.var_types = types
+    e.var_mut = muts
+}
+
+fn validate_expr_args(expr: &Expr, ctx: &str) {
+    let n = len(&expr.args)
+    if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH {
+        if n < 1 {
+            println("stage2: bad expr args", expr.kind, "len", n, expr.name, ctx)
+            exit(1)
+        }
+    }
+    if expr.kind == EXPR_INDEX || expr.kind == EXPR_BINARY {
+        if n < 2 {
+            println("stage2: bad expr args", expr.kind, "len", n, expr.name, ctx)
+            exit(1)
+        }
+    }
+    let mut i = 0
+    while i < n {
+        validate_expr_args(expr_arg_ref(expr, i, "validate_expr_arg"), ctx)
+        i = i + 1
+    }
+    let mut fi = 0
+    while fi < len(&expr.fields) {
+        validate_expr_args(&expr.fields[fi].value, ctx)
+        fi = fi + 1
+    }
+    if expr.kind == EXPR_BLOCK || expr.kind == EXPR_CLOSURE {
+        validate_block_args(&expr.block, ctx)
+    }
+    if expr.kind == EXPR_MATCH {
+        let mut ai = 0
+        while ai < len(&expr.match_arms) {
+            validate_block_args(&expr.match_arms[ai].block, ctx)
+            ai = ai + 1
+        }
+    }
+}
+
+fn validate_stmt_args(stmt: &Stmt, ctx: &str) {
+    if stmt.kind == STMT_LET || stmt.kind == STMT_EXPR || stmt.kind == STMT_RETURN || stmt.kind == STMT_ASSIGN {
+        validate_expr_args(&stmt.expr, ctx)
+        return
+    }
+    if stmt.kind == STMT_IF || stmt.kind == STMT_WHILE || stmt.kind == STMT_LOOP {
+        validate_expr_args(&stmt.expr, ctx)
+        validate_block_args(&stmt.block, ctx)
+        if stmt.has_else { validate_block_args(&stmt.else_block, ctx) }
+        return
+    }
+    if stmt.kind == STMT_IFLET || stmt.kind == STMT_MATCH {
+        validate_expr_args(&stmt.expr, ctx)
+        let mut ai = 0
+        while ai < len(&stmt.arms) {
+            validate_block_args(&stmt.arms[ai].block, ctx)
+            ai = ai + 1
+        }
+        if stmt.kind == STMT_IFLET && stmt.has_else { validate_block_args(&stmt.else_block, ctx) }
+        return
+    }
+}
+
+fn validate_block_args(b: &Block, ctx: &str) {
+    let mut i = 0
+    while i < len(&b.stmts) {
+        validate_stmt_args(&b.stmts[i], ctx)
+        i = i + 1
+    }
+}
+
+fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
+    let mut i = 0
+    while i < len(items) {
+        let s = &(*items)[i]
+        if s.kind == STMT_LET {
+            if s.name != "" {
+                let expr = &s.expr
+                let mut typ = expr_type(e, expr)
+                if !s.has_type && expr.kind == EXPR_CALL {
+                    let ec = enum_call_parse(&expr.name)
+                    if ec.ok {
+                        if type_is_enum(e, &ec.enum_name) { typ = ec.enum_name }
+                        else if typ == "i64" || typ == "" { typ = ec.enum_name }
+                        enum_var_set(e, &s.name, &ec.enum_name)
+                    }
+                }
+                if s.has_type {
+                    let declared = type_resolve(e, &s.typ)
+                    let actual = type_resolve(e, &typ)
+                    if declared != "" && actual != "" && declared != actual {
+                        let mut ok = false
+                        if type_is_int(e, &declared) && type_is_int(e, &actual) { ok = true }
+                        if type_is_array(e, &declared) && type_is_array(e, &actual) {
+                            let de = type_array_elem(e, &declared)
+                            let ae = type_array_elem(e, &actual)
+                            if type_is_int(e, &de) && type_is_int(e, &ae) { ok = true }
+                        }
+                        let db = type_strip_args(e, &declared)
+                        let ab = type_strip_args(e, &actual)
+                        if db != "" && db == ab { ok = true }
+                        if !ok {
+                            println("stage2: let type mismatch expected", declared, "got", actual)
+                            exit(1)
+                        }
+                    }
+                    typ = declared
+                }
+                collect_var_add(e, &s.name, &typ, s.mutable)
+            }
+            collect_vars_from_expr(e, &s.expr)
+        }
+        if s.kind == STMT_IF {
+            collect_vars_from_expr(e, &s.expr)
+            collect_vars_from_block(e, &s.block)
+            if s.has_else { collect_vars_from_block(e, &s.else_block) }
+        } else if s.kind == STMT_IFLET {
+            collect_vars_from_expr(e, &s.expr)
+            if s.pat_has_binding {
+                let mut enum_t = expr_type(e, &s.expr)
+                if !type_is_enum(e, &enum_t) && s.expr.kind == EXPR_IDENT {
+                    let hint = enum_var_hint(e, &s.expr.name)
+                    if hint != "" { enum_t = hint }
+                }
+                if !type_is_enum(e, &enum_t) && enum_t == "" {
+                    let guess = enum_name_for_variant(e, &s.pat_variant)
+                    if guess != "" { enum_t = guess }
+                }
+                let mut bt = "i64"
+                if type_is_enum(e, &enum_t) {
+                    bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
+                }
+                collect_var_add(e, &s.pat_binding, bt, false)
+            }
+            collect_vars_from_block(e, &s.block)
+            if s.has_else { collect_vars_from_block(e, &s.else_block) }
+        } else if s.kind == STMT_MATCH {
+            collect_vars_from_expr(e, &s.expr)
+            let enum_t = expr_type(e, &s.expr)
+            let mut ai = 0
+            while ai < len(&s.arms) {
+                let a = &s.arms[ai]
+                if a.has_binding && a.pat_kind == PAT_VARIANT {
+                    let mut bt = "i64"
+                    if type_is_enum(e, &enum_t) {
+                        bt = enum_variant_payload_type(e, &enum_t, &a.variant)
+                    }
+                    collect_var_add(e, &a.binding, bt, false)
+                } else if a.pat_kind == PAT_STRUCT {
+                    let st_name = type_strip_ref(e, &enum_t)
+                    if !type_is_struct(e, &st_name) {
+                        println("stage2: struct pattern requires struct scrutinee")
+                        exit(1)
+                    }
+                    if a.struct_name != "" && a.struct_name != st_name {
+                        println("stage2: struct pattern type mismatch", a.struct_name, "vs", st_name)
+                        exit(1)
+                    }
+                    let mut fi = 0
+                    while fi < len(&a.struct_fields) {
+                        let f = &a.struct_fields[fi]
+                        if f.has_binding {
+                            let ftyp = struct_field_type(e, &st_name, &f.name)
+                            if ftyp == "" {
+                                println("stage2: unknown struct field", f.name)
+                                exit(1)
+                            }
+                            collect_var_add(e, &f.binding, ftyp, false)
+                        }
+                        fi = fi + 1
+                    }
+                }
+                collect_vars_from_block(e, &a.block)
+                ai = ai + 1
+            }
+        } else if s.kind == STMT_WHILE || s.kind == STMT_LOOP {
+            collect_vars_from_expr(e, &s.expr)
+            collect_vars_from_block(e, &s.block)
+        } else if s.kind == STMT_ASSIGN {
+            collect_vars_from_expr(e, &s.lhs)
+            collect_vars_from_expr(e, &s.expr)
+        } else if s.kind == STMT_RETURN && s.ret_has_value {
+            collect_vars_from_expr(e, &s.expr)
+        } else if s.kind == STMT_BREAK_VALUE {
+            collect_vars_from_expr(e, &s.expr)
+        } else if s.kind == STMT_EXPR {
+            collect_vars_from_expr(e, &s.expr)
+        }
+        i = i + 1
+    }
+}
+
+fn collect_vars(e: &mut Emitter, f: &Function) {
+    let mut pi = 0
+    while pi < len(&f.params) {
+        let p = &f.params[pi]
+        let pname = &p.name
+        let mut ptyp = "i64"
+        if p.has_type { ptyp = string_clone(&p.typ) }
+        if var_index(e, pname) < 0 {
+            let mut names = e.var_names
+            let mut types = e.var_types
+            let mut muts = e.var_mut
+            push(&mut names, string_clone(pname))
+            push(&mut types, ptyp)
+            push(&mut muts, false)
+            e.var_names = names
+            e.var_types = types
+            e.var_mut = muts
+        }
+        pi = pi + 1
+    }
+    collect_vars_from_block(e, &f.body)
+}
+
+fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
+    if expr.kind == EXPR_BLOCK {
+        collect_strings_from_block(e, &expr.block)
+        return
+    }
+    if expr.kind == EXPR_CLOSURE {
+        collect_strings_from_block(e, &expr.block)
+        return
+    }
+    if expr.kind == EXPR_MATCH {
+        if len(&expr.args) > 0 {
+            collect_strings_from_expr(e, expr_arg_ref(expr, 0, "collect_strings_field_recv"))
+        }
+        let mut ai = 0
+        while ai < len(&expr.match_arms) {
+            collect_strings_from_block(e, &expr.match_arms[ai].block)
+            ai = ai + 1
+        }
+        return
+    }
+    if expr.kind == EXPR_STRING {
+        let _ = ensure_string(e, string_clone(&expr.name))
+        return
+    }
+    if expr.kind == EXPR_STRUCT_LIT {
+        let _ = ensure_string(e, string_clone(&expr.name))
+        let mut fi = 0
+        while fi < len(&expr.fields) {
+            let f = &expr.fields[fi]
+            let _ = ensure_string(e, string_clone(&f.name))
+            collect_strings_from_expr(e, &f.value)
+            fi = fi + 1
+        }
+        return
+    }
+    if expr.kind == EXPR_FIELD {
+        let _ = ensure_string(e, string_clone(&expr.name))
+        if len(&expr.args) > 0 {
+            collect_strings_from_expr(e, expr_arg_ref(expr, 0, "collect_strings_enum_recv"))
+        }
+        return
+    }
+    let mut i = 0
+    while i < len(&expr.args) {
+        collect_strings_from_expr(e, expr_arg_ref(expr, i, "collect_strings_arg"))
+        i = i + 1
+    }
+    let mut j = 0
+    while j < len(&expr.fields) {
+        collect_strings_from_expr(e, &expr.fields[j].value)
+        j = j + 1
+    }
+}
+
+fn collect_strings_from_block(e: &mut Emitter, b: &Block) {
+    collect_strings_from_stmts(e, &b.stmts)
+}
+
+fn collect_strings_from_stmts(e: &mut Emitter, items: & [Stmt]) {
+    let mut i = 0
+    while i < len(items) {
+        let s = &(*items)[i]
+        collect_strings_from_expr(e, &s.expr)
+        if s.kind == STMT_IF {
+            collect_strings_from_block(e, &s.block)
+            if s.has_else { collect_strings_from_block(e, &s.else_block) }
+        } else if s.kind == STMT_IFLET {
+            collect_strings_from_block(e, &s.block)
+            if s.has_else { collect_strings_from_block(e, &s.else_block) }
+        } else if s.kind == STMT_MATCH {
+            let mut ai = 0
+            while ai < len(&s.arms) {
+                collect_strings_from_block(e, &s.arms[ai].block)
+                ai = ai + 1
+            }
+        } else if s.kind == STMT_WHILE || s.kind == STMT_LOOP {
+            collect_strings_from_block(e, &s.block)
+        } else if s.kind == STMT_BREAK_VALUE {
+            collect_strings_from_expr(e, &s.expr)
+        }
+        i = i + 1
+    }
+}
+
+fn collect_strings_structs(e: &mut Emitter, prog: &Program) {
+    let mut i = 0
+    while i < len(&prog.structs) {
+        let s = &prog.structs[i]
+        let _ = ensure_string(e, string_clone(&s.name))
+        let mut fi = 0
+        while fi < len(&s.fields) {
+            let f = &s.fields[fi]
+            let _ = ensure_string(e, string_clone(&f.name))
+            fi = fi + 1
+        }
+        i = i + 1
+    }
+}
+
+fn collect_strings_enums(e: &mut Emitter, prog: &Program) {
+    let mut i = 0
+    while i < len(&prog.enums) {
+        let en = &prog.enums[i]
+        let _ = ensure_string(e, string_clone(&en.name))
+        let mut has_payload = false
+        let mut vi = 0
+        while vi < len(&en.variants) {
+            if en.variants[vi].has_payload { has_payload = true }
+            vi = vi + 1
+        }
+        if has_payload {
+            let _ = ensure_string(e, "_tag")
+            let _ = ensure_string(e, "_payload")
+        }
+        i = i + 1
+    }
+}
+
+fn collect_strings(e: &mut Emitter, prog: &Program) {
+    collect_strings_structs(e, prog)
+    collect_strings_enums(e, prog)
+    let mut i = 0
+    while i < len(&prog.consts) {
+        collect_strings_from_expr(e, &prog.consts[i].expr)
+        i = i + 1
+    }
+    let mut fi = 0
+    while fi < len(&prog.functions) {
+        if !prog.functions[fi].is_macro {
+            collect_strings_from_block(e, &prog.functions[fi].body)
+        }
+        fi = fi + 1
+    }
+}
+
+fn emit_string_data(e: &Emitter) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(&e.strings) {
+        let data = str_data_label(i)
+        let st = str_struct_label(i)
+        let s = &e.strings[i]
+        let esc = escape_qbe_string(s)
+        let slen = str_len(&s)
+        out = out + "data $" + data + " = { b \"" + esc + "\", b 0 }\n"
+        out = out + "data $" + st + " = { l $" + data + ", l " + int_to_string(slen) + ", l " + int_to_string(slen + 1) + " }\n"
+        i = i + 1
+    }
+    if out != "" { out = out + "\n" }
+    return out
+}
+
+fn expr_lvalue_base(expr: &Expr) -> String {
+    if expr.kind == EXPR_IDENT { return string_clone(&expr.name) }
+    if (expr.kind == EXPR_FIELD || expr.kind == EXPR_INDEX) && len(&expr.args) > 0 {
+        return expr_lvalue_base(expr_arg_ref(expr, 0, "expr_lvalue_base_recv"))
+    }
+    return ""
+}
+
+fn expr_is_lvalue(expr: &Expr) -> bool {
+    return expr_lvalue_base(expr) != ""
+}
+
+fn check_ref_target(e: &Emitter, inner: &Expr, want_mut: bool) {
+    if !expr_is_lvalue(inner) {
+        println("stage2: reference target must be identifier, field, or index")
+        exit(1)
+    }
+    let base = expr_lvalue_base(inner)
+    if base != "" && const_index(e, &base) >= 0 {
+        println("stage2: cannot take reference to const", base)
+        exit(1)
+    }
+    if want_mut && base != "" && !var_is_mut(e, &base) {
+        println("stage2: cannot take &mut of immutable value", base)
+        exit(1)
+    }
+}
+
+fn emit_const_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
+    if expr.kind == EXPR_INT || expr.kind == EXPR_CHAR {
+        return qbe_value("i64", int_to_string(expr.int_value))
+    }
+    if expr.kind == EXPR_BOOL {
+        if expr.bool_value { return qbe_value("bool", "1") }
+        return qbe_value("bool", "0")
+    }
+    if expr.kind == EXPR_STRING {
+        let id = ensure_string(e, string_clone(&expr.name))
+        return qbe_value("String", "$" + str_struct_label(id))
+    }
+    if expr.kind == EXPR_IDENT {
+        let idx = const_index(e, &expr.name)
+        if idx >= 0 {
+            if idx >= len(&e.const_exprs) {
+                println("stage2: const expr missing", expr.name, "idx", idx, "names", len(&e.const_names), "exprs", len(&e.const_exprs))
+                exit(1)
+            }
+            return emit_const_expr(e, &e.const_exprs[idx])
+        }
+    }
+    println("stage2: unsupported const expression")
+    exit(1)
+    return qbe_value("i64", "0")
+}
+
+fn emit_load_var(e: &mut Emitter, name: &str, typ: &str) -> QbeValue {
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let op = load_op_for_type(e, typ)
+    let qt = qbe_type(e, typ)
+    emit_line(e, "  " + tn + " =" + qt + " " + op + " %" + var_slot(name))
+    return qbe_value(type_resolve(e, typ), tn)
+}
+
+fn emit_deref_value(e: &mut Emitter, v: QbeValue) -> QbeValue {
+    if !type_is_ref(e, &v.typ) { return v }
+    let base = type_ref_base(e, &v.typ)
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let op = load_op_for_type(e, &base)
+    let qt = qbe_type(e, &base)
+    emit_line(e, "  " + tn + " =" + qt + " " + op + " " + v.expr)
+    return qbe_value(base, tn)
+}
+
+fn ensure_bool_expr(e: &mut Emitter, v: QbeValue) -> String {
+    if type_is_bool(e, &v.typ) { return v.expr }
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    emit_line(e, "  " + tn + " =w cnel " + v.expr + ", 0")
+    return tn
+}
+
+fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
+    let rt = type_resolve(e, target_t)
+    if type_is_unit(e, &rt) { return "0" }
+    if type_is_bool(e, &rt) {
+        if type_is_bool(e, &v.typ) { return v.expr }
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w cnel " + v.expr + ", 0")
+        return tn
+    }
+    if type_is_unit(e, &v.typ) { return "0" }
+    if type_is_bool(e, &v.typ) {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l extsw " + v.expr)
+        return tn
+    }
+    return v.expr
+}
+
+fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
+    return cast_to_type(e, v, "i64")
+}
+
+fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeValue, has_payload_arg: bool) -> QbeValue {
+    let tag = enum_variant_value(e, enum_name, variant)
+    if tag < 0 {
+        println("stage2: unknown enum variant", variant)
+        exit(1)
+    }
+    let tag_t = enum_tag_type(e, enum_name)
+    let tag_q = qbe_type(e, &tag_t)
+    let tag_fn = struct_set_fn_for_type(e, &tag_t)
+    let tag_expr = cast_to_type(e, qbe_value("i64", int_to_string(tag)), &tag_t)
+    if enum_has_payload(e, enum_name) {
+        let name_ptr = string_data_ptr(e, enum_name)
+        let tag_ptr = string_data_ptr(e, "_tag")
+        let payload_ptr = string_data_ptr(e, "_payload")
+        let payload_t = enum_variant_payload_type(e, enum_name, variant)
+        let payload_fn = struct_set_fn_for_type(e, &payload_t)
+        let payload_q = qbe_type(e, &payload_t)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l 2)")
+        emit_line(e, "  call $" + tag_fn + "(l " + tn + ", l " + tag_ptr + ", " + tag_q + " " + tag_expr + ")")
+        let mut payload_expr = "0"
+        if enum_variant_has_payload(e, enum_name, variant) && has_payload_arg {
+            payload_expr = cast_to_type(e, payload, &payload_t)
+        }
+        emit_line(e, "  call $" + payload_fn + "(l " + tn + ", l " + payload_ptr + ", " + payload_q + " " + payload_expr + ")")
+        return qbe_value(string_clone(enum_name), tn)
+    }
+    return qbe_value(string_clone(enum_name), tag_expr)
+}
+
+fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue {
+    let tag_t = enum_tag_type(e, enum_t)
+    if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
+        let tag_ptr = string_data_ptr(e, "_tag")
+        let tag_fn = struct_get_fn_for_type(e, &tag_t)
+        let tag_q = qbe_type(e, &tag_t)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =" + tag_q + " call $" + tag_fn + "(l " + v.expr + ", l " + tag_ptr + ")")
+        return qbe_value(string_clone(&tag_t), tn)
+    }
+    let casted = cast_to_type(e, qbe_value("i64", v.expr), &tag_t)
+    return qbe_value(string_clone(&tag_t), casted)
+}
+
+fn enum_payload_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str, variant: &str) -> QbeValue {
+    let payload_t = enum_variant_payload_type(e, enum_t, variant)
+    if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
+        let payload_ptr = string_data_ptr(e, "_payload")
+        let payload_fn = struct_get_fn_for_type(e, &payload_t)
+        let payload_q = qbe_type(e, &payload_t)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =" + payload_q + " call $" + payload_fn + "(l " + v.expr + ", l " + payload_ptr + ")")
+        return qbe_value(payload_t, tn)
+    }
+    return qbe_value(payload_t, "0")
+}
+
+fn struct_set_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_bool(e, t) { return "dast_struct_set_bool" }
+    if type_is_string(e, t) { return "dast_struct_set_string" }
+    if type_is_i32(e, t) { return "dast_struct_set_i32" }
+    if type_is_int(e, t) { return "dast_struct_set_i64" }
+    if type_is_enum(e, t) { return "dast_struct_set_i64" }
+    if type_is_struct(e, t) { return "dast_struct_set_ptr" }
+    return "dast_struct_set_ptr"
+}
+
+fn struct_get_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_bool(e, t) { return "dast_struct_get_bool" }
+    if type_is_string(e, t) { return "dast_struct_get_string" }
+    if type_is_i32(e, t) { return "dast_struct_get_i32" }
+    if type_is_int(e, t) { return "dast_struct_get_i64" }
+    if type_is_enum(e, t) { return "dast_struct_get_i64" }
+    if type_is_struct(e, t) { return "dast_struct_get_ptr" }
+    return "dast_struct_get_ptr"
+}
+
+fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
+    if len(&expr.args) < 2 { return qbe_value("i64", "0") }
+    let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
+    let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+    let op = string_clone(&expr.name)
+    if op == "+" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l add " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
+    if op == "-" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l sub " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
+    if op == "==" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
+        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("bool", tn)
+    }
+    if op == "<" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w csltl " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("bool", tn)
+    }
+    if op == ">" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        // Reuse signed-less-than by swapping operands.
+        emit_line(e, "  " + tn + " =w csltl " + rhs.expr + ", " + lhs.expr)
+        return qbe_value("bool", tn)
+    }
+    println("stage2: unsupported binary op", op)
+    exit(1)
+    return qbe_value("i64", "0")
+}
+
+fn emit_block_expr(e: &mut Emitter, b: &Block) -> QbeValue {
+    let n = len(&b.stmts)
+    if n == 0 { return qbe_value("unit", "0") }
+    let mut i = 0
+    while i + 1 < n {
+        emit_stmt(e, &b.stmts[i])
+        i = i + 1
+    }
+    let last = &b.stmts[n - 1]
+    if last.kind == STMT_EXPR {
+        return emit_expr(e, &last.expr)
+    }
+    emit_stmt(e, last)
+    return qbe_value("unit", "0")
+}
+
+fn expr_arg_ref(expr: &Expr, idx: i64, ctx: &str) -> &Expr {
+    if idx < 0 || idx >= len(&expr.args) {
+        println("stage2: expr args oob", expr.kind, "len", len(&expr.args), "idx", idx, expr.name, ctx)
+        exit(1)
+    }
+    return &expr.args[idx]
+}
+
