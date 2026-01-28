@@ -513,11 +513,161 @@ fn load_prelude_dir(dir: String) -> String {
     return out
 }
 
+struct ImportParse {
+    ok: bool,
+    is_import: bool,
+    path: String,
+    err: String,
+}
+
+struct ImportLoad {
+    ok: bool,
+    imports: String,
+    source: String,
+    err: String,
+}
+
+fn path_dir(path: &str) -> String {
+    let mut i = str_len(path) - 1
+    while i >= 0 {
+        if str_char_at(path, i) == '/' {
+            return str_substr(path, 0, i)
+        }
+        i = i - 1
+    }
+    return "."
+}
+
+fn list_contains(items: & [String], val: &str) -> bool {
+    let mut i = 0
+    while i < len(items) {
+        if items[i] == val { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn parse_import_line(line: &str) -> ImportParse {
+    let trimmed = str_trim_space(line)
+    let kw = "import "
+    if !str_has_prefix(&trimmed, &kw) {
+        return ImportParse { ok: true, is_import: false, path: "", err: "" }
+    }
+    let rest_raw = str_substr(&trimmed, str_len(&kw), str_len(&trimmed) - str_len(&kw))
+    let rest = str_trim_space(&rest_raw)
+    let n = str_len(&rest)
+    if n < 2 || str_char_at(&rest, 0) != '"' || str_char_at(&rest, n - 1) != '"' {
+        return ImportParse { ok: false, is_import: true, path: "", err: "import path must be string" }
+    }
+    let path = str_substr(&rest, 1, n - 2)
+    return ImportParse { ok: true, is_import: true, path: path, err: "" }
+}
+
+fn resolve_import_dir(base_dir: &str, path: &str) -> ImportLoad {
+    let up = ".."
+    let up_prefix = "../"
+    let abs_prefix = "/"
+    let cur_prefix = "./"
+    let ext = ".dast"
+    if path == up || str_has_prefix(path, &up_prefix) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import escapes root: " + path }
+    }
+    if str_has_prefix(path, &abs_prefix) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import path is absolute: " + path }
+    }
+    if str_has_suffix(path, &ext) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import path is not a directory: " + path }
+    }
+    let rel = if str_has_prefix(path, &cur_prefix) { str_substr(path, 2, str_len(path) - 2) } else { string_clone(path) }
+    let dir = string_clone(base_dir) + "/" + rel
+    let names = read_dir(string_clone(&dir))
+    if len(&names) == 0 {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import not found: " + path }
+    }
+    let mut out = ""
+    let mut i = 0
+    while i < len(&names) {
+        let name = names[i]
+        let suffix = ".dast"
+        if str_has_suffix(&name, &suffix) {
+            let full = string_clone(&dir) + "/" + name
+            out = out + full + "\n"
+        }
+        i = i + 1
+    }
+    return ImportLoad { ok: true, imports: out, source: "", err: "" }
+}
+
+fn load_file_with_imports(path: &str, visited: &mut [String]) -> ImportLoad {
+    if list_contains(visited, path) {
+        return ImportLoad { ok: true, imports: "", source: "", err: "" }
+    }
+    push(visited, string_clone(path))
+    let src = read_file(string_clone(path))
+    let base_dir = path_dir(path)
+    let lines = split_lines(&src)
+    let mut imports = ""
+    let mut source = ""
+    let mut i = 0
+    while i < len(&lines) {
+        let line = lines[i]
+        let res = parse_import_line(&line)
+        if res.is_import {
+            if !res.ok {
+                return ImportLoad { ok: false, imports: "", source: "", err: res.err }
+            }
+            let dir_res = resolve_import_dir(&base_dir, &res.path)
+            if !dir_res.ok {
+                return dir_res
+            }
+            let paths = split_lines(&dir_res.imports)
+            let mut pi = 0
+            while pi < len(&paths) {
+                let p = paths[pi]
+                if p != "" {
+                    let sub = load_file_with_imports(&p, visited)
+                    if !sub.ok { return sub }
+                    imports = imports + sub.imports + "\n" + sub.source + "\n"
+                }
+                pi = pi + 1
+            }
+        } else {
+            source = source + line + "\n"
+        }
+        i = i + 1
+    }
+    return ImportLoad { ok: true, imports: imports, source: source, err: "" }
+}
+
+fn split_lines(s: &str) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    let n = str_len(s)
+    let mut start = 0
+    while i < n {
+        if str_char_at(s, i) == 10 {
+            push(&mut out, str_substr(s, start, i - start))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start <= n {
+        push(&mut out, str_substr(s, start, n - start))
+    }
+    return out
+}
+
 fn compile_native_single(src_path: String, out_bin: String) {
-    let src = read_file(src_path)
+    let mut visited: [String] = []
+    let imp = load_file_with_imports(&src_path, &mut visited)
+    if !imp.ok {
+        println("stage2:", imp.err)
+        exit(1)
+        return
+    }
     let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(prelude_dir)
-    let src_all = prelude + "\n" + src
+    let src_all = prelude + "\n" + imp.imports + "\n" + imp.source
     let prog = macro_expand_program(parse_program(&src_all))
     let mut alias_e = emitter_new()
     collect_type_aliases(&mut alias_e, &prog)
@@ -540,10 +690,16 @@ fn compile_native_single(src_path: String, out_bin: String) {
 }
 
 fn compile_native_single_stats(src_path: String, out_bin: String) {
-    let src = read_file(src_path)
+    let mut visited: [String] = []
+    let imp = load_file_with_imports(&src_path, &mut visited)
+    if !imp.ok {
+        println("stage2:", imp.err)
+        exit(1)
+        return
+    }
     let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(prelude_dir)
-    let src_all = prelude + "\n" + src
+    let src_all = prelude + "\n" + imp.imports + "\n" + imp.source
     let prog = macro_expand_program(parse_program(&src_all))
     let mut alias_e = emitter_new()
     collect_type_aliases(&mut alias_e, &prog)
