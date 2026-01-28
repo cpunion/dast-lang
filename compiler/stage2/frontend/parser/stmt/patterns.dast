@@ -1,0 +1,100 @@
+// Statement parsing for stage2.
+
+fn parse_variant_pattern(p: &mut Parser) -> MatchArm {
+    let _ = parser_expect(p, TK_DOT, ".")
+    let variant = parser_expect(p, TK_IDENT, "variant").text
+    let mut binding = ""
+    let mut has_binding = false
+    if parser_peek(p).kind == TK_LPAREN {
+        let _ = parser_advance(p)
+        binding = parser_expect(p, TK_IDENT, "binding").text
+        let _ = parser_expect(p, TK_RPAREN, ")")
+        has_binding = true
+    }
+    return MatchArm {
+        pat_kind: PAT_VARIANT,
+        variant: variant,
+        binding: binding,
+        has_binding: has_binding,
+        int_value: 0,
+        struct_name: "",
+        struct_fields: struct_pattern_field_list_empty(),
+        block: block_empty(),
+    }
+}
+
+fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
+    let name = parser_expect(p, TK_IDENT, "struct").text
+    let _ = parser_expect(p, TK_LBRACE, "{")
+    let mut fields: [StructPatternField] = []
+    if parser_peek(p).kind != TK_RBRACE {
+        let mut done = false
+        while !done {
+            let fname = parser_expect(p, TK_IDENT, "field").text
+            let mut binding = string_clone(&fname)
+            let mut has_binding = true
+            if parser_peek(p).kind == TK_COLON {
+                let _ = parser_advance(p)
+                binding = parser_expect(p, TK_IDENT, "binding").text
+                has_binding = true
+            }
+            push(&mut fields, StructPatternField { name: fname, binding: binding, has_binding: has_binding })
+            if parser_peek(p).kind == TK_COMMA {
+                let _ = parser_advance(p)
+            } else {
+                done = true
+            }
+        }
+    }
+    let _ = parser_expect(p, TK_RBRACE, "}")
+    return MatchArm {
+        pat_kind: PAT_STRUCT,
+        variant: "",
+        binding: "",
+        has_binding: false,
+        int_value: 0,
+        struct_name: name,
+        struct_fields: fields,
+        block: block_empty(),
+    }
+}
+
+fn parse_match_pattern(p: &mut Parser) -> MatchArm {
+    let t = parser_peek(p)
+    if t.kind == TK_DOT {
+        return parse_variant_pattern(p)
+    }
+    if t.kind == TK_IDENT && parser_peek_next(p).kind == TK_LBRACE {
+        return parse_struct_pattern(p)
+    }
+    if t.kind == TK_INT {
+        let v = parser_advance(p).int_value
+        return MatchArm {
+            pat_kind: PAT_INT,
+            variant: "",
+            binding: "",
+            has_binding: false,
+            int_value: v,
+            struct_name: "",
+            struct_fields: struct_pattern_field_list_empty(),
+            block: block_empty(),
+        }
+    }
+    if t.kind == TK_IDENT && t.text == "_" {
+        let _ = parser_advance(p)
+        return MatchArm {
+            pat_kind: PAT_WILDCARD,
+            variant: "",
+            binding: "",
+            has_binding: false,
+            int_value: 0,
+            struct_name: "",
+            struct_fields: struct_pattern_field_list_empty(),
+            block: block_empty(),
+        }
+    }
+    println("parse error: expected pattern got", t.kind, t.text)
+    exit(1)
+    return parse_variant_pattern(p)
+}
+
