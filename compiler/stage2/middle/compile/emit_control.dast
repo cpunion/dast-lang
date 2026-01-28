@@ -77,21 +77,38 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let mut fi = 0
             while fi < len(&arm.struct_fields) {
                 let f = &arm.struct_fields[fi]
-                let ftyp = struct_field_type(e, &st_name, &f.name)
-                if ftyp == "" {
-                    println("stage2: unknown struct field", f.name)
-                    exit(1)
-                }
-                if f.has_binding {
+                let need_value = f.has_binding || f.has_pattern
+                if need_value {
+                    let ftyp = struct_field_type(e, &st_name, &f.name)
+                    if ftyp == "" {
+                        println("stage2: unknown struct field", f.name)
+                        exit(1)
+                    }
+                    let ftyp_name = string_clone(&ftyp)
                     let fname_ptr = string_data_ptr(e, &f.name)
                     let get_fn = struct_get_fn_for_type(e, &ftyp)
                     let q = qbe_type(e, &ftyp)
                     let tmp = new_temp(e)
                     let tn = temp_name(tmp)
                     emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + scrut.expr + ", l " + fname_ptr + ")")
-                    let mut bind_t = var_type(e, &f.binding)
-                    if bind_t == "" { bind_t = ftyp }
-                    emit_store_value(e, &f.binding, &bind_t, &tn)
+                    if f.has_binding {
+                        let mut bind_t = var_type(e, &f.binding)
+                        if bind_t == "" { bind_t = string_clone(&ftyp) }
+                        emit_store_value(e, &f.binding, &bind_t, &tn)
+                    }
+                    if f.has_pattern && f.pat_kind == PAT_INT {
+                        if !type_is_int(e, &ftyp_name) && !type_is_bool(e, &ftyp_name) {
+                            println("stage2: struct pattern literal requires int or bool")
+                            exit(1)
+                        }
+                        let cmp = if type_is_bool(e, &ftyp_name) || type_is_i32(e, &ftyp_name) { "ceqw" } else { "ceql" }
+                        let cond_tmp = new_temp(e)
+                        let cond_tn = temp_name(cond_tmp)
+                        emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tn + ", " + int_to_string(f.int_value))
+                        let ok_label = new_label(e, "match_field_")
+                        emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
+                        emit_label(e, &ok_label)
+                    }
                 }
                 fi = fi + 1
             }

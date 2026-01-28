@@ -39,6 +39,9 @@ struct StructPatternField {
     name: String,
     binding: String,
     has_binding: bool,
+    has_pattern: bool,
+    pat_kind: i32,
+    int_value: i64,
 }
 
 fn struct_pattern_field_list_empty() -> [StructPatternField] {
@@ -51,6 +54,9 @@ fn struct_pattern_field_clone(f: &StructPatternField) -> StructPatternField {
         name: string_clone(&f.name),
         binding: string_clone(&f.binding),
         has_binding: f.has_binding,
+        has_pattern: f.has_pattern,
+        pat_kind: f.pat_kind,
+        int_value: f.int_value,
     }
 }
 

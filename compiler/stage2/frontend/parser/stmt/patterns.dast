@@ -35,18 +35,33 @@ fn parse_struct_pattern(p: &mut Parser) -> MatchArm {
             let fname = parser_expect(p, TK_IDENT, "field").text
             let mut binding = string_clone(&fname)
             let mut has_binding = true
+            let mut has_pattern = false
+            let mut pat_kind = PAT_WILDCARD
+            let mut int_value = 0
             if parser_peek(p).kind == TK_COLON {
                 let _ = parser_advance(p)
                 if parser_peek(p).kind == TK_IDENT {
-                    binding = parser_advance(p).text
-                    has_binding = true
-                } else {
-                    let _ = parse_expr(p)
-                    binding = "_"
+                    let name = parser_advance(p).text
+                    if name == "_" {
+                        has_binding = false
+                        has_pattern = true
+                        pat_kind = PAT_WILDCARD
+                    } else {
+                        binding = name
+                        has_binding = true
+                    }
+                } else if parser_peek(p).kind == TK_INT {
+                    let v = parser_advance(p).int_value
                     has_binding = false
+                    has_pattern = true
+                    pat_kind = PAT_INT
+                    int_value = v
+                } else {
+                    println("stage2: unsupported struct pattern field")
+                    exit(1)
                 }
             }
-            push(&mut fields, StructPatternField { name: fname, binding: binding, has_binding: has_binding })
+            push(&mut fields, StructPatternField { name: fname, binding: binding, has_binding: has_binding, has_pattern: has_pattern, pat_kind: pat_kind, int_value: int_value })
             if parser_peek(p).kind == TK_COMMA {
                 let _ = parser_advance(p)
             } else {
