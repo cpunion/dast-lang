@@ -244,7 +244,7 @@ func (p *Parser) parseParam() ast.Param {
 	} else {
 		p.advance()
 	}
-	if nameTok.Kind == lexer.TokenSelf && !p.at(lexer.TokenColon) {
+	if (nameTok.Kind == lexer.TokenSelf || nameTok.Lexeme == "self") && !p.at(lexer.TokenColon) {
 		t := ast.Type{Name: "Self", Span: nameTok.Span}
 		return ast.Param{Name: nameTok.Lexeme, Type: t, Span: mergeSpan(nameTok.Span, t.Span)}
 	}
