@@ -200,9 +200,6 @@ fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
     let declared = type_resolve(e, expected)
     let actual = type_resolve(e, actual)
     if declared == actual { return true }
-    if declared == "&str" {
-        if actual == "&String" || actual == "&mut String" { return true }
-    }
     if type_is_int(e, &declared) && type_is_int(e, &actual) { return true }
     if type_is_array(e, &declared) && type_is_array(e, &actual) {
         let de = type_array_elem(e, &declared)
