@@ -11,7 +11,7 @@ fn sum(p: PairAlias2) -> i64 {
 fn total(xs: PairList) -> i64 {
     let mut i = 0
     let mut acc = 0
-    while i < len(xs) {
+    while i < len(&xs) {
         acc = acc + sum(xs[i])
         i = i + 1
     }

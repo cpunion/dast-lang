@@ -41,10 +41,10 @@ fn main() {
     let s2 = s + "!"
     let ch = char_at(s2, 1)
     let sub = substr(s2, 0, 1)
-    println("ch", ch, "sub", sub, "len", len(s2))
+    println("ch", ch, "sub", sub, "len", len(&s2))
 
     let argv = args()
-    println("argc", len(argv))
+    println("argc", len(&argv))
 
     let opt = OptionI32.Some(inc(41))
     match opt {

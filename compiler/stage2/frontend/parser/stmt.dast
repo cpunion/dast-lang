@@ -136,7 +136,7 @@ fn parse_binding_list(p: &mut Parser, end_kind: i32) -> [String] {
 fn desugar_pattern_lets(names: & [String], base_expr: &Expr, mutable: bool) -> [Stmt] {
     let mut out: [Stmt] = []
     let mut i = 0
-    while i < len(*names) {
+    while i < len(names) {
         let name = string_clone(&(*names)[i])
         if name != "_" {
             let idx = expr_int(i)
@@ -249,8 +249,8 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
     let cond = expr_binary("<", expr_ident(string_clone(&idx_name)), expr_call("len", [expr_ident(string_clone(&arr_name))]))
     let mut body_stmts: [Stmt] = []
     let elem_expr = expr_index(expr_ident(string_clone(&arr_name)), expr_ident(string_clone(&idx_name)))
-    if len(*names) <= 1 {
-        if len(*names) == 1 && (*names)[0] != "_" {
+    if len(names) <= 1 {
+        if len(names) == 1 && (*names)[0] != "_" {
             push(&mut body_stmts, stmt_let(string_clone(&(*names)[0]), false, false, "", elem_expr))
         }
     } else {

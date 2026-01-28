@@ -31,7 +31,7 @@ fn drop_instr_ret() -> DropInstr {
 fn live_index(live: & [LiveVar], name: &str) -> i32 {
     let key = string_clone(name)
     let mut i = 0
-    while i < len(*live) {
+    while i < len(live) {
         if (*live)[i].name == key { return i }
         i = i + 1
     }
@@ -43,7 +43,7 @@ fn live_set(live: &mut [LiveVar], name: String, typ: String) {
     if idx >= 0 {
         let mut out: [LiveVar] = []
         let mut i = 0
-        while i < len(*live) {
+        while i < len(live) {
             if i == idx {
                 let v = (*live)[i]
                 push(&mut out, LiveVar { name: v.name, typ: string_clone(&typ) })
@@ -63,7 +63,7 @@ fn live_remove(live: &mut [LiveVar], name: &str) {
     if idx < 0 { return }
     let mut out: [LiveVar] = []
     let mut i = 0
-    while i < len(*live) {
+    while i < len(live) {
         if i != idx { push(&mut out, (*live)[i]) }
         i = i + 1
     }
@@ -72,7 +72,7 @@ fn live_remove(live: &mut [LiveVar], name: &str) {
 
 fn live_drop_all(live: &mut [LiveVar], out: &mut [DropInstr]) {
     let mut i = 0
-    while i < len(*live) {
+    while i < len(live) {
         let v = (*live)[i]
         if drop_needs_drop_type(string_clone(&v.typ)) {
             push(out, drop_instr_drop(v.name, v.typ))
@@ -114,7 +114,7 @@ fn drop_pass(instrs: [DropInstr]) -> [DropInstr] {
 fn drop_count(instrs: & [DropInstr]) -> i32 {
     let mut n = 0
     let mut i = 0
-    while i < len(*instrs) {
+    while i < len(instrs) {
         if (*instrs)[i].kind == drop_kind_drop() { n = n + 1 }
         i = i + 1
     }

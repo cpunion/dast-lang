@@ -614,7 +614,7 @@ fn hygiene_expr(ctx: &mut MacroCtx, m: &RenameMap, expr: &Expr) -> Expr {
 fn hygiene_match_arms(ctx: &mut MacroCtx, m: &RenameMap, arms: & [MatchArm]) -> [MatchArm] {
     let mut out: [MatchArm] = []
     let mut i = 0
-    while i < len(*arms) {
+    while i < len(arms) {
         let a = &(*arms)[i]
         let mut map2 = rename_map_clone(m)
         let mut binding = string_clone(&a.binding)
@@ -720,7 +720,7 @@ fn hygiene_block(ctx: &mut MacroCtx, m: &mut RenameMap, block: &Block) -> Block 
 fn replace_expr_splices(expr: &Expr, splices: & [QuoteSplice]) -> Expr {
     if expr.kind == EXPR_IDENT {
         let idx = quote_placeholder_index(&expr.name)
-        if idx >= 0 && idx < len(*splices) {
+        if idx >= 0 && idx < len(splices) {
             let v = &(*splices)[idx].value
             if v.kind == MV_AST_EXPR {
                 return expr_clone(&v.expr)

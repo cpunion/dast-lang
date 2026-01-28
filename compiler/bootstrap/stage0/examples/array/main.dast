@@ -1,8 +1,8 @@
 fn main() {
     let mut nums = [1, 2, 3]
-    println("len", len(nums))
+    println("len", len(&nums))
     nums[1] = 10
     println("nums[1]", nums[1])
     push(&mut nums, 4)
-    println("len2", len(nums))
+    println("len2", len(&nums))
 }

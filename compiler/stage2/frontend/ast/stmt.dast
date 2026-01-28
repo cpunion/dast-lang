@@ -55,7 +55,7 @@ fn struct_pattern_field_clone(f: &StructPatternField) -> StructPatternField {
 fn struct_pattern_field_list_clone(items: & [StructPatternField]) -> [StructPatternField] {
     let mut out: [StructPatternField] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, struct_pattern_field_clone(&(*items)[i]))
         i = i + 1
     }
@@ -83,7 +83,7 @@ fn match_arm_clone(a: &MatchArm) -> MatchArm {
 fn match_arm_list_clone(items: & [MatchArm]) -> [MatchArm] {
     let mut out: [MatchArm] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, match_arm_clone(&(*items)[i]))
         i = i + 1
     }
@@ -125,7 +125,7 @@ struct Stmt {
 fn stmt_list_clone(items: & [Stmt]) -> [Stmt] {
     let mut out: [Stmt] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, stmt_clone(&(*items)[i]))
         i = i + 1
     }

@@ -1,5 +1,5 @@
 fn slen(s: String) -> i64 {
-    return len(s)
+    return len(&s)
 }
 
 fn main() {

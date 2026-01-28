@@ -15,8 +15,8 @@ fn test_mutation() {
 
     let mut xs = [1, 2]
     push(&mut xs, 3)
-    t.assert_eq!(len(xs), 3)
+    t.assert_eq!(len(&xs), 3)
     let v = pop(&mut xs)
     t.assert_eq!(v, 3)
-    t.assert_eq!(len(xs), 2)
+    t.assert_eq!(len(&xs), 2)
 }

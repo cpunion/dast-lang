@@ -18,7 +18,7 @@ fn main() {
             cur = Boxed.None
         }
         if let .Some(w) = cur {
-            count = count + len(w.s)
+            count = count + len(&w.s)
         } else {
             count = count + 1
         }

@@ -27,7 +27,7 @@ fn str_clone(s: &str) -> String {
 fn clone_expr_list(items: & [Expr]) -> [Expr] {
     let mut out: [Expr] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, expr_clone(&(*items)[i]))
         i = i + 1
     }
@@ -78,7 +78,7 @@ fn func_sig_clone(s: &FuncSig) -> FuncSig {
 fn func_sig_list_clone(items: & [FuncSig]) -> [FuncSig] {
     let mut out: [FuncSig] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, func_sig_clone(&(*items)[i]))
         i = i + 1
     }
@@ -102,7 +102,7 @@ fn struct_field_sig_clone(f: &StructFieldSig) -> StructFieldSig {
 fn struct_field_sig_list_clone(items: & [StructFieldSig]) -> [StructFieldSig] {
     let mut out: [StructFieldSig] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, struct_field_sig_clone(&(*items)[i]))
         i = i + 1
     }
@@ -127,7 +127,7 @@ fn struct_sig_clone(s: &StructSig) -> StructSig {
 fn struct_sig_list_clone(items: & [StructSig]) -> [StructSig] {
     let mut out: [StructSig] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, struct_sig_clone(&(*items)[i]))
         i = i + 1
     }
@@ -153,7 +153,7 @@ fn enum_variant_sig_clone(v: &EnumVariantSig) -> EnumVariantSig {
 fn enum_variant_sig_list_clone(items: & [EnumVariantSig]) -> [EnumVariantSig] {
     let mut out: [EnumVariantSig] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, enum_variant_sig_clone(&(*items)[i]))
         i = i + 1
     }
@@ -179,7 +179,7 @@ fn enum_sig_clone(s: &EnumSig) -> EnumSig {
 fn enum_sig_list_clone(items: & [EnumSig]) -> [EnumSig] {
     let mut out: [EnumSig] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, enum_sig_clone(&(*items)[i]))
         i = i + 1
     }
@@ -212,6 +212,8 @@ struct Emitter {
     var_names: [String],
     var_types: [String],
     var_mut: [bool],
+    enum_var_names: [String],
+    enum_var_types: [String],
     // Local closures (simple inlining).
     closure_names: [String],
     closure_blocks: [Block],
@@ -251,6 +253,8 @@ fn emitter_new() -> Emitter {
         var_names: string_list_empty(),
         var_types: string_list_empty(),
         var_mut: bool_list_empty(),
+        enum_var_names: string_list_empty(),
+        enum_var_types: string_list_empty(),
         closure_names: string_list_empty(),
         closure_blocks: block_list_empty(),
         drop_live_names: string_list_empty(),
@@ -285,6 +289,8 @@ fn emitter_with_globals(glob: &Emitter) -> Emitter {
     e.drop_live_names = string_list_empty()
     e.drop_live_types = string_list_empty()
     e.cur_ret_type = string_clone(&glob.cur_ret_type)
+    e.enum_var_names = string_list_empty()
+    e.enum_var_types = string_list_empty()
     return e
 }
 
@@ -504,7 +510,7 @@ fn type_args_parse(t: &str) -> TypeArgs {
 }
 
 fn type_subst(e: &Emitter, t: &str, params: & [String], args: & [String]) -> String {
-    if len(*params) == 0 || len(*args) == 0 { return string_clone(t) }
+    if len(params) == 0 || len(args) == 0 { return string_clone(t) }
     let rt = type_resolve(e, t)
     if type_is_ref_raw(&rt) {
         let base = type_ref_base_raw(&rt)
@@ -533,7 +539,7 @@ fn type_subst(e: &Emitter, t: &str, params: & [String], args: & [String]) -> Str
         return s
     }
     let mut k = 0
-    while k < len(*params) {
+    while k < len(params) {
         if rt == (*params)[k] {
             if (*args)[k] == "" { return rt }
             return string_clone(&(*args)[k])
@@ -684,7 +690,7 @@ fn load_op_for_type(e: &Emitter, t: &str) -> String {
 
 fn list_index(items: & [String], name: &str) -> i64 {
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         if (*items)[i] == name { return i }
         i = i + 1
     }
@@ -697,6 +703,31 @@ fn const_index(e: &Emitter, name: &str) -> i64 {
 
 fn var_index(e: &Emitter, name: &str) -> i64 {
     return list_index(&e.var_names, name)
+}
+
+fn enum_var_index(e: &Emitter, name: &str) -> i64 {
+    return list_index(&e.enum_var_names, name)
+}
+
+fn enum_var_hint(e: &Emitter, name: &str) -> String {
+    let idx = enum_var_index(e, name)
+    if idx < 0 { return "" }
+    return string_clone(&e.enum_var_types[idx])
+}
+
+fn enum_var_set(e: &mut Emitter, name: &str, typ: &str) {
+    if name == "" { return }
+    let idx = enum_var_index(e, name)
+    if idx >= 0 {
+        e.enum_var_types[idx] = string_clone(typ)
+        return
+    }
+    let mut names = e.enum_var_names
+    let mut types = e.enum_var_types
+    push(&mut names, string_clone(name))
+    push(&mut types, string_clone(typ))
+    e.enum_var_names = names
+    e.enum_var_types = types
 }
 
 fn struct_index(e: &Emitter, name: &str) -> i64 {
@@ -874,7 +905,7 @@ fn func_ret_type(e: &Emitter, name: &str) -> String {
 }
 
 fn bind_type_params(e: &Emitter, pat: &str, act: &str, params: & [String], values: &mut [String]) {
-    if len(*params) == 0 { return }
+    if len(params) == 0 { return }
     let pat_rt = string_clone(pat)
     let act_rt = type_resolve(e, act)
     if type_is_ref_raw(&pat_rt) && type_is_ref_raw(&act_rt) {
@@ -927,7 +958,7 @@ fn func_ret_type_for_call(e: &Emitter, name: &str, args: & [Expr]) -> String {
         vi = vi + 1
     }
     let mut ai = 0
-    while ai < len(f.params) && ai < len(*args) {
+    while ai < len(f.params) && ai < len(args) {
         let p = &f.params[ai]
         if p.has_type {
             let at = expr_type(e, &(*args)[ai])
@@ -1015,7 +1046,7 @@ fn check_type_param_bounds(e: &Emitter, f: &Function, values: & [String]) {
     while i < len(f.type_params) {
         let tp = &f.type_params[i]
         if tp.has_bound {
-            if i >= len(*values) || (*values)[i] == "" {
+            if i >= len(values) || (*values)[i] == "" {
                 println("stage2: cannot infer type for", tp.name)
                 exit(1)
             }
@@ -1038,7 +1069,7 @@ fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String
         vi = vi + 1
     }
     let mut ai = 0
-    while ai < len(f.params) && ai < len(*args) {
+    while ai < len(f.params) && ai < len(args) {
         let p = &f.params[ai]
         if p.has_type {
             let at = expr_type(e, &(*args)[ai])
@@ -1053,7 +1084,7 @@ fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String
 fn func_inst_name(base: &str, values: & [String]) -> String {
     let mut out = string_clone(base) + "["
     let mut i = 0
-    while i < len(*values) {
+    while i < len(values) {
         if i > 0 { out = out + ", " }
         out = out + (*values)[i]
         i = i + 1
@@ -1097,7 +1128,7 @@ fn func_param_types_for_call(e: &Emitter, f: &Function, values: & [String]) -> [
         let p = &f.params[i]
         if p.has_type {
             let mut t = string_clone(&p.typ)
-            if len(*values) > 0 {
+            if len(values) > 0 {
                 t = type_subst(e, &t, &params, &values)
             }
             push(&mut out, type_resolve(e, &t))
@@ -1418,9 +1449,22 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         }
         EXPR_CALL => {
             if expr.name == "print" || expr.name == "println" { return "unit" }
-            if expr.name == "len" { return "i64" }
+            if expr.name == "len" {
+                if len(expr.args) != 1 {
+                    println("stage2: len expects 1 argument")
+                    exit(1)
+                }
+                let t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_len_arg"))
+                let mut base = string_clone(&t)
+                if type_is_ref(e, &t) { base = type_ref_base(e, &t) }
+                if !type_is_string(e, &t) && !type_is_array(e, &base) {
+                    println("stage2: len expects String/str or array")
+                    exit(1)
+                }
+                return "i64"
+            }
             let ec = enum_call_parse(&expr.name)
-            if ec.ok && type_is_enum(e, &ec.enum_name) { return ec.enum_name }
+            if ec.ok { return ec.enum_name }
             let rt = func_ret_type_for_call(e, &expr.name, &expr.args)
             return type_resolve(e, &rt)
         }
@@ -1688,16 +1732,18 @@ fn validate_block_args(b: &Block, ctx: &str) {
 
 fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         let s = &(*items)[i]
         if s.kind == STMT_LET {
             if s.name != "" {
-                let mut typ = expr_type(e, &s.expr)
-                if !s.has_type && s.expr.kind == EXPR_CALL {
-                    let ec = enum_call_parse(&s.expr.name)
+                let expr = &s.expr
+                let mut typ = expr_type(e, expr)
+                if !s.has_type && expr.kind == EXPR_CALL {
+                    let ec = enum_call_parse(&expr.name)
                     if ec.ok {
                         if type_is_enum(e, &ec.enum_name) { typ = ec.enum_name }
-                        else if typ == "" { typ = ec.enum_name }
+                        else if typ == "i64" || typ == "" { typ = ec.enum_name }
+                        enum_var_set(e, &s.name, &ec.enum_name)
                     }
                 }
                 if s.has_type {
@@ -1732,7 +1778,15 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
         } else if s.kind == STMT_IFLET {
             collect_vars_from_expr(e, &s.expr)
             if s.pat_has_binding {
-                let enum_t = expr_type(e, &s.expr)
+                let mut enum_t = expr_type(e, &s.expr)
+                if !type_is_enum(e, &enum_t) && s.expr.kind == EXPR_IDENT {
+                    let hint = enum_var_hint(e, &s.expr.name)
+                    if hint != "" { enum_t = hint }
+                }
+                if !type_is_enum(e, &enum_t) && enum_t == "" {
+                    let guess = enum_name_for_variant(e, &s.pat_variant)
+                    if guess != "" { enum_t = guess }
+                }
                 let mut bt = "i64"
                 if type_is_enum(e, &enum_t) {
                     bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
@@ -1880,7 +1934,7 @@ fn collect_strings_from_block(e: &mut Emitter, b: &Block) {
 
 fn collect_strings_from_stmts(e: &mut Emitter, items: & [Stmt]) {
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         let s = &(*items)[i]
         collect_strings_from_expr(e, &s.expr)
         if s.kind == STMT_IF {
@@ -2239,8 +2293,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
     }
     if expr.kind == EXPR_CALL && len(expr.args) == 0 {
-        if expr.name != "args" && expr.name != "read_line" {
-            println("stage2: unexpected zero-arg call", expr.name)
+        if expr.name == "" {
+            println("stage2: empty callee for call")
             exit(1)
         }
     }
@@ -2449,8 +2503,11 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             if expr.name == "len" {
                 if len(expr.args) < 1 { return qbe_value("i64", "0") }
                 let mut v = emit_expr(e, expr_arg_ref(expr, 0, "emit_len"))
-                if type_is_string(e, &v.typ) && type_is_ref(e, &v.typ) {
-                    v = emit_deref_value(e, v)
+                if type_is_ref(e, &v.typ) {
+                    let base = type_ref_base(e, &v.typ)
+                    if type_is_string(e, &v.typ) || type_is_array(e, &base) {
+                        v = emit_deref_value(e, v)
+                    }
                 }
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
@@ -2865,7 +2922,11 @@ fn emit_store_value(e: &mut Emitter, name: &str, typ: &str, value_expr: &str) {
 fn emit_iflet(e: &mut Emitter, stmt: &Stmt) {
     let scrut = emit_expr(e, &stmt.expr)
     let mut enum_t = expr_type(e, &stmt.expr)
-    if !type_is_enum(e, &enum_t) {
+    if !type_is_enum(e, &enum_t) && stmt.expr.kind == EXPR_IDENT {
+        let hint = enum_var_hint(e, &stmt.expr.name)
+        if hint != "" { enum_t = hint }
+    }
+    if !type_is_enum(e, &enum_t) && enum_t == "" {
         let guess = enum_name_for_variant(e, &stmt.pat_variant)
         if guess != "" { enum_t = guess }
     }
@@ -3253,7 +3314,7 @@ fn emit_var_allocs(e: &Emitter) -> String {
 fn func_param_sig(e: &Emitter, params: & [Param]) -> String {
     let mut out = ""
     let mut i = 0
-    while i < len(*params) {
+    while i < len(params) {
         if i > 0 { out = out + ", " }
         let p = &(*params)[i]
         let mut ptyp = "i64"
@@ -3283,7 +3344,7 @@ fn body_ends_with_ret_line(e: &Emitter) -> bool {
 fn emit_param_store_lines(e: &Emitter, params: & [Param]) -> String {
     let mut out = ""
     let mut i = 0
-    while i < len(*params) {
+    while i < len(params) {
         let p = &(*params)[i]
         let pname = &p.name
         let mut ptyp = "i64"

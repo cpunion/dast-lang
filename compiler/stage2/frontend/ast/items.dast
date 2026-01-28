@@ -19,7 +19,7 @@ fn const_decl_clone(c: &ConstDecl) -> ConstDecl {
 fn const_decl_list_clone(items: & [ConstDecl]) -> [ConstDecl] {
     let mut out: [ConstDecl] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, const_decl_clone(&(*items)[i]))
         i = i + 1
     }
@@ -29,7 +29,7 @@ fn const_decl_list_clone(items: & [ConstDecl]) -> [ConstDecl] {
 fn ast_string_list_clone(items: & [String]) -> [String] {
     let mut out: [String] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, string_clone(&(*items)[i]))
         i = i + 1
     }
@@ -49,7 +49,7 @@ fn generic_param_clone(p: &GenericParam) -> GenericParam {
 fn generic_param_list_clone(items: & [GenericParam]) -> [GenericParam] {
     let mut out: [GenericParam] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, generic_param_clone(&(*items)[i]))
         i = i + 1
     }
@@ -68,7 +68,7 @@ fn struct_field_clone(f: &StructField) -> StructField {
 fn struct_field_list_clone(items: & [StructField]) -> [StructField] {
     let mut out: [StructField] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, struct_field_clone(&(*items)[i]))
         i = i + 1
     }
@@ -88,7 +88,7 @@ fn struct_decl_clone(s: &StructDecl) -> StructDecl {
 fn struct_decl_list_clone(items: & [StructDecl]) -> [StructDecl] {
     let mut out: [StructDecl] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, struct_decl_clone(&(*items)[i]))
         i = i + 1
     }
@@ -108,7 +108,7 @@ fn enum_variant_clone(v: &EnumVariant) -> EnumVariant {
 fn enum_variant_list_clone(items: & [EnumVariant]) -> [EnumVariant] {
     let mut out: [EnumVariant] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, enum_variant_clone(&(*items)[i]))
         i = i + 1
     }
@@ -129,7 +129,7 @@ fn enum_decl_clone(e: &EnumDecl) -> EnumDecl {
 fn enum_decl_list_clone(items: & [EnumDecl]) -> [EnumDecl] {
     let mut out: [EnumDecl] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, enum_decl_clone(&(*items)[i]))
         i = i + 1
     }
@@ -148,7 +148,7 @@ fn type_alias_clone(a: &TypeAlias) -> TypeAlias {
 fn type_alias_list_clone(items: & [TypeAlias]) -> [TypeAlias] {
     let mut out: [TypeAlias] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, type_alias_clone(&(*items)[i]))
         i = i + 1
     }
@@ -168,7 +168,7 @@ fn param_clone(p: &Param) -> Param {
 fn param_list_clone(items: & [Param]) -> [Param] {
     let mut out: [Param] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, param_clone(&(*items)[i]))
         i = i + 1
     }
@@ -203,7 +203,7 @@ fn function_clone(f: &Function) -> Function {
 fn function_list_clone(items: & [Function]) -> [Function] {
     let mut out: [Function] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, function_clone(&(*items)[i]))
         i = i + 1
     }
@@ -226,7 +226,7 @@ fn compile_item_clone(c: &CompileItem) -> CompileItem {
 fn compile_item_list_clone(items: & [CompileItem]) -> [CompileItem] {
     let mut out: [CompileItem] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, compile_item_clone(&(*items)[i]))
         i = i + 1
     }
@@ -261,7 +261,7 @@ fn trait_decl_clone(t: &TraitDecl) -> TraitDecl {
 fn trait_decl_list_clone(items: & [TraitDecl]) -> [TraitDecl] {
     let mut out: [TraitDecl] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, trait_decl_clone(&(*items)[i]))
         i = i + 1
     }
@@ -281,7 +281,7 @@ fn impl_decl_clone(i: &ImplDecl) -> ImplDecl {
 fn impl_decl_list_clone(items: & [ImplDecl]) -> [ImplDecl] {
     let mut out: [ImplDecl] = []
     let mut i = 0
-    while i < len(*items) {
+    while i < len(items) {
         push(&mut out, impl_decl_clone(&(*items)[i]))
         i = i + 1
     }

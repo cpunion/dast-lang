@@ -44,6 +44,20 @@ func (c *Compiler) compileOperandBorrow(expr ast.Expr) ir.Operand {
 }
 
 func (c *Compiler) compileCallArg(expr ast.Expr, callee string, index int) ir.Operand {
+	if callee == "len" {
+		argType := c.inferExprType(expr)
+		if isRefTypeName(argType) {
+			refTemp := c.compileExpr(expr)
+			t := c.newTemp()
+			typ := derefTypeName(argType)
+			if typ == "" {
+				typ = "i64"
+			}
+			c.setTempType(t, typ)
+			c.emit(&ir.LoadVar{Dst: t, Ref: true, RefTemp: refTemp})
+			return ir.TempOperand(t)
+		}
+	}
 	if params, ok := c.funcParamTypes[callee]; ok && index < len(params) && isRefTypeName(params[index]) {
 		if isRefTypeName(c.inferExprType(expr)) {
 			return c.compileOperandBorrow(expr)

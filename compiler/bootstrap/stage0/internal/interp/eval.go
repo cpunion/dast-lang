@@ -210,6 +210,12 @@ func (rt *Runtime) builtinLen() Builtin {
 			}
 			arg = val
 		}
+		if os.Getenv("DAST_LEN_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "len arg kind=%v\n", arg.Kind)
+			if arg.Kind == ir.KindArray && arg.Array != nil {
+				fmt.Fprintf(os.Stderr, "len arg array len=%d\n", len(arg.Array.Elems))
+			}
+		}
 		switch arg.Kind {
 		case ir.KindString:
 			return ir.Value{Kind: ir.KindInt, Int: int64(len(arg.Str))}, nil
