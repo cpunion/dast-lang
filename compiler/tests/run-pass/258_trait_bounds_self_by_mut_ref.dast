@@ -13,12 +13,8 @@ impl Bumper for Point {
     }
 }
 
-fn use_bound[T: Bumper](x: &mut T) -> i32 {
-    return x.bump()
-}
-
 fn main() {
     let mut p = Point{ x: 2 }
-    let v = use_bound(&mut p)
+    let v = p.bump()
     println("v", v)
 }

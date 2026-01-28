@@ -1,5 +1,5 @@
 trait Cloneable {
-    fn clone(self) -> Self;
+    fn clone(self: Self) -> Self;
 }
 
 struct Point {
@@ -7,7 +7,7 @@ struct Point {
 }
 
 impl Cloneable for Point {
-    fn clone(self) -> Self {
+    fn clone(self: Self) -> Self {
         return self
     }
 }

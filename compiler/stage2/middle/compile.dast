@@ -1333,7 +1333,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         }
         EXPR_REF => {
             if len(expr.args) == 0 { return "&i64" }
-            let base = expr_type(e, &expr.args[0])
+            let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_ref"))
             if expr.ref_mut {
                 return "&mut " + type_resolve(e, &base)
             }
@@ -1341,18 +1341,18 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         }
         EXPR_DEREF => {
             if len(expr.args) == 0 { return "i64" }
-            let base = expr_type(e, &expr.args[0])
+            let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_deref"))
             if type_is_ref(e, &base) { return type_ref_base(e, &base) }
             return type_resolve(e, &base)
         }
         EXPR_ARRAY => {
             if len(expr.args) == 0 { return "[i64]" }
-            let elem = expr_type(e, &expr.args[0])
+            let elem = expr_type(e, expr_arg_ref(expr, 0, "expr_type_array"))
             return "[" + type_resolve(e, &elem) + "]"
         }
         EXPR_INDEX => {
             if len(expr.args) < 1 { return "i64" }
-            let mut recv_t = expr_type(e, &expr.args[0])
+            let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_index_recv"))
             if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
             if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
             return "i64"
@@ -1390,12 +1390,12 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         EXPR_FIELD => {
             if len(expr.args) == 0 { return "i64" }
             if is_digit_str(&expr.name) {
-                let mut recv_t = expr_type(e, &expr.args[0])
+                let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_digit"))
                 if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
                 if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
                 return "i64"
             }
-            let recv_expr = &expr.args[0]
+            let recv_expr = expr_arg_ref(expr, 0, "expr_type_field_recv_expr")
             if recv_expr.kind == EXPR_IDENT {
                 let recv_name = type_resolve(e, &recv_expr.name)
                 let ct = const_type(e, &recv_name)
@@ -1405,7 +1405,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                     if vi >= 0 { return recv_name }
                 }
             }
-            let mut recv_t = expr_type(e, &expr.args[0])
+            let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_recv"))
             if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
             let ft = struct_field_type(e, &recv_t, &expr.name)
             if ft != "" { return type_resolve(e, &ft) }
@@ -1413,7 +1413,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         }
         EXPR_BINARY => {
             if expr.name == "==" || expr.name == "<" || expr.name == ">" { return "bool" }
-            if len(expr.args) > 0 { return expr_type(e, &expr.args[0]) }
+            if len(expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs")) }
             return "i64"
         }
         EXPR_CALL => {
@@ -1551,9 +1551,9 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
     }
     if expr.kind == EXPR_MATCH {
         if len(expr.args) > 0 {
-            collect_vars_from_expr(e, &expr.args[0])
+            collect_vars_from_expr(e, expr_arg_ref(expr, 0, "collect_vars_field_recv"))
         }
-        let enum_t = if len(expr.args) > 0 { expr_type(e, &expr.args[0]) } else { "" }
+        let enum_t = if len(expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { "" }
         let mut ai = 0
         while ai < len(expr.match_arms) {
             let a = &expr.match_arms[ai]
@@ -1594,7 +1594,7 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
     }
     let mut i = 0
     while i < len(expr.args) {
-        collect_vars_from_expr(e, &expr.args[i])
+        collect_vars_from_expr(e, expr_arg_ref(expr, i, "collect_vars_arg"))
         i = i + 1
     }
     let mut fi = 0
@@ -1635,7 +1635,7 @@ fn validate_expr_args(expr: &Expr, ctx: &str) {
     }
     let mut i = 0
     while i < n {
-        validate_expr_args(&expr.args[i], ctx)
+        validate_expr_args(expr_arg_ref(expr, i, "validate_expr_arg"), ctx)
         i = i + 1
     }
     let mut fi = 0
@@ -1831,7 +1831,7 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
     }
     if expr.kind == EXPR_MATCH {
         if len(expr.args) > 0 {
-            collect_strings_from_expr(e, &expr.args[0])
+            collect_strings_from_expr(e, expr_arg_ref(expr, 0, "collect_strings_field_recv"))
         }
         let mut ai = 0
         while ai < len(expr.match_arms) {
@@ -1858,13 +1858,13 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
     if expr.kind == EXPR_FIELD {
         let _ = ensure_string(e, string_clone(&expr.name))
         if len(expr.args) > 0 {
-            collect_strings_from_expr(e, &expr.args[0])
+            collect_strings_from_expr(e, expr_arg_ref(expr, 0, "collect_strings_enum_recv"))
         }
         return
     }
     let mut i = 0
     while i < len(expr.args) {
-        collect_strings_from_expr(e, &expr.args[i])
+        collect_strings_from_expr(e, expr_arg_ref(expr, i, "collect_strings_arg"))
         i = i + 1
     }
     let mut j = 0
@@ -1975,7 +1975,7 @@ fn emit_string_data(e: &Emitter) -> String {
 fn expr_lvalue_base(expr: &Expr) -> String {
     if expr.kind == EXPR_IDENT { return string_clone(&expr.name) }
     if (expr.kind == EXPR_FIELD || expr.kind == EXPR_INDEX) && len(expr.args) > 0 {
-        return expr_lvalue_base(&expr.args[0])
+        return expr_lvalue_base(expr_arg_ref(expr, 0, "expr_lvalue_base_recv"))
     }
     return ""
 }
@@ -2161,8 +2161,8 @@ fn struct_get_fn_for_type(e: &Emitter, t: &str) -> String {
 
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(expr.args) < 2 { return qbe_value("i64", "0") }
-    let lhs = emit_expr(e, &expr.args[0])
-    let rhs = emit_expr(e, &expr.args[1])
+    let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
+    let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
     let op = string_clone(&expr.name)
     if op == "+" {
         let tmp = new_temp(e)
@@ -2217,6 +2217,14 @@ fn emit_block_expr(e: &mut Emitter, b: &Block) -> QbeValue {
     return qbe_value("unit", "0")
 }
 
+fn expr_arg_ref(expr: &Expr, idx: i64, ctx: &str) -> &Expr {
+    if idx < 0 || idx >= len(expr.args) {
+        println("stage2: expr args oob", expr.kind, "len", len(expr.args), "idx", idx, expr.name, ctx)
+        exit(1)
+    }
+    return &expr.args[idx]
+}
+
 fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH {
         if len(expr.args) < 1 {
@@ -2227,6 +2235,12 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if expr.kind == EXPR_INDEX || expr.kind == EXPR_BINARY {
         if len(expr.args) < 2 {
             println("stage2: bad expr args", expr.kind, "len", len(expr.args), expr.name)
+            exit(1)
+        }
+    }
+    if expr.kind == EXPR_CALL && len(expr.args) == 0 {
+        if expr.name != "args" && expr.name != "read_line" {
+            println("stage2: unexpected zero-arg call", expr.name)
             exit(1)
         }
     }
@@ -2273,7 +2287,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_REF => {
             if len(expr.args) == 0 { return qbe_value("&i64", "0") }
-            let inner = &expr.args[0]
+            let inner = expr_arg_ref(expr, 0, "emit_ref")
             let base_t = expr_type(e, inner)
             let mut ref_t = "&" + string_clone(&base_t)
             if expr.ref_mut {
@@ -2297,7 +2311,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_DEREF => {
             if len(expr.args) == 0 { return qbe_value("i64", "0") }
-            let ptr = emit_expr(e, &expr.args[0])
+            let ptr = emit_expr(e, expr_arg_ref(expr, 0, "emit_deref"))
             if !type_is_ref(e, &ptr.typ) {
                 println("stage2: deref requires reference")
                 exit(1)
@@ -2317,8 +2331,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let tn = temp_name(tmp)
             emit_line(e, "  " + tn + " =l call $dast_array_new(l " + int_to_string(cap) + ")")
             let mut i = 0
-            while i < len(&expr.args) {
-                let v = emit_expr(e, &expr.args[i])
+            while i < len(expr.args) {
+                let v = emit_expr(e, expr_arg_ref(expr, i, "emit_array_elem"))
                 let casted = cast_to_l(e, v)
                 emit_line(e, "  call $dast_array_push(l " + tn + ", l " + casted + ")")
                 i = i + 1
@@ -2327,8 +2341,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_INDEX => {
             if len(expr.args) < 2 { return qbe_value("i64", "0") }
-            let recv = emit_expr(e, &expr.args[0])
-            let idxv = emit_expr(e, &expr.args[1])
+            let recv = emit_expr(e, expr_arg_ref(expr, 0, "emit_index_recv"))
+            let idxv = emit_expr(e, expr_arg_ref(expr, 1, "emit_index_idx"))
             let idx = cast_to_l(e, idxv)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
@@ -2374,10 +2388,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             if is_digit_str(&expr.name) {
                 let idx = parse_int_simple(&expr.name)
                 let idx_expr = expr_int(idx)
-                let at = expr_index(expr_clone(&expr.args[0]), idx_expr)
+                let at = expr_index(expr_clone(expr_arg_ref(expr, 0, "emit_field_digit")), idx_expr)
                 return emit_expr(e, &at)
             }
-            let recv_expr = &expr.args[0]
+            let recv_expr = expr_arg_ref(expr, 0, "emit_field_recv_expr")
             if recv_expr.kind == EXPR_IDENT {
                 let recv_name = type_resolve(e, &recv_expr.name)
                 let ct = const_type(e, &recv_name)
@@ -2387,7 +2401,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                     return enum_construct(e, &recv_name, &expr.name, dummy, false)
                 }
             }
-            let recv = emit_expr(e, &expr.args[0])
+            let recv = emit_expr(e, expr_arg_ref(expr, 0, "emit_field_recv"))
             let mut recv_expr = recv.expr
             let mut recv_type = recv.typ
             if type_is_ref(e, &recv_type) {
@@ -2434,7 +2448,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "len" {
                 if len(expr.args) < 1 { return qbe_value("i64", "0") }
-                let mut v = emit_expr(e, &expr.args[0])
+                let mut v = emit_expr(e, expr_arg_ref(expr, 0, "emit_len"))
                 if type_is_string(e, &v.typ) && type_is_ref(e, &v.typ) {
                     v = emit_deref_value(e, v)
                 }
@@ -2446,7 +2460,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "string_clone" {
                 if len(expr.args) < 1 { return qbe_value("String", "0") }
-                let mut v = emit_expr(e, &expr.args[0])
+                let mut v = emit_expr(e, expr_arg_ref(expr, 0, "emit_string_clone"))
                 if type_is_string(e, &v.typ) && type_is_ref(e, &v.typ) {
                     v = emit_deref_value(e, v)
                 }
@@ -2457,11 +2471,11 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "char_at" {
                 if len(expr.args) < 2 { return qbe_value("i64", "0") }
-                let mut s = emit_expr(e, &expr.args[0])
+                let mut s = emit_expr(e, expr_arg_ref(expr, 0, "emit_char_at_s"))
                 if type_is_string(e, &s.typ) && type_is_ref(e, &s.typ) {
                     s = emit_deref_value(e, s)
                 }
-                let idx = emit_expr(e, &expr.args[1])
+                let idx = emit_expr(e, expr_arg_ref(expr, 1, "emit_char_at_idx"))
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
                 emit_line(e, "  " + tn + " =l call $dast_char_at(l " + s.expr + ", l " + idx.expr + ")")
@@ -2469,12 +2483,12 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "substr" {
                 if len(expr.args) < 3 { return qbe_value("String", "0") }
-                let mut s = emit_expr(e, &expr.args[0])
+                let mut s = emit_expr(e, expr_arg_ref(expr, 0, "emit_substr_s"))
                 if type_is_string(e, &s.typ) && type_is_ref(e, &s.typ) {
                     s = emit_deref_value(e, s)
                 }
-                let start = emit_expr(e, &expr.args[1])
-                let count = emit_expr(e, &expr.args[2])
+                let start = emit_expr(e, expr_arg_ref(expr, 1, "emit_substr_start"))
+                let count = emit_expr(e, expr_arg_ref(expr, 2, "emit_substr_count"))
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
                 emit_line(e, "  " + tn + " =l call $dast_substr(l " + s.expr + ", l " + start.expr + ", l " + count.expr + ")")
@@ -2482,7 +2496,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "read_file" {
                 if len(expr.args) < 1 { return qbe_value("String", "0") }
-                let mut path = emit_expr(e, &expr.args[0])
+                let mut path = emit_expr(e, expr_arg_ref(expr, 0, "emit_read_file"))
                 if type_is_string(e, &path.typ) && type_is_ref(e, &path.typ) {
                     path = emit_deref_value(e, path)
                 }
@@ -2493,7 +2507,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "read_dir" {
                 if len(expr.args) < 1 { return qbe_value("[String]", "0") }
-                let mut path = emit_expr(e, &expr.args[0])
+                let mut path = emit_expr(e, expr_arg_ref(expr, 0, "emit_read_dir"))
                 if type_is_string(e, &path.typ) && type_is_ref(e, &path.typ) {
                     path = emit_deref_value(e, path)
                 }
@@ -2504,11 +2518,11 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "write_file" {
                 if len(expr.args) < 2 { return qbe_value("unit", "0") }
-                let mut path = emit_expr(e, &expr.args[0])
+                let mut path = emit_expr(e, expr_arg_ref(expr, 0, "emit_write_file_path"))
                 if type_is_string(e, &path.typ) && type_is_ref(e, &path.typ) {
                     path = emit_deref_value(e, path)
                 }
-                let mut data = emit_expr(e, &expr.args[1])
+                let mut data = emit_expr(e, expr_arg_ref(expr, 1, "emit_write_file_data"))
                 if type_is_string(e, &data.typ) && type_is_ref(e, &data.typ) {
                     data = emit_deref_value(e, data)
                 }
@@ -2517,7 +2531,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "mkdir" {
                 if len(expr.args) < 1 { return qbe_value("unit", "0") }
-                let mut path = emit_expr(e, &expr.args[0])
+                let mut path = emit_expr(e, expr_arg_ref(expr, 0, "emit_mkdir"))
                 if type_is_string(e, &path.typ) && type_is_ref(e, &path.typ) {
                     path = emit_deref_value(e, path)
                 }
@@ -2526,11 +2540,11 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "exec" {
                 if len(expr.args) < 2 { return qbe_value("i64", "0") }
-                let mut cmd = emit_expr(e, &expr.args[0])
+                let mut cmd = emit_expr(e, expr_arg_ref(expr, 0, "emit_exec_cmd"))
                 if type_is_string(e, &cmd.typ) && type_is_ref(e, &cmd.typ) {
                     cmd = emit_deref_value(e, cmd)
                 }
-                let args = emit_expr(e, &expr.args[1])
+                let args = emit_expr(e, expr_arg_ref(expr, 1, "emit_exec_args"))
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
                 emit_line(e, "  " + tn + " =l call $dast_exec(l " + cmd.expr + ", l " + args.expr + ")")
@@ -2538,7 +2552,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "exit" {
                 if len(expr.args) < 1 { return qbe_value("unit", "0") }
-                let code = emit_expr(e, &expr.args[0])
+                let code = emit_expr(e, expr_arg_ref(expr, 0, "emit_exit"))
                 emit_line(e, "  call $dast_exit(l " + code.expr + ")")
                 return qbe_value("unit", "0")
             }
@@ -2556,7 +2570,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if expr.name == "read_bytes" {
                 if len(expr.args) < 1 { return qbe_value("String", "0") }
-                let count = emit_expr(e, &expr.args[0])
+                let count = emit_expr(e, expr_arg_ref(expr, 0, "emit_read_bytes"))
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
                 emit_line(e, "  " + tn + " =l call $dast_read_bytes(l " + count.expr + ")")
@@ -2567,7 +2581,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 let mut payload = qbe_value("i64", "0")
                 let mut has_payload_arg = false
                 if len(expr.args) > 0 {
-                    payload = emit_expr(e, &expr.args[0])
+                    payload = emit_expr(e, expr_arg_ref(expr, 0, "emit_enum_payload"))
                     has_payload_arg = true
                 }
                 return enum_construct(e, &ec.enum_name, &ec.variant, payload, has_payload_arg)
@@ -2609,23 +2623,25 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             while i < len(expr.args) {
                 if i > 0 { args_text = args_text + ", " }
                 if i < len(param_types) && param_types[i] != "" && !type_is_ref(e, &param_types[i]) {
-                    if expr.args[i].kind == EXPR_IDENT {
-                        let src_t = expr_type(e, &expr.args[i])
+                    let arg_expr = expr_arg_ref(expr, i, "emit_call_arg_type")
+                    if arg_expr.kind == EXPR_IDENT {
+                        let src_t = expr_type(e, arg_expr)
                         if drop_needs_drop_type_env(e, &src_t) {
-                            drop_live_remove(e, &expr.args[i].name)
+                            drop_live_remove(e, &arg_expr.name)
                         }
                     }
                 }
                 let mut v = qbe_value("i64", "0")
+                let arg_expr = expr_arg_ref(expr, i, "emit_call_arg_val")
                 if i < len(param_types) && param_types[i] != "" && type_is_ref(e, &param_types[i]) {
-                    let arg_t = expr_type(e, &expr.args[i])
+                    let arg_t = expr_type(e, arg_expr)
                     if !type_is_ref(e, &arg_t) {
-                        v = emit_auto_borrow(e, &expr.args[i], &param_types[i])
+                        v = emit_auto_borrow(e, arg_expr, &param_types[i])
                     } else {
-                        v = emit_expr(e, &expr.args[i])
+                        v = emit_expr(e, arg_expr)
                     }
                 } else {
-                    v = emit_expr(e, &expr.args[i])
+                    v = emit_expr(e, arg_expr)
                 }
                 let qt = qbe_type(e, &v.typ)
                 args_text = args_text + qt + " " + v.expr
@@ -2674,7 +2690,7 @@ fn emit_print_call(e: &mut Emitter, call: &Expr) {
         if i > 0 {
             emit_line(e, "  call $dast_print_space()")
         }
-        let v = emit_expr(e, &call.args[i])
+        let v = emit_expr(e, expr_arg_ref(call, i, "emit_print_arg"))
         emit_print_arg(e, &v)
         i = i + 1
     }
@@ -2753,7 +2769,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
             println("stage2: field assignment missing receiver")
             exit(1)
         }
-        let recv = emit_expr(e, &lhs.args[0])
+        let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_field_recv"))
         let mut recv_expr = recv.expr
         let mut recv_base = recv.typ
         if type_is_ref(e, &recv_base) {
@@ -2792,8 +2808,8 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
             println("stage2: index assignment missing args")
             exit(1)
         }
-        let recv = emit_expr(e, &lhs.args[0])
-        let idxv = emit_expr(e, &lhs.args[1])
+        let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_index_recv"))
+        let idxv = emit_expr(e, expr_arg_ref(lhs, 1, "assign_index_idx"))
         let idx = cast_to_l(e, idxv)
         let elem_t = expr_type(e, lhs)
         let v = emit_expr(e, expr)
@@ -2802,7 +2818,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         return
     }
     if lhs.kind == EXPR_DEREF && len(lhs.args) > 0 {
-        let ptr = emit_expr(e, &lhs.args[0])
+        let ptr = emit_expr(e, expr_arg_ref(lhs, 0, "assign_deref_ptr"))
         if !type_is_mut_ref(e, &ptr.typ) {
             println("stage2: assignment through & requires &mut")
             exit(1)
@@ -2987,7 +3003,7 @@ fn emit_match(e: &mut Emitter, stmt: &Stmt) {
 
 fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(expr.args) == 0 { return qbe_value("unit", "0") }
-    let scrut_expr = expr_clone(&expr.args[0])
+    let scrut_expr = expr_clone(expr_arg_ref(expr, 0, "emit_match_scrut"))
     let scrut = emit_expr(e, &scrut_expr)
     let mut scrut_t = expr_type(e, &scrut_expr)
     let mut is_enum = type_is_enum(e, &scrut_t)
