@@ -1,0 +1,270 @@
+fn emit_string_data(e: &Emitter) -> String {
+    let mut out = ""
+    let mut i = 0
+    while i < len(&e.strings) {
+        let data = str_data_label(i)
+        let st = str_struct_label(i)
+        let s = &e.strings[i]
+        let esc = escape_qbe_string(s)
+        let slen = str_len(&s)
+        out = out + "data $" + data + " = { b \"" + esc + "\", b 0 }\n"
+        out = out + "data $" + st + " = { l $" + data + ", l " + int_to_string(slen) + ", l " + int_to_string(slen + 1) + " }\n"
+        i = i + 1
+    }
+    if out != "" { out = out + "\n" }
+    return out
+}
+
+fn expr_lvalue_base(expr: &Expr) -> String {
+    if expr.kind == EXPR_IDENT { return string_clone(&expr.name) }
+    if (expr.kind == EXPR_FIELD || expr.kind == EXPR_INDEX) && len(&expr.args) > 0 {
+        return expr_lvalue_base(expr_arg_ref(expr, 0, "expr_lvalue_base_recv"))
+    }
+    return ""
+}
+
+fn expr_is_lvalue(expr: &Expr) -> bool {
+    return expr_lvalue_base(expr) != ""
+}
+
+fn check_ref_target(e: &Emitter, inner: &Expr, want_mut: bool) {
+    if !expr_is_lvalue(inner) {
+        println("stage2: reference target must be identifier, field, or index")
+        exit(1)
+    }
+    let base = expr_lvalue_base(inner)
+    if base != "" && const_index(e, &base) >= 0 {
+        println("stage2: cannot take reference to const", base)
+        exit(1)
+    }
+    if want_mut && base != "" && !var_is_mut(e, &base) {
+        println("stage2: cannot take &mut of immutable value", base)
+        exit(1)
+    }
+}
+
+fn emit_const_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
+    if expr.kind == EXPR_INT || expr.kind == EXPR_CHAR {
+        return qbe_value("i64", int_to_string(expr.int_value))
+    }
+    if expr.kind == EXPR_BOOL {
+        if expr.bool_value { return qbe_value("bool", "1") }
+        return qbe_value("bool", "0")
+    }
+    if expr.kind == EXPR_STRING {
+        let id = ensure_string(e, string_clone(&expr.name))
+        return qbe_value("String", "$" + str_struct_label(id))
+    }
+    if expr.kind == EXPR_IDENT {
+        let idx = const_index(e, &expr.name)
+        if idx >= 0 {
+            if idx >= len(&e.const_exprs) {
+                println("stage2: const expr missing", expr.name, "idx", idx, "names", len(&e.const_names), "exprs", len(&e.const_exprs))
+                exit(1)
+            }
+            return emit_const_expr(e, &e.const_exprs[idx])
+        }
+    }
+    println("stage2: unsupported const expression")
+    exit(1)
+    return qbe_value("i64", "0")
+}
+
+fn emit_load_var(e: &mut Emitter, name: &str, typ: &str) -> QbeValue {
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let op = load_op_for_type(e, typ)
+    let qt = qbe_type(e, typ)
+    emit_line(e, "  " + tn + " =" + qt + " " + op + " %" + var_slot(name))
+    return qbe_value(type_resolve(e, typ), tn)
+}
+
+fn emit_deref_value(e: &mut Emitter, v: QbeValue) -> QbeValue {
+    if !type_is_ref(e, &v.typ) { return v }
+    let base = type_ref_base(e, &v.typ)
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let op = load_op_for_type(e, &base)
+    let qt = qbe_type(e, &base)
+    emit_line(e, "  " + tn + " =" + qt + " " + op + " " + v.expr)
+    return qbe_value(base, tn)
+}
+
+fn ensure_bool_expr(e: &mut Emitter, v: QbeValue) -> String {
+    if type_is_bool(e, &v.typ) { return v.expr }
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    emit_line(e, "  " + tn + " =w cnel " + v.expr + ", 0")
+    return tn
+}
+
+fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
+    let rt = type_resolve(e, target_t)
+    if type_is_unit(e, &rt) { return "0" }
+    if type_is_bool(e, &rt) {
+        if type_is_bool(e, &v.typ) { return v.expr }
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w cnel " + v.expr + ", 0")
+        return tn
+    }
+    if type_is_unit(e, &v.typ) { return "0" }
+    if type_is_bool(e, &v.typ) {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l extsw " + v.expr)
+        return tn
+    }
+    return v.expr
+}
+
+fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
+    return cast_to_type(e, v, "i64")
+}
+
+fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeValue, has_payload_arg: bool) -> QbeValue {
+    let tag = enum_variant_value(e, enum_name, variant)
+    if tag < 0 {
+        println("stage2: unknown enum variant", variant)
+        exit(1)
+    }
+    let tag_t = enum_tag_type(e, enum_name)
+    let tag_q = qbe_type(e, &tag_t)
+    let tag_fn = struct_set_fn_for_type(e, &tag_t)
+    let tag_expr = cast_to_type(e, qbe_value("i64", int_to_string(tag)), &tag_t)
+    if enum_has_payload(e, enum_name) {
+        let name_ptr = string_data_ptr(e, enum_name)
+        let tag_ptr = string_data_ptr(e, "_tag")
+        let payload_ptr = string_data_ptr(e, "_payload")
+        let payload_t = enum_variant_payload_type(e, enum_name, variant)
+        let payload_fn = struct_set_fn_for_type(e, &payload_t)
+        let payload_q = qbe_type(e, &payload_t)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l 2)")
+        emit_line(e, "  call $" + tag_fn + "(l " + tn + ", l " + tag_ptr + ", " + tag_q + " " + tag_expr + ")")
+        let mut payload_expr = "0"
+        if enum_variant_has_payload(e, enum_name, variant) && has_payload_arg {
+            payload_expr = cast_to_type(e, payload, &payload_t)
+        }
+        emit_line(e, "  call $" + payload_fn + "(l " + tn + ", l " + payload_ptr + ", " + payload_q + " " + payload_expr + ")")
+        return qbe_value(string_clone(enum_name), tn)
+    }
+    return qbe_value(string_clone(enum_name), tag_expr)
+}
+
+fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue {
+    let tag_t = enum_tag_type(e, enum_t)
+    if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
+        let tag_ptr = string_data_ptr(e, "_tag")
+        let tag_fn = struct_get_fn_for_type(e, &tag_t)
+        let tag_q = qbe_type(e, &tag_t)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =" + tag_q + " call $" + tag_fn + "(l " + v.expr + ", l " + tag_ptr + ")")
+        return qbe_value(string_clone(&tag_t), tn)
+    }
+    let casted = cast_to_type(e, qbe_value("i64", v.expr), &tag_t)
+    return qbe_value(string_clone(&tag_t), casted)
+}
+
+fn enum_payload_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str, variant: &str) -> QbeValue {
+    let payload_t = enum_variant_payload_type(e, enum_t, variant)
+    if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
+        let payload_ptr = string_data_ptr(e, "_payload")
+        let payload_fn = struct_get_fn_for_type(e, &payload_t)
+        let payload_q = qbe_type(e, &payload_t)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =" + payload_q + " call $" + payload_fn + "(l " + v.expr + ", l " + payload_ptr + ")")
+        return qbe_value(payload_t, tn)
+    }
+    return qbe_value(payload_t, "0")
+}
+
+fn struct_set_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_bool(e, t) { return "dast_struct_set_bool" }
+    if type_is_string(e, t) { return "dast_struct_set_string" }
+    if type_is_i32(e, t) { return "dast_struct_set_i32" }
+    if type_is_int(e, t) { return "dast_struct_set_i64" }
+    if type_is_enum(e, t) { return "dast_struct_set_i64" }
+    if type_is_struct(e, t) { return "dast_struct_set_ptr" }
+    return "dast_struct_set_ptr"
+}
+
+fn struct_get_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_bool(e, t) { return "dast_struct_get_bool" }
+    if type_is_string(e, t) { return "dast_struct_get_string" }
+    if type_is_i32(e, t) { return "dast_struct_get_i32" }
+    if type_is_int(e, t) { return "dast_struct_get_i64" }
+    if type_is_enum(e, t) { return "dast_struct_get_i64" }
+    if type_is_struct(e, t) { return "dast_struct_get_ptr" }
+    return "dast_struct_get_ptr"
+}
+
+fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
+    if len(&expr.args) < 2 { return qbe_value("i64", "0") }
+    let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
+    let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+    let op = string_clone(&expr.name)
+    if op == "+" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l add " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
+    if op == "-" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l sub " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
+    if op == "==" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
+        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("bool", tn)
+    }
+    if op == "<" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w csltl " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("bool", tn)
+    }
+    if op == ">" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        // Reuse signed-less-than by swapping operands.
+        emit_line(e, "  " + tn + " =w csltl " + rhs.expr + ", " + lhs.expr)
+        return qbe_value("bool", tn)
+    }
+    println("stage2: unsupported binary op", op)
+    exit(1)
+    return qbe_value("i64", "0")
+}
+
+fn emit_block_expr(e: &mut Emitter, b: &Block) -> QbeValue {
+    let n = len(&b.stmts)
+    if n == 0 { return qbe_value("unit", "0") }
+    let mut i = 0
+    while i + 1 < n {
+        emit_stmt(e, &b.stmts[i])
+        i = i + 1
+    }
+    let last = &b.stmts[n - 1]
+    if last.kind == STMT_EXPR {
+        return emit_expr(e, &last.expr)
+    }
+    emit_stmt(e, last)
+    return qbe_value("unit", "0")
+}
+
+fn expr_arg_ref(expr: &Expr, idx: i64, ctx: &str) -> &Expr {
+    if idx < 0 || idx >= len(&expr.args) {
+        println("stage2: expr args oob", expr.kind, "len", len(&expr.args), "idx", idx, expr.name, ctx)
+        exit(1)
+    }
+    return &expr.args[idx]
+}
+
