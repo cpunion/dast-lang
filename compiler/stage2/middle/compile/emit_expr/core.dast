@@ -192,7 +192,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let fname = string_clone(&expr.name)
             let ftyp = struct_field_type(e, &recv_base, &fname)
             if ftyp == "" {
-                println("stage2: unknown field", fname)
+                println("stage2: unknown field", fname, "in", recv_base)
                 exit(1)
             }
             let fname_ptr = string_data_ptr(e, &fname)
@@ -399,21 +399,31 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let mut i = 0
             while i < len(&expr.args) {
                 if i > 0 { args_text = args_text + ", " }
-                if i < len(&param_types) && param_types[i] != "" && !type_is_ref(e, &param_types[i]) {
-                    let arg_expr = expr_arg_ref(expr, i, "emit_call_arg_type")
-                    if arg_expr.kind == EXPR_IDENT {
-                        let src_t = expr_type(e, arg_expr)
-                        if drop_needs_drop_type_env(e, &src_t) {
-                            drop_live_remove(e, &arg_expr.name)
+                let mut has_param = false
+                if i < len(&param_types) { has_param = true }
+                if has_param {
+                    let pt = string_clone(&param_types[i])
+                    if pt != "" && !type_is_ref(e, &pt) {
+                        let arg_expr = expr_arg_ref(expr, i, "emit_call_arg_type")
+                        if arg_expr.kind == EXPR_IDENT {
+                            let src_t = expr_type(e, arg_expr)
+                            if drop_needs_drop_type_env(e, &src_t) {
+                                drop_live_remove(e, &arg_expr.name)
+                            }
                         }
                     }
                 }
                 let mut v = qbe_value("i64", "0")
                 let arg_expr = expr_arg_ref(expr, i, "emit_call_arg_val")
-                if i < len(&param_types) && param_types[i] != "" && type_is_ref(e, &param_types[i]) {
-                    let arg_t = expr_type(e, arg_expr)
-                    if !type_is_ref(e, &arg_t) {
-                        v = emit_auto_borrow(e, arg_expr, &param_types[i])
+                if has_param {
+                    let pt = string_clone(&param_types[i])
+                    if pt != "" && type_is_ref(e, &pt) {
+                        let arg_t = expr_type(e, arg_expr)
+                        if !type_is_ref(e, &arg_t) {
+                            v = emit_auto_borrow(e, arg_expr, &pt)
+                        } else {
+                            v = emit_expr(e, arg_expr)
+                        }
                     } else {
                         v = emit_expr(e, arg_expr)
                     }

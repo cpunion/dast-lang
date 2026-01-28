@@ -1,0 +1,966 @@
+// Stage2 loader: package/workspace + import resolution (ported from stage0, simplified).
+
+struct ImportSpec {
+    path: String,
+    alias: String,
+}
+
+struct DepSpec {
+    name: String,
+    path: String,
+    workspace: bool,
+}
+
+fn dep_spec_clone(d: &DepSpec) -> DepSpec {
+    return DepSpec { name: string_clone(&d.name), path: string_clone(&d.path), workspace: d.workspace }
+}
+
+fn dep_spec_list_clone(items: & [DepSpec]) -> [DepSpec] {
+    let mut out: [DepSpec] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, dep_spec_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+struct ManifestInfo {
+    has_package: bool,
+    pkg_name: String,
+    workspace_members: [String],
+    workspace_deps: [DepSpec],
+    deps: [DepSpec],
+}
+
+struct WorkspaceInfo {
+    root: String,
+    members: [String],
+    deps: [DepSpec],
+}
+
+fn workspace_info_clone(w: &WorkspaceInfo) -> WorkspaceInfo {
+    return WorkspaceInfo { root: string_clone(&w.root), members: ast_string_list_clone(&w.members), deps: dep_spec_list_clone(&w.deps) }
+}
+
+struct PackageInfo {
+    pkg_root: String,
+    code_root: String,
+    deps: [DepSpec],
+    include_tests: bool,
+    workspace_root: String,
+    has_package: bool,
+}
+
+fn package_info_clone(p: &PackageInfo) -> PackageInfo {
+    return PackageInfo {
+        pkg_root: string_clone(&p.pkg_root),
+        code_root: string_clone(&p.code_root),
+        deps: dep_spec_list_clone(&p.deps),
+        include_tests: p.include_tests,
+        workspace_root: string_clone(&p.workspace_root),
+        has_package: p.has_package,
+    }
+}
+
+struct FileUnit {
+    path: String,
+    aliases: [String],
+    prog: Program,
+}
+
+struct LoadCtx {
+    include_tests: bool,
+    packages: [PackageInfo],
+    workspaces: [WorkspaceInfo],
+    loaded_dirs: [String],
+    visiting: [String],
+    files: [FileUnit],
+}
+
+struct LoadResult {
+    ok: bool,
+    prog: Program,
+    err: String,
+}
+
+fn load_ctx_new(include_tests: bool) -> LoadCtx {
+    let mut pkgs: [PackageInfo] = []
+    let mut wss: [WorkspaceInfo] = []
+    let mut dirs: [String] = []
+    let mut visiting: [String] = []
+    let mut files: [FileUnit] = []
+    return LoadCtx { include_tests: include_tests, packages: pkgs, workspaces: wss, loaded_dirs: dirs, visiting: visiting, files: files }
+}
+
+fn str_find_char(s: &str, ch: i64, start: i64) -> i64 {
+    let n = str_len(s)
+    let mut i = start
+    while i < n {
+        if str_char_at(s, i) == ch { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn str_contains_char(s: &str, ch: i64) -> bool {
+    return str_find_char(s, ch, 0) >= 0
+}
+
+fn str_replace_dot_slash(s: &str) -> String {
+    let mut out = ""
+    let n = str_len(s)
+    let mut i = 0
+    while i < n {
+        let c = str_char_at(s, i)
+        if c == '.' { out = out + "/" } else { out = out + str_substr(s, i, 1) }
+        i = i + 1
+    }
+    return out
+}
+
+fn split_lines(s: &str) -> [String] {
+    let mut out: [String] = []
+    let mut i = 0
+    let n = str_len(s)
+    let mut start = 0
+    while i < n {
+        if str_char_at(s, i) == 10 {
+            push(&mut out, str_substr(s, start, i - start))
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start <= n {
+        push(&mut out, str_substr(s, start, n - start))
+    }
+    return out
+}
+
+fn strip_inline_comment(line: &str) -> String {
+    let hash = str_find_char(line, '#', 0)
+    if hash < 0 { return string_clone(line) }
+    return str_substr(line, 0, hash)
+}
+
+fn str_has_prefix_lit(s: &str, lit: String) -> bool {
+    return str_has_prefix(s, &lit)
+}
+
+fn str_has_suffix_lit(s: &str, lit: String) -> bool {
+    return str_has_suffix(s, &lit)
+}
+
+fn normalize_import_path(path: &str) -> String {
+    let mut p = str_trim_space(path)
+    if p == "" { return p }
+    let mut rel = ""
+    if str_has_prefix_lit(&p, "./") {
+        rel = "./"
+        p = str_substr(&p, 2, str_len(&p) - 2)
+    } else if str_has_prefix_lit(&p, "../") {
+        rel = "../"
+        p = str_substr(&p, 3, str_len(&p) - 3)
+    }
+    if !str_contains_char(&p, '/') && str_contains_char(&p, '.') {
+        if !str_has_prefix_lit(&p, ".") && !str_has_suffix_lit(&p, ".dast") {
+            p = str_replace_dot_slash(&p)
+        }
+    }
+    return rel + p
+}
+
+fn path_dir(path: &str) -> String {
+    let mut i = str_len(path) - 1
+    while i >= 0 {
+        if str_char_at(path, i) == '/' {
+            return str_substr(path, 0, i)
+        }
+        i = i - 1
+    }
+    return "."
+}
+
+fn path_base(path: &str) -> String {
+    let mut i = str_len(path) - 1
+    while i >= 0 {
+        if str_char_at(path, i) == '/' {
+            return str_substr(path, i + 1, str_len(path) - i - 1)
+        }
+        i = i - 1
+    }
+    return string_clone(path)
+}
+
+fn file_exists(path: &str) -> bool {
+    let dir = path_dir(path)
+    let base = path_base(path)
+    let names = read_dir(string_clone(&dir))
+    let mut i = 0
+    while i < len(&names) {
+        if names[i] == base { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn default_alias(path: &str) -> String {
+    let p = normalize_import_path(path)
+    let mut base = path_base(&p)
+    if base == "" { base = string_clone(&p) }
+    return base
+}
+
+fn list_contains(items: & [String], val: &str) -> bool {
+    let mut i = 0
+    while i < len(items) {
+        if items[i] == val { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn list_push_unique(items: &mut [String], val: String) {
+    if !list_contains(items, &val) {
+        push(items, val)
+    }
+}
+
+fn list_dast_files(dir: &str, include_tests: bool) -> [String] {
+    let mut out: [String] = []
+    let names0 = read_dir(string_clone(dir))
+    let names = string_list_sorted(&names0)
+    let mut i = 0
+    while i < len(&names) {
+        let name = names[i]
+        let suffix = ".dast"
+        if str_has_suffix(&name, &suffix) {
+            if !include_tests {
+                let test_suffix = "_test.dast"
+                if str_has_suffix(&name, &test_suffix) {
+                    i = i + 1
+                    continue
+                }
+            }
+            let full = string_clone(dir) + "/" + name
+            push(&mut out, full)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+fn parse_string_array(text: &str) -> [String] {
+    let mut out: [String] = []
+    let t = str_trim_space(text)
+    if !str_has_prefix_lit(&t, "[") || !str_has_suffix_lit(&t, "]") { return out }
+    let inner = str_substr(&t, 1, str_len(&t) - 2)
+    let parts = split_lines(&inner)
+    let mut cur = ""
+    let mut i = 0
+    while i < len(&parts) {
+        let line = str_trim_space(&parts[i])
+        if line != "" {
+            if cur != "" { cur = cur + " " }
+            cur = cur + line
+        }
+        i = i + 1
+    }
+    let mut start = 0
+    let n = str_len(&cur)
+    let mut idx = 0
+    while idx < n {
+        if str_char_at(&cur, idx) == ',' {
+            let part0 = str_substr(&cur, start, idx - start)
+            let part = str_trim_space(&part0)
+            if str_len(&part) >= 2 && str_char_at(&part, 0) == '"' {
+                let val = str_substr(&part, 1, str_len(&part) - 2)
+                push(&mut out, val)
+            }
+            start = idx + 1
+        }
+        idx = idx + 1
+    }
+    let last0 = str_substr(&cur, start, n - start)
+    let last = str_trim_space(&last0)
+    if str_len(&last) >= 2 && str_char_at(&last, 0) == '"' {
+        let val = str_substr(&last, 1, str_len(&last) - 2)
+        push(&mut out, val)
+    }
+    return out
+}
+
+fn parse_dep_spec(name: &str, value: &str) -> DepSpec {
+    let mut path = ""
+    let mut workspace = false
+    let val = str_trim_space(value)
+    if str_has_prefix_lit(&val, "{") && str_has_suffix_lit(&val, "}") {
+        let inner = str_substr(&val, 1, str_len(&val) - 2)
+        let mut parts = split_lines(&inner)
+        let mut i = 0
+        while i < len(&parts) {
+            let line = str_trim_space(&parts[i])
+            if line != "" {
+                let eq = str_find_char(&line, '=', 0)
+                if eq >= 0 {
+                    let key0 = str_substr(&line, 0, eq)
+                    let key = str_trim_space(&key0)
+                    let val0a = str_substr(&line, eq + 1, str_len(&line) - eq - 1)
+                    let val0 = str_trim_space(&val0a)
+                    if key == "path" && str_len(&val0) >= 2 && str_char_at(&val0, 0) == '"' {
+                        path = str_substr(&val0, 1, str_len(&val0) - 2)
+                    }
+                    if key == "workspace" && val0 == "true" {
+                        workspace = true
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+    return DepSpec { name: string_clone(name), path: string_clone(&path), workspace: workspace }
+}
+
+fn parse_manifest_info(manifest_path: &str) -> ManifestInfo {
+    let mut members: [String] = []
+    let mut ws_deps: [DepSpec] = []
+    let mut deps: [DepSpec] = []
+    let mut info = ManifestInfo { has_package: false, pkg_name: "", workspace_members: members, workspace_deps: ws_deps, deps: deps }
+    if !file_exists(manifest_path) { return info }
+    let text = read_file(string_clone(manifest_path))
+    if text == "" { return info }
+    let lines = split_lines(&text)
+    let mut section = ""
+    let mut i = 0
+    while i < len(&lines) {
+        let line0 = str_trim_space(&lines[i])
+        let line1 = strip_inline_comment(&line0)
+        let line = str_trim_space(&line1)
+        if line == "" { i = i + 1; continue }
+        if str_has_prefix_lit(&line, "[") && str_has_suffix_lit(&line, "]") {
+            section = str_substr(&line, 1, str_len(&line) - 2)
+            i = i + 1
+            continue
+        }
+        let eq = str_find_char(&line, '=', 0)
+        if eq >= 0 {
+            let key0 = str_substr(&line, 0, eq)
+            let key = str_trim_space(&key0)
+            let value0 = str_substr(&line, eq + 1, str_len(&line) - eq - 1)
+            let value = str_trim_space(&value0)
+            if section == "package" {
+                info.has_package = true
+                if key == "name" && str_len(&value) >= 2 && str_char_at(&value, 0) == '"' {
+                    info.pkg_name = str_substr(&value, 1, str_len(&value) - 2)
+                }
+            } else if section == "workspace" {
+                if key == "members" {
+                    info.workspace_members = parse_string_array(&value)
+                }
+            } else if section == "workspace.dependencies" {
+                let spec = parse_dep_spec(&key, &value)
+                push(&mut info.workspace_deps, spec)
+            } else if section == "dependencies" {
+                let spec = parse_dep_spec(&key, &value)
+                push(&mut info.deps, spec)
+            }
+        }
+        i = i + 1
+    }
+    return info
+}
+
+fn find_workspace_root(start: &str) -> String {
+    let mut cur = string_clone(start)
+    let mut done = false
+    while !done && cur != "" {
+        let manifest = cur + "/dast.toml"
+        let info = parse_manifest_info(&manifest)
+        if len(&info.workspace_members) > 0 {
+            return cur
+        }
+        let parent = path_dir(&cur)
+        if parent == cur || parent == "" { done = true } else { cur = parent }
+    }
+    return ""
+}
+
+fn load_workspace(ctx: &mut LoadCtx, root: &str) -> WorkspaceInfo {
+    let mut i = 0
+    while i < len(&ctx.workspaces) {
+        if ctx.workspaces[i].root == root {
+            return workspace_info_clone(&ctx.workspaces[i])
+        }
+        i = i + 1
+    }
+    let manifest = string_clone(root) + "/dast.toml"
+    let info = parse_manifest_info(&manifest)
+    let ws = WorkspaceInfo { root: string_clone(root), members: info.workspace_members, deps: info.workspace_deps }
+    let mut wss = ctx.workspaces
+    push(&mut wss, workspace_info_clone(&ws))
+    ctx.workspaces = wss
+    return ws
+}
+
+fn load_package(ctx: &mut LoadCtx, pkg_root: &str, include_tests: bool) -> PackageInfo {
+    let mut i = 0
+    while i < len(&ctx.packages) {
+        if ctx.packages[i].pkg_root == pkg_root {
+            return package_info_clone(&ctx.packages[i])
+        }
+        i = i + 1
+    }
+    let manifest = string_clone(pkg_root) + "/dast.toml"
+    let info = parse_manifest_info(&manifest)
+    let mut code_root = string_clone(pkg_root)
+    let src_dir = string_clone(pkg_root) + "/src"
+    let src_names = read_dir(string_clone(&src_dir))
+    if len(&src_names) > 0 {
+        code_root = src_dir
+    }
+    let ws_root = find_workspace_root(pkg_root)
+    let pkg = PackageInfo { pkg_root: string_clone(pkg_root), code_root: code_root, deps: info.deps, include_tests: include_tests, workspace_root: ws_root, has_package: info.has_package }
+    let mut pkgs = ctx.packages
+    push(&mut pkgs, package_info_clone(&pkg))
+    ctx.packages = pkgs
+    return pkg
+}
+
+fn stdlib_root() -> String {
+    // TODO: support env var override; for now use repo path.
+    return "compiler/stage2/stdlib"
+}
+
+fn resolve_import(ctx: &mut LoadCtx, pkg: &PackageInfo, cur_dir: &str, path: &str) -> ImportLoad {
+    let up = ".."
+    let up_prefix = "../"
+    let abs_prefix = "/"
+    let cur_prefix = "./"
+    let ext = ".dast"
+    if path == "" {
+        return ImportLoad { ok: false, imports: "", source: "", err: "empty import path" }
+    }
+    if path == up || str_has_prefix(path, &up_prefix) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import escapes root: " + path }
+    }
+    if str_has_prefix(path, &abs_prefix) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import path is absolute: " + path }
+    }
+    if str_has_suffix(path, &ext) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import path is not a directory: " + path }
+    }
+    let norm = normalize_import_path(path)
+    let std_prefix = "std/"
+    let std_dot = "std."
+    if norm == "std" || str_has_prefix(&norm, &std_prefix) || str_has_prefix(&norm, &std_dot) {
+        let mut sub = ""
+        if norm == "std" {
+            sub = ""
+        } else if str_has_prefix(&norm, &std_prefix) {
+            sub = str_substr(&norm, str_len(&std_prefix), str_len(&norm) - str_len(&std_prefix))
+        } else if str_has_prefix(&norm, &std_dot) {
+            sub = str_substr(&norm, str_len(&std_dot), str_len(&norm) - str_len(&std_dot))
+        }
+        let base = stdlib_root()
+        let dir = if sub == "" { base } else { base + "/" + sub }
+        let names = read_dir(string_clone(&dir))
+        if len(&names) == 0 {
+            return ImportLoad { ok: false, imports: "", source: "", err: "import not found: " + path }
+        }
+        return ImportLoad { ok: true, imports: dir + "\n", source: "", err: "" }
+    }
+    let rel = if str_has_prefix(&norm, &cur_prefix) { str_substr(&norm, 2, str_len(&norm) - 2) } else { string_clone(&norm) }
+    let mut dir = ""
+    if str_has_prefix(&norm, &cur_prefix) || str_has_prefix(&norm, &up_prefix) {
+        dir = string_clone(cur_dir) + "/" + rel
+    } else {
+        // dependency or local package module
+        let base = rel
+        let slash = str_find_char(&base, '/', 0)
+        let dep_name = if slash >= 0 { str_substr(&base, 0, slash) } else { string_clone(&base) }
+        let mut dep_root = ""
+        let mut dep_code_root = ""
+        let mut found = false
+        let mut i = 0
+        while i < len(&pkg.deps) {
+            let d = &pkg.deps[i]
+            if d.name == dep_name {
+                found = true
+                if d.workspace {
+                    if pkg.workspace_root == "" {
+                        return ImportLoad { ok: false, imports: "", source: "", err: "dependency '" + dep_name + "' requires workspace" }
+                    }
+                    let ws = load_workspace(ctx, &pkg.workspace_root)
+                    let mut wi = 0
+                    while wi < len(&ws.deps) {
+                        if ws.deps[wi].name == dep_name {
+                            dep_root = pkg.workspace_root + "/" + ws.deps[wi].path
+                        }
+                        wi = wi + 1
+                    }
+                    if dep_root == "" {
+                        return ImportLoad { ok: false, imports: "", source: "", err: "workspace dependency '" + dep_name + "' not found" }
+                    }
+                } else {
+                    if d.path == "" {
+                        return ImportLoad { ok: false, imports: "", source: "", err: "dependency '" + dep_name + "' missing path" }
+                    }
+                    dep_root = path_dir(&pkg.code_root) + "/" + d.path
+                }
+            }
+            i = i + 1
+        }
+        if found {
+            let dep_pkg = load_package(ctx, &dep_root, pkg.include_tests)
+            dep_code_root = string_clone(&dep_pkg.code_root)
+            if slash >= 0 {
+                dir = dep_code_root + "/" + str_substr(&base, slash + 1, str_len(&base) - slash - 1)
+            } else {
+                dir = dep_code_root
+            }
+        } else {
+            // local module under current package
+            if slash >= 0 {
+                dir = string_clone(&pkg.code_root) + "/" + base
+            } else {
+                dir = string_clone(&pkg.code_root) + "/" + base
+            }
+        }
+    }
+    let names0 = read_dir(string_clone(&dir))
+    if len(&names0) == 0 {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import not found: " + path }
+    }
+    return ImportLoad { ok: true, imports: dir + "\n", source: "", err: "" }
+}
+
+fn strip_imports(p: &Program) -> Program {
+    let mut out = program_clone(p)
+    let mut imps: [ImportDecl] = []
+    out.imports = imps
+    return out
+}
+
+fn alias_contains(aliases: & [String], name: &str) -> bool {
+    return list_contains(aliases, name)
+}
+
+fn strip_alias_prefix(name: &str, aliases: & [String]) -> String {
+    let dot = str_find_char(name, '.', 0)
+    if dot <= 0 { return string_clone(name) }
+    let prefix = str_substr(name, 0, dot)
+    if alias_contains(aliases, &prefix) {
+        return str_substr(name, dot + 1, str_len(name) - dot - 1)
+    }
+    return string_clone(name)
+}
+
+fn rewrite_type_name(name: &str, aliases: & [String]) -> String {
+    if name == "" { return "" }
+    if str_has_prefix_lit(name, "&mut ") {
+        let inner = str_substr(name, 5, str_len(name) - 5)
+        return "&mut " + rewrite_type_name(&inner, aliases)
+    }
+    if str_has_prefix_lit(name, "&") {
+        let inner = str_substr(name, 1, str_len(name) - 1)
+        return "&" + rewrite_type_name(&inner, aliases)
+    }
+    if str_has_prefix_lit(name, "[") && str_has_suffix_lit(name, "]") {
+        let inner = str_substr(name, 1, str_len(name) - 2)
+        let inner_t = rewrite_type_name(&inner, aliases)
+        return "[" + inner_t + "]"
+    }
+    let parsed = type_args_parse(name)
+    if parsed.has {
+        let mut args: [String] = []
+        let mut i = 0
+        while i < len(&parsed.args) {
+            push(&mut args, rewrite_type_name(&parsed.args[i], aliases))
+            i = i + 1
+        }
+        let base = strip_alias_prefix(&parsed.base, aliases)
+        let mut out = base + "["
+        let mut j = 0
+        while j < len(&args) {
+            if j > 0 { out = out + "," }
+            out = out + args[j]
+            j = j + 1
+        }
+        out = out + "]"
+        return out
+    }
+    return strip_alias_prefix(name, aliases)
+}
+
+fn expr_path_segments(expr: &Expr, segs: &mut [String]) -> bool {
+    if expr.kind == EXPR_IDENT {
+        push(segs, string_clone(&expr.name))
+        return true
+    }
+    if expr.kind == EXPR_FIELD && len(&expr.args) > 0 {
+        if !expr_path_segments(&expr.args[0], segs) { return false }
+        push(segs, string_clone(&expr.name))
+        return true
+    }
+    return false
+}
+
+fn build_field_chain(segs: & [String]) -> Expr {
+    if len(segs) == 0 { return expr_ident("") }
+    let mut cur = expr_ident(string_clone(&segs[0]))
+    let mut i = 1
+    while i < len(segs) {
+        cur = expr_field(cur, string_clone(&segs[i]))
+        i = i + 1
+    }
+    return cur
+}
+
+fn rewrite_expr(expr: &Expr, aliases: & [String]) -> Expr {
+    let mut out = expr_clone(expr)
+    if out.kind == EXPR_IDENT {
+        out.name = strip_alias_prefix(&out.name, aliases)
+        return out
+    }
+    if out.kind == EXPR_CALL {
+        out.name = strip_alias_prefix(&out.name, aliases)
+        let mut args: [Expr] = []
+        let mut i = 0
+        while i < len(&out.args) {
+            let v = rewrite_expr(&out.args[i], aliases)
+            push(&mut args, v)
+            i = i + 1
+        }
+        let mut drop_first = false
+        if len(&args) > 0 {
+            if args[0].kind == EXPR_IDENT && alias_contains(aliases, &args[0].name) {
+                drop_first = true
+            }
+        }
+        if drop_first {
+            let mut dropped: [Expr] = []
+            let mut j = 1
+            while j < len(&args) {
+                push(&mut dropped, args[j])
+                j = j + 1
+            }
+            out.args = dropped
+        } else {
+            out.args = args
+        }
+        return out
+    }
+    if out.kind == EXPR_MACRO_CALL {
+        out.name = strip_alias_prefix(&out.name, aliases)
+        let mut args: [Expr] = []
+        let mut i = 0
+        while i < len(&out.args) {
+            push(&mut args, rewrite_expr(&out.args[i], aliases))
+            i = i + 1
+        }
+        out.args = args
+        return out
+    }
+    if out.kind == EXPR_FIELD {
+        let mut segs: [String] = []
+        let mut drop_alias = false
+        if expr_path_segments(&out, &mut segs) {
+            if len(&segs) >= 2 {
+                if alias_contains(aliases, &segs[0]) {
+                    drop_alias = true
+                }
+            }
+        }
+        if drop_alias {
+            let mut drop: [String] = []
+            let mut i = 1
+            while i < len(&segs) {
+                push(&mut drop, segs[i])
+                i = i + 1
+            }
+            return build_field_chain(&drop)
+        }
+    }
+    // Generic recursion for other kinds.
+    let mut args: [Expr] = []
+    let mut i = 0
+    while i < len(&out.args) {
+        push(&mut args, rewrite_expr(&out.args[i], aliases))
+        i = i + 1
+    }
+    out.args = args
+    let mut fields: [FieldInit] = []
+    let mut fi = 0
+    while fi < len(&out.fields) {
+        let f = &out.fields[fi]
+        push(&mut fields, FieldInit { name: string_clone(&f.name), value: rewrite_expr(&f.value, aliases) })
+        fi = fi + 1
+    }
+    out.fields = fields
+    if out.kind == EXPR_BLOCK || out.kind == EXPR_CLOSURE {
+        out.block = rewrite_block(&out.block, aliases)
+    }
+    if out.kind == EXPR_MATCH {
+        let mut arms: [MatchArm] = []
+        let mut ai = 0
+        while ai < len(&out.match_arms) {
+            let a = &out.match_arms[ai]
+            push(&mut arms, rewrite_match_arm(a, aliases))
+            ai = ai + 1
+        }
+        out.match_arms = arms
+    }
+    return out
+}
+
+fn rewrite_match_arm(a: &MatchArm, aliases: & [String]) -> MatchArm {
+    let mut out = match_arm_clone(a)
+    out.variant = strip_alias_prefix(&out.variant, aliases)
+    out.struct_name = strip_alias_prefix(&out.struct_name, aliases)
+    out.guard = rewrite_expr(&out.guard, aliases)
+    out.block = rewrite_block(&out.block, aliases)
+    return out
+}
+
+fn rewrite_stmt(stmt: &Stmt, aliases: & [String]) -> Stmt {
+    let mut out = stmt_clone(stmt)
+    if out.kind == STMT_LET || out.kind == STMT_EXPR || out.kind == STMT_RETURN || out.kind == STMT_ASSIGN {
+        out.expr = rewrite_expr(&out.expr, aliases)
+        return out
+    }
+    if out.kind == STMT_IF || out.kind == STMT_WHILE || out.kind == STMT_LOOP {
+        out.expr = rewrite_expr(&out.expr, aliases)
+        out.block = rewrite_block(&out.block, aliases)
+        if out.has_else { out.else_block = rewrite_block(&out.else_block, aliases) }
+        return out
+    }
+    if out.kind == STMT_IFLET || out.kind == STMT_MATCH {
+        out.expr = rewrite_expr(&out.expr, aliases)
+        let mut arms: [MatchArm] = []
+        let mut i = 0
+        while i < len(&out.arms) {
+            let a = &out.arms[i]
+            push(&mut arms, rewrite_match_arm(a, aliases))
+            i = i + 1
+        }
+        out.arms = arms
+        if out.kind == STMT_IFLET && out.has_else { out.else_block = rewrite_block(&out.else_block, aliases) }
+        return out
+    }
+    return out
+}
+
+fn rewrite_block(b: &Block, aliases: & [String]) -> Block {
+    let mut out: [Stmt] = []
+    let mut i = 0
+    while i < len(&b.stmts) {
+        push(&mut out, rewrite_stmt(&b.stmts[i], aliases))
+        i = i + 1
+    }
+    return Block { stmts: out }
+}
+
+fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
+    let mut out = strip_imports(p)
+    let mut structs: [StructDecl] = []
+    let mut i = 0
+    while i < len(&out.structs) {
+        let s = &out.structs[i]
+        let mut fields: [StructField] = []
+        let mut fi = 0
+        while fi < len(&s.fields) {
+            let f = &s.fields[fi]
+            push(&mut fields, StructField { name: string_clone(&f.name), typ: rewrite_type_name(&f.typ, aliases) })
+            fi = fi + 1
+        }
+        push(&mut structs, StructDecl { name: string_clone(&s.name), type_params: generic_param_list_clone(&s.type_params), fields: fields })
+        i = i + 1
+    }
+    out.structs = structs
+    let mut enums: [EnumDecl] = []
+    i = 0
+    while i < len(&out.enums) {
+        let e = &out.enums[i]
+        let mut variants: [EnumVariant] = []
+        let mut vi = 0
+        while vi < len(&e.variants) {
+            let v = &e.variants[vi]
+            let mut payload = string_clone(&v.payload_type)
+            if v.has_payload { payload = rewrite_type_name(&v.payload_type, aliases) }
+            push(&mut variants, EnumVariant { name: string_clone(&v.name), has_payload: v.has_payload, payload_type: payload })
+            vi = vi + 1
+        }
+        push(&mut enums, EnumDecl { name: string_clone(&e.name), type_params: generic_param_list_clone(&e.type_params), tag_type: rewrite_type_name(&e.tag_type, aliases), variants: variants })
+        i = i + 1
+    }
+    out.enums = enums
+    let mut type_aliases: [TypeAlias] = []
+    i = 0
+    while i < len(&out.type_aliases) {
+        let ta = &out.type_aliases[i]
+        push(&mut type_aliases, TypeAlias { name: string_clone(&ta.name), target: rewrite_type_name(&ta.target, aliases) })
+        i = i + 1
+    }
+    out.type_aliases = type_aliases
+    let mut funcs: [Function] = []
+    i = 0
+    while i < len(&out.functions) {
+        let f = &out.functions[i]
+        let mut params: [Param] = []
+        let mut pi = 0
+        while pi < len(&f.params) {
+            let p0 = &f.params[pi]
+            let mut pt = string_clone(&p0.typ)
+            if p0.has_type { pt = rewrite_type_name(&p0.typ, aliases) }
+            push(&mut params, Param { name: string_clone(&p0.name), typ: pt, has_type: p0.has_type })
+            pi = pi + 1
+        }
+        let mut rt = string_clone(&f.ret_type)
+        if rt != "" { rt = rewrite_type_name(&f.ret_type, aliases) }
+        let mut nf = Function { name: string_clone(&f.name), type_params: generic_param_list_clone(&f.type_params), params: params, ret_type: rt, body: block_clone(&f.body), is_macro: f.is_macro }
+        nf.body = rewrite_block(&nf.body, aliases)
+        push(&mut funcs, nf)
+        i = i + 1
+    }
+    out.functions = funcs
+    let mut consts: [ConstDecl] = []
+    i = 0
+    while i < len(&out.consts) {
+        let c = &out.consts[i]
+        let mut ct = string_clone(&c.typ)
+        if c.has_type { ct = rewrite_type_name(&c.typ, aliases) }
+        push(&mut consts, ConstDecl { name: strip_alias_prefix(&c.name, aliases), has_type: c.has_type, typ: ct, expr: rewrite_expr(&c.expr, aliases) })
+        i = i + 1
+    }
+    out.consts = consts
+    let mut traits: [TraitDecl] = []
+    i = 0
+    while i < len(&out.traits) {
+        let t = &out.traits[i]
+        push(&mut traits, TraitDecl { name: strip_alias_prefix(&t.name, aliases), type_params: generic_param_list_clone(&t.type_params) })
+        i = i + 1
+    }
+    out.traits = traits
+    let mut impls: [ImplDecl] = []
+    i = 0
+    while i < len(&out.impls) {
+        let im = &out.impls[i]
+        let tname = strip_alias_prefix(&im.trait_name, aliases)
+        let for_type = rewrite_type_name(&im.for_type, aliases)
+        push(&mut impls, ImplDecl { trait_name: tname, for_type: for_type, type_params: generic_param_list_clone(&im.type_params) })
+        i = i + 1
+    }
+    out.impls = impls
+    return out
+}
+
+fn load_module(ctx: &mut LoadCtx, pkg: &PackageInfo, dir: &str, files_override: & [String]) -> ImportLoad {
+    if list_contains(&ctx.loaded_dirs, dir) {
+        return ImportLoad { ok: true, imports: "", source: "", err: "" }
+    }
+    if list_contains(&ctx.visiting, dir) {
+        return ImportLoad { ok: false, imports: "", source: "", err: "circular import detected" }
+    }
+    let mut visiting = ctx.visiting
+    push(&mut visiting, string_clone(dir))
+    ctx.visiting = visiting
+    let files = if len(files_override) > 0 { ast_string_list_clone(files_override) } else { list_dast_files(dir, ctx.include_tests) }
+    if len(&files) == 0 {
+        return ImportLoad { ok: false, imports: "", source: "", err: "import path is not a directory: " + dir }
+    }
+    let mut fi = 0
+    while fi < len(&files) {
+        let path = files[fi]
+        // Parse once to read imports.
+        let src = read_file(string_clone(&path))
+        let prog = parse_program_loose(&src)
+        let mut aliases: [String] = []
+        let mut ii = 0
+        while ii < len(&prog.imports) {
+            let imp = &prog.imports[ii]
+            let norm = normalize_import_path(&imp.path)
+            let alias = if imp.alias != "" { string_clone(&imp.alias) } else { default_alias(&norm) }
+            list_push_unique(&mut aliases, alias)
+            let res = resolve_import(ctx, pkg, dir, &norm)
+            if !res.ok { return res }
+            let mut pi = 0
+            let paths = split_lines(&res.imports)
+            while pi < len(&paths) {
+                let p = paths[pi]
+                if p != "" {
+                    let dep_root = path_dir(&p)
+                    let dep_pkg = load_package(ctx, &dep_root, ctx.include_tests)
+                    let empty: [String] = []
+                    let sub = load_module(ctx, &dep_pkg, &p, &empty)
+                    if !sub.ok { return sub }
+                }
+                pi = pi + 1
+            }
+            ii = ii + 1
+        }
+        let rewritten = rewrite_program(&prog, &aliases)
+        let mut files_out = ctx.files
+        push(&mut files_out, FileUnit { path: path, aliases: aliases, prog: rewritten })
+        ctx.files = files_out
+        fi = fi + 1
+    }
+    let mut loaded = ctx.loaded_dirs
+    push(&mut loaded, string_clone(dir))
+    ctx.loaded_dirs = loaded
+    // pop visiting
+    let mut nv: [String] = []
+    let mut vi = 0
+    while vi < len(&ctx.visiting) - 1 {
+        push(&mut nv, ctx.visiting[vi])
+        vi = vi + 1
+    }
+    ctx.visiting = nv
+    return ImportLoad { ok: true, imports: "", source: "", err: "" }
+}
+
+fn merge_loaded(ctx: &LoadCtx) -> Program {
+    let mut out = program_empty()
+    let mut i = 0
+    while i < len(&ctx.files) {
+        program_merge(&mut out, &ctx.files[i].prog)
+        i = i + 1
+    }
+    return out
+}
+
+fn load_program_from_path(path: &str, include_tests: bool) -> LoadResult {
+    let mut ctx = load_ctx_new(include_tests)
+    let mut entry_dir = string_clone(path)
+    let ext = ".dast"
+    let mut entry_files: [String] = []
+    if str_has_suffix(path, &ext) {
+        entry_dir = path_dir(path)
+        push(&mut entry_files, string_clone(path))
+    }
+    let pkg_root = if str_has_suffix(path, &ext) { find_package_root(&entry_dir) } else { find_package_root(path) }
+    let mut deps: [DepSpec] = []
+    let mut pkg = PackageInfo { pkg_root: string_clone(&entry_dir), code_root: string_clone(&entry_dir), deps: deps, include_tests: include_tests, workspace_root: "", has_package: false }
+    if pkg_root != "" {
+        pkg = load_package(&mut ctx, &pkg_root, include_tests)
+    }
+    let dir = if pkg_root != "" { string_clone(&pkg.code_root) } else { entry_dir }
+    let empty: [String] = []
+    let res = if len(&entry_files) > 0 { load_module(&mut ctx, &pkg, &dir, &entry_files) } else { load_module(&mut ctx, &pkg, &dir, &empty) }
+    if !res.ok {
+        return LoadResult { ok: false, prog: program_empty(), err: res.err }
+    }
+    let prog = merge_loaded(&ctx)
+    return LoadResult { ok: true, prog: prog, err: "" }
+}
+
+fn find_package_root(start: &str) -> String {
+    let mut cur = string_clone(start)
+    let mut done = false
+    while !done && cur != "" {
+        let manifest = cur + "/dast.toml"
+        if file_exists(&manifest) { return cur }
+        let parent = path_dir(&cur)
+        if parent == cur || parent == "" { done = true } else { cur = parent }
+    }
+    return ""
+}

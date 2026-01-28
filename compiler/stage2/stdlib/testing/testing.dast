@@ -1,4 +1,4 @@
-// Core assertion macros (simple string-based expansion).
+// std/testing: basic assertion macros.
 
 macro fn assert(cond: AstExpr) -> AstStmt {
     let s = ast_to_string(cond)
@@ -17,11 +17,5 @@ macro fn assert_ne(a: AstExpr, b: AstExpr) -> AstStmt {
     let sa = ast_to_string(a)
     let sb = ast_to_string(b)
     let code = "if !(" + sa + " != " + sb + ") { println(\"assert_ne failed\"); exit(1); }"
-    return ast_stmt(code)
-}
-
-macro fn panic(msg: AstExpr) -> AstStmt {
-    let s = ast_to_string(msg)
-    let code = "println(\"panic\", " + s + "); exit(1);"
     return ast_stmt(code)
 }

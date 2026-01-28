@@ -82,6 +82,10 @@ fn parse_postfix(p: &mut Parser) -> Expr {
             let _ = parser_expect(p, TK_RPAREN, ")")
             if cur.kind == EXPR_IDENT {
                 cur = expr_macro_call(cur.name, args)
+            } else if cur.kind == EXPR_FIELD && len(&cur.args) > 0 && cur.args[0].kind == EXPR_IDENT {
+                let recv_name = string_clone(&cur.args[0].name)
+                let callee = recv_name + "." + cur.name
+                cur = expr_macro_call(callee, args)
             } else {
                 println("parse error: macro call target")
                 exit(1)
