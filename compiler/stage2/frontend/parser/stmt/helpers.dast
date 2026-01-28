@@ -137,6 +137,10 @@ fn desugar_struct_pattern_let(p: &mut Parser, pat: &MatchArm, rhs: Expr, mutable
     let mut i = 0
     while i < len(&pat.struct_fields) {
         let f = &pat.struct_fields[i]
+        if f.has_pattern && f.pat_kind != PAT_WILDCARD {
+            println("stage2: let struct pattern must be irrefutable")
+            exit(1)
+        }
         if f.has_binding && f.binding != "_" {
             let field_expr = expr_field(expr_clone(&base), string_clone(&f.name))
             push(&mut stmts, stmt_let(string_clone(&f.binding), mutable, false, "", field_expr))
