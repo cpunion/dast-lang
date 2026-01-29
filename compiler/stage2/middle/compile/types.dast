@@ -723,6 +723,11 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         }
         EXPR_BINARY => {
             if expr.name == "==" || expr.name == "!=" || expr.name == "<" || expr.name == ">" || expr.name == "<=" || expr.name == ">=" || expr.name == "&&" || expr.name == "||" { return "bool" }
+            if expr.name == "+" && len(&expr.args) >= 2 {
+                let lt = expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs"))
+                let rt = expr_type(e, expr_arg_ref(expr, 1, "expr_type_binary_rhs"))
+                if type_is_string(e, &lt) && type_is_string(e, &rt) { return "String" }
+            }
             if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs")) }
             return "i64"
         }

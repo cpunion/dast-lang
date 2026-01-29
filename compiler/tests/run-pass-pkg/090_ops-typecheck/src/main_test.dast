@@ -1,0 +1,823 @@
+import "std/testing" as t
+
+fn test_ops_i8() {
+    let a: [i8] = [6, 7, 8]
+    let b: [i8] = [3, 2, 1]
+    let exp_add: [i8] = [9, 9, 9]
+    let exp_sub: [i8] = [3, 5, 7]
+    let exp_mul: [i8] = [18, 14, 8]
+    let exp_div: [i8] = [2, 3, 8]
+    let exp_rem: [i8] = [0, 1, 0]
+    let exp_and: [i8] = [2, 2, 0]
+    let exp_or: [i8] = [7, 7, 9]
+    let exp_xor: [i8] = [5, 5, 9]
+    let exp_shl: [i8] = [48, 28, 16]
+    let exp_shr: [i8] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [i8] = [1, 2, 3]
+    let d: [i8] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: i8 = a[0] + b[0]
+    let _sub: i8 = a[0] - b[0]
+    let _mul: i8 = a[0] * b[0]
+    let _div: i8 = a[0] / b[0]
+    let _rem: i8 = a[0] % b[0]
+    let _and: i8 = a[0] & b[0]
+    let _or: i8 = a[0] | b[0]
+    let _xor: i8 = a[0] ^ b[0]
+    let _shl: i8 = a[0] << b[0]
+    let _shr: i8 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_i16() {
+    let a: [i16] = [6, 7, 8]
+    let b: [i16] = [3, 2, 1]
+    let exp_add: [i16] = [9, 9, 9]
+    let exp_sub: [i16] = [3, 5, 7]
+    let exp_mul: [i16] = [18, 14, 8]
+    let exp_div: [i16] = [2, 3, 8]
+    let exp_rem: [i16] = [0, 1, 0]
+    let exp_and: [i16] = [2, 2, 0]
+    let exp_or: [i16] = [7, 7, 9]
+    let exp_xor: [i16] = [5, 5, 9]
+    let exp_shl: [i16] = [48, 28, 16]
+    let exp_shr: [i16] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [i16] = [1, 2, 3]
+    let d: [i16] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: i16 = a[0] + b[0]
+    let _sub: i16 = a[0] - b[0]
+    let _mul: i16 = a[0] * b[0]
+    let _div: i16 = a[0] / b[0]
+    let _rem: i16 = a[0] % b[0]
+    let _and: i16 = a[0] & b[0]
+    let _or: i16 = a[0] | b[0]
+    let _xor: i16 = a[0] ^ b[0]
+    let _shl: i16 = a[0] << b[0]
+    let _shr: i16 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_i32() {
+    let a: [i32] = [6, 7, 8]
+    let b: [i32] = [3, 2, 1]
+    let exp_add: [i32] = [9, 9, 9]
+    let exp_sub: [i32] = [3, 5, 7]
+    let exp_mul: [i32] = [18, 14, 8]
+    let exp_div: [i32] = [2, 3, 8]
+    let exp_rem: [i32] = [0, 1, 0]
+    let exp_and: [i32] = [2, 2, 0]
+    let exp_or: [i32] = [7, 7, 9]
+    let exp_xor: [i32] = [5, 5, 9]
+    let exp_shl: [i32] = [48, 28, 16]
+    let exp_shr: [i32] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [i32] = [1, 2, 3]
+    let d: [i32] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: i32 = a[0] + b[0]
+    let _sub: i32 = a[0] - b[0]
+    let _mul: i32 = a[0] * b[0]
+    let _div: i32 = a[0] / b[0]
+    let _rem: i32 = a[0] % b[0]
+    let _and: i32 = a[0] & b[0]
+    let _or: i32 = a[0] | b[0]
+    let _xor: i32 = a[0] ^ b[0]
+    let _shl: i32 = a[0] << b[0]
+    let _shr: i32 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_i64() {
+    let a: [i64] = [6, 7, 8]
+    let b: [i64] = [3, 2, 1]
+    let exp_add: [i64] = [9, 9, 9]
+    let exp_sub: [i64] = [3, 5, 7]
+    let exp_mul: [i64] = [18, 14, 8]
+    let exp_div: [i64] = [2, 3, 8]
+    let exp_rem: [i64] = [0, 1, 0]
+    let exp_and: [i64] = [2, 2, 0]
+    let exp_or: [i64] = [7, 7, 9]
+    let exp_xor: [i64] = [5, 5, 9]
+    let exp_shl: [i64] = [48, 28, 16]
+    let exp_shr: [i64] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [i64] = [1, 2, 3]
+    let d: [i64] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: i64 = a[0] + b[0]
+    let _sub: i64 = a[0] - b[0]
+    let _mul: i64 = a[0] * b[0]
+    let _div: i64 = a[0] / b[0]
+    let _rem: i64 = a[0] % b[0]
+    let _and: i64 = a[0] & b[0]
+    let _or: i64 = a[0] | b[0]
+    let _xor: i64 = a[0] ^ b[0]
+    let _shl: i64 = a[0] << b[0]
+    let _shr: i64 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_u8() {
+    let a: [u8] = [6, 7, 8]
+    let b: [u8] = [3, 2, 1]
+    let exp_add: [u8] = [9, 9, 9]
+    let exp_sub: [u8] = [3, 5, 7]
+    let exp_mul: [u8] = [18, 14, 8]
+    let exp_div: [u8] = [2, 3, 8]
+    let exp_rem: [u8] = [0, 1, 0]
+    let exp_and: [u8] = [2, 2, 0]
+    let exp_or: [u8] = [7, 7, 9]
+    let exp_xor: [u8] = [5, 5, 9]
+    let exp_shl: [u8] = [48, 28, 16]
+    let exp_shr: [u8] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [u8] = [1, 2, 3]
+    let d: [u8] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: u8 = a[0] + b[0]
+    let _sub: u8 = a[0] - b[0]
+    let _mul: u8 = a[0] * b[0]
+    let _div: u8 = a[0] / b[0]
+    let _rem: u8 = a[0] % b[0]
+    let _and: u8 = a[0] & b[0]
+    let _or: u8 = a[0] | b[0]
+    let _xor: u8 = a[0] ^ b[0]
+    let _shl: u8 = a[0] << b[0]
+    let _shr: u8 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_u16() {
+    let a: [u16] = [6, 7, 8]
+    let b: [u16] = [3, 2, 1]
+    let exp_add: [u16] = [9, 9, 9]
+    let exp_sub: [u16] = [3, 5, 7]
+    let exp_mul: [u16] = [18, 14, 8]
+    let exp_div: [u16] = [2, 3, 8]
+    let exp_rem: [u16] = [0, 1, 0]
+    let exp_and: [u16] = [2, 2, 0]
+    let exp_or: [u16] = [7, 7, 9]
+    let exp_xor: [u16] = [5, 5, 9]
+    let exp_shl: [u16] = [48, 28, 16]
+    let exp_shr: [u16] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [u16] = [1, 2, 3]
+    let d: [u16] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: u16 = a[0] + b[0]
+    let _sub: u16 = a[0] - b[0]
+    let _mul: u16 = a[0] * b[0]
+    let _div: u16 = a[0] / b[0]
+    let _rem: u16 = a[0] % b[0]
+    let _and: u16 = a[0] & b[0]
+    let _or: u16 = a[0] | b[0]
+    let _xor: u16 = a[0] ^ b[0]
+    let _shl: u16 = a[0] << b[0]
+    let _shr: u16 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_u32() {
+    let a: [u32] = [6, 7, 8]
+    let b: [u32] = [3, 2, 1]
+    let exp_add: [u32] = [9, 9, 9]
+    let exp_sub: [u32] = [3, 5, 7]
+    let exp_mul: [u32] = [18, 14, 8]
+    let exp_div: [u32] = [2, 3, 8]
+    let exp_rem: [u32] = [0, 1, 0]
+    let exp_and: [u32] = [2, 2, 0]
+    let exp_or: [u32] = [7, 7, 9]
+    let exp_xor: [u32] = [5, 5, 9]
+    let exp_shl: [u32] = [48, 28, 16]
+    let exp_shr: [u32] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [u32] = [1, 2, 3]
+    let d: [u32] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: u32 = a[0] + b[0]
+    let _sub: u32 = a[0] - b[0]
+    let _mul: u32 = a[0] * b[0]
+    let _div: u32 = a[0] / b[0]
+    let _rem: u32 = a[0] % b[0]
+    let _and: u32 = a[0] & b[0]
+    let _or: u32 = a[0] | b[0]
+    let _xor: u32 = a[0] ^ b[0]
+    let _shl: u32 = a[0] << b[0]
+    let _shr: u32 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_u64() {
+    let a: [u64] = [6, 7, 8]
+    let b: [u64] = [3, 2, 1]
+    let exp_add: [u64] = [9, 9, 9]
+    let exp_sub: [u64] = [3, 5, 7]
+    let exp_mul: [u64] = [18, 14, 8]
+    let exp_div: [u64] = [2, 3, 8]
+    let exp_rem: [u64] = [0, 1, 0]
+    let exp_and: [u64] = [2, 2, 0]
+    let exp_or: [u64] = [7, 7, 9]
+    let exp_xor: [u64] = [5, 5, 9]
+    let exp_shl: [u64] = [48, 28, 16]
+    let exp_shr: [u64] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [u64] = [1, 2, 3]
+    let d: [u64] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: u64 = a[0] + b[0]
+    let _sub: u64 = a[0] - b[0]
+    let _mul: u64 = a[0] * b[0]
+    let _div: u64 = a[0] / b[0]
+    let _rem: u64 = a[0] % b[0]
+    let _and: u64 = a[0] & b[0]
+    let _or: u64 = a[0] | b[0]
+    let _xor: u64 = a[0] ^ b[0]
+    let _shl: u64 = a[0] << b[0]
+    let _shr: u64 = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_isize() {
+    let a: [isize] = [6, 7, 8]
+    let b: [isize] = [3, 2, 1]
+    let exp_add: [isize] = [9, 9, 9]
+    let exp_sub: [isize] = [3, 5, 7]
+    let exp_mul: [isize] = [18, 14, 8]
+    let exp_div: [isize] = [2, 3, 8]
+    let exp_rem: [isize] = [0, 1, 0]
+    let exp_and: [isize] = [2, 2, 0]
+    let exp_or: [isize] = [7, 7, 9]
+    let exp_xor: [isize] = [5, 5, 9]
+    let exp_shl: [isize] = [48, 28, 16]
+    let exp_shr: [isize] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [isize] = [1, 2, 3]
+    let d: [isize] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: isize = a[0] + b[0]
+    let _sub: isize = a[0] - b[0]
+    let _mul: isize = a[0] * b[0]
+    let _div: isize = a[0] / b[0]
+    let _rem: isize = a[0] % b[0]
+    let _and: isize = a[0] & b[0]
+    let _or: isize = a[0] | b[0]
+    let _xor: isize = a[0] ^ b[0]
+    let _shl: isize = a[0] << b[0]
+    let _shr: isize = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_usize() {
+    let a: [usize] = [6, 7, 8]
+    let b: [usize] = [3, 2, 1]
+    let exp_add: [usize] = [9, 9, 9]
+    let exp_sub: [usize] = [3, 5, 7]
+    let exp_mul: [usize] = [18, 14, 8]
+    let exp_div: [usize] = [2, 3, 8]
+    let exp_rem: [usize] = [0, 1, 0]
+    let exp_and: [usize] = [2, 2, 0]
+    let exp_or: [usize] = [7, 7, 9]
+    let exp_xor: [usize] = [5, 5, 9]
+    let exp_shl: [usize] = [48, 28, 16]
+    let exp_shr: [usize] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [usize] = [1, 2, 3]
+    let d: [usize] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: usize = a[0] + b[0]
+    let _sub: usize = a[0] - b[0]
+    let _mul: usize = a[0] * b[0]
+    let _div: usize = a[0] / b[0]
+    let _rem: usize = a[0] % b[0]
+    let _and: usize = a[0] & b[0]
+    let _or: usize = a[0] | b[0]
+    let _xor: usize = a[0] ^ b[0]
+    let _shl: usize = a[0] << b[0]
+    let _shr: usize = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_ops_int() {
+    let a: [int] = [6, 7, 8]
+    let b: [int] = [3, 2, 1]
+    let exp_add: [int] = [9, 9, 9]
+    let exp_sub: [int] = [3, 5, 7]
+    let exp_mul: [int] = [18, 14, 8]
+    let exp_div: [int] = [2, 3, 8]
+    let exp_rem: [int] = [0, 1, 0]
+    let exp_and: [int] = [2, 2, 0]
+    let exp_or: [int] = [7, 7, 9]
+    let exp_xor: [int] = [5, 5, 9]
+    let exp_shl: [int] = [48, 28, 16]
+    let exp_shr: [int] = [0, 1, 4]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x + y, exp_add[i])
+        t.assert_eq!(x - y, exp_sub[i])
+        t.assert_eq!(x * y, exp_mul[i])
+        t.assert_eq!(x / y, exp_div[i])
+        t.assert_eq!(x % y, exp_rem[i])
+        t.assert_eq!(x & y, exp_and[i])
+        t.assert_eq!(x | y, exp_or[i])
+        t.assert_eq!(x ^ y, exp_xor[i])
+        t.assert_eq!(x << y, exp_shl[i])
+        t.assert_eq!(x >> y, exp_shr[i])
+        i = i + 1
+    }
+    let c: [int] = [1, 2, 3]
+    let d: [int] = [1, 3, 2]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut j = 0
+    while j < len(&c) {
+        let x = c[j]
+        let y = d[j]
+        t.assert_eq!(x == y, exp_eq[j])
+        t.assert_eq!(x != y, exp_ne[j])
+        t.assert_eq!(x < y, exp_lt[j])
+        t.assert_eq!(x <= y, exp_le[j])
+        t.assert_eq!(x > y, exp_gt[j])
+        t.assert_eq!(x >= y, exp_ge[j])
+        j = j + 1
+    }
+    let _add: int = a[0] + b[0]
+    let _sub: int = a[0] - b[0]
+    let _mul: int = a[0] * b[0]
+    let _div: int = a[0] / b[0]
+    let _rem: int = a[0] % b[0]
+    let _and: int = a[0] & b[0]
+    let _or: int = a[0] | b[0]
+    let _xor: int = a[0] ^ b[0]
+    let _shl: int = a[0] << b[0]
+    let _shr: int = a[0] >> b[0]
+    let _lt: bool = c[0] < d[0]
+    let _le: bool = c[0] <= d[0]
+    let _gt: bool = c[0] > d[0]
+    let _ge: bool = c[0] >= d[0]
+    let _eq: bool = c[0] == d[0]
+    let _ne: bool = c[0] != d[0]
+}
+
+fn test_bool_ops() {
+    let a: [bool] = [true, false, true]
+    let b: [bool] = [true, true, false]
+    let exp_and: [bool] = [true, false, false]
+    let exp_or: [bool] = [true, true, true]
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x && y, exp_and[i])
+        t.assert_eq!(x || y, exp_or[i])
+        t.assert_eq!(x == y, exp_eq[i])
+        t.assert_eq!(x != y, exp_ne[i])
+        i = i + 1
+    }
+    let _and: bool = a[0] && b[0]
+    let _or: bool = a[0] || b[0]
+    let _eq: bool = a[0] == b[0]
+    let _ne: bool = a[0] != b[0]
+}
+
+fn test_char_cmp() {
+    let a: [char] = ['a', 'b', 'c']
+    let b: [char] = ['a', 'c', 'b']
+    let exp_eq: [bool] = [true, false, false]
+    let exp_ne: [bool] = [false, true, true]
+    let exp_lt: [bool] = [false, true, false]
+    let exp_le: [bool] = [true, true, false]
+    let exp_gt: [bool] = [false, false, true]
+    let exp_ge: [bool] = [true, false, true]
+    let mut i = 0
+    while i < len(&a) {
+        let x = a[i]
+        let y = b[i]
+        t.assert_eq!(x == y, exp_eq[i])
+        t.assert_eq!(x != y, exp_ne[i])
+        t.assert_eq!(x < y, exp_lt[i])
+        t.assert_eq!(x <= y, exp_le[i])
+        t.assert_eq!(x > y, exp_gt[i])
+        t.assert_eq!(x >= y, exp_ge[i])
+        i = i + 1
+    }
+    let _eq: bool = a[0] == b[0]
+    let _ne: bool = a[0] != b[0]
+    let _lt: bool = a[0] < b[0]
+    let _le: bool = a[0] <= b[0]
+    let _gt: bool = a[0] > b[0]
+    let _ge: bool = a[0] >= b[0]
+}
+
+fn test_string_ops() {
+    let a = "ab"
+    let b = "c"
+    let s: String = a + b
+    t.assert_eq!(s, "abc")
+    let r = &a
+    let s2: String = r + "d"
+    t.assert_eq!(s2, "abd")
+    let s3: String = "x" + r
+    t.assert_eq!(s3, "xab")
+    let eq: bool = r == &a
+    let ne: bool = a != b
+    t.assert_eq!(eq, true)
+    t.assert_eq!(ne, true)
+}
+
+fn test_main() {
+    test_ops_i8()
+    test_ops_i16()
+    test_ops_i32()
+    test_ops_i64()
+    test_ops_u8()
+    test_ops_u16()
+    test_ops_u32()
+    test_ops_u64()
+    test_ops_isize()
+    test_ops_usize()
+    test_ops_int()
+    test_bool_ops()
+    test_char_cmp()
+    test_string_ops()
+}

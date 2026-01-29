@@ -10,4 +10,14 @@ fn main() {
 
     let d = a + "c"
     if d != "abc" { exit(1) }
+
+    let r = &a
+    let e = r + "d"
+    if e != "abd" { exit(1) }
+
+    let f = "x" + r
+    if f != "xab" { exit(1) }
+
+    let g = r == &a
+    if g != true { exit(1) }
 }

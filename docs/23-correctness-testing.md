@@ -42,6 +42,9 @@ Notes:
 - Keep cases **minimal but decisive**.
 - Prefer deterministic outputs (use explicit prints / asserts).
 - Use numeric prefixes in `run-pass` to control ordering.
+- Avoid large combinatorial test sets in `run-pass`/`compile-fail`. Prefer `*_test.dast` unit tests (loop/assert style)
+  and small representative compile-fail samples. Large matrices significantly slow compilation and can mask real
+  performance issues in the compiler/runtime.
 
 ---
 
@@ -90,4 +93,3 @@ A feature is “correct enough to land” when:
 - IR validates
 - IR/QBE snapshots exist for key paths
 - (when feasible) stage0 and stage2 agree on behavior
-

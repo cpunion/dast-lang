@@ -1,0 +1,5 @@
+fn main() {
+    let a = "a"
+    let b: int = 1
+    let _ = a == b
+}

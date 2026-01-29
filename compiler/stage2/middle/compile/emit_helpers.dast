@@ -414,7 +414,15 @@ fn array_get_fn_for_type(e: &Emitter, t: &str) -> String {
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(&expr.args) < 2 { return qbe_value("i64", "0") }
     let op = string_clone(&expr.name)
+    let mut lhs_t = ""
+    let mut rhs_t = ""
     if op == "&&" || op == "||" {
+        lhs_t = expr_type(e, expr_arg_ref(expr, 0, "emit_binary_lhs_t"))
+        rhs_t = expr_type(e, expr_arg_ref(expr, 1, "emit_binary_rhs_t"))
+        if !type_is_bool(e, &lhs_t) || !type_is_bool(e, &rhs_t) {
+            println("stage2: binary op", op, "requires bool operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
         let lhs_cond = ensure_bool_expr(e, lhs)
         let res_tmp = new_temp(e)
@@ -450,6 +458,8 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     }
     let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
     let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+    lhs_t = type_resolve(e, &lhs.typ)
+    rhs_t = type_resolve(e, &rhs.typ)
     if op == "+" {
         if type_is_string(e, &lhs.typ) && type_is_string(e, &rhs.typ) {
             let l = emit_deref_value(e, lhs)
@@ -459,24 +469,40 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  " + tn + " =l call $dast_string_concat(l " + l.expr + ", l " + r.expr + ")")
             return qbe_value("String", tn)
         }
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int or String operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         emit_line(e, "  " + tn + " =l add " + lhs.expr + ", " + rhs.expr)
         return qbe_value("i64", tn)
     }
     if op == "-" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         emit_line(e, "  " + tn + " =l sub " + lhs.expr + ", " + rhs.expr)
         return qbe_value("i64", tn)
     }
     if op == "*" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         emit_line(e, "  " + tn + " =l mul " + lhs.expr + ", " + rhs.expr)
         return qbe_value("i64", tn)
     }
     if op == "/" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let mut divop = "div"
@@ -485,6 +511,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("i64", tn)
     }
     if op == "%" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let mut remop = "rem"
@@ -493,6 +523,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("i64", tn)
     }
     if op == "&" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &lhs.typ)
@@ -500,6 +534,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value(string_clone(&lhs.typ), tn)
     }
     if op == "|" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &lhs.typ)
@@ -507,6 +545,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value(string_clone(&lhs.typ), tn)
     }
     if op == "^" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &lhs.typ)
@@ -514,6 +556,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value(string_clone(&lhs.typ), tn)
     }
     if op == "<<" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &lhs.typ)
@@ -521,6 +567,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value(string_clone(&lhs.typ), tn)
     }
     if op == ">>" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &lhs.typ)
@@ -532,11 +582,43 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if op == "==" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        if type_is_string(e, &lhs.typ) && type_is_string(e, &rhs.typ) {
+        if type_is_string(e, &lhs.typ) || type_is_string(e, &rhs.typ) {
+            if !type_is_string(e, &lhs.typ) || !type_is_string(e, &rhs.typ) {
+                println("stage2: binary op", op, "requires both String operands got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
             let l = emit_deref_value(e, lhs)
             let r = emit_deref_value(e, rhs)
             emit_line(e, "  " + tn + " =w call $dast_string_eq(l " + l.expr + ", l " + r.expr + ")")
             return qbe_value("bool", tn)
+        }
+        if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
+            if !type_is_enum(e, &lhs.typ) || !type_is_enum(e, &rhs.typ) {
+                println("stage2: binary op", op, "requires both enum operands got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
+            let lb = type_strip_args(e, &lhs_t)
+            let rb = type_strip_args(e, &rhs_t)
+            if lb != rb {
+                println("stage2: binary op", op, "requires matching enum types got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
+            let cmp = "ceql"
+            emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+            return qbe_value("bool", tn)
+        }
+        if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
+            if !type_is_bool(e, &lhs.typ) || !type_is_bool(e, &rhs.typ) {
+                println("stage2: binary op", op, "requires both bool operands got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
+            let cmp = "ceqw"
+            emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+            return qbe_value("bool", tn)
+        }
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
         }
         let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
         emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
@@ -545,11 +627,35 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if op == "!=" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        if type_is_string(e, &lhs.typ) && type_is_string(e, &rhs.typ) {
+        if type_is_string(e, &lhs.typ) || type_is_string(e, &rhs.typ) {
+            if !type_is_string(e, &lhs.typ) || !type_is_string(e, &rhs.typ) {
+                println("stage2: binary op", op, "requires both String operands got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
             let l = emit_deref_value(e, lhs)
             let r = emit_deref_value(e, rhs)
             emit_line(e, "  " + tn + " =w call $dast_string_eq(l " + l.expr + ", l " + r.expr + ")")
         } else {
+            if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
+                if !type_is_enum(e, &lhs.typ) || !type_is_enum(e, &rhs.typ) {
+                    println("stage2: binary op", op, "requires both enum operands got", lhs_t, "and", rhs_t)
+                    exit(1)
+                }
+                let lb = type_strip_args(e, &lhs_t)
+                let rb = type_strip_args(e, &rhs_t)
+                if lb != rb {
+                    println("stage2: binary op", op, "requires matching enum types got", lhs_t, "and", rhs_t)
+                    exit(1)
+                }
+            } else if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
+                if !type_is_bool(e, &lhs.typ) || !type_is_bool(e, &rhs.typ) {
+                    println("stage2: binary op", op, "requires both bool operands got", lhs_t, "and", rhs_t)
+                    exit(1)
+                }
+            } else if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+                println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
             let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
             emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         }
@@ -559,6 +665,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("bool", inv_tn)
     }
     if op == "<" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let cmp = if type_is_unsigned_int(e, &lhs.typ) { "cultl" } else { "csltl" }
@@ -566,6 +676,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("bool", tn)
     }
     if op == ">" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let cmp = if type_is_unsigned_int(e, &lhs.typ) { "cugtl" } else { "csgtl" }
@@ -573,6 +687,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("bool", tn)
     }
     if op == "<=" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let cmp = if type_is_unsigned_int(e, &lhs.typ) { "culel" } else { "cslel" }
@@ -580,6 +698,10 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("bool", tn)
     }
     if op == ">=" {
+        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
+            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            exit(1)
+        }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let cmp = if type_is_unsigned_int(e, &lhs.typ) { "cugel" } else { "csgel" }
