@@ -499,6 +499,18 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 		if !isInt(scrut) && scrut.Kind != TypeInvalid {
 			c.diag.Add(p.Span(), "range pattern requires int scrutinee")
 		}
+		if p.Start != nil {
+			st := c.checkExpr(p.Start)
+			if !isInt(st) && st.Kind != TypeInvalid {
+				c.diag.Add(p.Start.Span(), "range pattern start must be int")
+			}
+		}
+		if p.End != nil {
+			et := c.checkExpr(p.End)
+			if !isInt(et) && et.Kind != TypeInvalid {
+				c.diag.Add(p.End.Span(), "range pattern end must be int")
+			}
+		}
 	case *ast.OrPattern:
 		if c.patternHasBinding(p) {
 			c.diag.Add(p.Span(), "or-patterns with bindings are not supported in stage 0")
@@ -532,13 +544,17 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 			c.diag.Add(p.Span(), fmt.Sprintf("unknown variant '%s'", p.Variant))
 			return
 		}
-		if p.Binding != "" {
+		payloadPat := p.Payload
+		if payloadPat == nil && p.Binding != "" {
+			payloadPat = &ast.BindingPattern{Name: p.Binding, SpanInfo: p.SpanInfo}
+		}
+		if payloadPat != nil {
 			if variant.Payload == nil {
 				c.diag.Add(p.Span(), "variant has no payload to bind")
 				return
 			}
 			payloadType := c.fromAstType(*variant.Payload)
-			c.env.declare(p.Binding, VarInfo{Type: payloadType, Mutable: false})
+			c.checkPattern(payloadType, payloadPat)
 		}
 	case *ast.StructPattern:
 		if scrut.Kind != TypeStruct {
@@ -619,6 +635,9 @@ func (c *Checker) patternHasBinding(pat ast.Pattern) bool {
 	case *ast.BindingPattern:
 		return true
 	case *ast.VariantPattern:
+		if p.Payload != nil {
+			return c.patternHasBinding(p.Payload)
+		}
 		return p.Binding != ""
 	case *ast.StructPattern:
 		for _, f := range p.Fields {

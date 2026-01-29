@@ -7,41 +7,41 @@ import (
 )
 
 type Compiler struct {
-	prog         *ir.Program
-	diag         *diag.Bag
-	current      *ir.Function
-	curBlock     *ir.Block
-	blockID      int
-	tempID       int
-	tempTypes    map[int]string       // temp ID -> type string
-	tempBorrowed map[int]bool         // temp ID -> borrowed/non-owning
-	scopeStack   []scope              // name -> VarInfo
-	nameCount    map[string]int
-	structs      map[string]*ast.StructDecl
-	enums        map[string]*ast.EnumDecl
-	enumTags     map[string]map[string]int64
-	enumTagType  map[string]string
-	consts       map[string]ConstInfo
-	funcRetTypes map[string]string // function name -> return type
-	funcParamTypes map[string][]string // function name -> param types
-	loopStack    []loopContext
-	opts         Options
-	closureID    int
+	prog            *ir.Program
+	diag            *diag.Bag
+	current         *ir.Function
+	curBlock        *ir.Block
+	blockID         int
+	tempID          int
+	tempTypes       map[int]string // temp ID -> type string
+	tempBorrowed    map[int]bool   // temp ID -> borrowed/non-owning
+	scopeStack      []scope        // name -> VarInfo
+	nameCount       map[string]int
+	structs         map[string]*ast.StructDecl
+	enums           map[string]*ast.EnumDecl
+	enumTags        map[string]map[string]int64
+	enumTagType     map[string]string
+	consts          map[string]ConstInfo
+	funcRetTypes    map[string]string   // function name -> return type
+	funcParamTypes  map[string][]string // function name -> param types
+	loopStack       []loopContext
+	opts            Options
+	closureID       int
 	currentFuncName string
-	dropFuncs    map[string]struct{}
+	dropFuncs       map[string]struct{}
 }
 
 // VarInfo tracks variable info for value semantics
 type VarInfo struct {
-	Temp    int    // temp ID for value vars, -1 for mutable vars
-	Name    string // IR name (for mutable vars used in load/store)
-	Mutable bool   // true if let mut
-	RefTemp int    // temp ID for captured ref vars, -1 if not a ref capture
-	Closure bool   // true if this var holds a closure value
-	Type    string // IR type name (for drop/copy)
-	Param   bool   // true if this variable is a function parameter
-	Borrowed bool  // true if value is borrowed/non-owning
-	Moved   bool   // true if moved
+	Temp     int    // temp ID for value vars, -1 for mutable vars
+	Name     string // IR name (for mutable vars used in load/store)
+	Mutable  bool   // true if let mut
+	RefTemp  int    // temp ID for captured ref vars, -1 if not a ref capture
+	Closure  bool   // true if this var holds a closure value
+	Type     string // IR type name (for drop/copy)
+	Param    bool   // true if this variable is a function parameter
+	Borrowed bool   // true if value is borrowed/non-owning
+	Moved    bool   // true if moved
 }
 
 type ConstInfo struct {
@@ -50,10 +50,10 @@ type ConstInfo struct {
 }
 
 type loopContext struct {
-	breakLabel    string
-	continueLabel string
-	scopeDepth    int
-	label         string
+	breakLabel     string
+	continueLabel  string
+	scopeDepth     int
+	label          string
 	breakValueName string
 }
 
@@ -71,19 +71,19 @@ func CompileForMacro(prog *ast.Program) (*ir.Program, *diag.Bag) {
 
 func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag) {
 	c := &Compiler{
-		prog:         &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Enums: []*ir.EnumDecl{}, Functions: map[string]*ir.Function{}},
-		diag:         &diag.Bag{},
-		structs:      map[string]*ast.StructDecl{},
-		enums:        map[string]*ast.EnumDecl{},
-		nameCount:    map[string]int{},
-		enumTags:     map[string]map[string]int64{},
-		enumTagType:  map[string]string{},
-		consts:       map[string]ConstInfo{},
-		funcRetTypes: map[string]string{},
+		prog:           &ir.Program{Version: "v0", TypeDecls: map[string]*ir.TypeDecl{}, Enums: []*ir.EnumDecl{}, Functions: map[string]*ir.Function{}},
+		diag:           &diag.Bag{},
+		structs:        map[string]*ast.StructDecl{},
+		enums:          map[string]*ast.EnumDecl{},
+		nameCount:      map[string]int{},
+		enumTags:       map[string]map[string]int64{},
+		enumTagType:    map[string]string{},
+		consts:         map[string]ConstInfo{},
+		funcRetTypes:   map[string]string{},
 		funcParamTypes: map[string][]string{},
-		tempBorrowed: map[int]bool{},
-		opts:         opts,
-		dropFuncs:    map[string]struct{}{},
+		tempBorrowed:   map[int]bool{},
+		opts:           opts,
+		dropFuncs:      map[string]struct{}{},
 	}
 	// Initialize builtin function return types
 	c.funcRetTypes["len"] = "i64"
@@ -169,13 +169,15 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 				name := t.TypeName + "." + method.Name
 				params := make([]string, 0, len(method.Params))
 				for _, p := range method.Params {
-					c.registerTupleTypesInType(p.Type)
-					params = append(params, formatType(p.Type))
+					pt := substSelfType(p.Type, t.TypeName)
+					c.registerTupleTypesInType(pt)
+					params = append(params, formatType(pt))
 				}
 				c.funcParamTypes[name] = params
 				if method.ReturnType != nil {
-					c.registerTupleTypesInType(*method.ReturnType)
-					c.funcRetTypes[name] = formatType(*method.ReturnType)
+					rt := substSelfType(*method.ReturnType, t.TypeName)
+					c.registerTupleTypesInType(rt)
+					c.funcRetTypes[name] = formatType(rt)
 				} else {
 					c.funcRetTypes[name] = "unit"
 				}
@@ -185,13 +187,15 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 				name := t.ForTypeName + "." + method.Name
 				params := make([]string, 0, len(method.Params))
 				for _, p := range method.Params {
-					c.registerTupleTypesInType(p.Type)
-					params = append(params, formatType(p.Type))
+					pt := substSelfType(p.Type, t.ForTypeName)
+					c.registerTupleTypesInType(pt)
+					params = append(params, formatType(pt))
 				}
 				c.funcParamTypes[name] = params
 				if method.ReturnType != nil {
-					c.registerTupleTypesInType(*method.ReturnType)
-					c.funcRetTypes[name] = formatType(*method.ReturnType)
+					rt := substSelfType(*method.ReturnType, t.ForTypeName)
+					c.registerTupleTypesInType(rt)
+					c.funcRetTypes[name] = formatType(rt)
 				} else {
 					c.funcRetTypes[name] = "unit"
 				}
@@ -204,11 +208,11 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 			c.compileFunction(t)
 		case *ast.ImplDecl:
 			for _, method := range t.Methods {
-				c.compileFunctionNamed(method, t.TypeName+"."+method.Name)
+				c.compileFunctionNamedWithSelf(method, t.TypeName+"."+method.Name, t.TypeName)
 			}
 		case *ast.ImplTraitDecl:
 			for _, method := range t.Methods {
-				c.compileFunctionNamed(method, t.ForTypeName+"."+method.Name)
+				c.compileFunctionNamedWithSelf(method, t.ForTypeName+"."+method.Name, t.ForTypeName)
 			}
 		}
 	}
@@ -216,11 +220,36 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 	return c.prog, c.diag
 }
 
+func substSelfType(t ast.Type, selfName string) ast.Type {
+	if t.Name == "Self" && !t.IsArray && !t.IsTuple {
+		t.Name = selfName
+	}
+	if t.IsArray && t.Elem != nil {
+		elem := substSelfType(*t.Elem, selfName)
+		t.Elem = &elem
+	}
+	if t.IsTuple {
+		for i := range t.TupleElems {
+			t.TupleElems[i] = substSelfType(t.TupleElems[i], selfName)
+		}
+	}
+	if len(t.Args) > 0 {
+		for i := range t.Args {
+			t.Args[i] = substSelfType(t.Args[i], selfName)
+		}
+	}
+	return t
+}
+
 func (c *Compiler) compileFunction(fn *ast.Function) {
-	c.compileFunctionNamed(fn, fn.Name)
+	c.compileFunctionNamedWithSelf(fn, fn.Name, "")
 }
 
 func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
+	c.compileFunctionNamedWithSelf(fn, name, "")
+}
+
+func (c *Compiler) compileFunctionNamedWithSelf(fn *ast.Function, name string, selfName string) {
 	c.blockID = 0
 	c.tempID = 0
 	c.scopeStack = nil
@@ -236,12 +265,20 @@ func (c *Compiler) compileFunctionNamed(fn *ast.Function, name string) {
 	// Params use temp IDs internally, but we store names for formatting
 	for _, param := range fn.Params {
 		paramTemp := c.newTemp()
-		c.declareParamVar(param.Name, paramTemp, formatType(param.Type))
+		pt := param.Type
+		if selfName != "" {
+			pt = substSelfType(pt, selfName)
+		}
+		c.declareParamVar(param.Name, paramTemp, formatType(pt))
 		// Store with original name for IR output
-		irFn.Params = append(irFn.Params, ir.Var{Name: param.Name, Type: formatType(param.Type)})
+		irFn.Params = append(irFn.Params, ir.Var{Name: param.Name, Type: formatType(pt)})
 	}
 	if fn.ReturnType != nil {
-		irFn.ReturnType = formatType(*fn.ReturnType)
+		rt := *fn.ReturnType
+		if selfName != "" {
+			rt = substSelfType(rt, selfName)
+		}
+		irFn.ReturnType = formatType(rt)
 	} else {
 		irFn.ReturnType = "unit"
 	}

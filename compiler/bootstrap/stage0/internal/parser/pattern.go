@@ -23,17 +23,40 @@ func (p *Parser) parsePattern() ast.Pattern {
 }
 
 func (p *Parser) parsePatternSingle() ast.Pattern {
+	if p.match(lexer.TokenDotDot) || p.match(lexer.TokenDotDotEq) {
+		startSpan := p.prev().Span
+		inclusive := p.prev().Kind == lexer.TokenDotDotEq
+		var endExpr ast.Expr
+		if !p.rangeEndTerminator() {
+			endExpr = p.parseRangeExpr()
+		} else if inclusive {
+			p.diag.Add(startSpan, "range pattern requires end for ..=")
+		}
+		endSpan := startSpan
+		if endExpr != nil {
+			endSpan = endExpr.Span()
+		}
+		return &ast.RangePattern{Start: nil, End: endExpr, Inclusive: inclusive, SpanInfo: mergeSpan(startSpan, endSpan)}
+	}
 	pat := p.parsePatternAtom()
 	if p.match(lexer.TokenDotDot) || p.match(lexer.TokenDotDotEq) {
 		inclusive := p.prev().Kind == lexer.TokenDotDotEq
-		startLit, ok := pat.(*ast.LiteralPattern)
-		if !ok || startLit.Value.Kind != ast.ConstInt {
-			p.diag.Add(p.prev().Span, "range pattern requires int literal start")
+		startExpr, ok := patternToRangeExpr(pat)
+		if !ok {
+			p.diag.Add(p.prev().Span, "range pattern requires simple start")
 			return pat
 		}
-		endTok := p.expect(lexer.TokenInt, "expected int literal end for range pattern")
-		end := parseInt(endTok.Lexeme)
-		return &ast.RangePattern{Start: startLit.Value.Int, End: end, Inclusive: inclusive, SpanInfo: mergeSpan(startLit.Span(), endTok.Span)}
+		var endExpr ast.Expr
+		if !p.rangeEndTerminator() {
+			endExpr = p.parseRangeExpr()
+		} else if inclusive {
+			p.diag.Add(p.prev().Span, "range pattern requires end for ..=")
+		}
+		endSpan := p.prev().Span
+		if endExpr != nil {
+			endSpan = endExpr.Span()
+		}
+		return &ast.RangePattern{Start: startExpr, End: endExpr, Inclusive: inclusive, SpanInfo: mergeSpan(pat.Span(), endSpan)}
 	}
 	return pat
 }
@@ -42,12 +65,20 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 	if p.match(lexer.TokenDot) {
 		variantTok := p.expect(lexer.TokenIdent, "expected variant name")
 		binding := ""
+		var payload ast.Pattern
 		if p.match(lexer.TokenLParen) {
-			bindTok := p.expect(lexer.TokenIdent, "expected binding name")
-			binding = bindTok.Lexeme
-			p.expect(lexer.TokenRParen, "expected ')' after binding")
+			if p.at(lexer.TokenRParen) {
+				endTok := p.advance()
+				payload = &ast.WildcardPattern{SpanInfo: mergeSpan(variantTok.Span, endTok.Span)}
+			} else {
+				payload = p.parsePattern()
+				p.expect(lexer.TokenRParen, "expected ')' after binding")
+			}
+			if payload != nil {
+				binding = ""
+			}
 		}
-		return &ast.VariantPattern{EnumName: "", Variant: variantTok.Lexeme, Binding: binding, SpanInfo: mergeSpan(variantTok.Span, variantTok.Span)}
+		return &ast.VariantPattern{EnumName: "", Variant: variantTok.Lexeme, Binding: binding, Payload: payload, SpanInfo: mergeSpan(variantTok.Span, variantTok.Span)}
 	}
 	if p.at(lexer.TokenIdent) && p.peek().Lexeme == "_" {
 		tok := p.advance()
@@ -143,12 +174,20 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 				enumName := strings.Join(parts[:len(parts)-1], ".")
 				variant := parts[len(parts)-1]
 				binding := ""
+				var payload ast.Pattern
 				if p.match(lexer.TokenLParen) {
-					bindTok := p.expect(lexer.TokenIdent, "expected binding name")
-					binding = bindTok.Lexeme
-					p.expect(lexer.TokenRParen, "expected ')' after binding")
+					if p.at(lexer.TokenRParen) {
+						endTok := p.advance()
+						payload = &ast.WildcardPattern{SpanInfo: mergeSpan(span, endTok.Span)}
+					} else {
+						payload = p.parsePattern()
+						p.expect(lexer.TokenRParen, "expected ')' after binding")
+					}
+					if payload != nil {
+						binding = ""
+					}
 				}
-				return &ast.VariantPattern{EnumName: enumName, Variant: variant, Binding: binding, SpanInfo: span}
+				return &ast.VariantPattern{EnumName: enumName, Variant: variant, Binding: binding, Payload: payload, SpanInfo: span}
 			}
 		}
 		nameTok := p.advance()
@@ -171,6 +210,35 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 	}
 	p.errorCurrent("expected pattern")
 	return &ast.WildcardPattern{SpanInfo: p.peek().Span}
+}
+
+func (p *Parser) rangeEndTerminator() bool {
+	switch p.peek().Kind {
+	case lexer.TokenComma, lexer.TokenPipe, lexer.TokenFatArrow, lexer.TokenRParen, lexer.TokenRBrace, lexer.TokenIf, lexer.TokenEOF:
+		return true
+	}
+	return false
+}
+
+func (p *Parser) parseRangeExpr() ast.Expr {
+	return p.parseExpr(0)
+}
+
+func patternToRangeExpr(pat ast.Pattern) (ast.Expr, bool) {
+	switch p := pat.(type) {
+	case *ast.BindingPattern:
+		return &ast.IdentExpr{Name: p.Name, SpanInfo: p.SpanInfo}, true
+	case *ast.LiteralPattern:
+		switch p.Value.Kind {
+		case ast.ConstInt:
+			return &ast.IntLit{Value: p.Value.Int, SpanInfo: p.SpanInfo}, true
+		case ast.ConstBool:
+			return &ast.BoolLit{Value: p.Value.Bool, SpanInfo: p.SpanInfo}, true
+		case ast.ConstString:
+			return &ast.StringLit{Value: p.Value.Str, SpanInfo: p.SpanInfo}, true
+		}
+	}
+	return nil, false
 }
 
 func (p *Parser) parseStructFieldPattern(fieldTok lexer.Token) ast.StructFieldPattern {

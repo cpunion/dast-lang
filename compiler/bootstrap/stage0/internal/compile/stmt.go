@@ -948,7 +948,11 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool, moveScr
 			v.Moved = false
 		})
 	case *ast.VariantPattern:
-		if p.Binding != "" {
+		payloadPat := p.Payload
+		if payloadPat == nil && p.Binding != "" {
+			payloadPat = &ast.BindingPattern{Name: p.Binding, SpanInfo: p.SpanInfo}
+		}
+		if payloadPat != nil {
 			// Borrow the scrutinee when extracting payload to avoid
 			// dropping the base enum while the payload is in use.
 			if !moveScrut {
@@ -957,9 +961,6 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool, moveScr
 			}
 			payload := c.newTemp()
 			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
-			if !moveScrut {
-				c.setTempBorrowed(payload, true)
-			}
 			typ := "unit"
 			enumName := p.EnumName
 			if enumName == "" {
@@ -972,19 +973,11 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool, moveScr
 					typ = formatType(*v.Payload)
 				}
 			}
-			name := c.declareMutVar(p.Binding, typ)
-			if !mutable {
-				c.markImmutable(p.Binding)
-			}
-			borrowed := false
+			c.setTempType(payload, typ)
 			if !moveScrut {
-				borrowed = c.operandBorrowed(ir.TempOperand(payload))
+				c.setTempBorrowed(payload, true)
 			}
-			c.emit(&ir.StoreVar{Name: name, Src: ir.TempOperand(payload)})
-			c.updateVar(p.Binding, func(v *VarInfo) {
-				v.Borrowed = borrowed
-				v.Moved = false
-			})
+			c.bindPattern(payload, payloadPat, mutable, moveScrut)
 		}
 	case *ast.StructPattern:
 		if !moveScrut {
@@ -1089,6 +1082,9 @@ func (c *Compiler) patternHasBinding(pat ast.Pattern) bool {
 		}
 		return true
 	case *ast.VariantPattern:
+		if p.Payload != nil {
+			return c.patternHasBinding(p.Payload)
+		}
 		return p.Binding != ""
 	case *ast.StructPattern:
 		for _, f := range p.Fields {
@@ -1137,7 +1133,11 @@ func (c *Compiler) patternBindsDroppable(scrutType string, pat ast.Pattern) bool
 		}
 		return c.needsDropType(scrutType)
 	case *ast.VariantPattern:
-		if p.Binding == "" {
+		payloadPat := p.Payload
+		if payloadPat == nil && p.Binding != "" {
+			payloadPat = &ast.BindingPattern{Name: p.Binding, SpanInfo: p.SpanInfo}
+		}
+		if payloadPat == nil {
 			return false
 		}
 		enumName := p.EnumName
@@ -1149,12 +1149,16 @@ func (c *Compiler) patternBindsDroppable(scrutType string, pat ast.Pattern) bool
 				enumName = resolved
 			}
 		}
+		payloadType := ""
 		if decl, ok := c.enums[enumName]; ok {
 			if v := enumVariant(decl, p.Variant); v != nil && v.Payload != nil {
-				return c.needsDropType(formatType(*v.Payload))
+				payloadType = formatType(*v.Payload)
 			}
 		}
-		return true
+		if payloadType == "" {
+			return true
+		}
+		return c.patternBindsDroppable(payloadType, payloadPat)
 	case *ast.StructPattern:
 		structName := p.StructName
 		if structName == "" {
@@ -1290,17 +1294,38 @@ func (c *Compiler) compilePatternCond(scrut int, pat ast.Pattern) (ir.Operand, b
 		c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(scrut), Rhs: lit})
 		return ir.TempOperand(cmp), false
 	case *ast.RangePattern:
-		ge := c.newTemp()
-		c.emit(&ir.BinOp{Dst: ge, Op: ">=", Lhs: ir.TempOperand(scrut), Rhs: ir.IntOperand(p.Start)})
-		op := "<"
-		if p.Inclusive {
-			op = "<="
+		hasStart := p.Start != nil
+		hasEnd := p.End != nil
+		if !hasStart && !hasEnd {
+			return ir.Operand{}, true
 		}
-		le := c.newTemp()
-		c.emit(&ir.BinOp{Dst: le, Op: op, Lhs: ir.TempOperand(scrut), Rhs: ir.IntOperand(p.End)})
-		both := c.newTemp()
-		c.emit(&ir.BinOp{Dst: both, Op: "&&", Lhs: ir.TempOperand(ge), Rhs: ir.TempOperand(le)})
-		return ir.TempOperand(both), false
+		var startCond ir.Operand
+		if hasStart {
+			startOp := c.compileOperandBorrow(p.Start)
+			ge := c.newTemp()
+			c.emit(&ir.BinOp{Dst: ge, Op: ">=", Lhs: ir.TempOperand(scrut), Rhs: startOp})
+			startCond = ir.TempOperand(ge)
+		}
+		var endCond ir.Operand
+		if hasEnd {
+			endOp := c.compileOperandBorrow(p.End)
+			op := "<"
+			if p.Inclusive {
+				op = "<="
+			}
+			le := c.newTemp()
+			c.emit(&ir.BinOp{Dst: le, Op: op, Lhs: ir.TempOperand(scrut), Rhs: endOp})
+			endCond = ir.TempOperand(le)
+		}
+		if hasStart && hasEnd {
+			both := c.newTemp()
+			c.emit(&ir.BinOp{Dst: both, Op: "&&", Lhs: startCond, Rhs: endCond})
+			return ir.TempOperand(both), false
+		}
+		if hasStart {
+			return startCond, false
+		}
+		return endCond, false
 	case *ast.VariantPattern:
 		enumName := p.EnumName
 		if enumName == "" {
@@ -1320,6 +1345,20 @@ func (c *Compiler) compilePatternCond(scrut int, pat ast.Pattern) (ir.Operand, b
 		c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
 		cmp := c.newTemp()
 		c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
+		payloadPat := p.Payload
+		if payloadPat == nil && p.Binding != "" {
+			payloadPat = &ast.BindingPattern{Name: p.Binding, SpanInfo: p.SpanInfo}
+		}
+		if payloadPat != nil {
+			payload := c.newTemp()
+			c.emit(&ir.GetField{Dst: payload, Src: scrut, Field: "_payload"})
+			cond, always := c.compilePatternCond(payload, payloadPat)
+			if !always {
+				both := c.newTemp()
+				c.emit(&ir.BinOp{Dst: both, Op: "&&", Lhs: ir.TempOperand(cmp), Rhs: cond})
+				return ir.TempOperand(both), false
+			}
+		}
 		return ir.TempOperand(cmp), false
 	case *ast.StructPattern:
 		return c.compileStructPatternCond(scrut, p)

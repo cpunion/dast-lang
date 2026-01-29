@@ -1089,7 +1089,8 @@ func validateOperand(op Operand, tempCount int) error {
 
 func isValidBinOp(op string) bool {
 	switch op {
-	case "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||":
+	case "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||",
+		"&", "|", "^", "<<", ">>":
 		return true
 	default:
 		return false

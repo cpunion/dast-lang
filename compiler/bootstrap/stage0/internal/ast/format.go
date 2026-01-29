@@ -372,6 +372,9 @@ func FormatPattern(p Pattern) string {
 		} else {
 			name = "." + v.Variant
 		}
+		if v.Payload != nil {
+			return name + "(" + FormatPattern(v.Payload) + ")"
+		}
 		if v.Binding != "" {
 			return name + "(" + v.Binding + ")"
 		}
@@ -383,7 +386,15 @@ func FormatPattern(p Pattern) string {
 		if v.Inclusive {
 			dots = "..="
 		}
-		return strconv.FormatInt(v.Start, 10) + dots + strconv.FormatInt(v.End, 10)
+		start := ""
+		end := ""
+		if v.Start != nil {
+			start = FormatExpr(v.Start)
+		}
+		if v.End != nil {
+			end = FormatExpr(v.End)
+		}
+		return start + dots + end
 	case *OrPattern:
 		var parts []string
 		for _, alt := range v.Alts {

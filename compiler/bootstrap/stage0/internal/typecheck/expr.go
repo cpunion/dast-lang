@@ -164,9 +164,6 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				return lhsName, true
 			}
-			if !isUnsignedIntName(rhsName) {
-				return "", false
-			}
 			return lhsName, true
 		}
 		switch e.Op {

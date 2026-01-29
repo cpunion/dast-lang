@@ -386,6 +386,12 @@ func (c *Checker) clonePattern(pat ast.Pattern, subst map[string]Type) ast.Patte
 		return &out
 	case *ast.RangePattern:
 		out := *p
+		if p.Start != nil {
+			out.Start = c.cloneExpr(p.Start, subst)
+		}
+		if p.End != nil {
+			out.End = c.cloneExpr(p.End, subst)
+		}
 		return &out
 	case *ast.OrPattern:
 		out := *p
@@ -396,6 +402,9 @@ func (c *Checker) clonePattern(pat ast.Pattern, subst map[string]Type) ast.Patte
 		return &out
 	case *ast.VariantPattern:
 		out := *p
+		if p.Payload != nil {
+			out.Payload = c.clonePattern(p.Payload, subst)
+		}
 		return &out
 	case *ast.StructPattern:
 		out := *p

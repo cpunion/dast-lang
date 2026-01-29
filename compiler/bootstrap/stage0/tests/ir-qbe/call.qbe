@@ -16,8 +16,8 @@ export function l $dast_user_main() {
 @entry
 
 @entry
-  %t1 =l call $dast_struct_get_ptr(l 0, l $str_data_0)
-  %t2 =l call $dast_struct_get_ptr(l 0, l $str_data_1)
+  %t1 =l call $dast_mem_load_u(l 0, l 0, l 8)
+  %t2 =l call $dast_mem_load_u(l 0, l 8, l 8)
   call %t1(l %t2)
   %t0 =l call $dast_user_add(l 1, l 2)
   ret %t0

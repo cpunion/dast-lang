@@ -40,7 +40,7 @@ func Parse(text string) (*Program, error) {
 	if version == "" {
 		version = "v0"
 	}
-	prog := &Program{Version: version, Enums: []*EnumDecl{}, Functions: map[string]*Function{}}
+	prog := &Program{Version: version, Enums: []*EnumDecl{}, Functions: map[string]*Function{}, TypeDecls: map[string]*TypeDecl{}}
 	i++
 	var curFn *Function
 	var curBlk *Block
@@ -94,8 +94,15 @@ func Parse(text string) (*Program, error) {
 			i++
 			continue
 		}
-		// Skip type declarations
 		if strings.HasPrefix(line, "type ") {
+			if curFn != nil || curBlk != nil {
+				return nil, fmt.Errorf("ir parse error (line %d): type inside function", i+1)
+			}
+			decl, err := parseTypeDecl(line)
+			if err != nil {
+				return nil, fmt.Errorf("ir parse error (line %d): %w", i+1, err)
+			}
+			prog.TypeDecls[decl.Name] = decl
 			i++
 			continue
 		}
@@ -203,10 +210,10 @@ func Parse(text string) (*Program, error) {
 }
 
 type lineParse struct {
-	instr   Instr
-	term    Term
-	isTerm  bool
-	maxTemp int
+	instr    Instr
+	term     Term
+	isTerm   bool
+	maxTemp  int
 	tempIdx  int
 	tempType string
 }
@@ -849,6 +856,43 @@ func parseEnumName(text string) (string, []string, error) {
 		params = splitComma(inner, -1)
 	}
 	return base, params, nil
+}
+
+func parseTypeDecl(line string) (*TypeDecl, error) {
+	line = strings.TrimSpace(strings.TrimPrefix(line, "type "))
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid type declaration")
+	}
+	name := strings.TrimSpace(parts[0])
+	if name == "" {
+		return nil, fmt.Errorf("missing type name")
+	}
+	body := strings.TrimSpace(parts[1])
+	if !strings.HasPrefix(body, "{") || !strings.HasSuffix(body, "}") {
+		return nil, fmt.Errorf("invalid type body")
+	}
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(body, "{"), "}"))
+	fields := []Var{}
+	if inner != "" {
+		for _, chunk := range strings.Split(inner, ",") {
+			chunk = strings.TrimSpace(chunk)
+			if chunk == "" {
+				continue
+			}
+			parts := strings.SplitN(chunk, ":", 2)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid field in type declaration")
+			}
+			fname := strings.TrimSpace(parts[0])
+			ftype := strings.TrimSpace(parts[1])
+			if fname == "" || ftype == "" {
+				return nil, fmt.Errorf("invalid field in type declaration")
+			}
+			fields = append(fields, Var{Name: fname, Type: ftype})
+		}
+	}
+	return &TypeDecl{Name: name, Fields: fields}, nil
 }
 
 func parseEnumHeader(line string) (*EnumDecl, error) {

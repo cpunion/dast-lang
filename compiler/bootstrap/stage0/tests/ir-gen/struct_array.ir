@@ -33,7 +33,7 @@ fn main() -> unit
     t3: Point = load p
     t3.y = 3
     t4: *Point = load_addr p
-    t5: *i64 = addr_field t4.y
+    t5: *int = addr_field t4.y
     store pr, t5
     t6: *int = load pr
     store_ref t6, 4

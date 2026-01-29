@@ -1,4 +1,6 @@
 ir v0
+type $Env = { }
+type Closure = { func: String, env: $Env }
 fn add(a: int, b: int) -> int
   block entry:
     t0 = + a, b

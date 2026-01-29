@@ -1,4 +1,5 @@
 ir v0
+type $Env = { count: *i64 }
 type Closure = { func: String, env: $Env }
 
 fn __drop_Closure(v: Closure) -> unit

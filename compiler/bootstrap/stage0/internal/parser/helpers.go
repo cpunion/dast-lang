@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"dastlang/internal/ast"
 	"dastlang/internal/lexer"
@@ -219,6 +220,9 @@ func collectStructNames(tokens []lexer.Token) map[string]struct{} {
 		if tokens[i].Kind == lexer.TokenStruct && tokens[i+1].Kind == lexer.TokenIdent {
 			names[tokens[i+1].Lexeme] = struct{}{}
 		}
+		if tokens[i].Kind == lexer.TokenType && tokens[i+1].Kind == lexer.TokenIdent {
+			names[tokens[i+1].Lexeme] = struct{}{}
+		}
 	}
 	return names
 }
@@ -229,8 +233,11 @@ func (p *Parser) isStructName(name string) bool {
 }
 
 func (p *Parser) structLitStart() bool {
-	end, _, _, ok := p.peekQualifiedName()
+	end, name, _, ok := p.peekQualifiedName()
 	if !ok {
+		return false
+	}
+	if !strings.Contains(name, ".") && !p.isStructName(name) {
 		return false
 	}
 	idx := end

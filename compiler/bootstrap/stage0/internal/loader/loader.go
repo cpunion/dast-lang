@@ -1204,6 +1204,9 @@ func rewritePattern(p ast.Pattern, aliases map[string]struct{}) ast.Pattern {
 		return v
 	case *ast.VariantPattern:
 		v.EnumName = stripPrefix(v.EnumName, aliases)
+		if v.Payload != nil {
+			v.Payload = rewritePattern(v.Payload, aliases)
+		}
 		return v
 	case *ast.StructPattern:
 		v.StructName = stripPrefix(v.StructName, aliases)

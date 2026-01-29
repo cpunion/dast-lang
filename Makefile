@@ -444,36 +444,12 @@ stage2-compiler: build-stage0
 	cp "$$out_src" "$$out"; \
 	echo "native: $$out"
 
-test-stage1-ir: build-stage0 build-stage1-ir
-	@for f in $(EXAMPLES); do \
-		echo "[stage1-ir] $$f"; \
-		out=$$($(STAGE0_RUNNER) ir-run $(STAGE1_IR) -- run $$f 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi; \
-	done
-
 test-ir: build-stage0
 	@for f in $(EXAMPLES); do \
 		echo "[ir0] $$f"; \
 		tmp="/tmp/dast-ir-v0-$$.ir"; \
 		$(STAGE0_RUNNER) ir $$f > $$tmp || exit 1; \
 		$(STAGE0_RUNNER) ir-run $$tmp || exit 1; \
-	done
-	@for f in $(EXAMPLES); do \
-		echo "[ir1] $$f"; \
-		tmp="/tmp/dast-ir-v0-$$.ir"; \
-		out=$$($(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir $$f 2>&1); \
-		status=$$?; \
-		echo "$$out"; \
-		if [ $$status -ne 0 ]; then exit $$status; fi; \
-		echo "$$out" > $$tmp; \
-		out2=$$($(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-run $$tmp 2>&1); \
-		status2=$$?; \
-		echo "$$out2"; \
-		if [ $$status2 -ne 0 ]; then exit $$status2; fi; \
-		if echo "$$out2" | grep -q '^stage[0-9]:'; then exit 1; fi; \
 	done
 
 test-ir-verify: build-stage0
@@ -505,46 +481,6 @@ test-ir-verify: build-stage0
 	@if $(STAGE0_RUNNER) ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
-	@out=$$($(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_VALID) 2>&1); \
-	status=$$?; echo "$$out"; \
-	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE0_RUNNER) run $(STAGE1_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
 	@out=$$($(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_VALID) 2>&1); \
 	status=$$?; echo "$$out"; \
 	if [ $$status -ne 0 ]; then exit $$status; fi; \

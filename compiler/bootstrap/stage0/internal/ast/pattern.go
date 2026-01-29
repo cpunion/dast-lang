@@ -26,6 +26,7 @@ type VariantPattern struct {
 	EnumName string
 	Variant  string
 	Binding  string
+	Payload  Pattern
 	SpanInfo source.Span
 }
 
@@ -41,8 +42,8 @@ func (p *LiteralPattern) patternNode()      {}
 func (p *LiteralPattern) Span() source.Span { return p.SpanInfo }
 
 type RangePattern struct {
-	Start     int64
-	End       int64
+	Start     Expr
+	End       Expr
 	Inclusive bool
 	SpanInfo  source.Span
 }

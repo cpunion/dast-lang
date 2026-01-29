@@ -136,8 +136,8 @@ func (e *emitter) emitFunction(p *ir.Program, fn *ir.Function) string {
 		if pt == "" && i < len(ti.tempTypes) {
 			pt = ti.tempTypes[i]
 		}
-		sb.WriteString("  store")
-		sb.WriteString(qbeType(pt))
+		sb.WriteString("  ")
+		sb.WriteString(storeOpForType(e, p, pt))
 		sb.WriteString(" %t")
 		sb.WriteString(fmt.Sprintf("%d", i))
 		sb.WriteString(", %")
@@ -190,13 +190,13 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			if destType == "" {
 				destType = "i64"
 			}
-			return []string{fmt.Sprintf("%%t%d =%s load %%t%d", i.Dst, qbeType(destType), i.RefTemp)}
+			return []string{fmt.Sprintf("%%t%d =%s %s %%t%d", i.Dst, qbeType(destType), loadOpForType(e, p, destType), i.RefTemp)}
 		}
 		vt := ti.varType(i.Name)
 		if vt == "" {
 			vt = "i64"
 		}
-		return []string{fmt.Sprintf("%%t%d =%s load %%%s", i.Dst, qbeType(vt), varSlot(i.Name))}
+		return []string{fmt.Sprintf("%%t%d =%s %s %%%s", i.Dst, qbeType(vt), loadOpForType(e, p, vt), varSlot(i.Name))}
 	case *ir.StoreVar:
 		srcType := ti.operandType(i.Src)
 		if srcType == "" {
@@ -204,7 +204,11 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		src := e.operandExpr(i.Src)
 		if i.Ref {
-			return []string{fmt.Sprintf("store%s %s, %%t%d", qbeType(srcType), src, i.RefTemp)}
+			base := baseType(ti.tempType(i.RefTemp))
+			if base == "" {
+				base = srcType
+			}
+			return []string{fmt.Sprintf("%s %s, %%t%d", storeOpForType(e, p, base), src, i.RefTemp)}
 		}
 		vt := ti.varType(i.Name)
 		if vt == "" {
@@ -212,7 +216,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		expr, castLines := e.castOperand(ti, i.Src, vt)
 		lines := append([]string{}, castLines...)
-		lines = append(lines, fmt.Sprintf("store%s %s, %%%s", qbeType(vt), expr, varSlot(i.Name)))
+		lines = append(lines, fmt.Sprintf("%s %s, %%%s", storeOpForType(e, p, vt), expr, varSlot(i.Name)))
 		return lines
 	case *ir.BinOp:
 		lt := ti.operandType(i.Lhs)
@@ -371,7 +375,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		return lines
 	case *ir.Index:
-		arrayExpr, arrayLines, _ := e.derefOperand(ti, i.Array)
+		arrayExpr, arrayLines, _ := e.derefOperand(p, ti, i.Array)
 		dstType := ti.tempType(i.Dst)
 		if dstType == "" {
 			dstType = "i64"
@@ -394,7 +398,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if i.Unchecked {
 			fnName = "dast_array_set_unchecked"
 		}
-		arrayExpr, arrayLines, _ := e.derefOperand(ti, i.Array)
+		arrayExpr, arrayLines, _ := e.derefOperand(p, ti, i.Array)
 		idxExpr, idxLines := e.castOperand(ti, i.Index, "i64")
 		valExpr, valLines := e.castOperand(ti, i.Src, "i64")
 		lines := append(arrayLines, idxLines...)
@@ -420,9 +424,9 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 				lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %%t%d, l %d, l %d, l $%s)", i.Dst, off, size, mangleFunc(fnName)))
 				continue
 			}
-			ft := ti.operandType(f.Src)
+			ft := fieldType(p, ti, i.Name, f.Name)
 			if ft == "" {
-				ft = fieldType(p, ti, i.Name, f.Name)
+				ft = ti.operandType(f.Src)
 			}
 			if ft == "" {
 				ft = "i64"
@@ -438,7 +442,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		return lines
 	case *ir.GetField:
-		srcExpr, srcLines, srcType := e.derefOperand(ti, ir.TempOperand(i.Src))
+		srcExpr, srcLines, srcType := e.derefOperand(p, ti, ir.TempOperand(i.Src))
 		ft := ti.tempType(i.Dst)
 		if ft == "" {
 			ft = fieldType(p, ti, baseType(srcType), i.Field)
@@ -464,10 +468,10 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		return lines
 	case *ir.SetField:
-		srcExpr, srcLines, srcType := e.derefOperand(ti, ir.TempOperand(i.Src))
-		ft := ti.operandType(i.Value)
+		srcExpr, srcLines, srcType := e.derefOperand(p, ti, ir.TempOperand(i.Src))
+		ft := fieldType(p, ti, baseType(srcType), i.Field)
 		if ft == "" {
-			ft = fieldType(p, ti, baseType(srcType), i.Field)
+			ft = ti.operandType(i.Value)
 		}
 		if ft == "" {
 			ft = "i64"
@@ -483,7 +487,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %s, l %d, l %d, l %s)", srcExpr, off, size, valExpr))
 		return lines
 	case *ir.FieldAddr:
-		srcExpr, srcLines, _ := e.derefOperand(ti, ir.TempOperand(i.Src))
+		srcExpr, srcLines, _ := e.derefOperand(p, ti, ir.TempOperand(i.Src))
 		lines := append([]string{}, srcLines...)
 		srcType := ti.tempType(i.Src)
 		off := fieldOffset(e, p, srcType, i.Field)
@@ -493,7 +497,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_mem_field_addr(l %s, l %d)", i.Dst, srcExpr, off))
 		return lines
 	case *ir.IndexAddr:
-		baseExpr, baseLines, _ := e.derefOperand(ti, ir.TempOperand(i.Base))
+		baseExpr, baseLines, _ := e.derefOperand(p, ti, ir.TempOperand(i.Base))
 		idxExpr, idxLines := e.castOperand(ti, i.Index, "i64")
 		lines := append(baseLines, idxLines...)
 		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_array_index_addr(l %s, l %s)", i.Dst, baseExpr, idxExpr))
@@ -621,7 +625,7 @@ func (e *emitter) emitBuiltinCall(p *ir.Program, ti *typeInfo, dst int, callee s
 			}
 			return []string{fmt.Sprintf("call $dast_string_clone(l 0)")}
 		}
-		argExpr, argLines, _ := e.derefOperand(ti, args[0])
+		argExpr, argLines, _ := e.derefOperand(p, ti, args[0])
 		lines := append([]string{}, argLines...)
 		if dst >= 0 {
 			lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_string_clone(l %s)", dst, argExpr))
@@ -1031,14 +1035,14 @@ func (e *emitter) castOperand(ti *typeInfo, op ir.Operand, targetType string) (s
 	return fmt.Sprintf("%%t%d", tmp), lines
 }
 
-func (e *emitter) derefOperand(ti *typeInfo, op ir.Operand) (string, []string, string) {
+func (e *emitter) derefOperand(p *ir.Program, ti *typeInfo, op ir.Operand) (string, []string, string) {
 	typ := ti.operandType(op)
 	if !isRefType(typ) {
 		return e.operandExpr(op), nil, typ
 	}
 	base := baseType(typ)
 	tmp := e.newTemp()
-	line := fmt.Sprintf("%%t%d =%s load %s", tmp, qbeType(base), e.operandExpr(op))
+	line := fmt.Sprintf("%%t%d =%s %s %s", tmp, qbeType(base), loadOpForType(e, p, base), e.operandExpr(op))
 	return fmt.Sprintf("%%t%d", tmp), []string{line}, base
 }
 
@@ -1424,16 +1428,89 @@ func qbeType(typ string) string {
 		return "w"
 	}
 	switch typ {
-	case "i8", "u8":
-		return "b"
-	case "i16", "u16":
-		return "h"
+	case "i8", "u8", "i16", "u16":
+		return "w"
 	case "i32", "u32", "char":
 		return "w"
 	case "i64", "int", "isize", "usize":
 		return "l"
 	}
 	return "l"
+}
+
+func storeOpForType(e *emitter, p *ir.Program, t string) string {
+	t = normalizeType(t)
+	if isRefType(t) || isArrayType(t) || isStructType(t) || isStringType(t) || isEnumType(t) {
+		if isEnumTypeName(p, t) && !enumHasPayload(p, t) {
+			tagT := enumTagType(p, t)
+			return storeOpForType(e, p, tagT)
+		}
+		return "storel"
+	}
+	if t == "bool" {
+		return "storeb"
+	}
+	if t == "f32" {
+		return "storew"
+	}
+	if t == "f64" {
+		return "storel"
+	}
+	if w := typeIntWidth(t, e.ptrSize); w > 0 {
+		switch w {
+		case 8:
+			return "storeb"
+		case 16:
+			return "storeh"
+		case 32:
+			return "storew"
+		default:
+			return "storel"
+		}
+	}
+	return "storel"
+}
+
+func loadOpForType(e *emitter, p *ir.Program, t string) string {
+	t = normalizeType(t)
+	if isRefType(t) || isArrayType(t) || isStructType(t) || isStringType(t) || isEnumType(t) {
+		if isEnumTypeName(p, t) && !enumHasPayload(p, t) {
+			tagT := enumTagType(p, t)
+			return loadOpForType(e, p, tagT)
+		}
+		return "load"
+	}
+	if t == "bool" {
+		return "loadub"
+	}
+	if t == "f32" {
+		return "loaduw"
+	}
+	if t == "f64" {
+		return "load"
+	}
+	if w := typeIntWidth(t, e.ptrSize); w > 0 {
+		switch w {
+		case 8:
+			if isSignedIntType(t) {
+				return "loadsb"
+			}
+			return "loadub"
+		case 16:
+			if isSignedIntType(t) {
+				return "loadsh"
+			}
+			return "loaduh"
+		case 32:
+			if isSignedIntType(t) {
+				return "loadsw"
+			}
+			return "loaduw"
+		default:
+			return "load"
+		}
+	}
+	return "load"
 }
 
 func typeIntWidth(t string, ptrSize int) int64 {
@@ -1808,6 +1885,12 @@ func unifyType(a, b string) string {
 	if a == b {
 		return a
 	}
+	if a == "int" && isIntType(b) && b != "int" {
+		return b
+	}
+	if b == "int" && isIntType(a) && a != "int" {
+		return a
+	}
 	if isIntType(a) && !isIntType(b) && (a == "i64" || a == "int") {
 		return b
 	}
@@ -1982,6 +2065,14 @@ func fieldOffset(e *emitter, p *ir.Program, structType, field string) int64 {
 		}
 		if field == "_payload" {
 			return enumPayloadOffset(e, p, st)
+		}
+	}
+	if st == "Closure" {
+		if field == "func" {
+			return 0
+		}
+		if field == "env" {
+			return int64(e.ptrSize)
 		}
 	}
 	return structFieldOffset(e, p, st, field)

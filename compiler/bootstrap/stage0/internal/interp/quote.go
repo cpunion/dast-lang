@@ -749,7 +749,11 @@ func (q *quoteCtx) replacePattern(pat ast.Pattern) error {
 			}
 			p.Variant = name
 		}
-		if p.Binding != "" {
+		if p.Payload != nil {
+			if err := q.replacePattern(p.Payload); err != nil {
+				return err
+			}
+		} else if p.Binding != "" {
 			if idx, ok := placeholderIndex(p.Binding); ok {
 				name, err := q.spliceIdent(idx)
 				if err != nil {
@@ -1095,6 +1099,10 @@ func (r *hygieneRenamer) renamePatternWithMap(pat ast.Pattern, binds map[string]
 			p.Name = renamed
 		}
 	case *ast.VariantPattern:
+		if p.Payload != nil {
+			r.renamePatternWithMap(p.Payload, binds, generate)
+			return
+		}
 		if p.Binding != "" && !isPlaceholder(p.Binding) {
 			if renamed, ok := binds[p.Binding]; ok {
 				p.Binding = renamed

@@ -221,6 +221,16 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 			return c.constZero()
 		}
 	case *ast.BinaryExpr:
+		if e.Op == "&&" || e.Op == "||" {
+			thenExpr := e.Right
+			elseExpr := ast.Expr(&ast.BoolLit{Value: false, SpanInfo: e.Span()})
+			if e.Op == "||" {
+				thenExpr = &ast.BoolLit{Value: true, SpanInfo: e.Span()}
+				elseExpr = e.Right
+			}
+			ifExpr := &ast.IfExpr{Cond: e.Left, Then: thenExpr, Else: elseExpr, SpanInfo: e.Span()}
+			return c.compileIfExpr(ifExpr)
+		}
 		lhsType := normalizeTypeName(c.inferExprType(e.Left))
 		rhsType := normalizeTypeName(c.inferExprType(e.Right))
 		if (e.Op == "==" || e.Op == "!=") && lhsType != "" && lhsType == rhsType && c.isEnumTypeName(lhsType) {

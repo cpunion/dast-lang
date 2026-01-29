@@ -211,7 +211,9 @@ func declarePatternBindings(p ast.Pattern, locals map[string]struct{}) {
 	case *ast.BindingPattern:
 		locals[pat.Name] = struct{}{}
 	case *ast.VariantPattern:
-		if pat.Binding != "" {
+		if pat.Payload != nil {
+			declarePatternBindings(pat.Payload, locals)
+		} else if pat.Binding != "" {
 			locals[pat.Binding] = struct{}{}
 		}
 	case *ast.StructPattern:
@@ -374,6 +376,7 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 			Fields: nil,
 		}
 	}
+	envDecl := c.prog.TypeDecls["$Env"]
 
 	// Build env struct in outer function
 	envFields := make([]ir.StructFieldInit, 0, len(captures))
@@ -382,22 +385,39 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 		if !ok {
 			continue
 		}
+		fieldType := varInfo.Type
+		if fieldType == "" {
+			fieldType = "i64"
+		}
 		if _, ok := mutatedCaptures[name]; ok {
 			if !varInfo.Mutable {
 				c.diag.Add(e.Span(), fmt.Sprintf("cannot capture immutable variable '%s' by mutable closure", name))
 				continue
 			}
 			addrTemp := c.newTemp()
-			c.setTempType(addrTemp, "*i64")
+			c.setTempType(addrTemp, "*"+fieldType)
 			c.emit(&ir.LoadVar{Dst: addrTemp, Name: varInfo.Name, Addr: true})
 			envFields = append(envFields, ir.StructFieldInit{Name: name, Src: ir.TempOperand(addrTemp)})
+			fieldType = "*" + fieldType
 		} else if varInfo.Temp >= 0 {
 			envFields = append(envFields, ir.StructFieldInit{Name: name, Src: ir.TempOperand(varInfo.Temp)})
 		} else {
 			valTemp := c.newTemp()
-			c.setTempType(valTemp, "i64")
+			c.setTempType(valTemp, fieldType)
 			c.emit(&ir.LoadVar{Dst: valTemp, Name: varInfo.Name})
 			envFields = append(envFields, ir.StructFieldInit{Name: name, Src: ir.TempOperand(valTemp)})
+		}
+		if envDecl != nil {
+			found := false
+			for _, f := range envDecl.Fields {
+				if f.Name == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				envDecl.Fields = append(envDecl.Fields, ir.Var{Name: name, Type: fieldType})
+			}
 		}
 	}
 	envTempOuter := c.newTemp()
