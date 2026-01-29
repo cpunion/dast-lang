@@ -50,7 +50,7 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  jnz " + cond + ", @" + string_clone(&guard_label) + ", @" + string_clone(&next_label))
             emit_label(e, &guard_label)
         }
-        let arm_val = emit_block_expr(e, &arm.block)
+        let arm_val = emit_block_expr_typed(e, &arm.block, &ret_t)
         if !block_ends_with_terminator(&arm.block) {
             if need_res {
                 let casted = cast_to_type(e, arm_val, &ret_t)
@@ -132,7 +132,7 @@ fn emit_return(e: &mut Emitter, stmt: &Stmt) {
     let target_t = string_clone(&e.cur_ret_type)
     let mut rexpr = "0"
     if stmt.ret_has_value {
-        let v = emit_expr(e, &stmt.expr)
+        let v = emit_typed_value(e, &stmt.expr, &target_t)
         rexpr = cast_to_type(e, v, &target_t)
         drop_live_remove_returned_expr(e, &stmt.expr)
     }
@@ -290,8 +290,9 @@ fn emit_compiled_function(glob: &mut Emitter, f: &Function) -> FuncEmitResult {
     let mut e = emitter_with_globals(glob)
     let eff_rt = effective_ret_type(&e, f)
     e.cur_ret_type = string_clone(&eff_rt)
-    validate_block_args(&f.body, f.name)
+    validate_block_args(&f.body, &f.name)
     collect_vars(&mut e, f)
+    infer_untyped_vars(&mut e, f, &eff_rt)
     let stmt_count = len(&f.body.stmts)
     if stmt_count > 0 {
         let last = stmt_clone(&f.body.stmts[stmt_count - 1])

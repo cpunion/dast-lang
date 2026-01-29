@@ -1,7 +1,8 @@
 // IO/process builtins declared in the prelude package.
 
 fn read_file(path: &str) -> String {
-    return path
+    let _ = path
+    return ""
 }
 
 fn write_file(path: &str, data: &str) -> unit {

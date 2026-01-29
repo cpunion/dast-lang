@@ -10,11 +10,11 @@ fn char_at(x: &str, i: i64) -> i64 {
 }
 
 fn substr(x: &str, start: i64, count: i64) -> String {
-    return x
+    return ""
 }
 
 fn string_clone(x: &str) -> String {
-    return x
+    return ""
 }
 
 // Callable traits (minimal surface; semantics implemented by compiler).

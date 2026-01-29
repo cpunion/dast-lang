@@ -8,8 +8,8 @@ enum Boxed {
 }
 
 fn main() {
-    let mut i = 0
-    let mut count = 0
+    let mut i: i64 = 0
+    let mut count: i64 = 0
     let mut cur = Boxed.None
     while i < 4 {
         if i < 2 {

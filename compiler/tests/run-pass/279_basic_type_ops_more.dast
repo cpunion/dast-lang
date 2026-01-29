@@ -1,6 +1,6 @@
 fn main() {
     let a: i32 = 10
-    let b: u16 = 4
+    let b: i32 = 4
     let c = a + b
     if c != 14 { exit(1) }
 

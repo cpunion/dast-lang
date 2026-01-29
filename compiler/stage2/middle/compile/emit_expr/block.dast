@@ -1,5 +1,10 @@
 fn emit_store_let(e: &mut Emitter, name: &str, expr: &Expr) {
     let typ = var_type(e, name)
+    let declared = type_resolve(e, &typ)
+    if declared == "" {
+        println("stage2: let missing type for", name)
+        exit(1)
+    }
     if expr.kind == EXPR_CLOSURE {
         closure_add(e, name, &expr.block)
         return
@@ -13,19 +18,18 @@ fn emit_store_let(e: &mut Emitter, name: &str, expr: &Expr) {
     }
     let mut v = qbe_value("i64", "0")
     if expr.kind == EXPR_STRUCT_LIT {
-        let declared = type_resolve(e, &typ)
         let actual = type_resolve(e, &expr.name)
         let db = type_strip_args(e, &declared)
         let ab = type_strip_args(e, &actual)
         if db != "" && db == ab && declared != actual {
             let mut lit = expr_clone(expr)
             lit.name = string_clone(&declared)
-            v = emit_expr(e, &lit)
+            v = emit_typed_value(e, &lit, &declared)
         } else {
-            v = emit_expr(e, expr)
+            v = emit_typed_value(e, expr, &declared)
         }
     } else {
-        v = emit_expr(e, expr)
+        v = emit_typed_value(e, expr, &declared)
     }
     drop_live_drop_existing(e, name)
     let op = store_op_for_type(e, &typ)
@@ -88,7 +92,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
             println("stage2: unknown field", fname)
             exit(1)
         }
-        let v = emit_expr(e, expr)
+        let v = emit_typed_value(e, expr, &ftyp)
         let casted = cast_to_type(e, v, &ftyp)
         let off = struct_field_offset(e, &recv_base, &fname)
         let size = type_size(e, &ftyp)
@@ -111,7 +115,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let idxv = emit_expr(e, expr_arg_ref(lhs, 1, "assign_index_idx"))
         let idx = cast_to_l(e, idxv)
         let elem_t = expr_type(e, lhs)
-        let v = emit_expr(e, expr)
+        let v = emit_typed_value(e, expr, &elem_t)
         let casted = cast_to_type(e, v, &elem_t)
         let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
         emit_line(e, "  call $dast_array_set(l " + recv.expr + ", l " + idx + ", l " + as_l + ")")
@@ -124,7 +128,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
             exit(1)
         }
         let target_t = expr_type(e, lhs)
-        let v = emit_expr(e, expr)
+        let v = emit_typed_value(e, expr, &target_t)
         let casted = cast_to_type(e, v, &target_t)
         let op = store_op_for_type(e, &target_t)
         emit_line(e, "  " + op + " " + casted + ", " + ptr.expr)

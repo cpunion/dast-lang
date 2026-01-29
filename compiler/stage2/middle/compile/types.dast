@@ -257,14 +257,76 @@ fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
     let declared = type_resolve(e, expected)
     let actual = type_resolve(e, actual)
     if declared == actual { return true }
-    if type_is_int(e, &declared) && type_is_int(e, &actual) { return true }
-    if type_is_array(e, &declared) && type_is_array(e, &actual) {
-        let de = type_array_elem(e, &declared)
-        let ae = type_array_elem(e, &actual)
-        if type_is_int(e, &de) && type_is_int(e, &ae) { return true }
-    }
     let db = type_strip_args(e, &declared)
     let ab = type_strip_args(e, &actual)
+    if db != "" && db == ab { return true }
+    return false
+}
+
+fn default_untyped_type(e: &Emitter, t: &str) -> String {
+    let rt = type_resolve(e, t)
+    if rt == "untyped-int" { return "i32" }
+    if rt == "untyped-float" { return "f64" }
+    if type_is_array(e, &rt) {
+        let elem = type_array_elem(e, &rt)
+        let def_elem = default_untyped_type(e, &elem)
+        if def_elem != elem {
+            return "[" + def_elem + "]"
+        }
+        return string_clone(&rt)
+    }
+    if type_is_ref(e, &rt) {
+        let base = type_ref_base(e, &rt)
+        let def_base = default_untyped_type(e, &base)
+        if def_base == base { return string_clone(&rt) }
+        let prefix = if type_is_mut_ref(e, &rt) { "&mut " } else { "&" }
+        return prefix + def_base
+    }
+    return string_clone(&rt)
+}
+
+fn expr_is_int_literal(expr: &Expr) -> bool {
+    return expr.kind == EXPR_INT || expr.kind == EXPR_CHAR
+}
+
+fn expr_int_literal_value(expr: &Expr) -> i64 {
+    return expr.int_value
+}
+
+fn block_expr_is_int_literal(b: &Block) -> bool {
+    let n = len(&b.stmts)
+    if n == 0 { return false }
+    let last = &b.stmts[n - 1]
+    if last.kind != STMT_EXPR { return false }
+    return expr_is_int_literal(&last.expr)
+}
+
+fn block_expr_int_literal_value(b: &Block) -> i64 {
+    let n = len(&b.stmts)
+    if n == 0 { return 0 }
+    let last = &b.stmts[n - 1]
+    return expr_int_literal_value(&last.expr)
+}
+
+fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
+    let declared = type_resolve(e, expected)
+    let actual = expr_type(e, expr)
+    let actual_rt = type_resolve(e, &actual)
+    if declared == actual_rt { return true }
+    if expr_is_int_literal(expr) && type_is_int(e, &declared) {
+        return int_value_fits_type(e, expr_int_literal_value(expr), &declared)
+    }
+    if type_is_array(e, &declared) && expr.kind == EXPR_ARRAY {
+        let elem_t = type_array_elem(e, &declared)
+        let mut i = 0
+        while i < len(&expr.args) {
+            if !type_compatible_expr(e, &elem_t, &expr.args[i]) { return false }
+            i = i + 1
+        }
+        return true
+    }
+    let db = type_strip_args(e, &declared)
+    let ab = type_strip_args(e, &actual_rt)
     if db != "" && db == ab { return true }
     return false
 }
@@ -356,6 +418,13 @@ fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String
         }
         ai = ai + 1
     }
+    let mut vi2 = 0
+    while vi2 < len(&values) {
+        if values[vi2] != "" {
+            values[vi2] = default_untyped_type(e, &values[vi2])
+        }
+        vi2 = vi2 + 1
+    }
     check_type_param_bounds(e, f, &values)
     return values
 }
@@ -435,7 +504,7 @@ fn emit_auto_borrow(e: &mut Emitter, inner: &Expr, expected_ref: &str) -> QbeVal
             return qbe_value(ref_t, "%" + var_slot(&name))
         }
     }
-    let v = emit_expr(e, inner)
+    let v = emit_typed_value(e, inner, &base_t)
     let tmp = new_temp(e)
     let tn = temp_name(tmp)
     emit_line(e, "  " + tn + " =l alloc8 8")
@@ -464,6 +533,94 @@ fn var_is_mut(e: &Emitter, name: &str) -> bool {
     return e.var_mut[idx]
 }
 
+fn ensure_var_untyped_len(e: &mut Emitter) {
+    let n = len(&e.var_names)
+    let mut kinds = e.var_untyped_kind
+    let mut values = e.var_untyped_value
+    let mut has_values = e.var_untyped_has_value
+    while len(&kinds) < n {
+        push(&mut kinds, UNTYPED_NONE)
+        push(&mut values, 0)
+        push(&mut has_values, false)
+    }
+    e.var_untyped_kind = kinds
+    e.var_untyped_value = values
+    e.var_untyped_has_value = has_values
+}
+
+fn var_untyped_set(e: &mut Emitter, name: &str, kind: i32, value: i64, has_value: bool) {
+    let idx = var_index(e, name)
+    if idx < 0 { return }
+    ensure_var_untyped_len(e)
+    if idx >= len(&e.var_untyped_kind) { return }
+    e.var_untyped_kind[idx] = kind
+    e.var_untyped_value[idx] = value
+    e.var_untyped_has_value[idx] = has_value
+}
+
+fn var_untyped_kind(e: &Emitter, name: &str) -> i32 {
+    let idx = var_index(e, name)
+    if idx < 0 { return UNTYPED_NONE }
+    if idx >= len(&e.var_untyped_kind) { return UNTYPED_NONE }
+    return e.var_untyped_kind[idx]
+}
+
+fn var_untyped_value(e: &Emitter, name: &str) -> i64 {
+    let idx = var_index(e, name)
+    if idx < 0 { return 0 }
+    if idx >= len(&e.var_untyped_value) { return 0 }
+    return e.var_untyped_value[idx]
+}
+
+fn var_untyped_has_value(e: &Emitter, name: &str) -> bool {
+    let idx = var_index(e, name)
+    if idx < 0 { return false }
+    if idx >= len(&e.var_untyped_has_value) { return false }
+    return e.var_untyped_has_value[idx]
+}
+
+fn var_set_type(e: &mut Emitter, name: &str, new_t: &str) -> bool {
+    let idx = var_index(e, name)
+    if idx < 0 { return false }
+    ensure_var_untyped_len(e)
+    if idx >= len(&e.var_types) { return false }
+    let cur = string_clone(&e.var_types[idx])
+    let nt = type_resolve(e, new_t)
+    if cur == nt { return false }
+    if type_is_array(e, &cur) && type_is_array(e, &nt) {
+        let cur_elem = type_array_elem(e, &cur)
+        let nt_elem = type_array_elem(e, &nt)
+        if cur_elem == "untyped-int" && type_is_int(e, &nt_elem) {
+            e.var_types[idx] = string_clone(&nt)
+            return true
+        }
+        if cur_elem == "untyped-float" && type_is_float(e, &nt_elem) {
+            e.var_types[idx] = string_clone(&nt)
+            return true
+        }
+    }
+    if cur == "untyped-int" && type_is_int(e, &nt) {
+        if e.var_untyped_kind[idx] == UNTYPED_INT && e.var_untyped_has_value[idx] {
+            let v = e.var_untyped_value[idx]
+            if !int_value_fits_type(e, v, &nt) {
+                println("stage2: integer literal out of range for", nt)
+                exit(1)
+            }
+        }
+        e.var_types[idx] = string_clone(&nt)
+        e.var_untyped_kind[idx] = UNTYPED_NONE
+        e.var_untyped_has_value[idx] = false
+        return true
+    }
+    if cur == "untyped-float" && type_is_float(e, &nt) {
+        e.var_types[idx] = string_clone(&nt)
+        e.var_untyped_kind[idx] = UNTYPED_NONE
+        e.var_untyped_has_value[idx] = false
+        return true
+    }
+    return false
+}
+
 fn closure_index(e: &Emitter, name: &str) -> i64 {
     let mut i = 0
     while i < len(&e.closure_names) {
@@ -476,31 +633,45 @@ fn closure_index(e: &Emitter, name: &str) -> i64 {
 fn int_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let lt = expr_type(e, lhs)
     let rt = expr_type(e, rhs)
-    if !type_is_int(e, &lt) || !type_is_int(e, &rt) { return "" }
-    let lhs_lit = lhs.kind == EXPR_INT
-    let rhs_lit = rhs.kind == EXPR_INT
-    if lhs_lit && !rhs_lit {
-        if int_value_fits_type(e, lhs.int_value, &rt) { return string_clone(&rt) }
+    let lhs_untyped = type_is_untyped_int(e, &lt)
+    let rhs_untyped = type_is_untyped_int(e, &rt)
+    if !lhs_untyped && !type_is_int(e, &lt) { return "" }
+    if !rhs_untyped && !type_is_int(e, &rt) { return "" }
+    let lhs_lit = expr_is_int_literal(lhs)
+    let rhs_lit = expr_is_int_literal(rhs)
+    if lhs_untyped && rhs_untyped {
+        return "untyped-int"
     }
-    if rhs_lit && !lhs_lit {
-        if int_value_fits_type(e, rhs.int_value, &lt) { return string_clone(&lt) }
+    if lhs_untyped && type_is_int(e, &rt) {
+        if lhs_lit && !int_value_fits_type(e, expr_int_literal_value(lhs), &rt) { return "" }
+        return string_clone(&rt)
+    }
+    if rhs_untyped && type_is_int(e, &lt) {
+        if rhs_lit && !int_value_fits_type(e, expr_int_literal_value(rhs), &lt) { return "" }
+        return string_clone(&lt)
     }
     let pt = int_peer_type(e, &lt, &rt)
     if pt == "" { return "" }
-    if lhs_lit && !int_value_fits_type(e, lhs.int_value, &pt) { return "" }
-    if rhs_lit && !int_value_fits_type(e, rhs.int_value, &pt) { return "" }
+    if lhs_lit && !int_value_fits_type(e, expr_int_literal_value(lhs), &pt) { return "" }
+    if rhs_lit && !int_value_fits_type(e, expr_int_literal_value(rhs), &pt) { return "" }
     return pt
 }
 
 fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let lt = expr_type(e, lhs)
     let rt = expr_type(e, rhs)
-    if !type_is_int(e, &lt) || !type_is_int(e, &rt) { return "" }
-    if rhs.kind == EXPR_INT {
-        if rhs.int_value < 0 { return "" }
+    let lhs_untyped = type_is_untyped_int(e, &lt)
+    let rhs_untyped = type_is_untyped_int(e, &rt)
+    if !lhs_untyped && !type_is_int(e, &lt) { return "" }
+    if !rhs_untyped && !type_is_int(e, &rt) { return "" }
+    if rhs_untyped && !expr_is_int_literal(rhs) { return "" }
+    if expr_is_int_literal(rhs) {
+        if expr_int_literal_value(rhs) < 0 { return "" }
+        if lhs_untyped { return "untyped-int" }
         return string_clone(&lt)
     }
     if !type_is_unsigned_int(e, &rt) { return "" }
+    if lhs_untyped { return "untyped-int" }
     return string_clone(&lt)
 }
 
@@ -755,7 +926,7 @@ fn escape_qbe_string(s: &str) -> String {
 
 fn expr_type(e: &Emitter, expr: &Expr) -> String {
     match expr.kind {
-        EXPR_INT => { return "i64" }
+        EXPR_INT => { return "untyped-int" }
         EXPR_CHAR => { return "char" }
         EXPR_BOOL => { return "bool" }
         EXPR_STRING => { return "String" }
@@ -763,7 +934,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             let ct = const_type(e, &expr.name)
             if ct != "" { return ct }
             let vt = var_type(e, &expr.name)
-            if vt != "" { return vt }
+            if vt != "" { return default_untyped_type(e, &vt) }
             return "i64"
         }
         EXPR_STRUCT_LIT => {
@@ -784,7 +955,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             return type_resolve(e, &base)
         }
         EXPR_ARRAY => {
-            if len(&expr.args) == 0 { return "[i64]" }
+            if len(&expr.args) == 0 { return "[untyped-int]" }
             let elem = expr_type(e, expr_arg_ref(expr, 0, "expr_type_array"))
             return "[" + type_resolve(e, &elem) + "]"
         }
@@ -807,15 +978,30 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         }
         EXPR_MATCH => {
             let mut out = ""
+            let mut out_is_lit = false
+            let mut out_lit_val: i64 = 0
             let mut i = 0
             while i < len(&expr.match_arms) {
                 let arm = &expr.match_arms[i]
                 let bt = block_expr_type(e, &arm.block)
-                if out == "" { out = bt }
-                else {
+                let bt_res = type_resolve(e, &bt)
+                let bt_lit = block_expr_is_int_literal(&arm.block)
+                let bt_lit_val = if bt_lit { block_expr_int_literal_value(&arm.block) } else { 0 }
+                if out == "" {
+                    out = bt_res
+                    out_is_lit = bt_lit
+                    out_lit_val = bt_lit_val
+                } else {
                     let a = type_resolve(e, &out)
-                    let b = type_resolve(e, &bt)
-                    if !type_compatible(e, &a, &b) && !type_compatible(e, &b, &a) {
+                    let b = bt_res
+                    if a == b {
+                        // ok
+                    } else if type_is_int(e, &a) && bt_lit && int_value_fits_type(e, bt_lit_val, &a) {
+                        // ok
+                    } else if type_is_int(e, &b) && out_is_lit && int_value_fits_type(e, out_lit_val, &b) {
+                        out = b
+                        out_is_lit = false
+                    } else {
                         println("stage2: match arms must have same type:", a, "vs", b)
                         exit(1)
                     }
@@ -887,7 +1073,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                 return "String"
             }
             let ec = enum_call_parse(&expr.name)
-            if ec.ok { return ec.enum_name }
+            if ec.ok { return string_clone(&ec.enum_name) }
             let rt = func_ret_type_for_call(e, &expr.name, &expr.args)
             return type_resolve(e, &rt)
         }

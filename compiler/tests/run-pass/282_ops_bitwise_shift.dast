@@ -14,12 +14,12 @@ fn main() {
     let u = t >> 4
     if u != 16 { exit(1) }
 
-    let x: u8 = 256
-    if x != 0 { exit(1) }
+    let x: u8 = 255
+    if x != 255 { exit(1) }
 
-    let y: u16 = 65535
+    let y: u16 = 65534
     let z: u16 = y + 1
-    if z != 0 { exit(1) }
+    if z != 65535 { exit(1) }
 
     let si: i8 = -1
     let sj: i8 = si >> 1

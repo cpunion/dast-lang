@@ -118,15 +118,24 @@ fn collect_var_add(e: &mut Emitter, name: &str, typ: &str, mutable: bool) {
     let mut names = e.var_names
     let mut types = e.var_types
     let mut muts = e.var_mut
+    let mut kinds = e.var_untyped_kind
+    let mut values = e.var_untyped_value
+    let mut has_values = e.var_untyped_has_value
     push(&mut names, string_clone(name))
     push(&mut types, string_clone(typ))
     push(&mut muts, mutable)
+    push(&mut kinds, UNTYPED_NONE)
+    push(&mut values, 0)
+    push(&mut has_values, false)
     e.var_names = names
     e.var_types = types
     e.var_mut = muts
+    e.var_untyped_kind = kinds
+    e.var_untyped_value = values
+    e.var_untyped_has_value = has_values
 }
 
-fn validate_expr_args(expr: &Expr, ctx: &str) {
+fn validate_expr_args(expr: &Expr, ctx: &String) {
     let n = len(&expr.args)
     if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH {
         if n < 1 {
@@ -165,7 +174,7 @@ fn validate_expr_args(expr: &Expr, ctx: &str) {
     }
 }
 
-fn validate_stmt_args(stmt: &Stmt, ctx: &str) {
+fn validate_stmt_args(stmt: &Stmt, ctx: &String) {
     if stmt.kind == STMT_LET || stmt.kind == STMT_EXPR || stmt.kind == STMT_RETURN || stmt.kind == STMT_ASSIGN {
         validate_expr_args(&stmt.expr, ctx)
         return
@@ -191,7 +200,7 @@ fn validate_stmt_args(stmt: &Stmt, ctx: &str) {
     }
 }
 
-fn validate_block_args(b: &Block, ctx: &str) {
+fn validate_block_args(b: &Block, ctx: &String) {
     let mut i = 0
     while i < len(&b.stmts) {
         validate_stmt_args(&b.stmts[i], ctx)
@@ -204,14 +213,19 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
     while i < len(items) {
         let s = &(*items)[i]
         if s.kind == STMT_LET {
+            collect_vars_from_expr(e, &s.expr)
             if s.name != "" {
                 let expr = &s.expr
                 let mut typ = expr_type(e, expr)
+                let mut untyped_kind = UNTYPED_NONE
+                let mut untyped_value = 0
+                let mut untyped_has = false
                 if !s.has_type && expr.kind == EXPR_CALL {
                     let ec = enum_call_parse(&expr.name)
                     if ec.ok {
-                        if type_is_enum(e, &ec.enum_name) { typ = ec.enum_name }
-                        else if typ == "i64" || typ == "" { typ = ec.enum_name }
+                        let is_en = type_is_enum(e, &ec.enum_name)
+                        if is_en { typ = string_clone(&ec.enum_name) }
+                        else if typ == "i64" || typ == "" { typ = string_clone(&ec.enum_name) }
                         enum_var_set(e, &s.name, &ec.enum_name)
                     }
                 }
@@ -219,16 +233,38 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     let declared = type_resolve(e, &s.typ)
                     let actual = type_resolve(e, &typ)
                     if declared != "" && actual != "" && declared != actual {
-                        if !type_compatible(e, &declared, &actual) {
+                        if !type_compatible_expr(e, &declared, expr) {
                             println("stage2: let type mismatch expected", declared, "got", actual)
                             exit(1)
                         }
                     }
                     typ = declared
+                } else if typ == "" && expr.kind == EXPR_CALL {
+                    let ec = enum_call_parse(&expr.name)
+                    if ec.ok {
+                        typ = string_clone(&ec.enum_name)
+                    } else {
+                        let rt = func_ret_type_for_call(e, &expr.name, &expr.args)
+                        if rt != "" { typ = type_resolve(e, &rt) }
+                    }
+                } else if typ == "untyped-int" {
+                    untyped_kind = UNTYPED_INT
+                    if expr_is_int_literal(expr) {
+                        untyped_value = expr_int_literal_value(expr)
+                        untyped_has = true
+                    }
+                } else if typ == "untyped-float" {
+                    untyped_kind = UNTYPED_FLOAT
+                }
+                if typ == "" {
+                    println("stage2: let missing type for", s.name, "expr", expr.kind, expr.name)
+                    exit(1)
                 }
                 collect_var_add(e, &s.name, &typ, s.mutable)
+                if untyped_kind != UNTYPED_NONE {
+                    var_untyped_set(e, &s.name, untyped_kind, untyped_value, untyped_has)
+                }
             }
-            collect_vars_from_expr(e, &s.expr)
         }
         if s.kind == STMT_IF {
             collect_vars_from_expr(e, &s.expr)
@@ -304,6 +340,290 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
     }
 }
 
+fn constrain_expr_to_type(e: &mut Emitter, expr: &Expr, expected: &String) -> bool {
+    let exp = type_resolve(e, expected)
+    if exp == "" { return false }
+    if expr.kind == EXPR_IDENT {
+        if type_is_ref(e, &exp) {
+            let base = type_ref_base(e, &exp)
+            return var_set_type(e, &expr.name, &base)
+        }
+        return var_set_type(e, &expr.name, &exp)
+    }
+    if (expr.kind == EXPR_REF || expr.kind == EXPR_DEREF) && len(&expr.args) > 0 {
+        if type_is_ref(e, &exp) {
+            let base = type_ref_base(e, &exp)
+            return constrain_expr_to_type(e, expr_arg_ref(expr, 0, "constrain_ref_inner"), &base)
+        }
+    }
+    if expr.kind == EXPR_BLOCK {
+        let n = len(&expr.block.stmts)
+        if n > 0 {
+            let last = &expr.block.stmts[n - 1]
+            if last.kind == STMT_EXPR {
+                return constrain_expr_to_type(e, &last.expr, &exp)
+            }
+        }
+    }
+    return false
+}
+
+fn infer_untyped_call_args(e: &mut Emitter, expr: &Expr) -> bool {
+    let mut changed = false
+    let ec = enum_call_parse(&expr.name)
+    if ec.ok && len(&expr.args) > 0 {
+        let payload_t = enum_variant_payload_type(e, &ec.enum_name, &ec.variant)
+        changed = constrain_expr_to_type(e, expr_arg_ref(expr, 0, "infer_enum_payload"), &payload_t) || changed
+        return changed
+    }
+    let di = func_decl_index(e, &expr.name)
+    if di < 0 { return false }
+    let f = &e.func_decls[di]
+    let mut values: [String] = []
+    if len(&f.type_params) > 0 {
+        values = func_type_args_for_call(e, f, &expr.args)
+    }
+    let param_types = func_param_types_for_call(e, f, &values)
+    let params = func_type_param_names(f)
+    let mut i = 0
+    while i < len(&expr.args) && i < len(&param_types) {
+        let pt = &param_types[i]
+        if pt != "" && list_index(&params, pt) < 0 {
+            if constrain_expr_to_type(e, expr_arg_ref(expr, i, "infer_call_arg"), pt) {
+                changed = true
+            }
+        }
+        i = i + 1
+    }
+    return changed
+}
+
+fn infer_untyped_expr(e: &mut Emitter, expr: &Expr) -> bool {
+    let mut changed = false
+    if expr.kind == EXPR_CALL {
+        if expr.name != "print" && expr.name != "println" {
+            if infer_untyped_call_args(e, expr) { changed = true }
+        }
+    }
+    if expr.kind == EXPR_STRUCT_LIT {
+        let st_name = string_clone(&expr.name)
+        if type_is_struct(e, &st_name) {
+            let mut i = 0
+            while i < len(&expr.fields) {
+                let f = &expr.fields[i]
+                let ftyp = struct_field_type(e, &st_name, &f.name)
+                if ftyp != "" {
+                    if constrain_expr_to_type(e, &f.value, &ftyp) {
+                        changed = true
+                    }
+                }
+                i = i + 1
+            }
+        }
+    }
+    if expr.kind == EXPR_BINARY && len(&expr.args) >= 2 {
+        let lhs = expr_arg_ref(expr, 0, "infer_bin_lhs")
+        let rhs = expr_arg_ref(expr, 1, "infer_bin_rhs")
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        if type_is_int(e, &lt) && type_is_untyped_int(e, &rt) {
+            if constrain_expr_to_type(e, rhs, &lt) { changed = true }
+        } else if type_is_int(e, &rt) && type_is_untyped_int(e, &lt) {
+            if constrain_expr_to_type(e, lhs, &rt) { changed = true }
+        }
+    }
+    let mut i = 0
+    while i < len(&expr.args) {
+        if infer_untyped_expr(e, expr_arg_ref(expr, i, "infer_expr_arg")) {
+            changed = true
+        }
+        i = i + 1
+    }
+    let mut fi = 0
+    while fi < len(&expr.fields) {
+        if infer_untyped_expr(e, &expr.fields[fi].value) {
+            changed = true
+        }
+        fi = fi + 1
+    }
+    if expr.kind == EXPR_BLOCK || expr.kind == EXPR_CLOSURE {
+        let unit = "unit"
+        if infer_untyped_block(e, &expr.block, &unit) { changed = true }
+    }
+    if expr.kind == EXPR_MATCH {
+        let mut ai = 0
+        while ai < len(&expr.match_arms) {
+            if expr.match_arms[ai].has_guard {
+                if infer_untyped_expr(e, &expr.match_arms[ai].guard) { changed = true }
+            }
+            let unit = "unit"
+            if infer_untyped_block(e, &expr.match_arms[ai].block, &unit) { changed = true }
+            ai = ai + 1
+        }
+    }
+    return changed
+}
+
+fn infer_untyped_expr_expected(e: &mut Emitter, expr: &Expr, expected: &String) -> bool {
+    let mut changed = false
+    if constrain_expr_to_type(e, expr, expected) { changed = true }
+    if expr.kind == EXPR_BINARY && type_is_int(e, expected) && len(&expr.args) >= 2 {
+        let lhs = expr_arg_ref(expr, 0, "infer_bin_lhs_exp")
+        let rhs = expr_arg_ref(expr, 1, "infer_bin_rhs_exp")
+        if constrain_expr_to_type(e, lhs, expected) { changed = true }
+        if constrain_expr_to_type(e, rhs, expected) { changed = true }
+    }
+    if infer_untyped_expr(e, expr) { changed = true }
+    return changed
+}
+
+fn infer_untyped_stmt(e: &mut Emitter, stmt: &Stmt, ret_t: &String) -> bool {
+    let mut changed = false
+    if stmt.kind == STMT_LET {
+        if stmt.name != "" {
+            if stmt.has_type {
+                if infer_untyped_expr_expected(e, &stmt.expr, &stmt.typ) { changed = true }
+            } else {
+                let rhs_t = expr_type(e, &stmt.expr)
+                if rhs_t != "" && !type_is_untyped_int(e, &rhs_t) && !type_is_untyped_float(e, &rhs_t) {
+                    if var_set_type(e, &stmt.name, &rhs_t) { changed = true }
+                }
+                if infer_untyped_expr(e, &stmt.expr) { changed = true }
+            }
+        }
+        return changed
+    }
+    if stmt.kind == STMT_ASSIGN {
+        if stmt.lhs.kind == EXPR_IDENT {
+            let mut target = var_type(e, &stmt.lhs.name)
+            let rhs_t = expr_type(e, &stmt.expr)
+            if target != "" && rhs_t != "" {
+                if type_is_untyped_int(e, &target) || type_is_untyped_float(e, &target) || type_is_array(e, &target) || type_is_ref(e, &target) {
+                    if var_set_type(e, &stmt.lhs.name, &rhs_t) { changed = true }
+                    target = var_type(e, &stmt.lhs.name)
+                }
+            }
+            if target != "" {
+                if infer_untyped_expr_expected(e, &stmt.expr, &target) { changed = true }
+            } else {
+                if infer_untyped_expr(e, &stmt.expr) { changed = true }
+            }
+        } else {
+            let target = expr_type(e, &stmt.lhs)
+            if target != "" {
+                if infer_untyped_expr_expected(e, &stmt.expr, &target) { changed = true }
+            } else {
+                if infer_untyped_expr(e, &stmt.expr) { changed = true }
+            }
+        }
+        return changed
+    }
+    if stmt.kind == STMT_RETURN && stmt.ret_has_value {
+        if ret_t != "" {
+            if infer_untyped_expr_expected(e, &stmt.expr, ret_t) { changed = true }
+        } else {
+            if infer_untyped_expr(e, &stmt.expr) { changed = true }
+        }
+        return changed
+    }
+    if stmt.kind == STMT_IF || stmt.kind == STMT_WHILE || stmt.kind == STMT_LOOP {
+        if infer_untyped_expr(e, &stmt.expr) { changed = true }
+        if infer_untyped_block(e, &stmt.block, ret_t) { changed = true }
+        if stmt.has_else {
+            if infer_untyped_block(e, &stmt.else_block, ret_t) { changed = true }
+        }
+        return changed
+    }
+    if stmt.kind == STMT_IFLET || stmt.kind == STMT_MATCH {
+        if infer_untyped_expr(e, &stmt.expr) { changed = true }
+        let mut ai = 0
+        while ai < len(&stmt.arms) {
+            if stmt.arms[ai].has_guard {
+                if infer_untyped_expr(e, &stmt.arms[ai].guard) { changed = true }
+            }
+            if infer_untyped_block(e, &stmt.arms[ai].block, ret_t) { changed = true }
+            ai = ai + 1
+        }
+        if stmt.kind == STMT_IFLET && stmt.has_else {
+            if infer_untyped_block(e, &stmt.else_block, ret_t) { changed = true }
+        }
+        return changed
+    }
+    if stmt.kind == STMT_EXPR {
+        if infer_untyped_expr(e, &stmt.expr) { changed = true }
+        return changed
+    }
+    if stmt.kind == STMT_BREAK_VALUE {
+        if infer_untyped_expr(e, &stmt.expr) { changed = true }
+        return changed
+    }
+    return changed
+}
+
+fn infer_untyped_block(e: &mut Emitter, b: &Block, ret_t: &String) -> bool {
+    let mut changed = false
+    let mut i = 0
+    while i < len(&b.stmts) {
+        if infer_untyped_stmt(e, &b.stmts[i], ret_t) { changed = true }
+        i = i + 1
+    }
+    return changed
+}
+
+fn default_untyped_base(e: &Emitter, t: &str) -> String {
+    if t == "untyped-int" { return "i32" }
+    if t == "untyped-float" { return "f64" }
+    if type_is_array(e, t) {
+        let elem = type_array_elem(e, t)
+        if elem == "untyped-int" { return "[i32]" }
+        if elem == "untyped-float" { return "[f64]" }
+    }
+    return string_clone(t)
+}
+
+fn finalize_untyped_vars(e: &mut Emitter) {
+    ensure_var_untyped_len(e)
+    let mut i = 0
+    while i < len(&e.var_types) {
+        let cur = string_clone(&e.var_types[i])
+        if cur == "untyped-int" {
+            if e.var_untyped_kind[i] == UNTYPED_INT && e.var_untyped_has_value[i] {
+                let v = e.var_untyped_value[i]
+                let t = "i32"
+                if !int_value_fits_type(e, v, &t) {
+                    println("stage2: integer literal out of range for i32")
+                    exit(1)
+                }
+            }
+            e.var_types[i] = "i32"
+            e.var_untyped_kind[i] = UNTYPED_NONE
+            e.var_untyped_has_value[i] = false
+        } else if cur == "untyped-float" {
+            e.var_types[i] = "f64"
+            e.var_untyped_kind[i] = UNTYPED_NONE
+            e.var_untyped_has_value[i] = false
+        } else {
+            let def = default_untyped_type(e, &cur)
+            if def != cur {
+                e.var_types[i] = def
+                e.var_untyped_kind[i] = UNTYPED_NONE
+                e.var_untyped_has_value[i] = false
+            }
+        }
+        i = i + 1
+    }
+}
+
+fn infer_untyped_vars(e: &mut Emitter, f: &Function, ret_t: &String) {
+    let mut changed = true
+    let mut iter = 0
+    while changed && iter < 8 {
+        changed = infer_untyped_block(e, &f.body, ret_t)
+        iter = iter + 1
+    }
+    finalize_untyped_vars(e)
+}
+
 fn collect_vars(e: &mut Emitter, f: &Function) {
     let mut pi = 0
     while pi < len(&f.params) {
@@ -315,12 +635,21 @@ fn collect_vars(e: &mut Emitter, f: &Function) {
             let mut names = e.var_names
             let mut types = e.var_types
             let mut muts = e.var_mut
+            let mut kinds = e.var_untyped_kind
+            let mut values = e.var_untyped_value
+            let mut has_values = e.var_untyped_has_value
             push(&mut names, string_clone(pname))
             push(&mut types, ptyp)
             push(&mut muts, false)
+            push(&mut kinds, UNTYPED_NONE)
+            push(&mut values, 0)
+            push(&mut has_values, false)
             e.var_names = names
             e.var_types = types
             e.var_mut = muts
+            e.var_untyped_kind = kinds
+            e.var_untyped_value = values
+            e.var_untyped_has_value = has_values
         }
         pi = pi + 1
     }

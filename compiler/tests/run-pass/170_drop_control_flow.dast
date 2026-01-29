@@ -13,8 +13,8 @@ fn mk(i: i64) -> Box {
 }
 
 fn main() {
-    let mut acc = 0
-    let mut i = 0
+    let mut acc: i64 = 0
+    let mut i: i64 = 0
     let mut cur = MaybeBox.None
     while i < 40 {
         let b = mk(i)

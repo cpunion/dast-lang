@@ -223,7 +223,7 @@ fn parse_fn(p: &mut Parser) -> Function {
     let _ = parser_expect(p, TK_LPAREN, "(")
     let params = parse_params(p)
     let _ = parser_expect(p, TK_RPAREN, ")")
-    let mut ret_type = "i64"
+    let mut ret_type = ""
     if parser_peek(p).kind == TK_ARROW {
         let _ = parser_advance(p)
         ret_type = parse_type_name(p)

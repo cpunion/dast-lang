@@ -6,14 +6,16 @@ fn main() {
     if w != 1 { exit(1) }
 
     let sh1: u64 = 2
-    let x = 1 << sh1 + 1
+    let base1: u64 = 1
+    let x = base1 << sh1 + 1
     if x != 8 { exit(1) }
 
     let y = 1 & 1 << 1
     if y != 0 { exit(1) }
 
     let sh2: u64 = 1
-    let z = 8 >> sh2 + 2
+    let base2: u64 = 8
+    let z = base2 >> sh2 + 2
     if z != 1 { exit(1) }
 
     let b1 = 5 & 3 == 1

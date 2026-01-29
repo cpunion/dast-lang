@@ -5,7 +5,7 @@ macro fn add_field(p: AstExpr, body: AstExpr) -> AstExpr {
 }
 
 fn main() {
-    let x = 100
+    let x: i64 = 100
     let p = Point { x: 1 }
     let v = add_field!(quote expr { p }, quote expr { x })
     if v == 101 {

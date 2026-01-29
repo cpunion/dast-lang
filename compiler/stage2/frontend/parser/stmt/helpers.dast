@@ -199,7 +199,7 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
     let elem_name = parser_gensym(p, "__for_elem")
     let mut stmts: [Stmt] = []
     push(&mut stmts, stmt_let(string_clone(&arr_name), false, false, "", iter_expr))
-    push(&mut stmts, stmt_let(string_clone(&idx_name), true, false, "", expr_int(0)))
+    push(&mut stmts, stmt_let(string_clone(&idx_name), true, true, "i64", expr_int(0)))
     let arr_ident = expr_ident(string_clone(&arr_name))
     let cond = expr_binary("<", expr_ident(string_clone(&idx_name)), expr_call("len", [expr_ref(arr_ident)]))
     let mut body_stmts: [Stmt] = []

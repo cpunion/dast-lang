@@ -110,6 +110,23 @@ fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
         emit_line(e, "  " + tn + " =w " + cmp + " " + v.expr + ", 0")
         return tn
     }
+    if type_is_int(e, &rt) && type_is_int(e, &v.typ) {
+        let src = type_resolve(e, &v.typ)
+        let sw = type_int_width(e, &src)
+        let dw = type_int_width(e, &rt)
+        if sw == 0 || dw == 0 { return v.expr }
+        if sw == dw { return v.expr }
+        if dw > sw {
+            if dw <= 32 { return v.expr }
+            let tmp = new_temp(e)
+            let tn = temp_name(tmp)
+            let op = if type_is_unsigned_int(e, &src) { "extuw" } else { "extsw" }
+            emit_line(e, "  " + tn + " =l " + op + " " + v.expr)
+            return tn
+        }
+        println("stage2: cannot implicitly cast", src, "to", rt)
+        exit(1)
+    }
     if type_is_unit(e, &v.typ) { return "0" }
     if type_is_bool(e, &v.typ) {
         let tmp = new_temp(e)
@@ -125,6 +142,75 @@ fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
     return cast_to_type(e, v, &t)
 }
 
+fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
+    let rt = type_resolve(e, target_t)
+    if expr_is_int_literal(expr) && type_is_int(e, &rt) {
+        let v = expr_int_literal_value(expr)
+        if !int_value_fits_type(e, v, &rt) {
+            println("stage2: integer literal out of range for", rt)
+            exit(1)
+        }
+        return qbe_value(string_clone(&rt), int_to_string(v))
+    }
+    if expr.kind == EXPR_ARRAY && type_is_array(e, &rt) {
+        if !type_compatible_expr(e, &rt, expr) {
+            let actual = expr_type(e, expr)
+            println("stage2: type mismatch expected", rt, "got", actual)
+            exit(1)
+        }
+        let mut v = emit_expr(e, expr)
+        // Retag empty or literal arrays to the contextual element type.
+        v.typ = string_clone(&rt)
+        return v
+    }
+    let v = emit_expr(e, expr)
+    let at = type_resolve(e, &v.typ)
+    if rt == "" {
+        println("stage2: internal error: missing target type for expr", expr.kind, expr.name, "got", at)
+        exit(1)
+    }
+    if !type_compatible(e, &rt, &at) {
+        println("stage2: type mismatch expected", rt, "got", at)
+        exit(1)
+    }
+    return v
+}
+
+fn emit_int_operand(e: &mut Emitter, expr: &Expr, v: QbeValue, int_t: &str) -> String {
+    let want = type_resolve(e, int_t)
+    if expr_is_int_literal(expr) {
+        let val = expr_int_literal_value(expr)
+        if !int_value_fits_type(e, val, &want) {
+            println("stage2: integer literal out of range for", want)
+            exit(1)
+        }
+        return int_to_string(val)
+    }
+    let actual = type_resolve(e, &v.typ)
+    if actual != want {
+        println("stage2: binary op requires matching int types got", actual, "and", want)
+        exit(1)
+    }
+    return v.expr
+}
+
+fn emit_shift_rhs(e: &mut Emitter, expr: &Expr, v: QbeValue, lhs_t: &str) -> String {
+    if expr_is_int_literal(expr) {
+        let val = expr_int_literal_value(expr)
+        if val < 0 {
+            println("stage2: shift amount must be non-negative")
+            exit(1)
+        }
+        return int_to_string(val)
+    }
+    let rhs_t = type_resolve(e, &v.typ)
+    if !type_is_unsigned_int(e, &rhs_t) {
+        println("stage2: shift amount must be unsigned int")
+        exit(1)
+    }
+    return cast_to_type(e, v, lhs_t)
+}
+
 fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeValue, has_payload_arg: bool) -> QbeValue {
     let tag = enum_variant_value(e, enum_name, variant)
     if tag < 0 {
@@ -133,7 +219,22 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
     }
     let tag_t = enum_tag_type(e, enum_name)
     let tag_size = type_size(e, &tag_t)
-    let tag_expr = cast_to_type(e, qbe_value("i64", int_to_string(tag)), &tag_t)
+    let mut tag_expr = ""
+    if type_is_int(e, &tag_t) {
+        if !int_value_fits_type(e, tag, &tag_t) {
+            println("stage2: enum tag out of range for", tag_t)
+            exit(1)
+        }
+        tag_expr = int_to_string(tag)
+    } else if type_is_bool(e, &tag_t) {
+        if tag != 0 && tag != 1 {
+            println("stage2: enum tag out of range for", tag_t)
+            exit(1)
+        }
+        tag_expr = int_to_string(tag)
+    } else {
+        tag_expr = cast_to_type(e, qbe_value("i64", int_to_string(tag)), &tag_t)
+    }
     if enum_has_payload(e, enum_name) {
         let name_ptr = string_data_ptr(e, enum_name)
         let payload_t = enum_variant_payload_type(e, enum_name, variant)
@@ -169,6 +270,9 @@ fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue 
         let tn = temp_name(tmp)
         emit_line(e, "  " + tn + " =l call $" + tag_fn + "(l " + v.expr + ", l 0, l " + int_to_string(tag_size) + ")")
         return qbe_value(string_clone(&tag_t), tn)
+    }
+    if type_is_int(e, &tag_t) || type_is_bool(e, &tag_t) {
+        return qbe_value(string_clone(&tag_t), string_clone(&v.expr))
     }
     let casted = cast_to_type(e, qbe_value("i64", v.expr), &tag_t)
     return qbe_value(string_clone(&tag_t), casted)
@@ -242,13 +346,14 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             exit(1)
         }
         let check_expr = string_clone(&val.expr)
+        let check_t = type_resolve(e, val_t)
         if pat.range_has_start {
-            let start_v = emit_expr(e, &pat.range_start)
+            let start_v = emit_typed_value(e, &pat.range_start, val_t)
             if !type_is_int(e, &start_v.typ) {
                 println("stage2: range pattern requires int start")
                 exit(1)
             }
-            let start_expr = cast_to_type(e, start_v, val_t)
+            let start_expr = start_v.expr
             let cond_tmp = new_temp(e)
             let cond_tn = temp_name(cond_tmp)
             let cmp = qbe_cmp_op(e, "<", &check_t)
@@ -258,12 +363,12 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             emit_label(e, &ok_label)
         }
         if pat.range_has_end {
-            let end_v = emit_expr(e, &pat.range_end)
+            let end_v = emit_typed_value(e, &pat.range_end, val_t)
             if !type_is_int(e, &end_v.typ) {
                 println("stage2: range pattern requires int end")
                 exit(1)
             }
-            let end_expr = cast_to_type(e, end_v, val_t)
+            let end_expr = end_v.expr
             let cond_tmp = new_temp(e)
             let cond_tn = temp_name(cond_tmp)
             let cmp = qbe_cmp_op(e, "<", &check_t)
@@ -473,70 +578,72 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  " + tn + " =l call $dast_string_concat(l " + l.expr + ", l " + r.expr + ")")
             return qbe_value("String", tn)
         }
-        let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+        let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+        if int_t == "untyped-int" { int_t = "i32" }
         if int_t == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
             exit(1)
         }
-        let l = cast_to_type(e, lhs, &int_t)
-        let r = cast_to_type(e, rhs, &int_t)
+        let l = emit_int_operand(e, lhs_expr, lhs, &int_t)
+        let r = emit_int_operand(e, rhs_expr, rhs, &int_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l add " + l + ", " + r)
+        let q = qbe_type(e, &int_t)
+        emit_line(e, "  " + tn + " =" + q + " add " + l + ", " + r)
         return qbe_value(int_t, tn)
     }
     if op == "-" || op == "*" || op == "/" || op == "%" || op == "&" || op == "|" || op == "^" {
-        let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+        let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+        if int_t == "untyped-int" { int_t = "i32" }
         if int_t == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
             exit(1)
         }
-        let l = cast_to_type(e, lhs, &int_t)
-        let r = cast_to_type(e, rhs, &int_t)
+        let l = emit_int_operand(e, lhs_expr, lhs, &int_t)
+        let r = emit_int_operand(e, rhs_expr, rhs, &int_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
+        let q = qbe_type(e, &int_t)
         if op == "-" {
-            emit_line(e, "  " + tn + " =l sub " + l + ", " + r)
+            emit_line(e, "  " + tn + " =" + q + " sub " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
         if op == "*" {
-            emit_line(e, "  " + tn + " =l mul " + l + ", " + r)
+            emit_line(e, "  " + tn + " =" + q + " mul " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
         if op == "/" {
             let mut divop = "div"
             if type_is_unsigned_int(e, &int_t) { divop = "udiv" }
-            emit_line(e, "  " + tn + " =l " + divop + " " + l + ", " + r)
+            emit_line(e, "  " + tn + " =" + q + " " + divop + " " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
         if op == "%" {
             let mut remop = "rem"
             if type_is_unsigned_int(e, &int_t) { remop = "urem" }
-            emit_line(e, "  " + tn + " =l " + remop + " " + l + ", " + r)
+            emit_line(e, "  " + tn + " =" + q + " " + remop + " " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
         if op == "&" {
-            let q = qbe_type(e, &int_t)
             emit_line(e, "  " + tn + " =" + q + " and " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
         if op == "|" {
-            let q = qbe_type(e, &int_t)
             emit_line(e, "  " + tn + " =" + q + " or " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
-        let q = qbe_type(e, &int_t)
         emit_line(e, "  " + tn + " =" + q + " xor " + l + ", " + r)
         return qbe_value(int_t, tn)
     }
     if op == "<<" || op == ">>" {
-        let int_t = shift_result_type(e, lhs_expr, rhs_expr)
+        let mut int_t = shift_result_type(e, lhs_expr, rhs_expr)
+        if int_t == "untyped-int" { int_t = "i32" }
         if int_t == "" {
             println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lhs_t, "and", rhs_t)
             exit(1)
         }
-        let l = cast_to_type(e, lhs, &int_t)
-        let r = cast_to_type(e, rhs, &int_t)
+        let l = emit_int_operand(e, lhs_expr, lhs, &int_t)
+        let r = emit_shift_rhs(e, rhs_expr, rhs, &int_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &int_t)
@@ -563,14 +670,17 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let cmp = qbe_cmp_op(e, "==", &lhs.typ)
             emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         } else {
-            let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+            let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+            if int_t == "untyped-int" { int_t = "i32" }
             if int_t == "" {
                 println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
                 exit(1)
             }
-            let l = cast_to_type(e, lhs, &int_t)
-            let r = cast_to_type(e, rhs, &int_t)
-            let cmp = qbe_cmp_op(e, op, &int_t)
+            let l = emit_int_operand(e, lhs_expr, lhs, &int_t)
+            let r = emit_int_operand(e, rhs_expr, rhs, &int_t)
+            let mut cmp_op = string_clone(&op)
+            if op == "!=" { cmp_op = "==" }
+            let cmp = qbe_cmp_op(e, cmp_op, &int_t)
             emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
         }
         if op == "!=" {
@@ -624,6 +734,22 @@ fn emit_block_expr(e: &mut Emitter, b: &Block) -> QbeValue {
     let last = &b.stmts[n - 1]
     if last.kind == STMT_EXPR {
         return emit_expr(e, &last.expr)
+    }
+    emit_stmt(e, last)
+    return qbe_value("unit", "0")
+}
+
+fn emit_block_expr_typed(e: &mut Emitter, b: &Block, target_t: &str) -> QbeValue {
+    let n = len(&b.stmts)
+    if n == 0 { return qbe_value("unit", "0") }
+    let mut i = 0
+    while i + 1 < n {
+        emit_stmt(e, &b.stmts[i])
+        i = i + 1
+    }
+    let last = &b.stmts[n - 1]
+    if last.kind == STMT_EXPR {
+        return emit_typed_value(e, &last.expr, target_t)
     }
     emit_stmt(e, last)
     return qbe_value("unit", "0")

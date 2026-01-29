@@ -6,6 +6,10 @@ struct QbeValue {
     lines: [String],
 }
 
+const UNTYPED_NONE = 0
+const UNTYPED_INT = 1
+const UNTYPED_FLOAT = 2
+
 fn string_list_empty() -> [String] {
     let mut out: [String] = []
     return out
@@ -13,6 +17,16 @@ fn string_list_empty() -> [String] {
 
 fn bool_list_empty() -> [bool] {
     let mut out: [bool] = []
+    return out
+}
+
+fn i32_list_empty() -> [i32] {
+    let mut out: [i32] = []
+    return out
+}
+
+fn i64_list_empty() -> [i64] {
+    let mut out: [i64] = []
     return out
 }
 
@@ -212,6 +226,9 @@ struct Emitter {
     var_names: [String],
     var_types: [String],
     var_mut: [bool],
+    var_untyped_kind: [i32],
+    var_untyped_value: [i64],
+    var_untyped_has_value: [bool],
     enum_var_names: [String],
     enum_var_types: [String],
     // Local closures (simple inlining).
@@ -256,6 +273,9 @@ fn emitter_new() -> Emitter {
         var_names: string_list_empty(),
         var_types: string_list_empty(),
         var_mut: bool_list_empty(),
+        var_untyped_kind: i32_list_empty(),
+        var_untyped_value: i64_list_empty(),
+        var_untyped_has_value: bool_list_empty(),
         enum_var_names: string_list_empty(),
         enum_var_types: string_list_empty(),
         closure_names: string_list_empty(),
@@ -296,6 +316,9 @@ fn emitter_with_globals(glob: &Emitter) -> Emitter {
     e.ptr_size = glob.ptr_size
     e.ptr_align = glob.ptr_align
     e.cur_ret_type = string_clone(&glob.cur_ret_type)
+    e.var_untyped_kind = i32_list_empty()
+    e.var_untyped_value = i64_list_empty()
+    e.var_untyped_has_value = bool_list_empty()
     e.enum_var_names = string_list_empty()
     e.enum_var_types = string_list_empty()
     return e
@@ -630,6 +653,14 @@ fn type_is_float(e: &Emitter, t: &str) -> bool {
     return rt == "f32" || rt == "f64"
 }
 
+fn type_is_untyped_int(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "untyped-int"
+}
+
+fn type_is_untyped_float(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "untyped-float"
+}
+
 fn type_is_string(e: &Emitter, t: &str) -> bool {
     let rt = type_resolve(e, t)
     if type_is_ref_raw(&rt) {
@@ -758,78 +789,8 @@ fn int_value_fits_type(e: &Emitter, val: i64, t: &str) -> bool {
 fn int_peer_type(e: &Emitter, lt: &str, rt: &str) -> String {
     let ltr = type_resolve(e, lt)
     let rtr = type_resolve(e, rt)
-    let t_i8 = "i8"
-    let t_i16 = "i16"
-    let t_i32 = "i32"
-    let t_i64 = "i64"
-    let t_isize = "isize"
-    let t_int = "int"
-    let t_u8 = "u8"
-    let t_u16 = "u16"
-    let t_u32 = "u32"
-    let t_u64 = "u64"
-    let t_usize = "usize"
-    let t_char = "char"
     if !type_is_int(e, &ltr) || !type_is_int(e, &rtr) { return "" }
-    let lbits = type_int_width(e, &ltr)
-    let rbits = type_int_width(e, &rtr)
-    if type_is_unsigned_int(e, &ltr) && lbits == 64 && int_type_min(e, &rtr) < 0 { return "" }
-    if type_is_unsigned_int(e, &rtr) && rbits == 64 && int_type_min(e, &ltr) < 0 { return "" }
     if ltr == rtr { return string_clone(&ltr) }
-    let min_all = if int_type_min(e, &ltr) < int_type_min(e, &rtr) { int_type_min(e, &ltr) } else { int_type_min(e, &rtr) }
-    let max_all = if int_type_max(e, &ltr) > int_type_max(e, &rtr) { int_type_max(e, &ltr) } else { int_type_max(e, &rtr) }
-    if ltr == "int" || rtr == "int" {
-        let t = if ltr == "int" { &ltr } else { &rtr }
-        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
-    }
-    if ltr == "isize" || rtr == "isize" {
-        let t = if ltr == "isize" { &ltr } else { &rtr }
-        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
-    }
-    if ltr == "usize" || rtr == "usize" {
-        let t = if ltr == "usize" { &ltr } else { &rtr }
-        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
-    }
-    if ltr == "char" || rtr == "char" {
-        let t = if ltr == "char" { &ltr } else { &rtr }
-        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
-    }
-    if min_all < 0 {
-        if int_type_min(e, &t_i8) <= min_all && int_type_max(e, &t_i8) >= max_all { return string_clone(&t_i8) }
-        if int_type_min(e, &t_i16) <= min_all && int_type_max(e, &t_i16) >= max_all { return string_clone(&t_i16) }
-        if int_type_min(e, &t_i32) <= min_all && int_type_max(e, &t_i32) >= max_all { return string_clone(&t_i32) }
-        if e.ptr_size == 4 {
-            if int_type_min(e, &t_isize) <= min_all && int_type_max(e, &t_isize) >= max_all { return string_clone(&t_isize) }
-        }
-        if int_type_min(e, &t_i64) <= min_all && int_type_max(e, &t_i64) >= max_all { return string_clone(&t_i64) }
-        if e.ptr_size == 8 {
-            if int_type_min(e, &t_isize) <= min_all && int_type_max(e, &t_isize) >= max_all { return string_clone(&t_isize) }
-        }
-        if int_type_min(e, &t_int) <= min_all && int_type_max(e, &t_int) >= max_all { return string_clone(&t_int) }
-        return ""
-    }
-    if int_type_min(e, &t_u8) <= min_all && int_type_max(e, &t_u8) >= max_all { return string_clone(&t_u8) }
-    if int_type_min(e, &t_u16) <= min_all && int_type_max(e, &t_u16) >= max_all { return string_clone(&t_u16) }
-    if int_type_min(e, &t_u32) <= min_all && int_type_max(e, &t_u32) >= max_all { return string_clone(&t_u32) }
-    if int_type_min(e, &t_char) <= min_all && int_type_max(e, &t_char) >= max_all { return string_clone(&t_char) }
-    if e.ptr_size == 4 {
-        if int_type_min(e, &t_usize) <= min_all && int_type_max(e, &t_usize) >= max_all { return string_clone(&t_usize) }
-    }
-    if int_type_min(e, &t_u64) <= min_all && int_type_max(e, &t_u64) >= max_all { return string_clone(&t_u64) }
-    if e.ptr_size == 8 {
-        if int_type_min(e, &t_usize) <= min_all && int_type_max(e, &t_usize) >= max_all { return string_clone(&t_usize) }
-    }
-    if int_type_min(e, &t_i8) <= min_all && int_type_max(e, &t_i8) >= max_all { return string_clone(&t_i8) }
-    if int_type_min(e, &t_i16) <= min_all && int_type_max(e, &t_i16) >= max_all { return string_clone(&t_i16) }
-    if int_type_min(e, &t_i32) <= min_all && int_type_max(e, &t_i32) >= max_all { return string_clone(&t_i32) }
-    if e.ptr_size == 4 {
-        if int_type_min(e, &t_isize) <= min_all && int_type_max(e, &t_isize) >= max_all { return string_clone(&t_isize) }
-    }
-    if int_type_min(e, &t_i64) <= min_all && int_type_max(e, &t_i64) >= max_all { return string_clone(&t_i64) }
-    if e.ptr_size == 8 {
-        if int_type_min(e, &t_isize) <= min_all && int_type_max(e, &t_isize) >= max_all { return string_clone(&t_isize) }
-    }
-    if int_type_min(e, &t_int) <= min_all && int_type_max(e, &t_int) >= max_all { return string_clone(&t_int) }
     return ""
 }
 
@@ -940,7 +901,7 @@ fn qbe_type(e: &Emitter, t: &str) -> String {
     return "l"
 }
 
-fn qbe_cmp_op(e: &Emitter, op: &str, typ: &str) -> String {
+fn qbe_cmp_op(e: &Emitter, op: String, typ: &str) -> String {
     let rt = type_resolve(e, typ)
     let suffix = qbe_type(e, &rt)
     let unsigned = type_is_unsigned_int(e, &rt)

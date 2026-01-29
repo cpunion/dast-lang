@@ -324,6 +324,7 @@ dast lsp
 5. **Self-hosting is the goal**: Every feature must work in the compiler itself
 6. **Test thoroughly**: Especially borrow checker and type system
 7. **Document as you go**: Update design docs when adding features
+8. **Layered correctness**: Validate lex → AST → semantics → IR → codegen in order. Prefer layer‑local unit tests over black‑box runs. Stage0 uses Go unit tests; stage2 uses Dast unit tests (`*_test.dast`) co‑located with the code. Only add run-pass/compile-fail tests when they specifically exercise integration across layers.
 
 ---
 

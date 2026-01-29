@@ -74,7 +74,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                     return qbe_value(ref_t, "%" + var_slot(&name))
                 }
             }
-            let v = emit_expr(e, inner)
+            let v = emit_typed_value(e, inner, &base_t)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
             let size = type_size(e, &base_t)
@@ -103,7 +103,12 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_ARRAY => {
             let arr_t = expr_type(e, expr)
-            let elem_t = type_array_elem(e, &arr_t)
+            let mut elem_t = type_array_elem(e, &arr_t)
+            let mut arr_name = arr_t
+            if elem_t == "untyped-int" {
+                elem_t = "i32"
+                arr_name = "[" + string_clone(&elem_t) + "]"
+            }
             let elem_size = type_size(e, &elem_t)
             let elem_align = type_align(e, &elem_t)
             let cap = len(&expr.args)
@@ -112,13 +117,13 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  " + tn + " =l call $dast_array_new(l " + int_to_string(elem_size) + ", l " + int_to_string(elem_align) + ", l " + int_to_string(cap) + ")")
             let mut i = 0
             while i < len(&expr.args) {
-                let v = emit_expr(e, expr_arg_ref(expr, i, "emit_array_elem"))
+                let v = emit_typed_value(e, expr_arg_ref(expr, i, "emit_array_elem"), &elem_t)
                 let casted = cast_to_type(e, v, &elem_t)
                 let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
                 emit_line(e, "  call $dast_array_push(l " + tn + ", l " + as_l + ")")
                 i = i + 1
             }
-            return qbe_value(arr_t, tn)
+            return qbe_value(arr_name, tn)
         }
         EXPR_INDEX => {
             if len(&expr.args) < 2 { return qbe_value("i64", "0") }
@@ -153,7 +158,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                     println("stage2: unknown struct field", fname)
                     exit(1)
                 }
-                let v = emit_expr(e, &f.value)
+                let v = emit_typed_value(e, &f.value, &ftyp)
                 let casted = cast_to_type(e, v, &ftyp)
                 let off = struct_field_offset(e, &st_name, &fname)
                 let size = type_size(e, &ftyp)
@@ -378,7 +383,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 let mut payload = qbe_value("i64", "0")
                 let mut has_payload_arg = false
                 if len(&expr.args) > 0 {
-                    payload = emit_expr(e, expr_arg_ref(expr, 0, "emit_enum_payload"))
+                    let payload_t = enum_variant_payload_type(e, &ec.enum_name, &ec.variant)
+                    payload = emit_typed_value(e, expr_arg_ref(expr, 0, "emit_enum_payload"), &payload_t)
                     has_payload_arg = true
                 }
                 return enum_construct(e, &ec.enum_name, &ec.variant, payload, has_payload_arg)
@@ -439,11 +445,28 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                     let pt = string_clone(&param_types[i])
                     if pt != "" && type_is_ref(e, &pt) {
                         let arg_t = expr_type(e, arg_expr)
-                        if !type_is_ref(e, &arg_t) {
-                            v = emit_auto_borrow(e, arg_expr, &pt)
-                        } else {
+                        if type_is_ref(e, &arg_t) {
+                            if !type_compatible(e, &pt, &arg_t) {
+                                println("stage2: call arg type mismatch expected", pt, "got", arg_t)
+                                exit(1)
+                            }
                             v = emit_expr(e, arg_expr)
+                        } else {
+                            let base_t = type_ref_base(e, &pt)
+                            if !type_compatible_expr(e, &base_t, arg_expr) {
+                                let actual = expr_type(e, arg_expr)
+                                println("stage2: call arg type mismatch expected", base_t, "got", actual)
+                                exit(1)
+                            }
+                            v = emit_auto_borrow(e, arg_expr, &pt)
                         }
+                    } else if pt != "" {
+                        if !type_compatible_expr(e, &pt, arg_expr) {
+                            let actual = expr_type(e, arg_expr)
+                            println("stage2: call arg type mismatch expected", pt, "got", actual)
+                            exit(1)
+                        }
+                        v = emit_typed_value(e, arg_expr, &pt)
                     } else {
                         v = emit_expr(e, arg_expr)
                     }
