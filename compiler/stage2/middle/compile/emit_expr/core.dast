@@ -340,6 +340,15 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 emit_line(e, "  " + tn + " =l call $dast_args()")
                 return qbe_value("[String]", tn)
             }
+            if expr.name == "getenv" {
+                if len(&expr.args) < 1 { return qbe_value("String", "0") }
+                let v = emit_expr(e, expr_arg_ref(expr, 0, "emit_getenv_arg"))
+                let arg = cast_to_type(e, v, "&str")
+                let tmp = new_temp(e)
+                let tn = temp_name(tmp)
+                emit_line(e, "  " + tn + " =l call $dast_getenv(l " + arg + ")")
+                return qbe_value("String", tn)
+            }
             if expr.name == "read_line" {
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)

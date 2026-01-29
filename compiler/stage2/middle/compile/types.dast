@@ -15,6 +15,63 @@ fn enum_tag_type(e: &Emitter, enum_name: &str) -> String {
     return tt
 }
 
+fn enum_payload_size(e: &Emitter, enum_name: &str) -> i64 {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return 0 }
+    let mut max_size = 0
+    let mut vi = 0
+    while vi < len(&e.enum_sigs[ei].variants) {
+        let v = &e.enum_sigs[ei].variants[vi]
+        if v.has_payload {
+            let sz = type_size(e, &v.payload_type)
+            if sz > max_size { max_size = sz }
+        }
+        vi = vi + 1
+    }
+    return max_size
+}
+
+fn enum_payload_align(e: &Emitter, enum_name: &str) -> i64 {
+    let ei = enum_index(e, enum_name)
+    if ei < 0 { return 1 }
+    let mut max_align = 1
+    let mut vi = 0
+    while vi < len(&e.enum_sigs[ei].variants) {
+        let v = &e.enum_sigs[ei].variants[vi]
+        if v.has_payload {
+            let al = type_align(e, &v.payload_type)
+            if al > max_align { max_align = al }
+        }
+        vi = vi + 1
+    }
+    return max_align
+}
+
+fn enum_payload_offset(e: &Emitter, enum_name: &str) -> i64 {
+    let tag_t = enum_tag_type(e, enum_name)
+    let tag_sz = type_size(e, &tag_t)
+    let payload_align = enum_payload_align(e, enum_name)
+    return align_to(tag_sz, payload_align)
+}
+
+fn enum_layout_align(e: &Emitter, enum_name: &str) -> i64 {
+    let tag_t = enum_tag_type(e, enum_name)
+    let tag_align = type_align(e, &tag_t)
+    let payload_align = enum_payload_align(e, enum_name)
+    if payload_align > tag_align { return payload_align }
+    return tag_align
+}
+
+fn enum_layout_size(e: &Emitter, enum_name: &str) -> i64 {
+    let tag_t = enum_tag_type(e, enum_name)
+    let tag_sz = type_size(e, &tag_t)
+    let payload_sz = enum_payload_size(e, enum_name)
+    let payload_off = enum_payload_offset(e, enum_name)
+    let total = if payload_sz == 0 { tag_sz } else { payload_off + payload_sz }
+    let align = enum_layout_align(e, enum_name)
+    return align_to(total, align)
+}
+
 fn enum_variant_index(e: &Emitter, enum_name: &str, variant: &str) -> i64 {
     let ei = enum_index(e, enum_name)
     if ei < 0 { return -1 }
@@ -692,6 +749,13 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                     exit(1)
                 }
                 return "i64"
+            }
+            if expr.name == "getenv" {
+                if len(&expr.args) != 1 {
+                    println("stage2: getenv expects 1 argument")
+                    exit(1)
+                }
+                return "String"
             }
             let ec = enum_call_parse(&expr.name)
             if ec.ok { return ec.enum_name }

@@ -220,6 +220,9 @@ struct Emitter {
     // Live drop candidates in current function.
     drop_live_names: [String],
     drop_live_types: [String],
+    // Target pointer size/alignment (bytes).
+    ptr_size: i64,
+    ptr_align: i64,
     // Current function return type.
     cur_ret_type: String,
     // Temp id counter.
@@ -259,6 +262,8 @@ fn emitter_new() -> Emitter {
         closure_blocks: block_list_empty(),
         drop_live_names: string_list_empty(),
         drop_live_types: string_list_empty(),
+        ptr_size: 8,
+        ptr_align: 8,
         cur_ret_type: "unit",
         temp_id: 0,
         label_id: 0,
@@ -288,9 +293,23 @@ fn emitter_with_globals(glob: &Emitter) -> Emitter {
     e.closure_blocks = block_list_empty()
     e.drop_live_names = string_list_empty()
     e.drop_live_types = string_list_empty()
+    e.ptr_size = glob.ptr_size
+    e.ptr_align = glob.ptr_align
     e.cur_ret_type = string_clone(&glob.cur_ret_type)
     e.enum_var_names = string_list_empty()
     e.enum_var_types = string_list_empty()
+    return e
+}
+
+fn emitter_new_with_target(ptr_width: i64) -> Emitter {
+    let mut e = emitter_new()
+    if ptr_width == 32 {
+        e.ptr_size = 4
+        e.ptr_align = 4
+    } else {
+        e.ptr_size = 8
+        e.ptr_align = 8
+    }
     return e
 }
 
@@ -575,12 +594,7 @@ fn type_alias_index(e: &Emitter, name: &str) -> i64 {
 fn type_resolve(e: &Emitter, t: &str) -> String {
     let cur = string_clone(t)
     if cur == "" { return cur }
-    if cur == "int" || cur == "isize" || cur == "usize" || cur == "u64" || cur == "i64" || cur == "char" {
-        return "i64"
-    }
-    if cur == "i8" || cur == "i16" || cur == "i32" || cur == "u8" || cur == "u16" || cur == "u32" {
-        return "i32"
-    }
+    if cur == "int" { return "i64" }
     if cur == "string" {
         println("stage2: use String/str instead of string")
         exit(1)
@@ -633,15 +647,75 @@ fn block_expr_type(e: &Emitter, b: &Block) -> String {
 }
 
 fn type_is_i32(e: &Emitter, t: &str) -> bool {
-    return type_resolve(e, t) == "i32"
+    let w = type_int_width(e, t)
+    return w == 32
 }
 
 fn type_is_i64(e: &Emitter, t: &str) -> bool {
-    return type_resolve(e, t) == "i64"
+    let w = type_int_width(e, t)
+    return w == 64
 }
 
 fn type_is_int(e: &Emitter, t: &str) -> bool {
-    return type_is_i32(e, t) || type_is_i64(e, t)
+    return type_is_signed_int(e, t) || type_is_unsigned_int(e, t)
+}
+
+fn type_is_signed_int(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    return rt == "i8" || rt == "i16" || rt == "i32" || rt == "i64" || rt == "int" || rt == "isize"
+}
+
+fn type_is_unsigned_int(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    return rt == "u8" || rt == "u16" || rt == "u32" || rt == "u64" || rt == "usize" || rt == "char"
+}
+
+fn type_is_char(e: &Emitter, t: &str) -> bool {
+    return type_resolve(e, t) == "char"
+}
+
+fn type_int_width(e: &Emitter, t: &str) -> i64 {
+    let rt = type_resolve(e, t)
+    if rt == "i8" || rt == "u8" { return 8 }
+    if rt == "i16" || rt == "u16" { return 16 }
+    if rt == "i32" || rt == "u32" { return 32 }
+    if rt == "i64" || rt == "u64" || rt == "int" { return 64 }
+    if rt == "isize" || rt == "usize" { return e.ptr_size * 8 }
+    if rt == "char" { return 32 }
+    return 0
+}
+
+fn type_size(e: &Emitter, t: &str) -> i64 {
+    let rt = type_resolve(e, t)
+    if rt == "unit" { return 0 }
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+        return e.ptr_size
+    }
+    if rt == "bool" { return 1 }
+    if rt == "char" { return 4 }
+    let w = type_int_width(e, &rt)
+    if w > 0 { return w / 8 }
+    return e.ptr_size
+}
+
+fn type_align(e: &Emitter, t: &str) -> i64 {
+    let rt = type_resolve(e, t)
+    if rt == "unit" { return 1 }
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+        return e.ptr_align
+    }
+    if rt == "bool" { return 1 }
+    if rt == "char" { return 4 }
+    let w = type_int_width(e, &rt)
+    if w > 0 { return w / 8 }
+    return e.ptr_align
+}
+
+fn align_to(n: i64, align: i64) -> i64 {
+    if align <= 1 { return n }
+    let rem = n % align
+    if rem == 0 { return n }
+    return n + (align - rem)
 }
 
 fn type_is_ref(e: &Emitter, t: &str) -> bool {
@@ -796,6 +870,58 @@ fn struct_field_count(e: &Emitter, struct_name: &str) -> i64 {
     let si = struct_index(e, struct_name)
     if si < 0 { return 0 }
     return len(&e.struct_sigs[si].fields)
+}
+
+fn struct_field_offset(e: &Emitter, struct_name: &str, field: &str) -> i64 {
+    let st_name = type_strip_ref(e, struct_name)
+    let si = struct_index(e, &st_name)
+    if si < 0 { return -1 }
+    let mut off = 0
+    let mut i = 0
+    while i < len(&e.struct_sigs[si].fields) {
+        let fname = string_clone(&e.struct_sigs[si].fields[i].name)
+        let ftyp = struct_field_type(e, &st_name, &fname)
+        let align = type_align(e, &ftyp)
+        off = align_to(off, align)
+        if fname == field { return off }
+        off = off + type_size(e, &ftyp)
+        i = i + 1
+    }
+    return -1
+}
+
+fn struct_layout_align(e: &Emitter, struct_name: &str) -> i64 {
+    let st_name = type_strip_ref(e, struct_name)
+    let si = struct_index(e, &st_name)
+    if si < 0 { return 1 }
+    let mut max_align = 1
+    let mut i = 0
+    while i < len(&e.struct_sigs[si].fields) {
+        let ftyp = struct_field_type(e, &st_name, &e.struct_sigs[si].fields[i].name)
+        let align = type_align(e, &ftyp)
+        if align > max_align { max_align = align }
+        i = i + 1
+    }
+    return max_align
+}
+
+fn struct_layout_size(e: &Emitter, struct_name: &str) -> i64 {
+    let st_name = type_strip_ref(e, struct_name)
+    let si = struct_index(e, &st_name)
+    if si < 0 { return 0 }
+    let mut off = 0
+    let mut max_align = 1
+    let mut i = 0
+    while i < len(&e.struct_sigs[si].fields) {
+        let fname = string_clone(&e.struct_sigs[si].fields[i].name)
+        let ftyp = struct_field_type(e, &st_name, &fname)
+        let align = type_align(e, &ftyp)
+        if align > max_align { max_align = align }
+        off = align_to(off, align)
+        off = off + type_size(e, &ftyp)
+        i = i + 1
+    }
+    return align_to(off, max_align)
 }
 
 fn enum_index(e: &Emitter, name: &str) -> i64 {

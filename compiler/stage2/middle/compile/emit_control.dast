@@ -332,13 +332,13 @@ fn compile_stats_new() -> CompileStats {
     return CompileStats { func_count: 0, total_lines: 0, max_lines: 0, max_func: "", string_count: 0, const_count: 0 }
 }
 
-fn compile_to_qbe(prog: Program) -> String {
+fn compile_to_qbe(prog: Program, ptr_width: i64) -> String {
     let mut stats = compile_stats_new()
-    return compile_to_qbe_with_stats(prog, &mut stats)
+    return compile_to_qbe_with_stats(prog, ptr_width, &mut stats)
 }
 
-fn compile_to_qbe_with_stats(prog: Program, stats: &mut CompileStats) -> String {
-    let mut glob = emitter_new()
+fn compile_to_qbe_with_stats(prog: Program, ptr_width: i64, stats: &mut CompileStats) -> String {
+    let mut glob = emitter_new_with_target(ptr_width)
     collect_type_aliases(&mut glob, &prog)
     collect_structs(&mut glob, &prog)
     collect_enums(&mut glob, &prog)
@@ -456,7 +456,7 @@ struct ImportLoad {
     err: String,
 }
 
-fn compile_native_single(src_path: String, out_bin: String) {
+fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(prelude_dir)
     let prelude_prog = parse_program_loose(&prelude)
@@ -474,10 +474,10 @@ fn compile_native_single(src_path: String, out_bin: String) {
         exit(1)
         return
     }
-    let mut alias_e = emitter_new()
+    let mut alias_e = emitter_new_with_target(ptr_width)
     collect_type_aliases(&mut alias_e, &prog)
     let main_rt = main_ret_type(&prog)
-    let qbe = compile_to_qbe(prog)
+    let qbe = compile_to_qbe(prog, ptr_width)
 
     // Use a deterministic target directory.
     let target_dir = "compiler/stage2/target/min"
@@ -494,7 +494,7 @@ fn compile_native_single(src_path: String, out_bin: String) {
     run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
 }
 
-fn compile_native_single_stats(src_path: String, out_bin: String) {
+fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64) {
     let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(prelude_dir)
     let prelude_prog = parse_program_loose(&prelude)
@@ -512,11 +512,11 @@ fn compile_native_single_stats(src_path: String, out_bin: String) {
         exit(1)
         return
     }
-    let mut alias_e = emitter_new()
+    let mut alias_e = emitter_new_with_target(ptr_width)
     collect_type_aliases(&mut alias_e, &prog)
     let main_rt = main_ret_type(&prog)
     let mut stats = compile_stats_new()
-    let qbe = compile_to_qbe_with_stats(prog, &mut stats)
+    let qbe = compile_to_qbe_with_stats(prog, ptr_width, &mut stats)
 
     println("stats", "funcs", stats.func_count, "lines", stats.total_lines, "strings", stats.string_count, "consts", stats.const_count)
     if stats.max_func != "" {
@@ -537,8 +537,8 @@ fn compile_native_single_stats(src_path: String, out_bin: String) {
     run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
 }
 
-fn compile_and_run_single(src_path: String, run_args: [String]) {
+fn compile_and_run_single(src_path: String, run_args: [String], ptr_width: i64) {
     let out_bin = "compiler/stage2/target/min/main"
-    compile_native_single(src_path, string_clone(&out_bin))
+    compile_native_single(src_path, string_clone(&out_bin), ptr_width)
     let _ = exec(out_bin, run_args)
 }

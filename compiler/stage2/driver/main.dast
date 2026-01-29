@@ -1,7 +1,13 @@
 // stage2 driver: keep simple, but exercise full compile->run.
 
 fn usage() {
-    println("usage", "dast-stage2 <build|run> <file.dast> [-o out] [-- args]")
+    println("usage", "dast-stage2 <build|run> <file.dast> [-o out] [--target <arch>] [--target-ptr-width <32|64>] [-- args]")
+}
+
+fn target_ptr_width_from_name(name: &str) -> i64 {
+    if name == "x86_64" || name == "amd64" || name == "aarch64" || name == "arm64" { return 64 }
+    if name == "i386" || name == "x86" || name == "armv7" || name == "arm" || name == "wasm32" { return 32 }
+    return 0
 }
 
 fn main() {
@@ -44,6 +50,7 @@ fn main() {
     }
 
     let mut out_bin = "compiler/stage2/target/min/main"
+    let mut ptr_width: i64 = 0
     let mut stats = false
     let mut arg_idx = 1
     if len(&argv) > 1 && argv[1] == "--stats" {
@@ -72,6 +79,22 @@ fn main() {
             i = i + 2
             continue
         }
+        if !after_sep && a == "--target-ptr-width" && i + 1 < len(&argv) {
+            ptr_width = parse_int_simple(&argv[i + 1])
+            i = i + 2
+            continue
+        }
+        if !after_sep && a == "--target" && i + 1 < len(&argv) {
+            let pw = target_ptr_width_from_name(&argv[i + 1])
+            if pw == 0 {
+                println("error", "unknown target", argv[i + 1])
+                exit(2)
+                return
+            }
+            ptr_width = pw
+            i = i + 2
+            continue
+        }
         if !after_sep && a == "--stats" {
             stats = true
             i = i + 1
@@ -83,11 +106,21 @@ fn main() {
         i = i + 1
     }
 
+    if ptr_width == 0 {
+        let env = getenv("DAST_TARGET_PTR_WIDTH")
+        if env != "" {
+            ptr_width = parse_int_simple(&env)
+        }
+    }
+    if ptr_width != 32 && ptr_width != 64 {
+        ptr_width = 64
+    }
+
     if cmd == "build" {
         if stats {
-            compile_native_single_stats(src_path, string_clone(&out_bin))
+            compile_native_single_stats(src_path, string_clone(&out_bin), ptr_width)
         } else {
-            compile_native_single(src_path, string_clone(&out_bin))
+            compile_native_single(src_path, string_clone(&out_bin), ptr_width)
         }
         println("built", out_bin)
         return
@@ -95,9 +128,9 @@ fn main() {
 
     // run
     if stats {
-        compile_native_single_stats(src_path, string_clone(&out_bin))
+        compile_native_single_stats(src_path, string_clone(&out_bin), ptr_width)
     } else {
-        compile_native_single(src_path, string_clone(&out_bin))
+        compile_native_single(src_path, string_clone(&out_bin), ptr_width)
     }
     let code = exec(out_bin, run_args)
     if code != 0 {
