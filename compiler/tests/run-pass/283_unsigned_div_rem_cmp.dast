@@ -13,4 +13,11 @@ fn main() {
     let d: u8 = 128
     let e = d >> 1
     if e != 64 { exit(1) }
+
+    let ua: u16 = 1
+    let ub: u16 = 2
+    if !(ua < ub) { exit(1) }
+    if ub >= ua { } else { exit(1) }
+    if ua > ub { exit(1) }
+    if ua <= ub { } else { exit(1) }
 }

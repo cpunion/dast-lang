@@ -1,0 +1,22 @@
+fn main() {
+    let v = 1 | 2 & 4
+    if v != 1 { exit(1) }
+
+    let w = 1 ^ 2 & 4
+    if w != 1 { exit(1) }
+
+    let x = 1 << 2 + 1
+    if x != 8 { exit(1) }
+
+    let y = 1 & 1 << 1
+    if y != 0 { exit(1) }
+
+    let z = 8 >> 1 + 2
+    if z != 1 { exit(1) }
+
+    let b1 = 5 & 3 == 1
+    if b1 != true { exit(1) }
+
+    let b2 = 1 | 2 == 3
+    if b2 != true { exit(1) }
+}
