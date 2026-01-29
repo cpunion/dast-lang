@@ -136,12 +136,18 @@ func (l *Lexer) Next() Token {
 		return Token{Kind: TokenAssign, Lexeme: "=", Span: source.Span{Start: start, End: l.position()}}
 	case '<':
 		l.advance()
+		if l.match('<') {
+			return Token{Kind: TokenShl, Lexeme: "<<", Span: source.Span{Start: start, End: l.position()}}
+		}
 		if l.match('=') {
 			return Token{Kind: TokenLtEq, Lexeme: "<=", Span: source.Span{Start: start, End: l.position()}}
 		}
 		return Token{Kind: TokenLt, Lexeme: "<", Span: source.Span{Start: start, End: l.position()}}
 	case '>':
 		l.advance()
+		if l.match('>') {
+			return Token{Kind: TokenShr, Lexeme: ">>", Span: source.Span{Start: start, End: l.position()}}
+		}
 		if l.match('=') {
 			return Token{Kind: TokenGtEq, Lexeme: ">=", Span: source.Span{Start: start, End: l.position()}}
 		}
@@ -158,6 +164,9 @@ func (l *Lexer) Next() Token {
 			return Token{Kind: TokenOrOr, Lexeme: "||", Span: source.Span{Start: start, End: l.position()}}
 		}
 		return Token{Kind: TokenPipe, Lexeme: "|", Span: source.Span{Start: start, End: l.position()}}
+	case '^':
+		l.advance()
+		return Token{Kind: TokenCaret, Lexeme: "^", Span: source.Span{Start: start, End: l.position()}}
 	}
 
 	l.advance()

@@ -144,6 +144,14 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				return Type{Kind: TypeInvalid}
 			}
 			return Type{Kind: TypeInt, Name: "int"}
+		case "&", "|", "^", "<<", ">>":
+			if !isInt(lhs) || !isInt(rhs) {
+				if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+					c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires int operands", e.Op))
+				}
+				return Type{Kind: TypeInvalid}
+			}
+			return Type{Kind: TypeInt, Name: "int"}
 		case "==", "!=":
 			if !typesEqual(lhs, rhs) && !(isString(lhs) && isString(rhs)) && lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
 				c.diag.Add(e.Span(), "equality operands must have same type")

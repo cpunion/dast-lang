@@ -278,7 +278,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			}
 			lhsExpr, lhsLines := e.castOperand(ti, i.Lhs, typ)
 			rhsExpr, rhsLines := e.castOperand(ti, i.Rhs, typ)
-			op := qbeCmpOp(i.Op, qbeType(typ))
+			op := qbeCmpOp(i.Op, typ)
 			lines := append(lhsLines, rhsLines...)
 			lines = append(lines, fmt.Sprintf("%%t%d =w %s %s, %s", i.Dst, op, lhsExpr, rhsExpr))
 			return lines
@@ -304,6 +304,25 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		lhsExpr, lhsLines := e.castOperand(ti, i.Lhs, typ)
 		rhsExpr, rhsLines := e.castOperand(ti, i.Rhs, typ)
 		lines := append(lhsLines, rhsLines...)
+		if i.Op == "<<" || i.Op == ">>" {
+			shift := "shl"
+			if i.Op == ">>" {
+				shift = "sar"
+				if isUnsignedIntType(typ) {
+					shift = "shr"
+				}
+			}
+			lines = append(lines, fmt.Sprintf("%%t%d =%s %s %s, %s", i.Dst, qbeType(typ), shift, lhsExpr, rhsExpr))
+			return lines
+		}
+		if (i.Op == "/" || i.Op == "%") && isUnsignedIntType(typ) {
+			op := "udiv"
+			if i.Op == "%" {
+				op = "urem"
+			}
+			lines = append(lines, fmt.Sprintf("%%t%d =%s %s %s, %s", i.Dst, qbeType(typ), op, lhsExpr, rhsExpr))
+			return lines
+		}
 		lines = append(lines, fmt.Sprintf("%%t%d =%s %s %s, %s", i.Dst, qbeType(typ), qbeArithOp(i.Op), lhsExpr, rhsExpr))
 		return lines
 	case *ir.Call:
@@ -1441,6 +1460,14 @@ func isSignedIntType(t string) bool {
 	return false
 }
 
+func isUnsignedIntType(t string) bool {
+	switch normalizeType(t) {
+	case "u8", "u16", "u32", "u64", "usize", "char":
+		return true
+	}
+	return false
+}
+
 func typeSize(e *emitter, p *ir.Program, t string) int64 {
 	t = normalizeType(t)
 	if t == "" || t == "unit" {
@@ -1660,28 +1687,47 @@ func qbeArithOp(op string) string {
 		return "div"
 	case "%":
 		return "rem"
+	case "&":
+		return "and"
+	case "|":
+		return "or"
+	case "^":
+		return "xor"
 	default:
 		return "add"
 	}
 }
 
 func qbeCmpOp(op string, typ string) string {
-	suffix := typ
+	suffix := qbeType(typ)
 	if suffix == "" {
 		suffix = "l"
 	}
+	unsigned := isUnsignedIntType(typ)
 	switch op {
 	case "==":
 		return "ceq" + suffix
 	case "!=":
 		return "cne" + suffix
 	case "<":
+		if unsigned {
+			return "cult" + suffix
+		}
 		return "cslt" + suffix
 	case "<=":
+		if unsigned {
+			return "cule" + suffix
+		}
 		return "csle" + suffix
 	case ">":
+		if unsigned {
+			return "cugt" + suffix
+		}
 		return "csgt" + suffix
 	case ">=":
+		if unsigned {
+			return "cuge" + suffix
+		}
 		return "csge" + suffix
 	default:
 		return "ceq" + suffix

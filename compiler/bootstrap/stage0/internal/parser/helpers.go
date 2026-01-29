@@ -181,10 +181,18 @@ func infixPrec(kind lexer.TokenKind) (int, bool) {
 		return 3, true
 	case lexer.TokenLt, lexer.TokenLtEq, lexer.TokenGt, lexer.TokenGtEq:
 		return 4, true
-	case lexer.TokenPlus, lexer.TokenMinus:
+	case lexer.TokenPipe:
 		return 5, true
-	case lexer.TokenStar, lexer.TokenSlash, lexer.TokenPercent:
+	case lexer.TokenCaret:
 		return 6, true
+	case lexer.TokenAmp:
+		return 7, true
+	case lexer.TokenShl, lexer.TokenShr:
+		return 8, true
+	case lexer.TokenPlus, lexer.TokenMinus:
+		return 9, true
+	case lexer.TokenStar, lexer.TokenSlash, lexer.TokenPercent:
+		return 10, true
 	default:
 		return 0, false
 	}

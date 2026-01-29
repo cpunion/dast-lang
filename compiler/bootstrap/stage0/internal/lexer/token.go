@@ -67,6 +67,9 @@ const (
 	TokenBang
 	TokenAmp
 	TokenPipe
+	TokenCaret
+	TokenShl
+	TokenShr
 
 	TokenEqEq
 	TokenNotEq
@@ -204,6 +207,12 @@ func (k TokenKind) String() string {
 		return "&"
 	case TokenPipe:
 		return "|"
+	case TokenCaret:
+		return "^"
+	case TokenShl:
+		return "<<"
+	case TokenShr:
+		return ">>"
 	case TokenEqEq:
 		return "=="
 	case TokenNotEq:

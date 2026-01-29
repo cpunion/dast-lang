@@ -471,13 +471,17 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if op == "/" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l div " + lhs.expr + ", " + rhs.expr)
+        let mut divop = "div"
+        if type_is_unsigned_int(e, &lhs.typ) { divop = "udiv" }
+        emit_line(e, "  " + tn + " =l " + divop + " " + lhs.expr + ", " + rhs.expr)
         return qbe_value("i64", tn)
     }
     if op == "%" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l rem " + lhs.expr + ", " + rhs.expr)
+        let mut remop = "rem"
+        if type_is_unsigned_int(e, &lhs.typ) { remop = "urem" }
+        emit_line(e, "  " + tn + " =l " + remop + " " + lhs.expr + ", " + rhs.expr)
         return qbe_value("i64", tn)
     }
     if op == "&" {

@@ -1,0 +1,16 @@
+fn main() {
+    let a: u8 = 255
+    let b: u8 = 2
+    let q = a / b
+    let r = a % b
+    if q != 127 { exit(1) }
+    if r != 1 { exit(1) }
+
+    let c: u8 = 255
+    if c <= 1 { exit(1) }
+    if !(c > 1) { exit(1) }
+
+    let d: u8 = 128
+    let e = d >> 1
+    if e != 64 { exit(1) }
+}

@@ -38,6 +38,7 @@ func evalBinary(op string, lhs, rhs ir.Value) (ir.Value, error) {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("binary arithmetic requires int")
 		}
 		intType := pickIntType(lhs, rhs)
+		unsigned := isUnsignedIntName(intType)
 		switch op {
 		case "+":
 			return ir.Value{Kind: ir.KindInt, Int: lhs.Int + rhs.Int, IntType: intType}, nil
@@ -49,10 +50,16 @@ func evalBinary(op string, lhs, rhs ir.Value) (ir.Value, error) {
 			if rhs.Int == 0 {
 				return ir.Value{Kind: ir.KindUnit}, errors.New("division by zero")
 			}
+			if unsigned {
+				return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) / uint64(rhs.Int)), IntType: intType}, nil
+			}
 			return ir.Value{Kind: ir.KindInt, Int: lhs.Int / rhs.Int, IntType: intType}, nil
 		case "%":
 			if rhs.Int == 0 {
 				return ir.Value{Kind: ir.KindUnit}, errors.New("modulo by zero")
+			}
+			if unsigned {
+				return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) % uint64(rhs.Int)), IntType: intType}, nil
 			}
 			return ir.Value{Kind: ir.KindInt, Int: lhs.Int % rhs.Int, IntType: intType}, nil
 		}
@@ -66,15 +73,55 @@ func evalBinary(op string, lhs, rhs ir.Value) (ir.Value, error) {
 		if lhs.Kind != ir.KindInt || rhs.Kind != ir.KindInt {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("comparison requires int")
 		}
+		unsigned := isUnsignedIntName(pickIntType(lhs, rhs))
 		switch op {
 		case "<":
+			if unsigned {
+				return ir.Value{Kind: ir.KindBool, Bool: uint64(lhs.Int) < uint64(rhs.Int)}, nil
+			}
 			return ir.Value{Kind: ir.KindBool, Bool: lhs.Int < rhs.Int}, nil
 		case "<=":
+			if unsigned {
+				return ir.Value{Kind: ir.KindBool, Bool: uint64(lhs.Int) <= uint64(rhs.Int)}, nil
+			}
 			return ir.Value{Kind: ir.KindBool, Bool: lhs.Int <= rhs.Int}, nil
 		case ">":
+			if unsigned {
+				return ir.Value{Kind: ir.KindBool, Bool: uint64(lhs.Int) > uint64(rhs.Int)}, nil
+			}
 			return ir.Value{Kind: ir.KindBool, Bool: lhs.Int > rhs.Int}, nil
 		case ">=":
+			if unsigned {
+				return ir.Value{Kind: ir.KindBool, Bool: uint64(lhs.Int) >= uint64(rhs.Int)}, nil
+			}
 			return ir.Value{Kind: ir.KindBool, Bool: lhs.Int >= rhs.Int}, nil
+		}
+	case "&", "|", "^", "<<", ">>":
+		if lhs.Kind != ir.KindInt || rhs.Kind != ir.KindInt {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("bitwise op requires int")
+		}
+		intType := pickIntType(lhs, rhs)
+		unsigned := isUnsignedIntName(intType)
+		switch op {
+		case "&":
+			return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) & uint64(rhs.Int)), IntType: intType}, nil
+		case "|":
+			return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) | uint64(rhs.Int)), IntType: intType}, nil
+		case "^":
+			return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) ^ uint64(rhs.Int)), IntType: intType}, nil
+		case "<<":
+			if rhs.Int < 0 {
+				return ir.Value{Kind: ir.KindUnit}, errors.New("shift requires non-negative rhs")
+			}
+			return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) << uint(rhs.Int)), IntType: intType}, nil
+		case ">>":
+			if rhs.Int < 0 {
+				return ir.Value{Kind: ir.KindUnit}, errors.New("shift requires non-negative rhs")
+			}
+			if unsigned {
+				return ir.Value{Kind: ir.KindInt, Int: int64(uint64(lhs.Int) >> uint(rhs.Int)), IntType: intType}, nil
+			}
+			return ir.Value{Kind: ir.KindInt, Int: lhs.Int >> uint(rhs.Int), IntType: intType}, nil
 		}
 	case "&&", "||":
 		if lhs.Kind != ir.KindBool || rhs.Kind != ir.KindBool {
@@ -86,6 +133,15 @@ func evalBinary(op string, lhs, rhs ir.Value) (ir.Value, error) {
 		return ir.Value{Kind: ir.KindBool, Bool: lhs.Bool || rhs.Bool}, nil
 	}
 	return ir.Value{Kind: ir.KindUnit}, fmt.Errorf("unknown binary op '%s'", op)
+}
+
+func isUnsignedIntName(name string) bool {
+	switch name {
+	case "u8", "u16", "u32", "u64", "usize", "char":
+		return true
+	default:
+		return false
+	}
 }
 
 func valuesEqual(a, b ir.Value) bool {
