@@ -180,8 +180,7 @@ TBD
 
 ## Implementation Layout
 
-- `compiler/bootstrap/stage0/`: Go bootstrap compiler/runtime (IR + interpreter)
-- `compiler/bootstrap/stage1/`: Dast implementation (bootstrap in progress)
+- `compiler/stage0/`: Go bootstrap compiler/runtime (IR + interpreter)
 - `compiler/core/`: Shared compiler modules
 - `compiler/stage2/`: Full language compiler (self-hosting target)
 - `compiler/stage3/`: Tooling + optimization

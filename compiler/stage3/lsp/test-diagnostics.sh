@@ -19,4 +19,4 @@ STAGE2_FILES=$(cat /tmp/stage2_files.txt | tr '\n' ' ')
 LSP_FILES="compiler/stage3/lsp/json.dast compiler/stage3/lsp/jsonrpc.dast compiler/stage3/lsp/protocol.dast compiler/stage3/lsp/server.dast compiler/stage3/lsp/diagnostics.dast compiler/stage3/lsp/diagnostics_test.dast"
 
 echo "Running LSP diagnostics tests with Stage 2 integration..."
-./compiler/bootstrap/stage0/dast-stage0 run $STAGE2_FILES -- run $LSP_FILES
+./compiler/stage0/dast-stage0 run $STAGE2_FILES -- run $LSP_FILES

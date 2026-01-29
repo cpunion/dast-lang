@@ -1,7 +1,0 @@
-[package]
-name = "irv0"
-version = "0.1.0"
-description = "IR v0 module for Dast bootstrap compiler"
-
-[dependencies]
-# No external dependencies - self-contained module

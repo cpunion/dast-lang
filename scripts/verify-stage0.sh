@@ -28,5 +28,5 @@ else
   make test-stage0
 fi
 
-./compiler/bootstrap/stage0/dast-stage0 run compiler/bootstrap/stage0/examples/hello/main.dast
-./compiler/bootstrap/stage0/dast-stage0 build compiler/tests/integration/module-basic -o /tmp/dast_module_basic
+./compiler/stage0/dast-stage0 run compiler/stage0/examples/hello/main.dast
+./compiler/stage0/dast-stage0 build compiler/tests/integration/module-basic -o /tmp/dast_module_basic

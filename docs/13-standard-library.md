@@ -29,7 +29,7 @@ std/
 - `import "std/xxx"` 总是从标准库根目录解析。
 - Stage0：
   - 优先使用环境变量 `DAST_STDLIB` 指向 stdlib 根目录。
-  - 未设置时自动定位到 `compiler/bootstrap/stage0/stdlib`（`dast-stage0` 所在工程的 `go.mod` 目录下）。
+  - 未设置时自动定位到 `compiler/stage0/stdlib`（`dast-stage0` 所在工程的 `go.mod` 目录下）。
   - stdlib 未找到会报错。
 - Stage2：
   - 默认从代码根目录向上搜索 `compiler/stage2/stdlib`（仓库结构约定）。

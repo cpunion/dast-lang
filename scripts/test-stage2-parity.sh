@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-stage0="$root/compiler/bootstrap/stage0/dast-stage0"
+stage0="$root/compiler/stage0/dast-stage0"
 
 if [ ! -x "$stage0" ]; then
   (cd "$root" && make build-stage0)

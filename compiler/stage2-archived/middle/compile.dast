@@ -1492,7 +1492,7 @@ fn compile_expr(c: &mut Compiler, expr: Expr, self_name: &str) -> i32 {
                     return dst
                 }
                 _ => {
-                    compiler_add_type_error(c, "can only call identifiers in stage1")
+                    compiler_add_type_error(c, "can only call identifiers in stage2")
                     return const_zero(c)
                 }
             }

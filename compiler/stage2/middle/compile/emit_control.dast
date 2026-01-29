@@ -487,7 +487,7 @@ fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     let qbe_path = target_dir + "/main.qbe"
     let asm_path = target_dir + "/main.s"
     let entry_path = target_dir + "/entry.c"
-    let runtime_path = "compiler/bootstrap/stage0/runtime/c_runtime.c"
+    let runtime_path = "compiler/stage0/runtime/c_runtime.c"
 
     write_file(qbe_path, qbe)
     write_file(entry_path, build_entry_c(&alias_e, &main_rt))
@@ -530,7 +530,7 @@ fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64
     let qbe_path = target_dir + "/main.qbe"
     let asm_path = target_dir + "/main.s"
     let entry_path = target_dir + "/entry.c"
-    let runtime_path = "compiler/bootstrap/stage0/runtime/c_runtime.c"
+    let runtime_path = "compiler/stage0/runtime/c_runtime.c"
 
     write_file(qbe_path, qbe)
     write_file(entry_path, build_entry_c(&alias_e, &main_rt))

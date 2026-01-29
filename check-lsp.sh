@@ -28,7 +28,7 @@ echo ""
 
 # 3. Check Stage 0 compiler
 echo "3. Checking Stage 0 compiler..."
-if [ -x "compiler/bootstrap/stage0/dast-stage0" ]; then
+if [ -x "compiler/stage0/dast-stage0" ]; then
     echo "   ✅ Stage 0 compiler exists"
 else
     echo "   ❌ Stage 0 compiler missing"
@@ -55,7 +55,7 @@ echo ""
 
 # 5. Run LSP tests
 echo "5. Running LSP tests..."
-./compiler/bootstrap/stage0/dast-stage0 run \
+./compiler/stage0/dast-stage0 run \
     compiler/stage2/frontend/token.dast \
     compiler/stage2/frontend/lexer.dast \
     compiler/stage2/frontend/ast.dast \

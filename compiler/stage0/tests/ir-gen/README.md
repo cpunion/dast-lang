@@ -2,7 +2,7 @@
 
 ## 运行测试
 ```bash
-./compiler/bootstrap/stage0/dast-stage0 ir compiler/bootstrap/stage0/tests/ir-gen/value_params.dast
+./compiler/stage0/dast-stage0 ir compiler/stage0/tests/ir-gen/value_params.dast
 ```
 
 ## 期望：值参数直接使用，无 load

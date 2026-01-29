@@ -104,11 +104,8 @@ dast test
 
 **Self-hosting verification**:
 ```bash
-# Stage 0 (Go) compiles Stage 1 (Dast bootstrap compiler)
-dast run compiler/bootstrap/stage1/*.dast
-
-# Stage 1 (Dast) compiles itself (once feature-parity is reached)
-dastc-stage1 compiler/bootstrap/stage1/*.dast -o dastc-stage1
+# Stage 0 (Go) runs the Stage 2 compiler (Dast)
+make test-stage2
 ```
 
 ### Tooling (Parallel Development)

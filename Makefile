@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-STAGE0_DIR := compiler/bootstrap/stage0
+STAGE0_DIR := compiler/stage0
 STAGE0_BIN := $(STAGE0_DIR)/dast-stage0
 STAGE0_SAFE_MEM_MB ?= 128
 STAGE0_SAFE_RUN ?= scripts/safe-run.sh
@@ -28,7 +28,7 @@ STAGE2_MEM_LIMIT_CMD := $(if $(filter Linux,$(UNAME_S)),$(if $(STAGE2_MEM_LIMIT_
 STAGE2_RUN_ENV := $(if $(STAGE2_GOMEMLIMIT),GOMEMLIMIT=$(STAGE2_GOMEMLIMIT),) $(if $(STAGE2_MEM_LIMIT_MB),DAST_MEM_LIMIT_MB=$(STAGE2_MEM_LIMIT_MB),) $(if $(STAGE2_ALLOC_TOTAL_MAX_MB),DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2_ALLOC_TOTAL_MAX_MB),)
 STAGE2_RUNNER := $(STAGE2_RUN_ENV) ./$(STAGE0_BIN)
 STAGE2_SAFE_RUNNER := $(STAGE0_SAFE_CMD) env $(STAGE2_RUN_ENV) ./$(STAGE0_BIN)
-IR_TEST_DIR := compiler/bootstrap/stage0/tests/ir
+IR_TEST_DIR := compiler/stage0/tests/ir
 IR_VALID := $(IR_TEST_DIR)/valid.ir
 IR_INVALID := $(IR_TEST_DIR)/invalid_missing_term.ir
 IR_OPT := $(IR_TEST_DIR)/opt_branch.ir
@@ -41,9 +41,9 @@ IR_DUPBLOCK := $(IR_TEST_DIR)/invalid_dup_block.ir
 IR_DUPFIELD := $(IR_TEST_DIR)/invalid_dup_field.ir
 IR_DUPFN := $(IR_TEST_DIR)/invalid_dup_fn.ir
 IR_OPT_CONST := $(IR_TEST_DIR)/opt_const.ir
-IR_GEN_DIRS := compiler/tests/ir-gen compiler/bootstrap/stage0/tests/ir-gen
-IR_QBE_DIRS := compiler/tests/ir-qbe compiler/bootstrap/stage0/tests/ir-qbe
-EXAMPLES := $(wildcard compiler/bootstrap/stage0/examples/*/main.dast)
+IR_GEN_DIRS := compiler/tests/ir-gen compiler/stage0/tests/ir-gen
+IR_QBE_DIRS := compiler/tests/ir-qbe compiler/stage0/tests/ir-qbe
+EXAMPLES := $(wildcard compiler/stage0/examples/*/main.dast)
 STAGE0_RUN_PASS := $(wildcard compiler/tests/run-pass/*.dast)
 STAGE0_COMPILE_FAIL := $(wildcard compiler/tests/compile-fail/*.dast)
 # Ordered stage0 phases: simple -> combo -> integration.

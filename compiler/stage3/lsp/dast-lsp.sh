@@ -10,14 +10,14 @@ WORKSPACE_ROOT="${1:-$(pwd)}"
 
 # Find compiler directories relative to script location
 COMPILER_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
-STAGE0_BIN="$COMPILER_ROOT/bootstrap/stage0/dast-stage0"
+STAGE0_BIN="$COMPILER_ROOT/stage0/dast-stage0"
 STAGE2_DIR="$COMPILER_ROOT/stage2"
 LSP_DIR="$SCRIPT_DIR"
 
 # Build Stage 0 if needed
 if [ ! -f "$STAGE0_BIN" ]; then
     echo "Building Stage 0 compiler..." >&2
-    (cd "$COMPILER_ROOT/bootstrap/stage0" && go build -o dast-stage0 ./cmd/dast) >&2
+    (cd "$COMPILER_ROOT/stage0" && go build -o dast-stage0 ./cmd/dast) >&2
 fi
 
 # Collect Stage 2 files

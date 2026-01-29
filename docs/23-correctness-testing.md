@@ -60,7 +60,7 @@ Language-level correctness tests should be shared:
   - `compiler/tests/ir-qbe/`
 
 Stage-specific tests are still allowed when needed:
-- Stage0-specific: `compiler/bootstrap/stage0/tests/`
+- Stage0-specific: `compiler/stage0/tests/`
 - Stage2-specific: `compiler/stage2/tests/`
 
 Makefile note:

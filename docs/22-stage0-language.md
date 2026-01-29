@@ -14,16 +14,16 @@ Stage0 CLI（`dast-stage0`）：
 
 ```bash
 # 构建/运行/测试
-./compiler/bootstrap/stage0/dast-stage0 build [--emit-ir|--emit-qbe] <dir|file.dast ...> [-o output]
-./compiler/bootstrap/stage0/dast-stage0 run   <file.dast> [more.dast ...] [-- args...]
-./compiler/bootstrap/stage0/dast-stage0 test  [dir|file.dast ...]
+./compiler/stage0/dast-stage0 build [--emit-ir|--emit-qbe] <dir|file.dast ...> [-o output]
+./compiler/stage0/dast-stage0 run   <file.dast> [more.dast ...] [-- args...]
+./compiler/stage0/dast-stage0 test  [dir|file.dast ...]
 
 # IR v0 流水线
-./compiler/bootstrap/stage0/dast-stage0 ir        <file.dast> [more.dast ...]
-./compiler/bootstrap/stage0/dast-stage0 ir-run    <file.ir> [-- args...]
-./compiler/bootstrap/stage0/dast-stage0 ir-verify <file.ir>
-./compiler/bootstrap/stage0/dast-stage0 ir-opt    <file.ir>
-./compiler/bootstrap/stage0/dast-stage0 ir-qbe    <file.ir>
+./compiler/stage0/dast-stage0 ir        <file.dast> [more.dast ...]
+./compiler/stage0/dast-stage0 ir-run    <file.ir> [-- args...]
+./compiler/stage0/dast-stage0 ir-verify <file.ir>
+./compiler/stage0/dast-stage0 ir-opt    <file.ir>
+./compiler/stage0/dast-stage0 ir-qbe    <file.ir>
 ```
 
 说明：
@@ -74,7 +74,7 @@ import "util.sub" as sub  // 路径点号分隔，使用别名访问
 - `"a.b.c"` 对应 `src/a/b/c/` 目录
 - `import "path" as alias` 后，通过 `alias.name` 访问导入符号
 - `import "std/xxx"` 从标准库根目录解析
-  - Stage0: 优先 `DAST_STDLIB`，否则自动定位到 `compiler/bootstrap/stage0/stdlib`
+  - Stage0: 优先 `DAST_STDLIB`，否则自动定位到 `compiler/stage0/stdlib`
   - 若 stdlib 不存在，导入失败
 
 ### 3.3 依赖（路径依赖）

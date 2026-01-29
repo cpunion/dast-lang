@@ -1,6 +1,6 @@
 # Dast IR v0 规范（稳定核心）
 
-> 目标：**稳定**且**最小**的 IR，使 stage0 只需支持 v0 即可运行 stage1/2，即便上层语法持续演进。
+> 目标：**稳定**且**最小**的 IR，使 stage0 只需支持 v0 即可运行 stage2，即便上层语法持续演进。
 
 ## 设计原则
 
@@ -50,11 +50,11 @@ Block {
 
 ## IR v0 文本格式（ir_program_format）
 
-> 该文本格式是 **stage0/stage1 的互操作桥梁**：
+> 该文本格式是 **stage0/stage2 的互操作桥梁**：
 >
 > - `dast ir` 输出此格式
 > - `dast ir-run` 读取并解释执行
-> - stage2 可直接生成该格式，交给 stage1/stage0 运行
+> - stage2 可直接生成该格式，交给 stage0 运行
 
 ### 顶层结构
 

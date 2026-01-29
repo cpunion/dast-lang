@@ -16,7 +16,7 @@ Language support for the Dast programming language.
 
 1. Build the Stage 0 compiler:
    ```bash
-   cd compiler/bootstrap/stage0
+   cd compiler/stage0
    go build -o dast-stage0 ./cmd/dast
    ```
 

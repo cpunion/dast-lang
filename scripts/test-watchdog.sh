@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-stage0="$root/compiler/bootstrap/stage0/dast-stage0"
+stage0="$root/compiler/stage0/dast-stage0"
 stage2_bin="$root/compiler/stage2/target/dast-stage2"
 
 mem_gb=10

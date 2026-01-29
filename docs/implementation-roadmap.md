@@ -9,22 +9,8 @@
 **输出**：IR v0（稳定）  
 
 完成标准：
-- stage0 可运行 stage1（前端）
+- stage0 可运行 stage2（bootstrap）
 - 基础示例可以运行（examples）
-
-## Stage 1 — Dast 自举（对齐 Stage 0）
-
-**目标**：用 Dast 实现与 stage0 **同范围**的编译器，并能自举  
-**范围**：与 Stage 0 完全一致（不引入新语法能力）  
-**输出**：IR v0（稳定）
-
-完成标准：
-- stage0 编译 stage1（Dast 编译器）
-- stage1 可编译自身（功能范围与 stage0 对齐）
-
-> 运行策略（长期）：  
-> - 初期 stage1 保持多文件源码，可被 stage0 直接编译运行。  
-> - 后续可由 stage1 将 stage2 编译为 **单个 IR v0 文件**，作为“stage1 快照”，保证 stage0 仍可运行 stage1。
 
 ## Stage 2 — 完整语言规范自举
 
@@ -35,7 +21,7 @@
 完成标准：
 - stage2 编译器使用**完整规范**实现  
 - stage2 可以编译 stage2（最新规范自举）
-- stage2 可输出单文件 IR v0，作为 stage1 的稳定快照
+- stage2 可输出单文件 IR v0，供 stage0 运行
 
 ## Stage 3 — 工具链与优化
 
@@ -51,15 +37,13 @@
 ## IR 稳定性约束（适用于所有阶段）
 
 - stage0 只支持 **IR v0**。  
-- stage1/2 应尽可能将新语法**前端降解**为 v0 IR。  
+- stage2 应尽可能将新语法**前端降解**为 v0 IR。  
 
 ## 目录布局（建议）
 
 ```
 compiler/
-  bootstrap/
-    stage0/
-    stage1/
+  stage0/
   core/
   stage2/
     frontend/
