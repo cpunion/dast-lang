@@ -473,6 +473,128 @@ fn closure_index(e: &Emitter, name: &str) -> i64 {
     return -1
 }
 
+fn int_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
+    let lt = expr_type(e, lhs)
+    let rt = expr_type(e, rhs)
+    if !type_is_int(e, &lt) || !type_is_int(e, &rt) { return "" }
+    let lhs_lit = lhs.kind == EXPR_INT
+    let rhs_lit = rhs.kind == EXPR_INT
+    if lhs_lit && !rhs_lit {
+        if int_value_fits_type(e, lhs.int_value, &rt) { return string_clone(&rt) }
+    }
+    if rhs_lit && !lhs_lit {
+        if int_value_fits_type(e, rhs.int_value, &lt) { return string_clone(&lt) }
+    }
+    let pt = int_peer_type(e, &lt, &rt)
+    if pt == "" { return "" }
+    if lhs_lit && !int_value_fits_type(e, lhs.int_value, &pt) { return "" }
+    if rhs_lit && !int_value_fits_type(e, rhs.int_value, &pt) { return "" }
+    return pt
+}
+
+fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
+    let lt = expr_type(e, lhs)
+    let rt = expr_type(e, rhs)
+    if !type_is_int(e, &lt) || !type_is_int(e, &rt) { return "" }
+    if rhs.kind == EXPR_INT {
+        if rhs.int_value < 0 { return "" }
+        return string_clone(&lt)
+    }
+    if !type_is_unsigned_int(e, &rt) { return "" }
+    return string_clone(&lt)
+}
+
+fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
+    if op == "&&" || op == "||" {
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
+            println("stage2: binary op", op, "requires bool operands got", lt, "and", rt)
+            exit(1)
+        }
+        return "bool"
+    }
+    if op == "==" || op == "!=" {
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        if type_is_string(e, &lt) || type_is_string(e, &rt) {
+            if !type_is_string(e, &lt) || !type_is_string(e, &rt) {
+                println("stage2: binary op", op, "requires both String operands got", lt, "and", rt)
+                exit(1)
+            }
+            return "bool"
+        }
+        if type_is_enum(e, &lt) || type_is_enum(e, &rt) {
+            if !type_is_enum(e, &lt) || !type_is_enum(e, &rt) {
+                println("stage2: binary op", op, "requires both enum operands got", lt, "and", rt)
+                exit(1)
+            }
+            let lb = type_strip_args(e, &lt)
+            let rb = type_strip_args(e, &rt)
+            if lb != rb {
+                println("stage2: binary op", op, "requires matching enum types got", lt, "and", rt)
+                exit(1)
+            }
+            return "bool"
+        }
+        if type_is_bool(e, &lt) || type_is_bool(e, &rt) {
+            if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
+                println("stage2: binary op", op, "requires both bool operands got", lt, "and", rt)
+                exit(1)
+            }
+            return "bool"
+        }
+        let pt = int_bin_result_type(e, lhs, rhs)
+        if pt == "" {
+            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
+            exit(1)
+        }
+        return "bool"
+    }
+    if op == "<" || op == ">" || op == "<=" || op == ">=" {
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        let pt = int_bin_result_type(e, lhs, rhs)
+        if pt == "" {
+            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
+            exit(1)
+        }
+        return "bool"
+    }
+    if op == "+" {
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        if type_is_string(e, &lt) && type_is_string(e, &rt) { return "String" }
+        let pt = int_bin_result_type(e, lhs, rhs)
+        if pt == "" {
+            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
+            exit(1)
+        }
+        return pt
+    }
+    if op == "-" || op == "*" || op == "/" || op == "%" || op == "&" || op == "|" || op == "^" {
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        let pt = int_bin_result_type(e, lhs, rhs)
+        if pt == "" {
+            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
+            exit(1)
+        }
+        return pt
+    }
+    if op == "<<" || op == ">>" {
+        let lt = expr_type(e, lhs)
+        let rt = expr_type(e, rhs)
+        let st = shift_result_type(e, lhs, rhs)
+        if st == "" {
+            println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lt, "and", rt)
+            exit(1)
+        }
+        return st
+    }
+    return "i64"
+}
+
 fn closure_add(e: &mut Emitter, name: &str, body: &Block) {
     if name == "" { return }
     if closure_index(e, name) >= 0 { return }
@@ -722,14 +844,10 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             return "i64"
         }
         EXPR_BINARY => {
-            if expr.name == "==" || expr.name == "!=" || expr.name == "<" || expr.name == ">" || expr.name == "<=" || expr.name == ">=" || expr.name == "&&" || expr.name == "||" { return "bool" }
-            if expr.name == "+" && len(&expr.args) >= 2 {
-                let lt = expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs"))
-                let rt = expr_type(e, expr_arg_ref(expr, 1, "expr_type_binary_rhs"))
-                if type_is_string(e, &lt) && type_is_string(e, &rt) { return "String" }
-            }
-            if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs")) }
-            return "i64"
+            if len(&expr.args) < 2 { return "i64" }
+            let lhs = expr_arg_ref(expr, 0, "expr_type_binary_lhs")
+            let rhs = expr_arg_ref(expr, 1, "expr_type_binary_rhs")
+            return binary_op_result_type(e, &expr.name, lhs, rhs)
         }
         EXPR_UNARY => {
             if expr.name == "!" { return "bool" }

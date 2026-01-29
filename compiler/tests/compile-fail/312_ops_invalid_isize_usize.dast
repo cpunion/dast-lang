@@ -1,0 +1,5 @@
+fn main() {
+    let x: isize = 7
+    let y: usize = 3
+    let _ = x + y
+}

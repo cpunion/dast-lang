@@ -1,0 +1,101 @@
+// Unit tests for emit_binary_expr codegen selection.
+
+fn assert_true(cond: bool, msg: &str) {
+    if !cond {
+        println("assert_true failed", msg)
+        exit(1)
+    }
+}
+
+fn body_contains(lines: & [String], needle: &str) -> bool {
+    let mut i = 0
+    while i < len(lines) {
+        let line = &(*lines)[i]
+        if str_has_substr(line, needle) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn str_has_substr(s: &str, sub: &str) -> bool {
+    let ns = str_len(s)
+    let nsub = str_len(sub)
+    if nsub == 0 { return true }
+    if ns < nsub { return false }
+    let mut i = 0
+    while i + nsub <= ns {
+        if str_substr(s, i, nsub) == sub { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn setup_emitter(t1: &str, t2: &str) -> Emitter {
+    let mut e = emitter_new()
+    let mut names: [String] = []
+    let mut types: [String] = []
+    let mut muts: [bool] = []
+    push(&mut names, "a")
+    push(&mut names, "b")
+    push(&mut types, string_clone(t1))
+    push(&mut types, string_clone(t2))
+    push(&mut muts, false)
+    push(&mut muts, false)
+    e.var_names = names
+    e.var_types = types
+    e.var_mut = muts
+    return e
+}
+
+fn bin_expr(op: &str) -> Expr {
+    let mut args: [Expr] = []
+    push(&mut args, expr_ident("a"))
+    push(&mut args, expr_ident("b"))
+    return expr_binary(string_clone(op), args)
+}
+
+fn test_emit_div_ops() {
+    let mut e1 = setup_emitter("i32", "i16")
+    let expr1 = bin_expr("/")
+    let v1 = emit_binary_expr(&mut e1, &expr1)
+    assert_true(v1.typ == "i32", "signed div result type")
+    assert_true(body_contains(&e1.body, " div "), "signed div opcode")
+
+    let mut e2 = setup_emitter("u32", "u16")
+    let expr2 = bin_expr("/")
+    let v2 = emit_binary_expr(&mut e2, &expr2)
+    assert_true(v2.typ == "u32", "unsigned div result type")
+    assert_true(body_contains(&e2.body, " udiv "), "unsigned div opcode")
+}
+
+fn test_emit_cmp_ops() {
+    let mut e1 = setup_emitter("i8", "i16")
+    let expr1 = bin_expr("<")
+    let _ = emit_binary_expr(&mut e1, &expr1)
+    assert_true(body_contains(&e1.body, " csltl "), "signed cmp opcode")
+
+    let mut e2 = setup_emitter("u8", "u16")
+    let expr2 = bin_expr("<")
+    let _ = emit_binary_expr(&mut e2, &expr2)
+    assert_true(body_contains(&e2.body, " cultl "), "unsigned cmp opcode")
+}
+
+fn test_emit_shift_ops() {
+    let mut e1 = setup_emitter("i16", "u8")
+    let expr1 = bin_expr(">>")
+    let _ = emit_binary_expr(&mut e1, &expr1)
+    assert_true(body_contains(&e1.body, " sar "), "signed shift opcode")
+
+    let mut e2 = setup_emitter("u16", "u8")
+    let expr2 = bin_expr(">>")
+    let _ = emit_binary_expr(&mut e2, &expr2)
+    assert_true(body_contains(&e2.body, " shr "), "unsigned shift opcode")
+}
+
+fn test_emit_peer_type() {
+    let mut e = setup_emitter("i16", "u16")
+    let expr = bin_expr("+")
+    let v = emit_binary_expr(&mut e, &expr)
+    assert_true(v.typ == "i32", "peer type i32 for i16+u16")
+}
+

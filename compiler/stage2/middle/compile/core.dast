@@ -685,6 +685,143 @@ fn type_int_width(e: &Emitter, t: &str) -> i64 {
     return 0
 }
 
+fn i64_max_value() -> i64 {
+    return 9223372036854775807
+}
+
+fn i64_min_value() -> i64 {
+    return -9223372036854775807 - 1
+}
+
+fn int_type_min(e: &Emitter, t: &str) -> i64 {
+    let rt = type_resolve(e, t)
+    if !type_is_int(e, &rt) { return 0 }
+    if type_is_unsigned_int(e, &rt) { return 0 }
+    let bits = type_int_width(e, &rt)
+    if bits >= 64 { return i64_min_value() }
+    let shift = bits - 1
+    let mut v: i64 = 1
+    let mut i = 0
+    while i < shift {
+        v = v * 2
+        i = i + 1
+    }
+    return -v
+}
+
+fn int_type_max(e: &Emitter, t: &str) -> i64 {
+    let rt = type_resolve(e, t)
+    if !type_is_int(e, &rt) { return 0 }
+    let bits = type_int_width(e, &rt)
+    if type_is_unsigned_int(e, &rt) {
+        if bits >= 63 { return i64_max_value() }
+        let mut v: i64 = 1
+        let mut i = 0
+        while i < bits {
+            v = v * 2
+            i = i + 1
+        }
+        return v - 1
+    }
+    if bits >= 64 { return i64_max_value() }
+    let shift = bits - 1
+    let mut v: i64 = 1
+    let mut i = 0
+    while i < shift {
+        v = v * 2
+        i = i + 1
+    }
+    return v - 1
+}
+
+fn int_type_can_hold(e: &Emitter, dst: &str, src: &str) -> bool {
+    if !type_is_int(e, dst) || !type_is_int(e, src) { return false }
+    let min_dst = int_type_min(e, dst)
+    let max_dst = int_type_max(e, dst)
+    let min_src = int_type_min(e, src)
+    let max_src = int_type_max(e, src)
+    return min_dst <= min_src && max_dst >= max_src
+}
+
+fn int_value_fits_type(e: &Emitter, val: i64, t: &str) -> bool {
+    if !type_is_int(e, t) { return false }
+    let min_t = int_type_min(e, t)
+    let max_t = int_type_max(e, t)
+    return val >= min_t && val <= max_t
+}
+
+fn int_peer_type(e: &Emitter, lt: &str, rt: &str) -> String {
+    let ltr = type_resolve(e, lt)
+    let rtr = type_resolve(e, rt)
+    if !type_is_int(e, &ltr) || !type_is_int(e, &rtr) { return "" }
+    let lbits = type_int_width(e, &ltr)
+    let rbits = type_int_width(e, &rtr)
+    if type_is_unsigned_int(e, &ltr) && lbits == 64 && int_type_min(e, &rtr) < 0 { return "" }
+    if type_is_unsigned_int(e, &rtr) && rbits == 64 && int_type_min(e, &ltr) < 0 { return "" }
+    if ltr == rtr { return string_clone(&ltr) }
+    let min_all = if int_type_min(e, &ltr) < int_type_min(e, &rtr) { int_type_min(e, &ltr) } else { int_type_min(e, &rtr) }
+    let max_all = if int_type_max(e, &ltr) > int_type_max(e, &rtr) { int_type_max(e, &ltr) } else { int_type_max(e, &rtr) }
+    if ltr == "int" || rtr == "int" {
+        let t = if ltr == "int" { &ltr } else { &rtr }
+        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
+    }
+    if ltr == "isize" || rtr == "isize" {
+        let t = if ltr == "isize" { &ltr } else { &rtr }
+        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
+    }
+    if ltr == "usize" || rtr == "usize" {
+        let t = if ltr == "usize" { &ltr } else { &rtr }
+        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
+    }
+    if ltr == "char" || rtr == "char" {
+        let t = if ltr == "char" { &ltr } else { &rtr }
+        if int_type_min(e, t) <= min_all && int_type_max(e, t) >= max_all { return string_clone(t) }
+    }
+    let mut signed_types: [String] = []
+    push(&mut signed_types, "i8")
+    push(&mut signed_types, "i16")
+    push(&mut signed_types, "i32")
+    if e.ptr_size == 4 { push(&mut signed_types, "isize") }
+    push(&mut signed_types, "i64")
+    if e.ptr_size == 8 { push(&mut signed_types, "isize") }
+    push(&mut signed_types, "int")
+    let mut unsigned_types: [String] = []
+    push(&mut unsigned_types, "u8")
+    push(&mut unsigned_types, "u16")
+    push(&mut unsigned_types, "u32")
+    push(&mut unsigned_types, "char")
+    if e.ptr_size == 4 { push(&mut unsigned_types, "usize") }
+    push(&mut unsigned_types, "u64")
+    if e.ptr_size == 8 { push(&mut unsigned_types, "usize") }
+    let mut i = 0
+    if min_all < 0 {
+        while i < len(&signed_types) {
+            let t = signed_types[i]
+            if int_type_min(e, &t) <= min_all && int_type_max(e, &t) >= max_all {
+                return t
+            }
+            i = i + 1
+        }
+        return ""
+    }
+    while i < len(&unsigned_types) {
+        let t = unsigned_types[i]
+        if int_type_min(e, &t) <= min_all && int_type_max(e, &t) >= max_all {
+            return t
+        }
+        i = i + 1
+    }
+    i = 0
+    while i < len(&signed_types) {
+        let t = signed_types[i]
+        if int_type_min(e, &t) <= min_all && int_type_max(e, &t) >= max_all {
+            return t
+        }
+        i = i + 1
+    }
+    return ""
+}
+
 fn type_size(e: &Emitter, t: &str) -> i64 {
     let rt = type_resolve(e, t)
     if rt == "unit" { return 0 }

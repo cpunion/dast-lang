@@ -414,15 +414,10 @@ fn array_get_fn_for_type(e: &Emitter, t: &str) -> String {
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(&expr.args) < 2 { return qbe_value("i64", "0") }
     let op = string_clone(&expr.name)
-    let mut lhs_t = ""
-    let mut rhs_t = ""
+    let lhs_expr = expr_arg_ref(expr, 0, "emit_binary_lhs_expr")
+    let rhs_expr = expr_arg_ref(expr, 1, "emit_binary_rhs_expr")
     if op == "&&" || op == "||" {
-        lhs_t = expr_type(e, expr_arg_ref(expr, 0, "emit_binary_lhs_t"))
-        rhs_t = expr_type(e, expr_arg_ref(expr, 1, "emit_binary_rhs_t"))
-        if !type_is_bool(e, &lhs_t) || !type_is_bool(e, &rhs_t) {
-            println("stage2: binary op", op, "requires bool operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
+        let _ = binary_op_result_type(e, &op, lhs_expr, rhs_expr)
         let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
         let lhs_cond = ensure_bool_expr(e, lhs)
         let res_tmp = new_temp(e)
@@ -456,10 +451,11 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         emit_line(e, "  " + out_tn + " =w loadw " + res_ptr)
         return qbe_value("bool", out_tn)
     }
+    let _ = binary_op_result_type(e, &op, lhs_expr, rhs_expr)
     let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
     let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
-    lhs_t = type_resolve(e, &lhs.typ)
-    rhs_t = type_resolve(e, &rhs.typ)
+    let lhs_t = type_resolve(e, &lhs.typ)
+    let rhs_t = type_resolve(e, &rhs.typ)
     if op == "+" {
         if type_is_string(e, &lhs.typ) && type_is_string(e, &rhs.typ) {
             let l = emit_deref_value(e, lhs)
@@ -469,243 +465,120 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  " + tn + " =l call $dast_string_concat(l " + l.expr + ", l " + r.expr + ")")
             return qbe_value("String", tn)
         }
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int or String operands got", lhs_t, "and", rhs_t)
+        let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+        if int_t == "" {
+            println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
             exit(1)
         }
+        let l = cast_to_type(e, lhs, &int_t)
+        let r = cast_to_type(e, rhs, &int_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l add " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("i64", tn)
+        emit_line(e, "  " + tn + " =l add " + l + ", " + r)
+        return qbe_value(int_t, tn)
     }
-    if op == "-" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+    if op == "-" || op == "*" || op == "/" || op == "%" || op == "&" || op == "|" || op == "^" {
+        let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+        if int_t == "" {
+            println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
             exit(1)
         }
+        let l = cast_to_type(e, lhs, &int_t)
+        let r = cast_to_type(e, rhs, &int_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l sub " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("i64", tn)
+        if op == "-" {
+            emit_line(e, "  " + tn + " =l sub " + l + ", " + r)
+            return qbe_value(int_t, tn)
+        }
+        if op == "*" {
+            emit_line(e, "  " + tn + " =l mul " + l + ", " + r)
+            return qbe_value(int_t, tn)
+        }
+        if op == "/" {
+            let mut divop = "div"
+            if type_is_unsigned_int(e, &int_t) { divop = "udiv" }
+            emit_line(e, "  " + tn + " =l " + divop + " " + l + ", " + r)
+            return qbe_value(int_t, tn)
+        }
+        if op == "%" {
+            let mut remop = "rem"
+            if type_is_unsigned_int(e, &int_t) { remop = "urem" }
+            emit_line(e, "  " + tn + " =l " + remop + " " + l + ", " + r)
+            return qbe_value(int_t, tn)
+        }
+        if op == "&" {
+            let q = qbe_type(e, &int_t)
+            emit_line(e, "  " + tn + " =" + q + " and " + l + ", " + r)
+            return qbe_value(int_t, tn)
+        }
+        if op == "|" {
+            let q = qbe_type(e, &int_t)
+            emit_line(e, "  " + tn + " =" + q + " or " + l + ", " + r)
+            return qbe_value(int_t, tn)
+        }
+        let q = qbe_type(e, &int_t)
+        emit_line(e, "  " + tn + " =" + q + " xor " + l + ", " + r)
+        return qbe_value(int_t, tn)
     }
-    if op == "*" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+    if op == "<<" || op == ">>" {
+        let int_t = shift_result_type(e, lhs_expr, rhs_expr)
+        if int_t == "" {
+            println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lhs_t, "and", rhs_t)
             exit(1)
         }
+        let l = cast_to_type(e, lhs, &int_t)
+        let r = cast_to_type(e, rhs, &int_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l mul " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("i64", tn)
-    }
-    if op == "/" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
+        let q = qbe_type(e, &int_t)
+        if op == "<<" {
+            emit_line(e, "  " + tn + " =" + q + " shl " + l + ", " + r)
+        } else {
+            let mut shift = "sar"
+            if type_is_unsigned_int(e, &int_t) { shift = "shr" }
+            emit_line(e, "  " + tn + " =" + q + " " + shift + " " + l + ", " + r)
         }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let mut divop = "div"
-        if type_is_unsigned_int(e, &lhs.typ) { divop = "udiv" }
-        emit_line(e, "  " + tn + " =l " + divop + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("i64", tn)
+        return qbe_value(int_t, tn)
     }
-    if op == "%" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let mut remop = "rem"
-        if type_is_unsigned_int(e, &lhs.typ) { remop = "urem" }
-        emit_line(e, "  " + tn + " =l " + remop + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("i64", tn)
-    }
-    if op == "&" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let q = qbe_type(e, &lhs.typ)
-        emit_line(e, "  " + tn + " =" + q + " and " + lhs.expr + ", " + rhs.expr)
-        return qbe_value(string_clone(&lhs.typ), tn)
-    }
-    if op == "|" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let q = qbe_type(e, &lhs.typ)
-        emit_line(e, "  " + tn + " =" + q + " or " + lhs.expr + ", " + rhs.expr)
-        return qbe_value(string_clone(&lhs.typ), tn)
-    }
-    if op == "^" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let q = qbe_type(e, &lhs.typ)
-        emit_line(e, "  " + tn + " =" + q + " xor " + lhs.expr + ", " + rhs.expr)
-        return qbe_value(string_clone(&lhs.typ), tn)
-    }
-    if op == "<<" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let q = qbe_type(e, &lhs.typ)
-        emit_line(e, "  " + tn + " =" + q + " shl " + lhs.expr + ", " + rhs.expr)
-        return qbe_value(string_clone(&lhs.typ), tn)
-    }
-    if op == ">>" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let q = qbe_type(e, &lhs.typ)
-        let mut shift = "sar"
-        if type_is_unsigned_int(e, &lhs.typ) { shift = "shr" }
-        emit_line(e, "  " + tn + " =" + q + " " + shift + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value(string_clone(&lhs.typ), tn)
-    }
-    if op == "==" {
+    if op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         if type_is_string(e, &lhs.typ) || type_is_string(e, &rhs.typ) {
-            if !type_is_string(e, &lhs.typ) || !type_is_string(e, &rhs.typ) {
-                println("stage2: binary op", op, "requires both String operands got", lhs_t, "and", rhs_t)
-                exit(1)
-            }
             let l = emit_deref_value(e, lhs)
             let r = emit_deref_value(e, rhs)
             emit_line(e, "  " + tn + " =w call $dast_string_eq(l " + l.expr + ", l " + r.expr + ")")
-            return qbe_value("bool", tn)
-        }
-        if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
-            if !type_is_enum(e, &lhs.typ) || !type_is_enum(e, &rhs.typ) {
-                println("stage2: binary op", op, "requires both enum operands got", lhs_t, "and", rhs_t)
-                exit(1)
-            }
-            let lb = type_strip_args(e, &lhs_t)
-            let rb = type_strip_args(e, &rhs_t)
-            if lb != rb {
-                println("stage2: binary op", op, "requires matching enum types got", lhs_t, "and", rhs_t)
-                exit(1)
-            }
+        } else if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
             let cmp = "ceql"
             emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
-            return qbe_value("bool", tn)
-        }
-        if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
-            if !type_is_bool(e, &lhs.typ) || !type_is_bool(e, &rhs.typ) {
-                println("stage2: binary op", op, "requires both bool operands got", lhs_t, "and", rhs_t)
-                exit(1)
-            }
-            let cmp = "ceqw"
-            emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
-            return qbe_value("bool", tn)
-        }
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
-        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("bool", tn)
-    }
-    if op == "!=" {
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        if type_is_string(e, &lhs.typ) || type_is_string(e, &rhs.typ) {
-            if !type_is_string(e, &lhs.typ) || !type_is_string(e, &rhs.typ) {
-                println("stage2: binary op", op, "requires both String operands got", lhs_t, "and", rhs_t)
-                exit(1)
-            }
-            let l = emit_deref_value(e, lhs)
-            let r = emit_deref_value(e, rhs)
-            emit_line(e, "  " + tn + " =w call $dast_string_eq(l " + l.expr + ", l " + r.expr + ")")
+        } else if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
+            emit_line(e, "  " + tn + " =w ceqw " + lhs.expr + ", " + rhs.expr)
         } else {
-            if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
-                if !type_is_enum(e, &lhs.typ) || !type_is_enum(e, &rhs.typ) {
-                    println("stage2: binary op", op, "requires both enum operands got", lhs_t, "and", rhs_t)
-                    exit(1)
-                }
-                let lb = type_strip_args(e, &lhs_t)
-                let rb = type_strip_args(e, &rhs_t)
-                if lb != rb {
-                    println("stage2: binary op", op, "requires matching enum types got", lhs_t, "and", rhs_t)
-                    exit(1)
-                }
-            } else if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
-                if !type_is_bool(e, &lhs.typ) || !type_is_bool(e, &rhs.typ) {
-                    println("stage2: binary op", op, "requires both bool operands got", lhs_t, "and", rhs_t)
-                    exit(1)
-                }
-            } else if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-                println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
+            let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
+            if int_t == "" {
+                println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
                 exit(1)
             }
-            let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
-            emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+            let l = cast_to_type(e, lhs, &int_t)
+            let r = cast_to_type(e, rhs, &int_t)
+            if op == "==" || op == "!=" {
+                emit_line(e, "  " + tn + " =w ceql " + l + ", " + r)
+            } else {
+                let mut cmp = ""
+                if type_is_unsigned_int(e, &int_t) {
+                    if op == "<" { cmp = "cultl" } else if op == ">" { cmp = "cugtl" } else if op == "<=" { cmp = "culel" } else { cmp = "cugel" }
+                } else {
+                    if op == "<" { cmp = "csltl" } else if op == ">" { cmp = "csgtl" } else if op == "<=" { cmp = "cslel" } else { cmp = "csgel" }
+                }
+                emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
+            }
         }
-        let inv_tmp = new_temp(e)
-        let inv_tn = temp_name(inv_tmp)
-        emit_line(e, "  " + inv_tn + " =w ceqw " + tn + ", 0")
-        return qbe_value("bool", inv_tn)
-    }
-    if op == "<" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
+        if op == "!=" {
+            let inv_tmp = new_temp(e)
+            let inv_tn = temp_name(inv_tmp)
+            emit_line(e, "  " + inv_tn + " =w ceqw " + tn + ", 0")
+            return qbe_value("bool", inv_tn)
         }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let cmp = if type_is_unsigned_int(e, &lhs.typ) { "cultl" } else { "csltl" }
-        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("bool", tn)
-    }
-    if op == ">" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let cmp = if type_is_unsigned_int(e, &lhs.typ) { "cugtl" } else { "csgtl" }
-        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("bool", tn)
-    }
-    if op == "<=" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let cmp = if type_is_unsigned_int(e, &lhs.typ) { "culel" } else { "cslel" }
-        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
-        return qbe_value("bool", tn)
-    }
-    if op == ">=" {
-        if !type_is_int(e, &lhs.typ) || !type_is_int(e, &rhs.typ) {
-            println("stage2: binary op", op, "requires int operands got", lhs_t, "and", rhs_t)
-            exit(1)
-        }
-        let tmp = new_temp(e)
-        let tn = temp_name(tmp)
-        let cmp = if type_is_unsigned_int(e, &lhs.typ) { "cugel" } else { "csgel" }
-        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         return qbe_value("bool", tn)
     }
     println("stage2: unsupported binary op", op)
