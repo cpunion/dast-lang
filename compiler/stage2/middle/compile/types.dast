@@ -506,8 +506,8 @@ fn drop_fn_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
     if rt == "String" { return "dast_string_free" }
     if drop_is_array_type_name(string_clone(&rt)) { return "dast_array_free" }
-    if type_is_struct(e, &rt) { return "dast_struct_free" }
-    if type_is_enum(e, &rt) && enum_has_payload(e, &rt) { return "dast_struct_free" }
+    if type_is_struct(e, &rt) { return "dast_free" }
+    if type_is_enum(e, &rt) && enum_has_payload(e, &rt) { return "dast_free" }
     return ""
 }
 

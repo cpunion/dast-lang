@@ -326,10 +326,10 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		funcSize := typeSize(e, p, funcType)
 		envSize := typeSize(e, p, envType)
-		lines := []string{
-			fmt.Sprintf("%%t%d =l call $dast_struct_load_u(l %s, l %d, l %d)", funcTemp, e.operandExpr(i.Closure), funcOff, funcSize),
-			fmt.Sprintf("%%t%d =l call $dast_struct_load_u(l %s, l %d, l %d)", envTemp, e.operandExpr(i.Closure), envOff, envSize),
-		}
+			lines := []string{
+				fmt.Sprintf("%%t%d =l call $dast_mem_load_u(l %s, l %d, l %d)", funcTemp, e.operandExpr(i.Closure), funcOff, funcSize),
+				fmt.Sprintf("%%t%d =l call $dast_mem_load_u(l %s, l %d, l %d)", envTemp, e.operandExpr(i.Closure), envOff, envSize),
+			}
 		args := []ir.Operand{{IsConst: false, Temp: envTemp}}
 		args = append(args, i.Args...)
 		retType := ""
@@ -389,7 +389,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			size = enumLayoutSize(e, p, i.Name)
 			align = enumLayoutAlign(e, p, i.Name)
 		}
-		lines := []string{fmt.Sprintf("%%t%d =l call $dast_struct_new(l %s, l %d, l %d)", i.Dst, e.stringDataRef(i.Name), size, align)}
+		lines := []string{fmt.Sprintf("%%t%d =l call $dast_alloc(l %s, l %d, l %d)", i.Dst, e.stringDataRef(i.Name), size, align)}
 		for _, f := range i.Fields {
 			if i.Name == "Closure" && f.Name == "func" && f.Src.IsConst && f.Src.Const.Kind == ir.KindString {
 				off := fieldOffset(e, p, i.Name, f.Name)
@@ -398,7 +398,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 				}
 				size := typeSize(e, p, "i64")
 				fnName := f.Src.Const.Str
-				lines = append(lines, fmt.Sprintf("call $dast_struct_store(l %%t%d, l %d, l %d, l $%s)", i.Dst, off, size, mangleFunc(fnName)))
+				lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %%t%d, l %d, l %d, l $%s)", i.Dst, off, size, mangleFunc(fnName)))
 				continue
 			}
 			ft := ti.operandType(f.Src)
@@ -415,7 +415,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 				panic(fmt.Sprintf("unknown field %s in %s", f.Name, i.Name))
 			}
 			size := typeSize(e, p, ft)
-			lines = append(lines, fmt.Sprintf("call $dast_struct_store(l %%t%d, l %d, l %d, l %s)", i.Dst, off, size, valExpr))
+			lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %%t%d, l %d, l %d, l %s)", i.Dst, off, size, valExpr))
 		}
 		return lines
 	case *ir.GetField:
@@ -461,7 +461,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		size := typeSize(e, p, ft)
 		lines := append([]string{}, srcLines...)
 		lines = append(lines, valLines...)
-		lines = append(lines, fmt.Sprintf("call $dast_struct_store(l %s, l %d, l %d, l %s)", srcExpr, off, size, valExpr))
+		lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %s, l %d, l %d, l %s)", srcExpr, off, size, valExpr))
 		return lines
 	case *ir.FieldAddr:
 		srcExpr, srcLines, _ := e.derefOperand(ti, ir.TempOperand(i.Src))
@@ -471,7 +471,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if off < 0 {
 			panic(fmt.Sprintf("unknown field %s in %s", i.Field, srcType))
 		}
-		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_struct_field_addr(l %s, l %d)", i.Dst, srcExpr, off))
+		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_mem_field_addr(l %s, l %d)", i.Dst, srcExpr, off))
 		return lines
 	case *ir.IndexAddr:
 		baseExpr, baseLines, _ := e.derefOperand(ti, ir.TempOperand(i.Base))
@@ -819,6 +819,8 @@ func builtinRuntimeName(name string) string {
 		return "dast_gensym"
 	case "bind":
 		return "dast_bind"
+	case "struct_free":
+		return "dast_free"
 	}
 	return "dast_" + mangleName(name)
 }
@@ -1852,45 +1854,11 @@ func fieldType(p *ir.Program, ti *typeInfo, structType string, field string) str
 	return ""
 }
 
-func structSetFn(t string) string {
-	switch normalizeType(t) {
-	case "bool":
-		return "dast_struct_set_bool"
-	case "String", "str":
-		return "dast_struct_set_string"
-	default:
-		if isIntType(t) {
-			if qbeType(t) == "w" {
-				return "dast_struct_set_i32"
-			}
-			return "dast_struct_set_i64"
-		}
-	}
-	return "dast_struct_set_ptr"
-}
-
-func structGetFn(t string) string {
-	switch normalizeType(t) {
-	case "bool":
-		return "dast_struct_get_bool"
-	case "String", "str":
-		return "dast_struct_get_string"
-	default:
-		if isIntType(t) {
-			if qbeType(t) == "w" {
-				return "dast_struct_get_i32"
-			}
-			return "dast_struct_get_i64"
-		}
-	}
-	return "dast_struct_get_ptr"
-}
-
 func structLoadFn(t string) string {
 	if isSignedIntType(normalizeType(t)) {
-		return "dast_struct_load_s"
+		return "dast_mem_load_s"
 	}
-	return "dast_struct_load_u"
+	return "dast_mem_load_u"
 }
 
 func arrayGetFn(t string, unchecked bool) string {

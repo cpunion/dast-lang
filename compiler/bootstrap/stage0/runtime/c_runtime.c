@@ -31,12 +31,12 @@ typedef struct DastArray {
 	dast_int debug_id;
 } DastArray;
 
-typedef struct DastStruct {
+typedef struct DastAllocHdr {
 	const char *name;
 	dast_int size;
 	dast_int align;
-	unsigned char *data;
-} DastStruct;
+	void *raw;
+} DastAllocHdr;
 
 // Per-allocation header so we can account malloc/realloc/free totals safely.
 typedef union DastAllocHeader {
@@ -492,12 +492,12 @@ static int dast_untrack_array(DastArray *arr) {
 	return 0;
 }
 
-static void dast_track_struct(DastStruct *st) {
-	if (!g_drop_debug || !st) {
+static void dast_track_struct(void *ptr) {
+	if (!g_drop_debug || !ptr) {
 		return;
 	}
 	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == st) {
+		if (g_struct_allocs[i] == ptr) {
 			return;
 		}
 	}
@@ -506,15 +506,15 @@ static void dast_track_struct(DastStruct *st) {
 		g_struct_allocs = (void **)dast_xrealloc(g_struct_allocs, sizeof(void *) * next);
 		g_struct_allocs_cap = next;
 	}
-	g_struct_allocs[g_struct_allocs_len++] = st;
+	g_struct_allocs[g_struct_allocs_len++] = ptr;
 }
 
-static int dast_untrack_struct(DastStruct *st) {
-	if (!g_drop_debug || !st) {
+static int dast_untrack_struct(void *ptr) {
+	if (!g_drop_debug || !ptr) {
 		return 1;
 	}
 	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == st) {
+		if (g_struct_allocs[i] == ptr) {
 			g_struct_allocs[i] = g_struct_allocs[g_struct_allocs_len - 1];
 			g_struct_allocs_len--;
 			return 1;
@@ -523,12 +523,12 @@ static int dast_untrack_struct(DastStruct *st) {
 	return 0;
 }
 
-static int dast_struct_is_live(DastStruct *st) {
-	if (!g_drop_debug || !st) {
+static int dast_struct_is_live(void *ptr) {
+	if (!g_drop_debug || !ptr) {
 		return 1;
 	}
 	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == st) {
+		if (g_struct_allocs[i] == ptr) {
 			return 1;
 		}
 	}
@@ -810,11 +810,19 @@ dast_int dast_array_len(DastArray *arr) {
 	return arr->len;
 }
 
-DastStruct *dast_struct_new(const char *name, dast_int size, dast_int align) {
+static DastAllocHdr *dast_alloc_header(void *ptr) {
+	if (!ptr) {
+		return NULL;
+	}
+	void *raw = ((void **)ptr)[-1];
+	if (!raw) {
+		return NULL;
+	}
+	return (DastAllocHdr *)raw;
+}
+
+void *dast_alloc(const char *name, dast_int size, dast_int align) {
 	dast_struct_debug_init();
-	DastStruct *st = (DastStruct *)dast_xmalloc(sizeof(DastStruct));
-	dast_track_struct(st);
-	st->name = name ? name : "";
 	if (name && (uintptr_t)name < DAST_MIN_VALID_PTR) {
 		fprintf(stderr, "stage0: <runtime>:0:0: error invalid struct name pointer %p\n", (void *)name);
 		dast_debug_backtrace();
@@ -826,69 +834,77 @@ DastStruct *dast_struct_new(const char *name, dast_int size, dast_int align) {
 	if (align <= 0) {
 		align = 1;
 	}
-	st->size = size;
-	st->align = align;
 	size_t align_u = (size_t)align;
 	if (align_u < sizeof(void *)) {
 		align_u = sizeof(void *);
 	}
-	size_t total = (size_t)size + align_u + sizeof(void *);
+	size_t total = sizeof(DastAllocHdr) + (size_t)size + align_u + sizeof(void *);
 	void *raw = dast_xmalloc(total);
-	uintptr_t base = (uintptr_t)raw + sizeof(void *);
+	DastAllocHdr *hdr = (DastAllocHdr *)raw;
+	hdr->name = name ? name : "";
+	hdr->size = size;
+	hdr->align = align;
+	hdr->raw = raw;
+	uintptr_t base = (uintptr_t)raw + sizeof(DastAllocHdr) + sizeof(void *);
 	uintptr_t aligned = (base + (align_u - 1)) & ~(uintptr_t)(align_u - 1);
 	((void **)aligned)[-1] = raw;
-	st->data = (unsigned char *)aligned;
-	memset(st->data, 0, (size_t)size);
+	void *ptr = (void *)aligned;
+	memset(ptr, 0, (size_t)size);
+	dast_track_struct(ptr);
 	if (g_struct_debug) {
 		const char *sname = name ? dast_safe_cstr(name) : "<null>";
 		fprintf(stderr,
-		        "stage0: <runtime>:0:0: debug struct_new=%p name_ptr=%p name=%s size=%lld align=%lld\n",
-		        (void *)st,
+		        "stage0: <runtime>:0:0: debug alloc=%p name_ptr=%p name=%s size=%lld align=%lld\n",
+		        ptr,
 		        (void *)name,
 		        sname,
 		        (long long)size,
 		        (long long)align);
 	}
-	return st;
+	return ptr;
 }
 
-static void dast_struct_bounds_check(DastStruct *st, dast_int offset, dast_int size) {
-	if (!st || !st->data) {
-		dast_rt_panic("struct access requires struct");
+static void dast_mem_bounds_check(void *ptr, dast_int offset, dast_int size) {
+	if (!ptr) {
+		dast_rt_panic("struct access requires pointer");
 	}
-	if (offset < 0 || size < 0 || offset + size > st->size) {
-		const char *sname = st->name ? dast_safe_cstr(st->name) : "<struct>";
+	DastAllocHdr *hdr = dast_alloc_header(ptr);
+	if (!hdr) {
+		dast_rt_panic("struct access requires allocation");
+	}
+	if (offset < 0 || size < 0 || offset + size > hdr->size) {
+		const char *sname = hdr->name ? dast_safe_cstr(hdr->name) : "<struct>";
 		fprintf(stderr,
 		        "stage0: <runtime>:0:0: error struct field out of bounds off=%lld size=%lld total=%lld in %s\n",
-		        (long long)offset, (long long)size, (long long)st->size, sname);
+		        (long long)offset, (long long)size, (long long)hdr->size, sname);
 		dast_rt_panic("struct field out of bounds");
 	}
-	if (!dast_struct_is_live(st)) {
+	if (!dast_struct_is_live(ptr)) {
 		dast_debug_backtrace();
 		if (g_drop_debug) {
-			const char *sname = st->name ? dast_safe_cstr(st->name) : "<struct>";
-			fprintf(stderr, "stage0: <runtime>:0:0: error use-after-free struct %p (%s)\n", (void *)st, sname);
+			const char *sname = hdr->name ? dast_safe_cstr(hdr->name) : "<struct>";
+			fprintf(stderr, "stage0: <runtime>:0:0: error use-after-free struct %p (%s)\n", ptr, sname);
 		}
 		dast_rt_panic("use-after-free struct");
 	}
 }
 
-void dast_struct_store(DastStruct *st, dast_int offset, dast_int size, dast_int value) {
-	dast_struct_bounds_check(st, offset, size);
+void dast_mem_store(void *ptr, dast_int offset, dast_int size, dast_int value) {
+	dast_mem_bounds_check(ptr, offset, size);
 	if (size > 8) {
 		dast_rt_panic("struct store size too large");
 	}
-	unsigned char *dst = st->data + (size_t)offset;
+	unsigned char *dst = (unsigned char *)ptr + (size_t)offset;
 	memcpy(dst, &value, (size_t)size);
 }
 
-dast_int dast_struct_load_s(DastStruct *st, dast_int offset, dast_int size) {
-	dast_struct_bounds_check(st, offset, size);
+dast_int dast_mem_load_s(void *ptr, dast_int offset, dast_int size) {
+	dast_mem_bounds_check(ptr, offset, size);
 	if (size > 8) {
 		dast_rt_panic("struct load size too large");
 	}
 	uint64_t tmp = 0;
-	memcpy(&tmp, st->data + (size_t)offset, (size_t)size);
+	memcpy(&tmp, (unsigned char *)ptr + (size_t)offset, (size_t)size);
 	if (size < 8) {
 		int shift = (int)((8 - size) * 8);
 		return (dast_int)((int64_t)(tmp << shift) >> shift);
@@ -896,19 +912,19 @@ dast_int dast_struct_load_s(DastStruct *st, dast_int offset, dast_int size) {
 	return (dast_int)tmp;
 }
 
-dast_int dast_struct_load_u(DastStruct *st, dast_int offset, dast_int size) {
-	dast_struct_bounds_check(st, offset, size);
+dast_int dast_mem_load_u(void *ptr, dast_int offset, dast_int size) {
+	dast_mem_bounds_check(ptr, offset, size);
 	if (size > 8) {
 		dast_rt_panic("struct load size too large");
 	}
 	uint64_t tmp = 0;
-	memcpy(&tmp, st->data + (size_t)offset, (size_t)size);
+	memcpy(&tmp, (unsigned char *)ptr + (size_t)offset, (size_t)size);
 	return (dast_int)tmp;
 }
 
-void *dast_struct_field_addr(DastStruct *st, dast_int offset) {
-	dast_struct_bounds_check(st, offset, 1);
-	return st->data + (size_t)offset;
+void *dast_mem_field_addr(void *ptr, dast_int offset) {
+	dast_mem_bounds_check(ptr, offset, 1);
+	return (unsigned char *)ptr + (size_t)offset;
 }
 
 static DastString *dast_string_alloc(size_t len) {
@@ -1030,12 +1046,17 @@ static void dast_print_string_to(FILE *out, const DastString *s) {
 	fputs(s->data, out);
 }
 
-static void dast_print_struct_to(FILE *out, DastStruct *st) {
-	if (!st) {
+static void dast_print_struct_to(FILE *out, void *ptr) {
+	if (!ptr) {
 		fputs("<struct>", out);
 		return;
 	}
-	fputs(dast_safe_cstr(st->name), out);
+	DastAllocHdr *hdr = dast_alloc_header(ptr);
+	if (!hdr || !hdr->name) {
+		fputs("<struct>", out);
+		return;
+	}
+	fputs(dast_safe_cstr(hdr->name), out);
 	fputs("{...}", out);
 }
 
@@ -1070,14 +1091,14 @@ void dast_eprint_newline(void) {
 void dast_print_i64(dast_int v) { dast_print_i64_to(stdout, v); }
 void dast_print_bool(dast_bool v) { dast_print_bool_to(stdout, v); }
 void dast_print_string(const DastString *s) { dast_print_string_to(stdout, s); }
-void dast_print_struct(dast_int v) { dast_print_struct_to(stdout, (DastStruct *)(intptr_t)v); }
+void dast_print_struct(dast_int v) { dast_print_struct_to(stdout, (void *)(intptr_t)v); }
 void dast_print_array(dast_int v) { dast_print_array_to(stdout, (DastArray *)(intptr_t)v); }
 void dast_print_ptr(dast_int v) { dast_print_ptr_to(stdout, v); }
 
 void dast_eprint_i64(dast_int v) { dast_print_i64_to(stderr, v); }
 void dast_eprint_bool(dast_bool v) { dast_print_bool_to(stderr, v); }
 void dast_eprint_string(const DastString *s) { dast_print_string_to(stderr, s); }
-void dast_eprint_struct(dast_int v) { dast_print_struct_to(stderr, (DastStruct *)(intptr_t)v); }
+void dast_eprint_struct(dast_int v) { dast_print_struct_to(stderr, (void *)(intptr_t)v); }
 void dast_eprint_array(dast_int v) { dast_print_array_to(stderr, (DastArray *)(intptr_t)v); }
 void dast_eprint_ptr(dast_int v) { dast_print_ptr_to(stderr, v); }
 
@@ -1399,22 +1420,21 @@ void dast_array_free(DastArray *arr) {
 	dast_xfree(arr);
 }
 
-void dast_struct_free(DastStruct *st) {
-	if (!st) {
+void dast_free(void *ptr) {
+	if (!ptr) {
 		return;
 	}
+	DastAllocHdr *hdr = dast_alloc_header(ptr);
 	if (g_drop_debug || g_struct_debug) {
-		const char *sname = st->name ? dast_safe_cstr(st->name) : "<struct>";
-		fprintf(stderr, "stage0: <runtime>:0:0: drop struct %p (%s)\n", (void *)st, sname);
+		const char *sname = hdr && hdr->name ? dast_safe_cstr(hdr->name) : "<struct>";
+		fprintf(stderr, "stage0: <runtime>:0:0: drop struct %p (%s)\n", ptr, sname);
 	}
-	if (!dast_untrack_struct(st)) {
+	if (!dast_untrack_struct(ptr)) {
 		dast_rt_panic("struct double free");
 	}
-	if (st->data) {
-		void *raw = ((void **)st->data)[-1];
-		dast_xfree(raw);
+	if (hdr && hdr->raw) {
+		dast_xfree(hdr->raw);
 	}
-	dast_xfree(st);
 }
 
 DastString *dast_ast_expr1(const DastString *src) {

@@ -60,6 +60,9 @@ const TK_AMPAMP = 56
 const TK_PIPEPIPE = 57
 const TK_SLASH = 58
 const TK_PERCENT = 59
+const TK_CARET = 60
+const TK_SHL = 61
+const TK_SHR = 62
 
 // Character constants used by the lexer.
 const CH_TAB = '\t'
@@ -93,6 +96,7 @@ const CH_STAR = '*'
 const CH_PIPE = '|'
 const CH_BANG = '!'
 const CH_DOLLAR = '$'
+const CH_CARET = '^'
 
 struct Token {
     kind: i32,
@@ -317,6 +321,16 @@ fn lexer_next(l: &mut Lexer) -> Token {
         let _ = lex_advance(l)
         return tok(TK_NEQ, "!=")
     }
+    if c == CH_LT && lex_peek_next(l) == CH_LT {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_SHL, "<<")
+    }
+    if c == CH_GT && lex_peek_next(l) == CH_GT {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_SHR, ">>")
+    }
     if c == CH_LT && lex_peek_next(l) == CH_EQ {
         let _ = lex_advance(l)
         let _ = lex_advance(l)
@@ -369,6 +383,7 @@ fn lexer_next(l: &mut Lexer) -> Token {
     if c == CH_PIPE { return tok(TK_PIPE, "|") }
     if c == CH_BANG { return tok(TK_BANG, "!") }
     if c == CH_DOLLAR { return tok(TK_DOLLAR, "$") }
+    if c == CH_CARET { return tok(TK_CARET, "^") }
     if c == CH_MINUS { return tok(TK_MINUS, "-") }
     if c == CH_PLUS { return tok(TK_PLUS, "+") }
     if c == CH_SLASH { return tok(TK_SLASH, "/") }

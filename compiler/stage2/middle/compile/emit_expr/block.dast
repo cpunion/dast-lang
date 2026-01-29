@@ -93,7 +93,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let off = struct_field_offset(e, &recv_base, &fname)
         let size = type_size(e, &ftyp)
         let as_l = cast_to_l(e, qbe_value(string_clone(&ftyp), casted))
-        emit_line(e, "  call $dast_struct_store(l " + recv_expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
+        emit_line(e, "  call $dast_mem_store(l " + recv_expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
         return
     }
     if lhs.kind == EXPR_INDEX {

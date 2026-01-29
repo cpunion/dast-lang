@@ -178,7 +178,7 @@ fn pattern_range_end_terminator(kind: i32) -> bool {
 fn parse_pattern_expr(p: &mut Parser) -> Expr {
     let prev = p.no_struct_lit
     p.no_struct_lit = true
-    let e = parse_expr(p)
+    let e = parse_bitxor(p)
     p.no_struct_lit = prev
     return e
 }

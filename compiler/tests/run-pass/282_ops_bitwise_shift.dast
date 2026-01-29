@@ -1,0 +1,27 @@
+fn main() {
+    let a: u16 = 240
+    let b: u16 = 15
+    let c = a & b
+    let d = a | b
+    let e = a ^ b
+    if c != 0 { exit(1) }
+    if d != 255 { exit(1) }
+    if e != 255 { exit(1) }
+
+    let s: u16 = 1
+    let t = s << 8
+    if t != 256 { exit(1) }
+    let u = t >> 4
+    if u != 16 { exit(1) }
+
+    let x: u8 = 256
+    if x != 0 { exit(1) }
+
+    let y: u16 = 65535
+    let z: u16 = y + 1
+    if z != 0 { exit(1) }
+
+    let si: i8 = -1
+    let sj: i8 = si >> 1
+    if sj != -1 { exit(1) }
+}

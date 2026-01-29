@@ -30,14 +30,78 @@ fn parse_add(p: &mut Parser) -> Expr {
     return left
 }
 
-fn parse_cmp(p: &mut Parser) -> Expr {
+fn parse_shift(p: &mut Parser) -> Expr {
     let mut left = parse_add(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_SHL || t.kind == TK_SHR {
+            let op = parser_advance(p).text
+            let rhs = parse_add(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_bitand(p: &mut Parser) -> Expr {
+    let mut left = parse_shift(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_AMP {
+            let op = parser_advance(p).text
+            let rhs = parse_shift(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_bitxor(p: &mut Parser) -> Expr {
+    let mut left = parse_bitand(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_CARET {
+            let op = parser_advance(p).text
+            let rhs = parse_bitand(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_bitor(p: &mut Parser) -> Expr {
+    let mut left = parse_bitxor(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_PIPE {
+            let op = parser_advance(p).text
+            let rhs = parse_bitxor(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_cmp(p: &mut Parser) -> Expr {
+    let mut left = parse_bitor(p)
     let mut done = false
     while !done {
         let t = parser_peek(p)
         if t.kind == TK_LT || t.kind == TK_GT || t.kind == TK_LTE || t.kind == TK_GTE {
             let op = parser_advance(p).text
-            let rhs = parse_add(p)
+            let rhs = parse_bitor(p)
             left = expr_binary(op, left, rhs)
         } else {
             done = true

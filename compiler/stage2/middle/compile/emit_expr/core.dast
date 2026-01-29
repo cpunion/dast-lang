@@ -143,7 +143,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let align = struct_layout_align(e, &st_name)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l " + int_to_string(size) + ", l " + int_to_string(align) + ")")
+            emit_line(e, "  " + tn + " =l call $dast_alloc(l " + name_ptr + ", l " + int_to_string(size) + ", l " + int_to_string(align) + ")")
             let mut i = 0
             while i < len(&expr.fields) {
                 let f = &expr.fields[i]
@@ -158,7 +158,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 let off = struct_field_offset(e, &st_name, &fname)
                 let size = type_size(e, &ftyp)
                 let as_l = cast_to_l(e, qbe_value(string_clone(&ftyp), casted))
-                emit_line(e, "  call $dast_struct_store(l " + tn + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
+                emit_line(e, "  call $dast_mem_store(l " + tn + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
                 i = i + 1
             }
             return qbe_value(st_name, tn)
