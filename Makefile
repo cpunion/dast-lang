@@ -14,8 +14,8 @@ STAGE2V2_TEST_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'c
 STAGE2V2_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2V2_ALLOC_MAX_MB ?= 32
 STAGE2V2_RUN_ENV := $(if $(STAGE2V2_ALLOC_MAX_MB),DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2V2_ALLOC_MAX_MB),)
-STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -name '*_test.dast' | sort)
-STAGE2_COMPILER_DIRS := compiler/stage2 compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/backend compiler/stage2/backend/interp compiler/stage2/backend/qbe compiler/stage2/backend/cg
+STAGE2_DIRS := compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/util
+STAGE2_COMPILER_DIRS := $(STAGE2_DIRS)
 STAGE2_COMPILER_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2_COMPILER_DEBUG ?=
 STAGE2_COMPILER_DEBUG_FLAG := $(if $(STAGE2_COMPILER_DEBUG),--debug,)
@@ -312,7 +312,7 @@ test-stage2v2: test-stage2
 
 test-stage2-bootstrap: build-stage0
 	@tmp=$$(mktemp); $(STAGE2_MEM_LIMIT_CMD) \
-	$(STAGE2_RUNNER) ir $(STAGE2_FILES) > $$tmp || exit 1; \
+	$(STAGE2_RUNNER) ir $(STAGE2_DIRS) > $$tmp || exit 1; \
 	for d in $(STAGE2_RUN_TEST_DIRS); do \
 		echo "[stage2-test] $$d"; \
 		out=$$($(STAGE2_RUNNER) ir-run $$tmp -- test --bootstrap $$d 2>&1); \
@@ -409,7 +409,7 @@ stage2-native: build-stage0
 	if [ -n "$(NATIVE_TARGET_DIR)" ]; then target="$(NATIVE_TARGET_DIR)"; else target="$$root/target"; fi; \
 	echo "[stage2-native] build $$path"; \
 	rm -rf "$$target"; \
-	$(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- build $(NATIVE_BUILD_ARGS) "$$path"; \
+	$(STAGE2_SAFE_RUNNER) run $(STAGE2_DIRS) -- build $(NATIVE_BUILD_ARGS) "$$path"; \
 	out=$$(find "$$target" -maxdepth 1 -type f -perm -111 2>/dev/null | head -1); \
 	if [ -z "$$out" ]; then echo "missing native output in $$target"; exit 1; fi; \
 	echo "native: $$out"
@@ -422,9 +422,7 @@ stage2-compiler: build-stage0
 	use_native=0; \
 	if [ -x "$$stage2_bin" ]; then \
 		use_native=1; \
-		for f in $(STAGE2_FILES) compiler/stage2/backend/codegen-c/c_runtime.c compiler/stage2/backend/codegen-c/c_runtime.h compiler/stage2/backend/qbe/qbe_runtime.c; do \
-			if [ "$$f" -nt "$$stage2_bin" ]; then use_native=0; break; fi; \
-		done; \
+		if find $(STAGE2_DIRS) -type f -name '*.dast' -newer "$$stage2_bin" | grep -q .; then use_native=0; fi; \
 	fi; \
 	mkdir -p "$$target"; \
 	rm -rf "$$target"/*; \
@@ -432,10 +430,10 @@ stage2-compiler: build-stage0
 	if [ $$use_native -eq 1 ]; then \
 		if ! "$$stage2_bin" build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); then \
 			echo "[stage2-compiler] native build failed, falling back to stage0"; \
-			$(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
+			$(STAGE2_SAFE_RUNNER) run $(STAGE2_DIRS) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
 		fi; \
 	else \
-		$(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
+		$(STAGE2_SAFE_RUNNER) run $(STAGE2_DIRS) -- build $(STAGE2_COMPILER_DEBUG_FLAG) --bootstrap $(STAGE2_COMPILER_DIRS); \
 	fi; \
 	out_src=$$(find "$$target" -maxdepth 1 -type f -perm -111 2>/dev/null | head -1); \
 	if [ -z "$$out_src" ]; then echo "missing native output in $$target"; exit 1; fi; \

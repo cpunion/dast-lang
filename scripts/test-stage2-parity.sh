@@ -15,13 +15,12 @@ elif command -v gtimeout >/dev/null 2>&1; then
   timeout_cmd="gtimeout"
 fi
 
-mapfile -t stage2_files < <(find "$root/compiler/stage2" -name '*.dast' \
-  -not -path "$root/compiler/stage2/tests/*" \
-  -not -path "$root/compiler/stage2/stdlib/*" \
-  -not -path "$root/compiler/stage2/backend/codegen-c/*" \
-  -not -path "$root/compiler/stage2/backend/interp/*" | sort)
-stage2_files+=("$root/compiler/stage2/backend/interp/interp.dast")
-stage2_files+=("$root/compiler/stage2/backend/interp/quote.dast")
+stage2_dirs=(
+  "$root/compiler/stage2/driver"
+  "$root/compiler/stage2/frontend"
+  "$root/compiler/stage2/middle"
+  "$root/compiler/stage2/util"
+)
 
 report_dir="$root/compiler/stage2/target"
 report="$report_dir/parity-report.txt"
@@ -38,7 +37,7 @@ run_case() {
   local expect="$2"
   shift 2
   local out status
-  local cmd=("$stage0" run "${stage2_files[@]}" -- "$@")
+  local cmd=("$stage0" run "${stage2_dirs[@]}" -- "$@")
   if [ -n "$timeout_cmd" ]; then
     set +e
     out="$("$timeout_cmd" 90s "${cmd[@]}" 2>&1)"
