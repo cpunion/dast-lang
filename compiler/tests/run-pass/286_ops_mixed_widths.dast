@@ -1,0 +1,16 @@
+fn main() {
+    let a: u8 = 240
+    let b: u16 = 15
+    let c = a & b
+    if c != 0 { exit(1) }
+
+    let s: u8 = 1
+    let sh: u16 = 7
+    let t = s << sh
+    if t != 128 { exit(1) }
+
+    let x: i16 = -1
+    let y: u8 = 1
+    let z = x >> y
+    if z != -1 { exit(1) }
+}

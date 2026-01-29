@@ -1,0 +1,13 @@
+fn main() {
+    let a = "ab"
+    let b = "a" + "b"
+    if b != "ab" { exit(1) }
+
+    let c = string_clone(&b)
+    if c != b { exit(1) }
+
+    if a == "ac" { exit(1) }
+
+    let d = a + "c"
+    if d != "abc" { exit(1) }
+}
