@@ -135,7 +135,7 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
     if enum_has_payload(e, enum_name) {
         let name_ptr = string_data_ptr(e, enum_name)
         let payload_t = enum_variant_payload_type(e, enum_name, variant)
-        let payload_size = type_size(e, &payload_t)
+        let payload_size = enum_payload_size(e, enum_name)
         let payload_off = enum_payload_offset(e, enum_name)
         let size = enum_layout_size(e, enum_name)
         let align = enum_layout_align(e, enum_name)
@@ -143,11 +143,16 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
         let tn = temp_name(tmp)
         emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l " + int_to_string(size) + ", l " + int_to_string(align) + ")")
         emit_line(e, "  call $dast_struct_store(l " + tn + ", l 0, l " + int_to_string(tag_size) + ", l " + cast_to_l(e, qbe_value(tag_t, tag_expr)) + ")")
-        let mut payload_expr = "0"
+        let mut payload_store_size = payload_size
+        let mut payload_val = qbe_value("i64", "0")
         if enum_variant_has_payload(e, enum_name, variant) && has_payload_arg {
-            payload_expr = cast_to_type(e, payload, &payload_t)
+            let payload_expr = cast_to_type(e, payload, &payload_t)
+            payload_store_size = type_size(e, &payload_t)
+            payload_val = qbe_value(string_clone(&payload_t), payload_expr)
         }
-        emit_line(e, "  call $dast_struct_store(l " + tn + ", l " + int_to_string(payload_off) + ", l " + int_to_string(payload_size) + ", l " + cast_to_l(e, qbe_value(payload_t, payload_expr)) + ")")
+        if payload_store_size > 0 {
+            emit_line(e, "  call $dast_struct_store(l " + tn + ", l " + int_to_string(payload_off) + ", l " + int_to_string(payload_store_size) + ", l " + cast_to_l(e, payload_val) + ")")
+        }
         return qbe_value(string_clone(enum_name), tn)
     }
     return qbe_value(string_clone(enum_name), tag_expr)
