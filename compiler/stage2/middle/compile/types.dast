@@ -665,8 +665,13 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             return "i64"
         }
         EXPR_BINARY => {
-            if expr.name == "==" || expr.name == "<" || expr.name == ">" { return "bool" }
+            if expr.name == "==" || expr.name == "!=" || expr.name == "<" || expr.name == ">" || expr.name == "<=" || expr.name == ">=" || expr.name == "&&" || expr.name == "||" { return "bool" }
             if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_binary_lhs")) }
+            return "i64"
+        }
+        EXPR_UNARY => {
+            if expr.name == "!" { return "bool" }
+            if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_unary_inner")) }
             return "i64"
         }
         EXPR_CALL => {

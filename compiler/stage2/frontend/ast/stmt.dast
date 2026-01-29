@@ -18,35 +18,38 @@ const PAT_INT = 2
 const PAT_WILDCARD = 3
 const PAT_STRUCT = 4
 const PAT_RANGE = 5
+const PAT_BIND = 6
 
 struct Block {
     stmts: [Stmt],
 }
 
-struct MatchArm {
-    pat_kind: i32,
-    variant: String,
-    binding: String,
-    has_binding: bool,
-    has_guard: bool,
-    guard: Expr,
+struct Pattern {
+    kind: i32,
+    name: String,
     int_value: i64,
-    range_end: i64,
     range_inclusive: bool,
+    range_has_start: bool,
+    range_has_end: bool,
+    range_start: Expr,
+    range_end: Expr,
+    variant: String,
+    has_payload: bool,
+    payload: [Pattern],
     struct_name: String,
     struct_fields: [StructPatternField],
-    block: Block,
 }
 
 struct StructPatternField {
     name: String,
-    binding: String,
-    has_binding: bool,
-    has_pattern: bool,
-    pat_kind: i32,
-    int_value: i64,
-    range_end: i64,
-    range_inclusive: bool,
+    pattern: Pattern,
+}
+
+struct MatchArm {
+    pattern: Pattern,
+    has_guard: bool,
+    guard: Expr,
+    block: Block,
 }
 
 fn struct_pattern_field_list_empty() -> [StructPatternField] {
@@ -57,13 +60,7 @@ fn struct_pattern_field_list_empty() -> [StructPatternField] {
 fn struct_pattern_field_clone(f: &StructPatternField) -> StructPatternField {
     return StructPatternField {
         name: string_clone(&f.name),
-        binding: string_clone(&f.binding),
-        has_binding: f.has_binding,
-        has_pattern: f.has_pattern,
-        pat_kind: f.pat_kind,
-        int_value: f.int_value,
-        range_end: f.range_end,
-        range_inclusive: f.range_inclusive,
+        pattern: pattern_clone(&f.pattern),
     }
 }
 
@@ -84,18 +81,43 @@ fn match_arm_list_empty() -> [MatchArm] {
 
 fn match_arm_clone(a: &MatchArm) -> MatchArm {
     return MatchArm {
-        pat_kind: a.pat_kind,
-        variant: string_clone(&a.variant),
-        binding: string_clone(&a.binding),
-        has_binding: a.has_binding,
+        pattern: pattern_clone(&a.pattern),
         has_guard: a.has_guard,
         guard: expr_clone(&a.guard),
-        int_value: a.int_value,
-        range_end: a.range_end,
-        range_inclusive: a.range_inclusive,
-        struct_name: string_clone(&a.struct_name),
-        struct_fields: struct_pattern_field_list_clone(&a.struct_fields),
         block: block_clone(&a.block),
+    }
+}
+
+fn pattern_list_empty() -> [Pattern] {
+    let mut out: [Pattern] = []
+    return out
+}
+
+fn pattern_list_clone(items: & [Pattern]) -> [Pattern] {
+    let mut out: [Pattern] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, pattern_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn pattern_clone(p: &Pattern) -> Pattern {
+    return Pattern {
+        kind: p.kind,
+        name: string_clone(&p.name),
+        int_value: p.int_value,
+        range_inclusive: p.range_inclusive,
+        range_has_start: p.range_has_start,
+        range_has_end: p.range_has_end,
+        range_start: expr_clone(&p.range_start),
+        range_end: expr_clone(&p.range_end),
+        variant: string_clone(&p.variant),
+        has_payload: p.has_payload,
+        payload: pattern_list_clone(&p.payload),
+        struct_name: string_clone(&p.struct_name),
+        struct_fields: struct_pattern_field_list_clone(&p.struct_fields),
     }
 }
 

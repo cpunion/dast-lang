@@ -1,0 +1,32 @@
+fn main() {
+    let hi = 5
+    let v = 4
+    let mut ok = 0
+    match v {
+        1..=hi => { ok = 1 }
+        _ => { ok = 0 }
+    }
+    if ok == 1 { } else { exit(1) }
+
+    let w = 0
+    match w {
+        ..2 => { ok = ok + 1 }
+        _ => {}
+    }
+
+    let x = 10
+    match x {
+        8.. => { ok = ok + 1 }
+        _ => {}
+    }
+
+    let c = 'b'
+    let mut c_ok = 0
+    match c {
+        'a'..='c' => { c_ok = 1 }
+        _ => { c_ok = 0 }
+    }
+
+    if ok == 3 { } else { exit(1) }
+    if c_ok == 1 { } else { exit(1) }
+}

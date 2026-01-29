@@ -1,9 +1,9 @@
-fn parse_add(p: &mut Parser) -> Expr {
+fn parse_mul(p: &mut Parser) -> Expr {
     let mut left = parse_unary(p)
     let mut done = false
     while !done {
         let t = parser_peek(p)
-        if t.kind == TK_PLUS || t.kind == TK_MINUS {
+        if t.kind == TK_STAR || t.kind == TK_SLASH || t.kind == TK_PERCENT {
             let op = parser_advance(p).text
             let rhs = parse_unary(p)
             left = expr_binary(op, left, rhs)
@@ -14,12 +14,28 @@ fn parse_add(p: &mut Parser) -> Expr {
     return left
 }
 
-fn parse_lt(p: &mut Parser) -> Expr {
+fn parse_add(p: &mut Parser) -> Expr {
+    let mut left = parse_mul(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_PLUS || t.kind == TK_MINUS {
+            let op = parser_advance(p).text
+            let rhs = parse_mul(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_cmp(p: &mut Parser) -> Expr {
     let mut left = parse_add(p)
     let mut done = false
     while !done {
         let t = parser_peek(p)
-        if t.kind == TK_LT || t.kind == TK_GT {
+        if t.kind == TK_LT || t.kind == TK_GT || t.kind == TK_LTE || t.kind == TK_GTE {
             let op = parser_advance(p).text
             let rhs = parse_add(p)
             left = expr_binary(op, left, rhs)
@@ -31,13 +47,45 @@ fn parse_lt(p: &mut Parser) -> Expr {
 }
 
 fn parse_eq(p: &mut Parser) -> Expr {
-    let mut left = parse_lt(p)
+    let mut left = parse_cmp(p)
     let mut done = false
     while !done {
         let t = parser_peek(p)
-        if t.kind == TK_EQEQ {
+        if t.kind == TK_EQEQ || t.kind == TK_NEQ {
             let op = parser_advance(p).text
-            let rhs = parse_lt(p)
+            let rhs = parse_cmp(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_and(p: &mut Parser) -> Expr {
+    let mut left = parse_eq(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_AMPAMP {
+            let op = parser_advance(p).text
+            let rhs = parse_eq(p)
+            left = expr_binary(op, left, rhs)
+        } else {
+            done = true
+        }
+    }
+    return left
+}
+
+fn parse_or(p: &mut Parser) -> Expr {
+    let mut left = parse_and(p)
+    let mut done = false
+    while !done {
+        let t = parser_peek(p)
+        if t.kind == TK_PIPEPIPE {
+            let op = parser_advance(p).text
+            let rhs = parse_and(p)
             left = expr_binary(op, left, rhs)
         } else {
             done = true
@@ -47,5 +95,5 @@ fn parse_eq(p: &mut Parser) -> Expr {
 }
 
 fn parse_expr(p: &mut Parser) -> Expr {
-    return parse_eq(p)
+    return parse_or(p)
 }

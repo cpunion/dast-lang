@@ -1,0 +1,29 @@
+fn bump(x: &mut i64) -> bool {
+    *x = *x + 1
+    return true
+}
+
+fn main() {
+    let a = 6
+    let b = 3
+    let c = a * b
+    let d = a / b
+    let e = a % b
+    if c == 18 { } else { exit(1) }
+    if d == 2 { } else { exit(1) }
+    if e == 0 { } else { exit(1) }
+
+    if a != b { } else { exit(1) }
+    if a >= b { } else { exit(1) }
+    if b <= a { } else { exit(1) }
+    if !(a < b) { } else { exit(1) }
+
+    let mut hits = 0
+    if false && bump(&mut hits) { }
+    if hits == 0 { } else { exit(1) }
+    if true || bump(&mut hits) { }
+    if hits == 0 { } else { exit(1) }
+
+    let x = -a
+    if x == -6 { } else { exit(1) }
+}

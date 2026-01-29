@@ -3,28 +3,24 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     let scrut_expr = expr_clone(expr_arg_ref(expr, 0, "emit_match_scrut"))
     let scrut = emit_expr(e, &scrut_expr)
     let mut scrut_t = expr_type(e, &scrut_expr)
+    if scrut_expr.kind == EXPR_IDENT {
+        let hint = enum_var_hint(e, &scrut_expr.name)
+        if hint != "" { scrut_t = hint }
+    }
     let mut is_enum = type_is_enum(e, &scrut_t)
     if !is_enum {
         let mut guess = ""
         let mut ai = 0
         while ai < len(&expr.match_arms) {
             let a = &expr.match_arms[ai]
-            if a.pat_kind == PAT_VARIANT {
-                guess = enum_name_for_variant(e, &a.variant)
+            if a.pattern.kind == PAT_VARIANT {
+                guess = enum_name_for_variant(e, &a.pattern.variant)
                 break
             }
             ai = ai + 1
         }
         if guess != "" { scrut_t = guess; is_enum = true }
     }
-    let mut tag_t = string_clone(&scrut.typ)
-    let mut tag_expr = string_clone(&scrut.expr)
-    if is_enum {
-        let tagv = enum_tag_from_value(e, &scrut, &scrut_t)
-        tag_t = enum_tag_type(e, &scrut_t)
-        tag_expr = string_clone(&tagv.expr)
-    }
-    let cmp = if type_is_bool(e, &tag_t) || type_is_i32(e, &tag_t) { "ceqw" } else { "ceql" }
     let end_label = new_label(e, "match_end_")
     let ret0 = expr_type(e, expr)
     let ret_t = type_resolve(e, &ret0)
@@ -40,123 +36,8 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     let mut next_label = new_label(e, "match_next_")
     while i < len(&expr.match_arms) {
         let arm = &expr.match_arms[i]
-        let arm_label = new_label(e, "match_arm_")
-        if arm.pat_kind == PAT_WILDCARD || arm.pat_kind == PAT_STRUCT {
-            emit_line(e, "  jmp @" + string_clone(&arm_label))
-        } else {
-            if arm.pat_kind == PAT_RANGE {
-                if is_enum || !type_is_int(e, &scrut_t) {
-                    println("stage2: range pattern requires int scrutinee")
-                    exit(1)
-                }
-                let chk_label = new_label(e, "match_range_")
-                let cond_tmp = new_temp(e)
-                let cond_tn = temp_name(cond_tmp)
-                emit_line(e, "  " + cond_tn + " =w csltl " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
-                emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&next_label) + ", @" + string_clone(&chk_label))
-                emit_label(e, &chk_label)
-                let cond_tmp2 = new_temp(e)
-                let cond_tn2 = temp_name(cond_tmp2)
-                if arm.range_inclusive {
-                    emit_line(e, "  " + cond_tn2 + " =w csltl " + int_to_string(arm.range_end) + ", " + string_clone(&tag_expr))
-                    emit_line(e, "  jnz " + cond_tn2 + ", @" + string_clone(&next_label) + ", @" + string_clone(&arm_label))
-                } else {
-                    emit_line(e, "  " + cond_tn2 + " =w csltl " + string_clone(&tag_expr) + ", " + int_to_string(arm.range_end))
-                    emit_line(e, "  jnz " + cond_tn2 + ", @" + string_clone(&arm_label) + ", @" + string_clone(&next_label))
-                }
-            } else {
-                let cond_tmp = new_temp(e)
-                let cond_tn = temp_name(cond_tmp)
-                if arm.pat_kind == PAT_VARIANT {
-                    let tag_val = enum_variant_value(e, &scrut_t, &arm.variant)
-                    emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(tag_val))
-                } else if arm.pat_kind == PAT_INT {
-                    emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
-                } else {
-                    emit_line(e, "  " + cond_tn + " =w " + cmp + " " + string_clone(&tag_expr) + ", " + int_to_string(arm.int_value))
-                }
-                emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&arm_label) + ", @" + string_clone(&next_label))
-            }
-        }
-        emit_label(e, &arm_label)
-        if arm.has_binding && arm.pat_kind == PAT_VARIANT && is_enum {
-            let payload_t = enum_variant_payload_type(e, &scrut_t, &arm.variant)
-            let payload_v = enum_payload_from_value(e, &scrut, &scrut_t, &arm.variant)
-            let casted = cast_to_type(e, payload_v, &payload_t)
-            let mut bind_t = var_type(e, &arm.binding)
-            if bind_t == "" { bind_t = payload_t }
-            emit_store_value(e, &arm.binding, &bind_t, &casted)
-        } else if arm.pat_kind == PAT_STRUCT {
-            let st_name = type_strip_ref(e, &scrut_t)
-            if !type_is_struct(e, &st_name) {
-                println("stage2: struct pattern requires struct scrutinee")
-                exit(1)
-            }
-            if arm.struct_name != "" && arm.struct_name != st_name {
-                println("stage2: struct pattern type mismatch", arm.struct_name, "vs", st_name)
-                exit(1)
-            }
-            let mut fi = 0
-            while fi < len(&arm.struct_fields) {
-                let f = &arm.struct_fields[fi]
-                let need_value = f.has_binding || f.has_pattern
-                if need_value {
-                    let ftyp = struct_field_type(e, &st_name, &f.name)
-                    if ftyp == "" {
-                        println("stage2: unknown struct field", f.name)
-                        exit(1)
-                    }
-                    let ftyp_name = string_clone(&ftyp)
-                    let fname_ptr = string_data_ptr(e, &f.name)
-                    let get_fn = struct_get_fn_for_type(e, &ftyp)
-                    let q = qbe_type(e, &ftyp)
-                    let tmp = new_temp(e)
-                    let tn = temp_name(tmp)
-                    emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + scrut.expr + ", l " + fname_ptr + ")")
-                    if f.has_binding {
-                        let mut bind_t = var_type(e, &f.binding)
-                        if bind_t == "" { bind_t = string_clone(&ftyp) }
-                        emit_store_value(e, &f.binding, &bind_t, &tn)
-                    }
-                    if f.has_pattern && f.pat_kind == PAT_INT {
-                        if !type_is_int(e, &ftyp_name) && !type_is_bool(e, &ftyp_name) {
-                            println("stage2: struct pattern literal requires int or bool")
-                            exit(1)
-                        }
-                        let cmp = if type_is_bool(e, &ftyp_name) || type_is_i32(e, &ftyp_name) { "ceqw" } else { "ceql" }
-                        let cond_tmp = new_temp(e)
-                        let cond_tn = temp_name(cond_tmp)
-                        emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tn + ", " + int_to_string(f.int_value))
-                        let ok_label = new_label(e, "match_field_")
-                        emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
-                        emit_label(e, &ok_label)
-                    } else if f.has_pattern && f.pat_kind == PAT_RANGE {
-                        if !type_is_int(e, &ftyp_name) {
-                            println("stage2: struct pattern range requires int")
-                            exit(1)
-                        }
-                        let check_label = new_label(e, "match_field_check_")
-                        let ok_label = new_label(e, "match_field_ok_")
-                        let cond_tmp = new_temp(e)
-                        let cond_tn = temp_name(cond_tmp)
-                        emit_line(e, "  " + cond_tn + " =w csltl " + tn + ", " + int_to_string(f.int_value))
-                        emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&next_label) + ", @" + string_clone(&check_label))
-                        emit_label(e, &check_label)
-                        let cond_tmp2 = new_temp(e)
-                        let cond_tn2 = temp_name(cond_tmp2)
-                        if f.range_inclusive {
-                            emit_line(e, "  " + cond_tn2 + " =w csltl " + int_to_string(f.range_end) + ", " + tn)
-                            emit_line(e, "  jnz " + cond_tn2 + ", @" + string_clone(&next_label) + ", @" + string_clone(&ok_label))
-                        } else {
-                            emit_line(e, "  " + cond_tn2 + " =w csltl " + tn + ", " + int_to_string(f.range_end))
-                            emit_line(e, "  jnz " + cond_tn2 + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
-                        }
-                        emit_label(e, &ok_label)
-                    }
-                }
-                fi = fi + 1
-            }
-        }
+        emit_pattern_check(e, &arm.pattern, &scrut, &scrut_t, &next_label)
+        emit_pattern_bind(e, &arm.pattern, &scrut, &scrut_t)
         if arm.has_guard {
             let gt = expr_type(e, &arm.guard)
             if !type_is_bool(e, &gt) {

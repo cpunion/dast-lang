@@ -52,6 +52,14 @@ const TK_DOLLAR = 48
 const TK_MACRO = 49
 const TK_QUOTE = 50
 const TK_IN = 51
+const TK_DOTDOT = 52
+const TK_NEQ = 53
+const TK_LTE = 54
+const TK_GTE = 55
+const TK_AMPAMP = 56
+const TK_PIPEPIPE = 57
+const TK_SLASH = 58
+const TK_PERCENT = 59
 
 // Character constants used by the lexer.
 const CH_TAB = '\t'
@@ -66,6 +74,7 @@ const CH_COMMA = ','
 const CH_MINUS = '-'
 const CH_PLUS = '+'
 const CH_SLASH = '/'
+const CH_PERCENT = '%'
 const CH_EQ = '='
 const CH_LT = '<'
 const CH_GT = '>'
@@ -303,6 +312,36 @@ fn lexer_next(l: &mut Lexer) -> Token {
         let _ = lex_advance(l)
         return tok(TK_EQEQ, "==")
     }
+    if c == CH_BANG && lex_peek_next(l) == CH_EQ {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_NEQ, "!=")
+    }
+    if c == CH_LT && lex_peek_next(l) == CH_EQ {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_LTE, "<=")
+    }
+    if c == CH_GT && lex_peek_next(l) == CH_EQ {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_GTE, ">=")
+    }
+    if c == CH_AMP && lex_peek_next(l) == CH_AMP {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_AMPAMP, "&&")
+    }
+    if c == CH_PIPE && lex_peek_next(l) == CH_PIPE {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_PIPEPIPE, "||")
+    }
+    if c == CH_DOT && lex_peek_next(l) == CH_DOT {
+        let _ = lex_advance(l)
+        let _ = lex_advance(l)
+        return tok(TK_DOTDOT, "..")
+    }
     if c == CH_EQ && lex_peek_next(l) == CH_GT {
         let _ = lex_advance(l)
         let _ = lex_advance(l)
@@ -332,6 +371,8 @@ fn lexer_next(l: &mut Lexer) -> Token {
     if c == CH_DOLLAR { return tok(TK_DOLLAR, "$") }
     if c == CH_MINUS { return tok(TK_MINUS, "-") }
     if c == CH_PLUS { return tok(TK_PLUS, "+") }
+    if c == CH_SLASH { return tok(TK_SLASH, "/") }
+    if c == CH_PERCENT { return tok(TK_PERCENT, "%") }
     if c == CH_LT { return tok(TK_LT, "<") }
     if c == CH_GT { return tok(TK_GT, ">") }
     return tok(TK_EOF, "")

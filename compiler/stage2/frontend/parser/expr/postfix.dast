@@ -18,8 +18,17 @@ fn parse_unary(p: &mut Parser) -> Expr {
     let t = parser_peek(p)
     if t.kind == TK_MINUS {
         let _ = parser_advance(p)
-        let v = parser_expect(p, TK_INT, "int").int_value
-        return expr_int(-v)
+        if parser_peek(p).kind == TK_INT {
+            let v = parser_advance(p).int_value
+            return expr_int(-v)
+        }
+        let inner = parse_unary(p)
+        return expr_unary("-", inner)
+    }
+    if t.kind == TK_BANG {
+        let _ = parser_advance(p)
+        let inner = parse_unary(p)
+        return expr_unary("!", inner)
     }
     if t.kind == TK_AMP {
         let _ = parser_advance(p)

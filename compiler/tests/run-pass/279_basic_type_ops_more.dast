@@ -1,0 +1,29 @@
+fn main() {
+    let a: i32 = 10
+    let b: u16 = 4
+    let c = a + b
+    if c != 14 { exit(1) }
+
+    let d: u32 = 6
+    let e = d * 2
+    if e != 12 { exit(1) }
+
+    let u: u64 = 9
+    let v: u64 = 2
+    let q = u / v
+    if q != 4 { exit(1) }
+
+    let x: isize = 7
+    let y: usize = 3
+    if x <= y { exit(1) }
+    if x - y != 4 { exit(1) }
+
+    let ch1: char = 'b'
+    let ch2: char = 'a'
+    if ch1 > ch2 { } else { exit(1) }
+
+    let t: bool = true
+    let f: bool = false
+    if t == true { } else { exit(1) }
+    if t != f { } else { exit(1) }
+}

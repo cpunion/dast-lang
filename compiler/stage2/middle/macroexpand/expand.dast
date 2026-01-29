@@ -90,46 +90,63 @@ fn hygiene_expr(ctx: &mut MacroCtx, m: &RenameMap, expr: &Expr) -> Expr {
     return expr_clone(expr)
 }
 
+fn hygiene_pattern(ctx: &mut MacroCtx, m: &mut RenameMap, pat: &Pattern) -> Pattern {
+    if pat.kind == PAT_BIND {
+        let mut out = pattern_clone(pat)
+        if out.name != "_" {
+            out.name = hygiene_bind_name(ctx, m, &out.name)
+        }
+        return out
+    }
+    if pat.kind == PAT_RANGE {
+        let mut out = pattern_clone(pat)
+        if out.range_has_start {
+            out.range_start = hygiene_expr(ctx, m, &out.range_start)
+        }
+        if out.range_has_end {
+            out.range_end = hygiene_expr(ctx, m, &out.range_end)
+        }
+        return out
+    }
+    if pat.kind == PAT_VARIANT {
+        let mut out = pattern_clone(pat)
+        let mut payload: [Pattern] = []
+        if pat.has_payload && len(&pat.payload) > 0 {
+            push(&mut payload, hygiene_pattern(ctx, m, &pat.payload[0]))
+        }
+        out.payload = payload
+        out.has_payload = len(&out.payload) > 0
+        return out
+    }
+    if pat.kind == PAT_STRUCT {
+        let mut out = pattern_clone(pat)
+        let mut fields: [StructPatternField] = []
+        let mut fi = 0
+        while fi < len(&pat.struct_fields) {
+            let f = &pat.struct_fields[fi]
+            let fp = hygiene_pattern(ctx, m, &f.pattern)
+            push(&mut fields, StructPatternField { name: string_clone(&f.name), pattern: fp })
+            fi = fi + 1
+        }
+        out.struct_fields = fields
+        return out
+    }
+    return pattern_clone(pat)
+}
+
 fn hygiene_match_arms(ctx: &mut MacroCtx, m: &RenameMap, arms: & [MatchArm]) -> [MatchArm] {
     let mut out: [MatchArm] = []
     let mut i = 0
     while i < len(arms) {
         let a = &(*arms)[i]
         let mut map2 = rename_map_clone(m)
-        let mut binding = string_clone(&a.binding)
-        let mut fields = struct_pattern_field_list_clone(&a.struct_fields)
-        if a.pat_kind == PAT_VARIANT && a.has_binding {
-            binding = hygiene_bind_name(ctx, &mut map2, &binding)
-        }
-        if a.pat_kind == PAT_STRUCT {
-            let mut fi = 0
-            while fi < len(&fields) {
-                if fields[fi].has_binding {
-                    let bname = hygiene_bind_name(ctx, &mut map2, &fields[fi].binding)
-                    fields[fi] = StructPatternField { name: fields[fi].name, binding: bname, has_binding: fields[fi].has_binding, has_pattern: fields[fi].has_pattern, pat_kind: fields[fi].pat_kind, int_value: fields[fi].int_value, range_end: fields[fi].range_end, range_inclusive: fields[fi].range_inclusive }
-                }
-                fi = fi + 1
-            }
-        }
+        let pat = hygiene_pattern(ctx, &mut map2, &a.pattern)
         let b = hygiene_block(ctx, &mut map2, &a.block)
         let mut g = expr_int(0)
         if a.has_guard {
             g = hygiene_expr(ctx, &mut map2, &a.guard)
         }
-        let na = MatchArm {
-            pat_kind: a.pat_kind,
-            variant: string_clone(&a.variant),
-            binding: binding,
-            has_binding: a.has_binding,
-            has_guard: a.has_guard,
-            guard: g,
-            int_value: a.int_value,
-            range_end: a.range_end,
-            range_inclusive: a.range_inclusive,
-            struct_name: string_clone(&a.struct_name),
-            struct_fields: fields,
-            block: b,
-        }
+        let na = MatchArm { pattern: pat, has_guard: a.has_guard, guard: g, block: b }
         push(&mut out, na)
         i = i + 1
     }
@@ -298,7 +315,8 @@ fn replace_expr_splices(expr: &Expr, splices: & [QuoteSplice]) -> Expr {
         while i < len(&expr.match_arms) {
             let a = &expr.match_arms[i]
             let nb = replace_block_splices(&a.block, splices)
-            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, has_guard: a.has_guard, guard: expr_clone(&a.guard), int_value: a.int_value, range_end: a.range_end, range_inclusive: a.range_inclusive, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
+            let np = replace_pattern_splices(&a.pattern, splices)
+            push(&mut arms, MatchArm { pattern: np, has_guard: a.has_guard, guard: expr_clone(&a.guard), block: nb })
             i = i + 1
         }
         return expr_match(scrut, arms)
@@ -324,12 +342,50 @@ fn replace_stmt_splices(stmt: &Stmt, splices: & [QuoteSplice]) -> Stmt {
         while ai < len(&stmt.arms) {
             let a = &stmt.arms[ai]
             let nb = replace_block_splices(&a.block, splices)
-            push(&mut arms, MatchArm { pat_kind: a.pat_kind, variant: string_clone(&a.variant), binding: string_clone(&a.binding), has_binding: a.has_binding, has_guard: a.has_guard, guard: expr_clone(&a.guard), int_value: a.int_value, range_end: a.range_end, range_inclusive: a.range_inclusive, struct_name: string_clone(&a.struct_name), struct_fields: struct_pattern_field_list_clone(&a.struct_fields), block: nb })
+            let np = replace_pattern_splices(&a.pattern, splices)
+            push(&mut arms, MatchArm { pattern: np, has_guard: a.has_guard, guard: expr_clone(&a.guard), block: nb })
             ai = ai + 1
         }
         return Stmt { kind: stmt.kind, name: string_clone(&stmt.name), mutable: stmt.mutable, has_type: stmt.has_type, typ: string_clone(&stmt.typ), lhs: expr_clone(&stmt.lhs), expr: v, block: b, else_block: eb, has_else: stmt.has_else, ret_has_value: stmt.ret_has_value, pat_variant: string_clone(&stmt.pat_variant), pat_binding: string_clone(&stmt.pat_binding), pat_has_binding: stmt.pat_has_binding, arms: arms }
     }
     return stmt_clone(stmt)
+}
+
+fn replace_pattern_splices(pat: &Pattern, splices: & [QuoteSplice]) -> Pattern {
+    if pat.kind == PAT_RANGE {
+        let mut out = pattern_clone(pat)
+        if out.range_has_start {
+            out.range_start = replace_expr_splices(&out.range_start, splices)
+        }
+        if out.range_has_end {
+            out.range_end = replace_expr_splices(&out.range_end, splices)
+        }
+        return out
+    }
+    if pat.kind == PAT_VARIANT {
+        let mut out = pattern_clone(pat)
+        let mut payload: [Pattern] = []
+        if pat.has_payload && len(&pat.payload) > 0 {
+            push(&mut payload, replace_pattern_splices(&pat.payload[0], splices))
+        }
+        out.payload = payload
+        out.has_payload = len(&out.payload) > 0
+        return out
+    }
+    if pat.kind == PAT_STRUCT {
+        let mut out = pattern_clone(pat)
+        let mut fields: [StructPatternField] = []
+        let mut i = 0
+        while i < len(&pat.struct_fields) {
+            let f = &pat.struct_fields[i]
+            let fp = replace_pattern_splices(&f.pattern, splices)
+            push(&mut fields, StructPatternField { name: string_clone(&f.name), pattern: fp })
+            i = i + 1
+        }
+        out.struct_fields = fields
+        return out
+    }
+    return pattern_clone(pat)
 }
 
 fn replace_block_splices(block: &Block, splices: & [QuoteSplice]) -> Block {

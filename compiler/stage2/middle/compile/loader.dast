@@ -713,10 +713,44 @@ fn rewrite_expr(expr: &Expr, aliases: & [String]) -> Expr {
     return out
 }
 
+fn rewrite_pattern(pat: &Pattern, aliases: & [String]) -> Pattern {
+    let mut out = pattern_clone(pat)
+    if out.kind == PAT_RANGE {
+        if out.range_has_start { out.range_start = rewrite_expr(&out.range_start, aliases) }
+        if out.range_has_end { out.range_end = rewrite_expr(&out.range_end, aliases) }
+        return out
+    }
+    if out.kind == PAT_VARIANT {
+        out.variant = strip_alias_prefix(&out.variant, aliases)
+        if out.has_payload {
+            let mut payload: [Pattern] = []
+            let mut i = 0
+            while i < len(&out.payload) {
+                push(&mut payload, rewrite_pattern(&out.payload[i], aliases))
+                i = i + 1
+            }
+            out.payload = payload
+        }
+        return out
+    }
+    if out.kind == PAT_STRUCT {
+        out.struct_name = strip_alias_prefix(&out.struct_name, aliases)
+        let mut fields: [StructPatternField] = []
+        let mut i = 0
+        while i < len(&out.struct_fields) {
+            let f = &out.struct_fields[i]
+            push(&mut fields, StructPatternField { name: string_clone(&f.name), pattern: rewrite_pattern(&f.pattern, aliases) })
+            i = i + 1
+        }
+        out.struct_fields = fields
+        return out
+    }
+    return out
+}
+
 fn rewrite_match_arm(a: &MatchArm, aliases: & [String]) -> MatchArm {
     let mut out = match_arm_clone(a)
-    out.variant = strip_alias_prefix(&out.variant, aliases)
-    out.struct_name = strip_alias_prefix(&out.struct_name, aliases)
+    out.pattern = rewrite_pattern(&out.pattern, aliases)
     out.guard = rewrite_expr(&out.guard, aliases)
     out.block = rewrite_block(&out.block, aliases)
     return out

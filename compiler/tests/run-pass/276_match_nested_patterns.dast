@@ -1,0 +1,21 @@
+struct Point { x: i64, y: i64 }
+struct Box { p: Point }
+enum OptPoint { Some(Point), None }
+
+fn main() {
+    let b = Box { p: Point { x: 2, y: 9 } }
+    let mut ok = 0
+    match b {
+        Box { p: Point { x: 1..=2, y } } => { ok = y }
+        _ => { ok = 0 }
+    }
+    if ok == 9 { } else { exit(1) }
+
+    let opt = OptPoint.Some(Point { x: 3, y: 4 })
+    let mut sum = 0
+    match opt {
+        .Some(Point { x, y }) => { sum = x + y }
+        .None => { sum = 0 }
+    }
+    if sum == 7 { } else { exit(1) }
+}

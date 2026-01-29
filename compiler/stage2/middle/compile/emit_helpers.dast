@@ -187,6 +187,221 @@ fn enum_payload_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str, variant:
     return qbe_value(payload_t, "0")
 }
 
+fn pattern_needs_check(pat: &Pattern) -> bool {
+    if pat.kind == PAT_BIND || pat.kind == PAT_WILDCARD { return false }
+    if pat.kind == PAT_STRUCT {
+        let mut i = 0
+        while i < len(&pat.struct_fields) {
+            if pattern_needs_check(&pat.struct_fields[i].pattern) { return true }
+            i = i + 1
+        }
+        return false
+    }
+    if pat.kind == PAT_VARIANT {
+        return true
+    }
+    return true
+}
+
+fn pattern_enum_type(e: &Emitter, variant: &str, scrut_t: &str) -> String {
+    let mut enum_t = string_clone(scrut_t)
+    if !type_is_enum(e, &enum_t) {
+        let guess = enum_name_for_variant(e, variant)
+        if guess != "" { enum_t = guess }
+    }
+    return enum_t
+}
+
+fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str, next_label: &str) {
+    if pat.kind == PAT_WILDCARD || pat.kind == PAT_BIND { return }
+    if pat.kind == PAT_INT {
+        let mut check_expr = string_clone(&val.expr)
+        let mut check_t = type_resolve(e, val_t)
+        if type_is_enum(e, &check_t) {
+            let tagv = enum_tag_from_value(e, val, &check_t)
+            check_expr = string_clone(&tagv.expr)
+            check_t = enum_tag_type(e, &check_t)
+        }
+        if !type_is_int(e, &check_t) && !type_is_bool(e, &check_t) {
+            println("stage2: literal pattern requires int or bool")
+            exit(1)
+        }
+        let cmp = if type_is_bool(e, &check_t) || type_is_i32(e, &check_t) { "ceqw" } else { "ceql" }
+        let cond_tmp = new_temp(e)
+        let cond_tn = temp_name(cond_tmp)
+        emit_line(e, "  " + cond_tn + " =w " + cmp + " " + check_expr + ", " + int_to_string(pat.int_value))
+        let ok_label = new_label(e, "match_pat_")
+        emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
+        emit_label(e, &ok_label)
+        return
+    }
+    if pat.kind == PAT_RANGE {
+        if type_is_enum(e, val_t) || !type_is_int(e, val_t) {
+            println("stage2: range pattern requires int scrutinee")
+            exit(1)
+        }
+        let check_expr = string_clone(&val.expr)
+        if pat.range_has_start {
+            let start_v = emit_expr(e, &pat.range_start)
+            if !type_is_int(e, &start_v.typ) {
+                println("stage2: range pattern requires int start")
+                exit(1)
+            }
+            let start_expr = cast_to_type(e, start_v, val_t)
+            let cond_tmp = new_temp(e)
+            let cond_tn = temp_name(cond_tmp)
+            emit_line(e, "  " + cond_tn + " =w csltl " + check_expr + ", " + start_expr)
+            let ok_label = new_label(e, "match_range_")
+            emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&next_label) + ", @" + string_clone(&ok_label))
+            emit_label(e, &ok_label)
+        }
+        if pat.range_has_end {
+            let end_v = emit_expr(e, &pat.range_end)
+            if !type_is_int(e, &end_v.typ) {
+                println("stage2: range pattern requires int end")
+                exit(1)
+            }
+            let end_expr = cast_to_type(e, end_v, val_t)
+            let cond_tmp = new_temp(e)
+            let cond_tn = temp_name(cond_tmp)
+            if pat.range_inclusive {
+                emit_line(e, "  " + cond_tn + " =w csltl " + end_expr + ", " + check_expr)
+                let ok_label = new_label(e, "match_range_")
+                emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&next_label) + ", @" + string_clone(&ok_label))
+                emit_label(e, &ok_label)
+            } else {
+                emit_line(e, "  " + cond_tn + " =w csltl " + check_expr + ", " + end_expr)
+                let ok_label = new_label(e, "match_range_")
+                emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
+                emit_label(e, &ok_label)
+            }
+        }
+        return
+    }
+    if pat.kind == PAT_VARIANT {
+        let enum_t = pattern_enum_type(e, &pat.variant, val_t)
+        if !type_is_enum(e, &enum_t) {
+            println("stage2: enum pattern requires enum expression")
+            exit(1)
+        }
+        let tagv = enum_tag_from_value(e, val, &enum_t)
+        let tag_t = enum_tag_type(e, &enum_t)
+        let tag_val = enum_variant_value(e, &enum_t, &pat.variant)
+        if tag_val < 0 {
+            println("stage2: unknown enum variant", pat.variant)
+            exit(1)
+        }
+        let cmp = if type_is_bool(e, &tag_t) || type_is_i32(e, &tag_t) { "ceqw" } else { "ceql" }
+        let cond_tmp = new_temp(e)
+        let cond_tn = temp_name(cond_tmp)
+        emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tagv.expr + ", " + int_to_string(tag_val))
+        let ok_label = new_label(e, "match_pat_")
+        emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
+        emit_label(e, &ok_label)
+        if pat.has_payload && len(&pat.payload) > 0 {
+            if !enum_variant_has_payload(e, &enum_t, &pat.variant) {
+                println("stage2: enum variant has no payload")
+                exit(1)
+            }
+            let payload_t = enum_variant_payload_type(e, &enum_t, &pat.variant)
+            let payload_v = enum_payload_from_value(e, val, &enum_t, &pat.variant)
+            emit_pattern_check(e, &pat.payload[0], &payload_v, &payload_t, next_label)
+        }
+        return
+    }
+    if pat.kind == PAT_STRUCT {
+        let st_name = type_strip_ref(e, val_t)
+        if !type_is_struct(e, &st_name) {
+            println("stage2: struct pattern requires struct scrutinee")
+            exit(1)
+        }
+        if pat.struct_name != "" && pat.struct_name != st_name {
+            println("stage2: struct pattern type mismatch", pat.struct_name, "vs", st_name)
+            exit(1)
+        }
+        let mut fi = 0
+        while fi < len(&pat.struct_fields) {
+            let f = &pat.struct_fields[fi]
+            if !pattern_needs_check(&f.pattern) {
+                fi = fi + 1
+                continue
+            }
+            let ftyp = struct_field_type(e, &st_name, &f.name)
+            if ftyp == "" {
+                println("stage2: unknown struct field", f.name)
+                exit(1)
+            }
+            let fname_ptr = string_data_ptr(e, &f.name)
+            let get_fn = struct_get_fn_for_type(e, &ftyp)
+            let q = qbe_type(e, &ftyp)
+            let tmp = new_temp(e)
+            let tn = temp_name(tmp)
+            emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + val.expr + ", l " + fname_ptr + ")")
+            let field_val = qbe_value(string_clone(&ftyp), tn)
+            emit_pattern_check(e, &f.pattern, &field_val, &ftyp, next_label)
+            fi = fi + 1
+        }
+        return
+    }
+}
+
+fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str) {
+    if pat.kind == PAT_BIND {
+        if pat.name == "_" { return }
+        let mut bind_t = var_type(e, &pat.name)
+        if bind_t == "" { bind_t = string_clone(val_t) }
+        let casted = cast_to_type(e, qbe_value(string_clone(&val.typ), string_clone(&val.expr)), &bind_t)
+        emit_store_value(e, &pat.name, &bind_t, &casted)
+        return
+    }
+    if pat.kind == PAT_VARIANT {
+        if !pat.has_payload || len(&pat.payload) == 0 { return }
+        let enum_t = pattern_enum_type(e, &pat.variant, val_t)
+        if !type_is_enum(e, &enum_t) {
+            println("stage2: enum pattern requires enum expression")
+            exit(1)
+        }
+        if !enum_variant_has_payload(e, &enum_t, &pat.variant) {
+            println("stage2: enum variant has no payload")
+            exit(1)
+        }
+        let payload_t = enum_variant_payload_type(e, &enum_t, &pat.variant)
+        let payload_v = enum_payload_from_value(e, val, &enum_t, &pat.variant)
+        emit_pattern_bind(e, &pat.payload[0], &payload_v, &payload_t)
+        return
+    }
+    if pat.kind == PAT_STRUCT {
+        let st_name = type_strip_ref(e, val_t)
+        if !type_is_struct(e, &st_name) {
+            println("stage2: struct pattern requires struct scrutinee")
+            exit(1)
+        }
+        if pat.struct_name != "" && pat.struct_name != st_name {
+            println("stage2: struct pattern type mismatch", pat.struct_name, "vs", st_name)
+            exit(1)
+        }
+        let mut fi = 0
+        while fi < len(&pat.struct_fields) {
+            let f = &pat.struct_fields[fi]
+            let ftyp = struct_field_type(e, &st_name, &f.name)
+            if ftyp == "" {
+                println("stage2: unknown struct field", f.name)
+                exit(1)
+            }
+            let fname_ptr = string_data_ptr(e, &f.name)
+            let get_fn = struct_get_fn_for_type(e, &ftyp)
+            let q = qbe_type(e, &ftyp)
+            let tmp = new_temp(e)
+            let tn = temp_name(tmp)
+            emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + val.expr + ", l " + fname_ptr + ")")
+            let field_val = qbe_value(string_clone(&ftyp), tn)
+            emit_pattern_bind(e, &f.pattern, &field_val, &ftyp)
+            fi = fi + 1
+        }
+        return
+    }
+}
+
 fn struct_set_fn_for_type(e: &Emitter, t: &str) -> String {
     if type_is_bool(e, t) { return "dast_struct_set_bool" }
     if type_is_string(e, t) { return "dast_struct_set_string" }
@@ -209,9 +424,43 @@ fn struct_get_fn_for_type(e: &Emitter, t: &str) -> String {
 
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(&expr.args) < 2 { return qbe_value("i64", "0") }
+    let op = string_clone(&expr.name)
+    if op == "&&" || op == "||" {
+        let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
+        let lhs_cond = ensure_bool_expr(e, lhs)
+        let res_tmp = new_temp(e)
+        let res_ptr = temp_name(res_tmp)
+        emit_line(e, "  " + res_ptr + " =l alloc8 8")
+        let rhs_label = new_label(e, "logic_rhs_")
+        let short_label = new_label(e, "logic_short_")
+        let end_label = new_label(e, "logic_end_")
+        if op == "&&" {
+            emit_line(e, "  jnz " + lhs_cond + ", @" + string_clone(&rhs_label) + ", @" + string_clone(&short_label))
+            emit_label(e, &short_label)
+            emit_line(e, "  storew 0, " + res_ptr)
+            emit_line(e, "  jmp @" + string_clone(&end_label))
+            emit_label(e, &rhs_label)
+            let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+            let rhs_cond = ensure_bool_expr(e, rhs)
+            emit_line(e, "  storew " + rhs_cond + ", " + res_ptr)
+        } else {
+            emit_line(e, "  jnz " + lhs_cond + ", @" + string_clone(&short_label) + ", @" + string_clone(&rhs_label))
+            emit_label(e, &short_label)
+            emit_line(e, "  storew 1, " + res_ptr)
+            emit_line(e, "  jmp @" + string_clone(&end_label))
+            emit_label(e, &rhs_label)
+            let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+            let rhs_cond = ensure_bool_expr(e, rhs)
+            emit_line(e, "  storew " + rhs_cond + ", " + res_ptr)
+        }
+        emit_label(e, &end_label)
+        let out_tmp = new_temp(e)
+        let out_tn = temp_name(out_tmp)
+        emit_line(e, "  " + out_tn + " =w loadw " + res_ptr)
+        return qbe_value("bool", out_tn)
+    }
     let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
     let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
-    let op = string_clone(&expr.name)
     if op == "+" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
@@ -224,12 +473,40 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         emit_line(e, "  " + tn + " =l sub " + lhs.expr + ", " + rhs.expr)
         return qbe_value("i64", tn)
     }
+    if op == "*" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l mul " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
+    if op == "/" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l div " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
+    if op == "%" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l rem " + lhs.expr + ", " + rhs.expr)
+        return qbe_value("i64", tn)
+    }
     if op == "==" {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
         emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         return qbe_value("bool", tn)
+    }
+    if op == "!=" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        let cmp = if type_is_bool(e, &lhs.typ) { "ceqw" } else { "ceql" }
+        emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+        let inv_tmp = new_temp(e)
+        let inv_tn = temp_name(inv_tmp)
+        emit_line(e, "  " + inv_tn + " =w ceqw " + tn + ", 0")
+        return qbe_value("bool", inv_tn)
     }
     if op == "<" {
         let tmp = new_temp(e)
@@ -244,7 +521,51 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         emit_line(e, "  " + tn + " =w csltl " + rhs.expr + ", " + lhs.expr)
         return qbe_value("bool", tn)
     }
+    if op == "<=" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w csltl " + rhs.expr + ", " + lhs.expr)
+        let inv_tmp = new_temp(e)
+        let inv_tn = temp_name(inv_tmp)
+        emit_line(e, "  " + inv_tn + " =w ceqw " + tn + ", 0")
+        return qbe_value("bool", inv_tn)
+    }
+    if op == ">=" {
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w csltl " + lhs.expr + ", " + rhs.expr)
+        let inv_tmp = new_temp(e)
+        let inv_tn = temp_name(inv_tmp)
+        emit_line(e, "  " + inv_tn + " =w ceqw " + tn + ", 0")
+        return qbe_value("bool", inv_tn)
+    }
     println("stage2: unsupported binary op", op)
+    exit(1)
+    return qbe_value("i64", "0")
+}
+
+fn emit_unary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
+    if len(&expr.args) < 1 { return qbe_value("i64", "0") }
+    let inner = emit_expr(e, expr_arg_ref(expr, 0, "emit_unary_inner"))
+    let op = string_clone(&expr.name)
+    if op == "-" {
+        if !type_is_int(e, &inner.typ) {
+            println("stage2: unary - requires int")
+            exit(1)
+        }
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l sub 0, " + inner.expr)
+        return qbe_value(string_clone(&inner.typ), tn)
+    }
+    if op == "!" {
+        let cond = ensure_bool_expr(e, inner)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =w ceqw " + cond + ", 0")
+        return qbe_value("bool", tn)
+    }
+    println("stage2: unsupported unary op", op)
     exit(1)
     return qbe_value("i64", "0")
 }

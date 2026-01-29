@@ -1,0 +1,8 @@
+fn main() {
+    let v = 7
+    let mut out = 0
+    match v {
+        x => { out = x + 1 }
+    }
+    if out == 8 { } else { exit(1) }
+}

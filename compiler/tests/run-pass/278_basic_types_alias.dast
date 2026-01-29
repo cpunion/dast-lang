@@ -1,0 +1,27 @@
+fn main() {
+    let a: int = 1
+    let b: i8 = 2
+    let c: i16 = 3
+    let d: i32 = 4
+    let e: i64 = 5
+    let f: u8 = 6
+    let g: u16 = 7
+    let h: u32 = 8
+    let i: u64 = 9
+    let j: isize = 10
+    let k: usize = 11
+    let ch: char = 'a'
+
+    if a == 1 { } else { exit(1) }
+    if b == 2 { } else { exit(1) }
+    if c == 3 { } else { exit(1) }
+    if d == 4 { } else { exit(1) }
+    if e == 5 { } else { exit(1) }
+    if f == 6 { } else { exit(1) }
+    if g == 7 { } else { exit(1) }
+    if h == 8 { } else { exit(1) }
+    if i == 9 { } else { exit(1) }
+    if j == 10 { } else { exit(1) }
+    if k == 11 { } else { exit(1) }
+    if ch == 'a' { } else { exit(1) }
+}

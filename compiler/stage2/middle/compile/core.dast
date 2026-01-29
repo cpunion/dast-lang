@@ -575,6 +575,12 @@ fn type_alias_index(e: &Emitter, name: &str) -> i64 {
 fn type_resolve(e: &Emitter, t: &str) -> String {
     let cur = string_clone(t)
     if cur == "" { return cur }
+    if cur == "int" || cur == "isize" || cur == "usize" || cur == "u64" || cur == "i64" || cur == "char" {
+        return "i64"
+    }
+    if cur == "i8" || cur == "i16" || cur == "i32" || cur == "u8" || cur == "u16" || cur == "u32" {
+        return "i32"
+    }
     if cur == "string" {
         println("stage2: use String/str instead of string")
         exit(1)

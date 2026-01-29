@@ -1,5 +1,5 @@
 fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
-    if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH {
+    if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH || expr.kind == EXPR_UNARY {
         if len(&expr.args) < 1 {
             println("stage2: bad expr args", expr.kind, "len", len(&expr.args), expr.name)
             exit(1)
@@ -203,6 +203,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + recv_expr + ", l " + fname_ptr + ")")
             return qbe_value(ftyp, tn)
         }
+        EXPR_UNARY => { return emit_unary_expr(e, expr) }
         EXPR_BINARY => {
             return emit_binary_expr(e, expr)
         }

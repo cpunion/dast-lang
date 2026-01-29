@@ -13,6 +13,11 @@ fn parse_const_expr(p: &mut Parser) -> Expr {
 fn parse_primary(p: &mut Parser) -> Expr {
     let t = parser_peek(p)
     match t.kind {
+        TK_PIPEPIPE => {
+            let _ = parser_advance(p)
+            let body = parse_block(p)
+            return expr_closure(param_list_empty(), body)
+        }
         TK_PIPE => {
             return parse_closure(p)
         }
@@ -132,7 +137,7 @@ fn parse_match_expr(p: &mut Parser) -> Expr {
         let block = parse_match_arm_body(p)
         let mut pi = 0
         while pi < len(&pats) {
-            let mut arm = pats[pi]
+            let mut arm = MatchArm { pattern: pats[pi], has_guard: false, guard: expr_int(0), block: block_empty() }
             if has_guard {
                 arm.guard = expr_clone(&guard)
                 arm.has_guard = true
@@ -168,31 +173,15 @@ fn parse_if_expr(p: &mut Parser) -> Expr {
     }
     let mut arms = match_arm_list_empty()
     let arm_true = MatchArm {
-        pat_kind: PAT_INT,
-        variant: "",
-        binding: "",
-        has_binding: false,
+        pattern: pattern_int(1),
         has_guard: false,
         guard: expr_int(0),
-        int_value: 1,
-        range_end: 0,
-        range_inclusive: false,
-        struct_name: "",
-        struct_fields: struct_pattern_field_list_empty(),
         block: then_block,
     }
     let arm_false = MatchArm {
-        pat_kind: PAT_WILDCARD,
-        variant: "",
-        binding: "",
-        has_binding: false,
+        pattern: pattern_wildcard(),
         has_guard: false,
         guard: expr_int(0),
-        int_value: 0,
-        range_end: 0,
-        range_inclusive: false,
-        struct_name: "",
-        struct_fields: struct_pattern_field_list_empty(),
         block: else_block,
     }
     push(&mut arms, arm_true)

@@ -129,24 +129,47 @@ fn desugar_let_pattern(p: &mut Parser, names: & [String], rhs: Expr, mutable: bo
     return stmt_expr(expr_block(Block { stmts: stmts }))
 }
 
-fn desugar_struct_pattern_let(p: &mut Parser, pat: &MatchArm, rhs: Expr, mutable: bool) -> Stmt {
+fn pattern_irrefutable(pat: &Pattern) -> bool {
+    if pat.kind == PAT_WILDCARD || pat.kind == PAT_BIND { return true }
+    if pat.kind == PAT_STRUCT {
+        let mut i = 0
+        while i < len(&pat.struct_fields) {
+            if !pattern_irrefutable(&pat.struct_fields[i].pattern) { return false }
+            i = i + 1
+        }
+        return true
+    }
+    return false
+}
+
+fn desugar_struct_pattern_bindings(out: &mut [Stmt], base: &Expr, pat: &Pattern, mutable: bool) {
+    if pat.kind == PAT_BIND {
+        if pat.name != "_" {
+            push(out, stmt_let(string_clone(&pat.name), mutable, false, "", expr_clone(base)))
+        }
+        return
+    }
+    if pat.kind == PAT_WILDCARD { return }
+    if pat.kind != PAT_STRUCT { return }
+    let mut i = 0
+    while i < len(&pat.struct_fields) {
+        let f = &pat.struct_fields[i]
+        let field_expr = expr_field(expr_clone(base), string_clone(&f.name))
+        desugar_struct_pattern_bindings(out, &field_expr, &f.pattern, mutable)
+        i = i + 1
+    }
+}
+
+fn desugar_struct_pattern_let(p: &mut Parser, pat: &Pattern, rhs: Expr, mutable: bool) -> Stmt {
     let tmp = parser_gensym(p, "__pat")
     let mut stmts: [Stmt] = []
     push(&mut stmts, stmt_let(string_clone(&tmp), false, false, "", rhs))
     let base = expr_ident(string_clone(&tmp))
-    let mut i = 0
-    while i < len(&pat.struct_fields) {
-        let f = &pat.struct_fields[i]
-        if f.has_pattern && f.pat_kind != PAT_WILDCARD {
-            println("stage2: let struct pattern must be irrefutable")
-            exit(1)
-        }
-        if f.has_binding && f.binding != "_" {
-            let field_expr = expr_field(expr_clone(&base), string_clone(&f.name))
-            push(&mut stmts, stmt_let(string_clone(&f.binding), mutable, false, "", field_expr))
-        }
-        i = i + 1
+    if !pattern_irrefutable(pat) {
+        println("stage2: let struct pattern must be irrefutable")
+        exit(1)
     }
+    desugar_struct_pattern_bindings(&mut stmts, &base, pat, mutable)
     return stmt_expr(expr_block(Block { stmts: stmts }))
 }
 
@@ -160,11 +183,11 @@ fn desugar_loop_expr(p: &mut Parser, name: String, mutable: bool, has_type: bool
     return stmt_let(name, mutable, has_type, typ, expr_block(Block { stmts: stmts }))
 }
 
-fn desugar_while_let(p: &mut Parser, scrut: Expr, pat: MatchArm, body: Block) -> Stmt {
+fn desugar_while_let(p: &mut Parser, scrut: Expr, pat: Pattern, body: Block, binding: String, has_binding: bool) -> Stmt {
     let mut else_stmts: [Stmt] = []
     push(&mut else_stmts, stmt_break())
     let else_block = Block { stmts: else_stmts }
-    let iflet = stmt_iflet(scrut, string_clone(&pat.variant), string_clone(&pat.binding), pat.has_binding, body, else_block, true)
+    let iflet = stmt_iflet(scrut, string_clone(&pat.variant), binding, has_binding, body, else_block, true)
     let mut loop_stmts: [Stmt] = []
     push(&mut loop_stmts, iflet)
     return stmt_loop(Block { stmts: loop_stmts })

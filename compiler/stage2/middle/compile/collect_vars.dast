@@ -15,40 +15,34 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
         if len(&expr.args) > 0 {
             collect_vars_from_expr(e, expr_arg_ref(expr, 0, "collect_vars_field_recv"))
         }
-        let enum_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { "" }
+        let mut scrut_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { "" }
+        if len(&expr.args) > 0 {
+            let scrut = expr_arg_ref(expr, 0, "collect_vars_enum_recv_hint")
+            if scrut.kind == EXPR_IDENT {
+                let hint = enum_var_hint(e, &scrut.name)
+                if hint != "" { scrut_t = hint }
+            }
+        }
+        let mut is_enum = type_is_enum(e, &scrut_t)
+        if !is_enum {
+            let mut ai = 0
+            while ai < len(&expr.match_arms) {
+                let a = &expr.match_arms[ai]
+                if a.pattern.kind == PAT_VARIANT {
+                    let guess = enum_name_for_variant(e, &a.pattern.variant)
+                    if guess != "" {
+                        scrut_t = guess
+                        is_enum = true
+                        break
+                    }
+                }
+                ai = ai + 1
+            }
+        }
         let mut ai = 0
         while ai < len(&expr.match_arms) {
             let a = &expr.match_arms[ai]
-            if a.has_binding && a.pat_kind == PAT_VARIANT {
-                let mut bt = "i64"
-                if type_is_enum(e, &enum_t) {
-                    bt = enum_variant_payload_type(e, &enum_t, &a.variant)
-                }
-                collect_var_add(e, &a.binding, bt, false)
-            } else if a.pat_kind == PAT_STRUCT {
-                let st_name = type_strip_ref(e, &enum_t)
-                if !type_is_struct(e, &st_name) {
-                    println("stage2: struct pattern requires struct scrutinee")
-                    exit(1)
-                }
-                if a.struct_name != "" && a.struct_name != st_name {
-                    println("stage2: struct pattern type mismatch", a.struct_name, "vs", st_name)
-                    exit(1)
-                }
-                let mut fi = 0
-                while fi < len(&a.struct_fields) {
-                    let f = &a.struct_fields[fi]
-                    let ftyp = struct_field_type(e, &st_name, &f.name)
-                    if ftyp == "" {
-                        println("stage2: unknown struct field", f.name)
-                        exit(1)
-                    }
-                    if f.has_binding {
-                        collect_var_add(e, &f.binding, ftyp, false)
-                    }
-                    fi = fi + 1
-                }
-            }
+            collect_vars_from_pattern(e, &a.pattern, &scrut_t)
             if a.has_guard {
                 collect_vars_from_expr(e, &a.guard)
             }
@@ -67,6 +61,54 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
         let f = &expr.fields[fi]
         collect_vars_from_expr(e, &f.value)
         fi = fi + 1
+    }
+}
+
+fn collect_vars_from_pattern(e: &mut Emitter, pat: &Pattern, scrut_t: &str) {
+    if pat.kind == PAT_BIND {
+        if pat.name != "_" {
+            collect_var_add(e, &pat.name, scrut_t, false)
+        }
+        return
+    }
+    if pat.kind == PAT_VARIANT {
+        let mut enum_t = string_clone(scrut_t)
+        if !type_is_enum(e, &enum_t) {
+            let guess = enum_name_for_variant(e, &pat.variant)
+            if guess != "" { enum_t = guess }
+        }
+        if !type_is_enum(e, &enum_t) {
+            println("stage2: enum pattern requires enum expression")
+            exit(1)
+        }
+        if pat.has_payload && len(&pat.payload) > 0 {
+            let payload_t = enum_variant_payload_type(e, &enum_t, &pat.variant)
+            collect_vars_from_pattern(e, &pat.payload[0], &payload_t)
+        }
+        return
+    }
+    if pat.kind == PAT_STRUCT {
+        let st_name = type_strip_ref(e, scrut_t)
+        if !type_is_struct(e, &st_name) {
+            println("stage2: struct pattern requires struct scrutinee")
+            exit(1)
+        }
+        if pat.struct_name != "" && pat.struct_name != st_name {
+            println("stage2: struct pattern type mismatch", pat.struct_name, "vs", st_name)
+            exit(1)
+        }
+        let mut fi = 0
+        while fi < len(&pat.struct_fields) {
+            let f = &pat.struct_fields[fi]
+            let ftyp = struct_field_type(e, &st_name, &f.name)
+            if ftyp == "" {
+                println("stage2: unknown struct field", f.name)
+                exit(1)
+            }
+            collect_vars_from_pattern(e, &f.pattern, &ftyp)
+            fi = fi + 1
+        }
+        return
     }
 }
 
@@ -214,40 +256,31 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
             if s.has_else { collect_vars_from_block(e, &s.else_block) }
         } else if s.kind == STMT_MATCH {
             collect_vars_from_expr(e, &s.expr)
-            let enum_t = expr_type(e, &s.expr)
+            let mut scrut_t = expr_type(e, &s.expr)
+            if s.expr.kind == EXPR_IDENT {
+                let hint = enum_var_hint(e, &s.expr.name)
+                if hint != "" { scrut_t = hint }
+            }
+            let mut is_enum = type_is_enum(e, &scrut_t)
+            if !is_enum {
+                let mut ai = 0
+                while ai < len(&s.arms) {
+                    let a = &s.arms[ai]
+                    if a.pattern.kind == PAT_VARIANT {
+                        let guess = enum_name_for_variant(e, &a.pattern.variant)
+                        if guess != "" {
+                            scrut_t = guess
+                            is_enum = true
+                            break
+                        }
+                    }
+                    ai = ai + 1
+                }
+            }
             let mut ai = 0
             while ai < len(&s.arms) {
                 let a = &s.arms[ai]
-                if a.has_binding && a.pat_kind == PAT_VARIANT {
-                    let mut bt = "i64"
-                    if type_is_enum(e, &enum_t) {
-                        bt = enum_variant_payload_type(e, &enum_t, &a.variant)
-                    }
-                    collect_var_add(e, &a.binding, bt, false)
-                } else if a.pat_kind == PAT_STRUCT {
-                    let st_name = type_strip_ref(e, &enum_t)
-                    if !type_is_struct(e, &st_name) {
-                        println("stage2: struct pattern requires struct scrutinee")
-                        exit(1)
-                    }
-                    if a.struct_name != "" && a.struct_name != st_name {
-                        println("stage2: struct pattern type mismatch", a.struct_name, "vs", st_name)
-                        exit(1)
-                    }
-                    let mut fi = 0
-                    while fi < len(&a.struct_fields) {
-                        let f = &a.struct_fields[fi]
-                        let ftyp = struct_field_type(e, &st_name, &f.name)
-                        if ftyp == "" {
-                            println("stage2: unknown struct field", f.name)
-                            exit(1)
-                        }
-                        if f.has_binding {
-                            collect_var_add(e, &f.binding, ftyp, false)
-                        }
-                        fi = fi + 1
-                    }
-                }
+                collect_vars_from_pattern(e, &a.pattern, &scrut_t)
                 if a.has_guard {
                     collect_vars_from_expr(e, &a.guard)
                 }
@@ -309,6 +342,7 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
         }
         let mut ai = 0
         while ai < len(&expr.match_arms) {
+            collect_strings_from_pattern(e, &expr.match_arms[ai].pattern)
             if expr.match_arms[ai].has_guard {
                 collect_strings_from_expr(e, &expr.match_arms[ai].guard)
             }
@@ -351,6 +385,28 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
     }
 }
 
+fn collect_strings_from_pattern(e: &mut Emitter, pat: &Pattern) {
+    if pat.kind == PAT_RANGE {
+        if pat.range_has_start { collect_strings_from_expr(e, &pat.range_start) }
+        if pat.range_has_end { collect_strings_from_expr(e, &pat.range_end) }
+        return
+    }
+    if pat.kind == PAT_VARIANT {
+        if pat.has_payload && len(&pat.payload) > 0 {
+            collect_strings_from_pattern(e, &pat.payload[0])
+        }
+        return
+    }
+    if pat.kind == PAT_STRUCT {
+        let mut i = 0
+        while i < len(&pat.struct_fields) {
+            collect_strings_from_pattern(e, &pat.struct_fields[i].pattern)
+            i = i + 1
+        }
+        return
+    }
+}
+
 fn collect_strings_from_block(e: &mut Emitter, b: &Block) {
     collect_strings_from_stmts(e, &b.stmts)
 }
@@ -369,6 +425,7 @@ fn collect_strings_from_stmts(e: &mut Emitter, items: & [Stmt]) {
         } else if s.kind == STMT_MATCH {
             let mut ai = 0
             while ai < len(&s.arms) {
+                collect_strings_from_pattern(e, &s.arms[ai].pattern)
                 if s.arms[ai].has_guard {
                     collect_strings_from_expr(e, &s.arms[ai].guard)
                 }

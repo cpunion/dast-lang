@@ -84,7 +84,25 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
         let _ = parser_advance(p)
         if parser_peek(p).kind == TK_LET {
             let _ = parser_advance(p)
-            let pat = parse_variant_pattern(p)
+            let pat = parse_pattern(p)
+            if pat.kind != PAT_VARIANT {
+                println("stage2: if let requires variant pattern")
+                exit(1)
+            }
+            let mut binding = ""
+            let mut has_binding = false
+            if pat.has_payload && len(&pat.payload) > 0 {
+                let pay = &pat.payload[0]
+                if pay.kind == PAT_BIND {
+                    binding = string_clone(&pay.name)
+                    has_binding = true
+                } else if pay.kind == PAT_WILDCARD {
+                    has_binding = false
+                } else {
+                    println("stage2: if let variant payload must be binding or _")
+                    exit(1)
+                }
+            }
             let _ = parser_expect(p, TK_ASSIGN, "=")
             let scrut = parse_expr_before_block(p)
             let then_block = parse_block(p)
@@ -102,7 +120,7 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
                 }
                 has_else = true
             }
-            return stmt_iflet(scrut, pat.variant, pat.binding, pat.has_binding, then_block, else_block, has_else)
+            return stmt_iflet(scrut, string_clone(&pat.variant), binding, has_binding, then_block, else_block, has_else)
         }
         let cond = parse_expr_before_block(p)
         let then_block = parse_block(p)
@@ -140,7 +158,7 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
             let block = parse_match_arm_body(p)
             let mut pi = 0
             while pi < len(&pats) {
-                let mut arm = pats[pi]
+                let mut arm = MatchArm { pattern: pats[pi], has_guard: false, guard: expr_int(0), block: block_empty() }
                 if has_guard {
                     arm.guard = expr_clone(&guard)
                     arm.has_guard = true
@@ -158,11 +176,29 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
         let _ = parser_advance(p)
         if parser_peek(p).kind == TK_LET {
             let _ = parser_advance(p)
-            let pat = parse_variant_pattern(p)
+            let pat = parse_pattern(p)
+            if pat.kind != PAT_VARIANT {
+                println("stage2: while let requires variant pattern")
+                exit(1)
+            }
+            let mut binding = ""
+            let mut has_binding = false
+            if pat.has_payload && len(&pat.payload) > 0 {
+                let pay = &pat.payload[0]
+                if pay.kind == PAT_BIND {
+                    binding = string_clone(&pay.name)
+                    has_binding = true
+                } else if pay.kind == PAT_WILDCARD {
+                    has_binding = false
+                } else {
+                    println("stage2: while let variant payload must be binding or _")
+                    exit(1)
+                }
+            }
             let _ = parser_expect(p, TK_ASSIGN, "=")
             let scrut = parse_expr_before_block(p)
             let body = parse_block(p)
-            return desugar_while_let(p, scrut, pat, body)
+            return desugar_while_let(p, scrut, pat, body, binding, has_binding)
         }
         let cond = parse_expr_before_block(p)
         let body = parse_block(p)
