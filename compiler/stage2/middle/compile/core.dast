@@ -924,10 +924,45 @@ fn type_strip_args(e: &Emitter, t: &str) -> String {
 }
 
 fn qbe_type(e: &Emitter, t: &str) -> String {
-    if type_is_ref(e, t) { return "l" }
-    if type_is_array(e, t) { return "l" }
-    if type_is_bool(e, t) { return "w" }
+    let rt = type_resolve(e, t)
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
+        return "l"
+    }
+    if type_is_enum(e, &rt) { return "l" }
+    if rt == "bool" { return "w" }
+    if rt == "f32" { return "w" }
+    if rt == "f64" { return "l" }
+    let w = type_int_width(e, &rt)
+    if w > 0 {
+        if w <= 32 { return "w" }
+        return "l"
+    }
     return "l"
+}
+
+fn qbe_cmp_op(e: &Emitter, op: &str, typ: &str) -> String {
+    let rt = type_resolve(e, typ)
+    let suffix = qbe_type(e, &rt)
+    let unsigned = type_is_unsigned_int(e, &rt)
+    if op == "==" { return "ceq" + suffix }
+    if op == "!=" { return "cne" + suffix }
+    if op == "<" {
+        if unsigned { return "cult" + suffix }
+        return "cslt" + suffix
+    }
+    if op == "<=" {
+        if unsigned { return "cule" + suffix }
+        return "csle" + suffix
+    }
+    if op == ">" {
+        if unsigned { return "cugt" + suffix }
+        return "csgt" + suffix
+    }
+    if op == ">=" {
+        if unsigned { return "cuge" + suffix }
+        return "csge" + suffix
+    }
+    return "ceq" + suffix
 }
 
 fn store_op_for_type(e: &Emitter, t: &str) -> String {

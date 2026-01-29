@@ -72,12 +72,12 @@ fn test_emit_cmp_ops() {
     let mut e1 = setup_emitter("i8", "i16")
     let expr1 = bin_expr("<")
     let _ = emit_binary_expr(&mut e1, &expr1)
-    assert_true(body_contains(&e1.body, " csltl "), "signed cmp opcode")
+    assert_true(body_contains(&e1.body, " csltw "), "signed cmp opcode")
 
     let mut e2 = setup_emitter("u8", "u16")
     let expr2 = bin_expr("<")
     let _ = emit_binary_expr(&mut e2, &expr2)
-    assert_true(body_contains(&e2.body, " cultl "), "unsigned cmp opcode")
+    assert_true(body_contains(&e2.body, " cultw "), "unsigned cmp opcode")
 }
 
 fn test_emit_shift_ops() {
@@ -98,4 +98,3 @@ fn test_emit_peer_type() {
     let v = emit_binary_expr(&mut e, &expr)
     assert_true(v.typ == "i32", "peer type i32 for i16+u16")
 }
-

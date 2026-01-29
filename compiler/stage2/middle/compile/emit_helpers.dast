@@ -94,7 +94,8 @@ fn ensure_bool_expr(e: &mut Emitter, v: QbeValue) -> String {
     if type_is_bool(e, &v.typ) { return v.expr }
     let tmp = new_temp(e)
     let tn = temp_name(tmp)
-    emit_line(e, "  " + tn + " =w cnel " + v.expr + ", 0")
+    let cmp = qbe_cmp_op(e, "!=", &v.typ)
+    emit_line(e, "  " + tn + " =w " + cmp + " " + v.expr + ", 0")
     return tn
 }
 
@@ -105,7 +106,8 @@ fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
         if type_is_bool(e, &v.typ) { return v.expr }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =w cnel " + v.expr + ", 0")
+        let cmp = qbe_cmp_op(e, "!=", &v.typ)
+        emit_line(e, "  " + tn + " =w " + cmp + " " + v.expr + ", 0")
         return tn
     }
     if type_is_unit(e, &v.typ) { return "0" }
@@ -225,7 +227,7 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             println("stage2: literal pattern requires int or bool")
             exit(1)
         }
-        let cmp = if type_is_bool(e, &check_t) || type_is_i32(e, &check_t) { "ceqw" } else { "ceql" }
+        let cmp = qbe_cmp_op(e, "==", &check_t)
         let cond_tmp = new_temp(e)
         let cond_tn = temp_name(cond_tmp)
         emit_line(e, "  " + cond_tn + " =w " + cmp + " " + check_expr + ", " + int_to_string(pat.int_value))
@@ -249,7 +251,8 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             let start_expr = cast_to_type(e, start_v, val_t)
             let cond_tmp = new_temp(e)
             let cond_tn = temp_name(cond_tmp)
-            emit_line(e, "  " + cond_tn + " =w csltl " + check_expr + ", " + start_expr)
+            let cmp = qbe_cmp_op(e, "<", &check_t)
+            emit_line(e, "  " + cond_tn + " =w " + cmp + " " + check_expr + ", " + start_expr)
             let ok_label = new_label(e, "match_range_")
             emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&next_label) + ", @" + string_clone(&ok_label))
             emit_label(e, &ok_label)
@@ -263,13 +266,14 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             let end_expr = cast_to_type(e, end_v, val_t)
             let cond_tmp = new_temp(e)
             let cond_tn = temp_name(cond_tmp)
+            let cmp = qbe_cmp_op(e, "<", &check_t)
             if pat.range_inclusive {
-                emit_line(e, "  " + cond_tn + " =w csltl " + end_expr + ", " + check_expr)
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + end_expr + ", " + check_expr)
                 let ok_label = new_label(e, "match_range_")
                 emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&next_label) + ", @" + string_clone(&ok_label))
                 emit_label(e, &ok_label)
             } else {
-                emit_line(e, "  " + cond_tn + " =w csltl " + check_expr + ", " + end_expr)
+                emit_line(e, "  " + cond_tn + " =w " + cmp + " " + check_expr + ", " + end_expr)
                 let ok_label = new_label(e, "match_range_")
                 emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(&next_label))
                 emit_label(e, &ok_label)
@@ -290,7 +294,7 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             println("stage2: unknown enum variant", pat.variant)
             exit(1)
         }
-        let cmp = if type_is_bool(e, &tag_t) || type_is_i32(e, &tag_t) { "ceqw" } else { "ceql" }
+        let cmp = qbe_cmp_op(e, "==", &tag_t)
         let cond_tmp = new_temp(e)
         let cond_tn = temp_name(cond_tmp)
         emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tagv.expr + ", " + int_to_string(tag_val))
@@ -553,10 +557,11 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let r = emit_deref_value(e, rhs)
             emit_line(e, "  " + tn + " =w call $dast_string_eq(l " + l.expr + ", l " + r.expr + ")")
         } else if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
-            let cmp = "ceql"
+            let cmp = qbe_cmp_op(e, "==", &lhs.typ)
             emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         } else if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
-            emit_line(e, "  " + tn + " =w ceqw " + lhs.expr + ", " + rhs.expr)
+            let cmp = qbe_cmp_op(e, "==", &lhs.typ)
+            emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         } else {
             let int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
             if int_t == "" {
@@ -565,17 +570,8 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             let l = cast_to_type(e, lhs, &int_t)
             let r = cast_to_type(e, rhs, &int_t)
-            if op == "==" || op == "!=" {
-                emit_line(e, "  " + tn + " =w ceql " + l + ", " + r)
-            } else {
-                let mut cmp = ""
-                if type_is_unsigned_int(e, &int_t) {
-                    if op == "<" { cmp = "cultl" } else if op == ">" { cmp = "cugtl" } else if op == "<=" { cmp = "culel" } else { cmp = "cugel" }
-                } else {
-                    if op == "<" { cmp = "csltl" } else if op == ">" { cmp = "csgtl" } else if op == "<=" { cmp = "cslel" } else { cmp = "csgel" }
-                }
-                emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
-            }
+            let cmp = qbe_cmp_op(e, op, &int_t)
+            emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
         }
         if op == "!=" {
             let inv_tmp = new_temp(e)
@@ -601,7 +597,8 @@ fn emit_unary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l sub 0, " + inner.expr)
+        let q = qbe_type(e, &inner.typ)
+        emit_line(e, "  " + tn + " =" + q + " sub 0, " + inner.expr)
         return qbe_value(string_clone(&inner.typ), tn)
     }
     if op == "!" {
