@@ -1,6 +1,12 @@
 package compile
 
-import "dastlang/internal/ast"
+import (
+	"os"
+	"strconv"
+	"strings"
+
+	"dastlang/internal/ast"
+)
 
 // inferExprType attempts to infer the type of an expression
 // This is a simplified version - full type info would come from typechecker
@@ -43,12 +49,75 @@ func (c *Compiler) inferExprType(e ast.Expr) string {
 		}
 		return tupleTypeName(elemTypes)
 	case *ast.BinaryExpr:
-		// Comparison ops return bool
+		lt := normalizeTypeName(c.inferExprType(e.Left))
+		rt := normalizeTypeName(c.inferExprType(e.Right))
+		lhsLit, lhsIsLit := e.Left.(*ast.IntLit)
+		rhsLit, rhsIsLit := e.Right.(*ast.IntLit)
+		intBinaryResult := func() string {
+			if !isIntTypeName(lt) || !isIntTypeName(rt) {
+				return ""
+			}
+			if lhsIsLit && !rhsIsLit {
+				if intValueFitsType(lhsLit.Value, rt) {
+					return rt
+				}
+			}
+			if rhsIsLit && !lhsIsLit {
+				if intValueFitsType(rhsLit.Value, lt) {
+					return lt
+				}
+			}
+			pt := intPeerTypeName(lt, rt)
+			if pt == "" {
+				return ""
+			}
+			if lhsIsLit && !intValueFitsType(lhsLit.Value, pt) {
+				return ""
+			}
+			if rhsIsLit && !intValueFitsType(rhsLit.Value, pt) {
+				return ""
+			}
+			return pt
+		}
+		shiftResult := func() string {
+			if !isIntTypeName(lt) || !isIntTypeName(rt) {
+				return ""
+			}
+			if rhsIsLit {
+				if rhsLit.Value < 0 {
+					return ""
+				}
+				return lt
+			}
+			if !isUnsignedIntName(rt) {
+				return ""
+			}
+			return lt
+		}
 		switch e.Op {
+		case "&&", "||":
+			return "bool"
 		case "==", "!=", "<", "<=", ">", ">=":
 			return "bool"
+		case "+":
+			if isStringTypeName(lt) && isStringTypeName(rt) {
+				return "String"
+			}
+			if t := intBinaryResult(); t != "" {
+				return t
+			}
+			return lt
+		case "-", "*", "/", "%", "&", "|", "^":
+			if t := intBinaryResult(); t != "" {
+				return t
+			}
+			return lt
+		case "<<", ">>":
+			if t := shiftResult(); t != "" {
+				return t
+			}
+			return lt
 		default:
-			// Arithmetic ops return same type as operands
 			return c.inferExprType(e.Left)
 		}
 	case *ast.UnaryExpr:
@@ -219,4 +288,205 @@ func (c *Compiler) inferLoopExprType(e *ast.LoopExpr) string {
 		return "unit"
 	}
 	return found
+}
+
+func ptrWidthBytes() int64 {
+	if v := os.Getenv("DAST_TARGET_PTR_WIDTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n == 32 {
+				return 4
+			}
+			if n == 64 {
+				return 8
+			}
+		}
+	}
+	return 8
+}
+
+func intTypeWidth(name string) int64 {
+	switch strings.TrimSpace(name) {
+	case "i8", "u8":
+		return 8
+	case "i16", "u16":
+		return 16
+	case "i32", "u32", "char":
+		return 32
+	case "i64", "u64", "int":
+		return 64
+	case "isize", "usize":
+		return ptrWidthBytes() * 8
+	}
+	return 0
+}
+
+func isSignedIntName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "i8", "i16", "i32", "i64", "int", "isize":
+		return true
+	}
+	return false
+}
+
+func isUnsignedIntName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "u8", "u16", "u32", "u64", "usize", "char":
+		return true
+	}
+	return false
+}
+
+func i64MaxValue() int64 { return 9223372036854775807 }
+
+func i64MinValue() int64 { return -9223372036854775807 - 1 }
+
+func intTypeMin(name string) int64 {
+	if !isSignedIntName(name) && !isUnsignedIntName(name) {
+		return 0
+	}
+	if isUnsignedIntName(name) {
+		return 0
+	}
+	bits := intTypeWidth(name)
+	if bits >= 64 {
+		return i64MinValue()
+	}
+	shift := bits - 1
+	var v int64 = 1
+	for i := int64(0); i < shift; i++ {
+		v *= 2
+	}
+	return -v
+}
+
+func intTypeMax(name string) int64 {
+	if !isSignedIntName(name) && !isUnsignedIntName(name) {
+		return 0
+	}
+	bits := intTypeWidth(name)
+	if isUnsignedIntName(name) {
+		if bits >= 63 {
+			return i64MaxValue()
+		}
+		var v int64 = 1
+		for i := int64(0); i < bits; i++ {
+			v *= 2
+		}
+		return v - 1
+	}
+	if bits >= 64 {
+		return i64MaxValue()
+	}
+	shift := bits - 1
+	var v int64 = 1
+	for i := int64(0); i < shift; i++ {
+		v *= 2
+	}
+	return v - 1
+}
+
+func intValueFitsType(val int64, name string) bool {
+	if !isSignedIntName(name) && !isUnsignedIntName(name) {
+		return false
+	}
+	return val >= intTypeMin(name) && val <= intTypeMax(name)
+}
+
+func intPeerTypeName(a, b string) string {
+	la := strings.TrimSpace(a)
+	lb := strings.TrimSpace(b)
+	if intTypeWidth(la) == 0 || intTypeWidth(lb) == 0 {
+		return ""
+	}
+	abits := intTypeWidth(la)
+	bbits := intTypeWidth(lb)
+	if isUnsignedIntName(la) && abits == 64 && intTypeMin(lb) < 0 {
+		return ""
+	}
+	if isUnsignedIntName(lb) && bbits == 64 && intTypeMin(la) < 0 {
+		return ""
+	}
+	if la == lb {
+		return la
+	}
+	minAll := intTypeMin(la)
+	if intTypeMin(lb) < minAll {
+		minAll = intTypeMin(lb)
+	}
+	maxAll := intTypeMax(la)
+	if intTypeMax(lb) > maxAll {
+		maxAll = intTypeMax(lb)
+	}
+	if la == "int" || lb == "int" {
+		t := la
+		if t != "int" {
+			t = lb
+		}
+		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+			return t
+		}
+	}
+	if la == "isize" || lb == "isize" {
+		t := la
+		if t != "isize" {
+			t = lb
+		}
+		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+			return t
+		}
+	}
+	if la == "usize" || lb == "usize" {
+		t := la
+		if t != "usize" {
+			t = lb
+		}
+		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+			return t
+		}
+	}
+	if la == "char" || lb == "char" {
+		t := la
+		if t != "char" {
+			t = lb
+		}
+		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+			return t
+		}
+	}
+	signed := []string{"i8", "i16", "i32"}
+	if ptrWidthBytes() == 4 {
+		signed = append(signed, "isize")
+	}
+	signed = append(signed, "i64")
+	if ptrWidthBytes() == 8 {
+		signed = append(signed, "isize")
+	}
+	signed = append(signed, "int")
+	unsigned := []string{"u8", "u16", "u32", "char"}
+	if ptrWidthBytes() == 4 {
+		unsigned = append(unsigned, "usize")
+	}
+	unsigned = append(unsigned, "u64")
+	if ptrWidthBytes() == 8 {
+		unsigned = append(unsigned, "usize")
+	}
+	if minAll < 0 {
+		for _, t := range signed {
+			if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+				return t
+			}
+		}
+		return ""
+	}
+	for _, t := range unsigned {
+		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+			return t
+		}
+	}
+	for _, t := range signed {
+		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
+			return t
+		}
+	}
+	return ""
 }

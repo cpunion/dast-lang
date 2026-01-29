@@ -63,16 +63,11 @@ static size_t g_freed_ranges_cap = 0;
 static void **g_array_allocs = NULL;
 static size_t g_array_allocs_len = 0;
 static size_t g_array_allocs_cap = 0;
-static void **g_struct_allocs = NULL;
-static size_t g_struct_allocs_len = 0;
-static size_t g_struct_allocs_cap = 0;
 static dast_int g_next_array_id = 1;
 static int g_drop_debug = 0;
 static int g_drop_debug_reported = 0;
 static int g_str_debug = 0;
 static int g_str_debug_checked = 0;
-static int g_struct_debug = 0;
-static int g_struct_debug_checked = 0;
 static int g_alloc_debug_checked = 0;
 static size_t g_alloc_warn_bytes = 0;
 static size_t g_alloc_max_bytes = 0;
@@ -85,7 +80,6 @@ static int g_array_bt = 0;
 static dast_int g_array_debug_id = 0;
 static pthread_once_t g_drop_debug_once = PTHREAD_ONCE_INIT;
 static pthread_once_t g_str_debug_once = PTHREAD_ONCE_INIT;
-static pthread_once_t g_struct_debug_once = PTHREAD_ONCE_INIT;
 static pthread_once_t g_alloc_debug_once = PTHREAD_ONCE_INIT;
 static pthread_once_t g_array_debug_once = PTHREAD_ONCE_INIT;
 
@@ -115,18 +109,6 @@ static void dast_str_debug_init_once(void) {
 
 static void dast_str_debug_init(void) {
 	pthread_once(&g_str_debug_once, dast_str_debug_init_once);
-}
-
-static void dast_struct_debug_init_once(void) {
-	g_struct_debug_checked = 1;
-	const char *env = getenv("DAST_STRUCT_DEBUG");
-	if (env && *env && strcmp(env, "0") != 0) {
-		g_struct_debug = 1;
-	}
-}
-
-static void dast_struct_debug_init(void) {
-	pthread_once(&g_struct_debug_once, dast_struct_debug_init_once);
 }
 
 static void dast_alloc_debug_init_once(void) {
@@ -492,72 +474,17 @@ static int dast_untrack_array(DastArray *arr) {
 	return 0;
 }
 
-static void dast_track_struct(void *ptr) {
-	if (!g_drop_debug || !ptr) {
-		return;
-	}
-	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == ptr) {
-			return;
-		}
-	}
-	if (g_struct_allocs_len >= g_struct_allocs_cap) {
-		size_t next = g_struct_allocs_cap == 0 ? 64 : g_struct_allocs_cap * 2;
-		g_struct_allocs = (void **)dast_xrealloc(g_struct_allocs, sizeof(void *) * next);
-		g_struct_allocs_cap = next;
-	}
-	g_struct_allocs[g_struct_allocs_len++] = ptr;
-}
-
-static int dast_untrack_struct(void *ptr) {
-	if (!g_drop_debug || !ptr) {
-		return 1;
-	}
-	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == ptr) {
-			g_struct_allocs[i] = g_struct_allocs[g_struct_allocs_len - 1];
-			g_struct_allocs_len--;
-			return 1;
-		}
-	}
-	return 0;
-}
-
-static int dast_struct_is_live(void *ptr) {
-	if (!g_drop_debug || !ptr) {
-		return 1;
-	}
-	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == ptr) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
-static int dast_struct_tracked(void *p) {
-	if (!p) {
-		return 0;
-	}
-	for (size_t i = 0; i < g_struct_allocs_len; i++) {
-		if (g_struct_allocs[i] == p) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
 static void dast_drop_debug_report(void) {
 	if (!g_drop_debug || g_drop_debug_reported) {
 		return;
 	}
 	g_drop_debug_reported = 1;
-	if (g_string_allocs_len == 0 && g_array_allocs_len == 0 && g_struct_allocs_len == 0) {
+	if (g_string_allocs_len == 0 && g_array_allocs_len == 0) {
 		return;
 	}
 	fprintf(stderr,
-		"stage0: <runtime>:0:0: error drop check failed: strings=%zu arrays=%zu structs=%zu\n",
-		g_string_allocs_len, g_array_allocs_len, g_struct_allocs_len);
+		"stage0: <runtime>:0:0: error drop check failed: strings=%zu arrays=%zu\n",
+		g_string_allocs_len, g_array_allocs_len);
 	_Exit(1);
 }
 
@@ -673,10 +600,6 @@ static dast_int dast_array_load(const DastArray *arr, dast_int index, int sign) 
 void dast_array_push(DastArray *arr, dast_int value) {
 	if (!arr) {
 		dast_rt_panic("push expects array");
-	}
-	if (g_struct_debug && dast_struct_tracked(arr)) {
-		fprintf(stderr, "stage0: <runtime>:0:0: debug array_push on struct ptr=%p\n", (void *)arr);
-		dast_debug_backtrace();
 	}
 	dast_array_grow(arr, arr->len + 1);
 	dast_array_store(arr, arr->len, value);
@@ -822,7 +745,6 @@ static DastAllocHdr *dast_alloc_header(void *ptr) {
 }
 
 void *dast_alloc(const char *name, dast_int size, dast_int align) {
-	dast_struct_debug_init();
 	if (name && (uintptr_t)name < DAST_MIN_VALID_PTR) {
 		fprintf(stderr, "stage0: <runtime>:0:0: error invalid struct name pointer %p\n", (void *)name);
 		dast_debug_backtrace();
@@ -850,23 +772,20 @@ void *dast_alloc(const char *name, dast_int size, dast_int align) {
 	((void **)aligned)[-1] = raw;
 	void *ptr = (void *)aligned;
 	memset(ptr, 0, (size_t)size);
-	dast_track_struct(ptr);
-	if (g_struct_debug) {
-		const char *sname = name ? dast_safe_cstr(name) : "<null>";
-		fprintf(stderr,
-		        "stage0: <runtime>:0:0: debug alloc=%p name_ptr=%p name=%s size=%lld align=%lld\n",
-		        ptr,
-		        (void *)name,
-		        sname,
-		        (long long)size,
-		        (long long)align);
-	}
 	return ptr;
 }
 
 static void dast_mem_bounds_check(void *ptr, dast_int offset, dast_int size) {
 	if (!ptr) {
 		dast_rt_panic("struct access requires pointer");
+	}
+	dast_drop_debug_init();
+	if (g_drop_debug) {
+		dast_str_debug_init();
+		if (dast_ptr_in_freed(ptr)) {
+			dast_debug_backtrace();
+			dast_rt_panic("use-after-free struct");
+		}
 	}
 	DastAllocHdr *hdr = dast_alloc_header(ptr);
 	if (!hdr) {
@@ -878,14 +797,6 @@ static void dast_mem_bounds_check(void *ptr, dast_int offset, dast_int size) {
 		        "stage0: <runtime>:0:0: error struct field out of bounds off=%lld size=%lld total=%lld in %s\n",
 		        (long long)offset, (long long)size, (long long)hdr->size, sname);
 		dast_rt_panic("struct field out of bounds");
-	}
-	if (!dast_struct_is_live(ptr)) {
-		dast_debug_backtrace();
-		if (g_drop_debug) {
-			const char *sname = hdr->name ? dast_safe_cstr(hdr->name) : "<struct>";
-			fprintf(stderr, "stage0: <runtime>:0:0: error use-after-free struct %p (%s)\n", ptr, sname);
-		}
-		dast_rt_panic("use-after-free struct");
 	}
 }
 
@@ -1424,12 +1335,14 @@ void dast_free(void *ptr) {
 	if (!ptr) {
 		return;
 	}
+	dast_drop_debug_init();
+	dast_str_debug_init();
 	DastAllocHdr *hdr = dast_alloc_header(ptr);
-	if (g_drop_debug || g_struct_debug) {
+	if (g_drop_debug) {
 		const char *sname = hdr && hdr->name ? dast_safe_cstr(hdr->name) : "<struct>";
 		fprintf(stderr, "stage0: <runtime>:0:0: drop struct %p (%s)\n", ptr, sname);
 	}
-	if (!dast_untrack_struct(ptr)) {
+	if (g_drop_debug && dast_ptr_in_freed(ptr)) {
 		dast_rt_panic("struct double free");
 	}
 	if (hdr && hdr->raw) {

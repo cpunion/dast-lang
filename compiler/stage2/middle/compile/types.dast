@@ -505,9 +505,15 @@ fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
 }
 
 fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
+    let lt0 = expr_type(e, lhs)
+    let rt0 = expr_type(e, rhs)
+    if type_is_float(e, &lt0) || type_is_float(e, &rt0) {
+        println("stage2: float ops not supported")
+        exit(1)
+    }
     if op == "&&" || op == "||" {
-        let lt = expr_type(e, lhs)
-        let rt = expr_type(e, rhs)
+        let lt = lt0
+        let rt = rt0
         if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
             println("stage2: binary op", op, "requires bool operands got", lt, "and", rt)
             exit(1)
@@ -515,8 +521,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         return "bool"
     }
     if op == "==" || op == "!=" {
-        let lt = expr_type(e, lhs)
-        let rt = expr_type(e, rhs)
+        let lt = lt0
+        let rt = rt0
         if type_is_string(e, &lt) || type_is_string(e, &rt) {
             if !type_is_string(e, &lt) || !type_is_string(e, &rt) {
                 println("stage2: binary op", op, "requires both String operands got", lt, "and", rt)
@@ -552,8 +558,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         return "bool"
     }
     if op == "<" || op == ">" || op == "<=" || op == ">=" {
-        let lt = expr_type(e, lhs)
-        let rt = expr_type(e, rhs)
+        let lt = lt0
+        let rt = rt0
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
@@ -562,8 +568,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         return "bool"
     }
     if op == "+" {
-        let lt = expr_type(e, lhs)
-        let rt = expr_type(e, rhs)
+        let lt = lt0
+        let rt = rt0
         if type_is_string(e, &lt) && type_is_string(e, &rt) { return "String" }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
@@ -573,8 +579,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         return pt
     }
     if op == "-" || op == "*" || op == "/" || op == "%" || op == "&" || op == "|" || op == "^" {
-        let lt = expr_type(e, lhs)
-        let rt = expr_type(e, rhs)
+        let lt = lt0
+        let rt = rt0
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
@@ -583,8 +589,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         return pt
     }
     if op == "<<" || op == ">>" {
-        let lt = expr_type(e, lhs)
-        let rt = expr_type(e, rhs)
+        let lt = lt0
+        let rt = rt0
         let st = shift_result_type(e, lhs, rhs)
         if st == "" {
             println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lt, "and", rt)

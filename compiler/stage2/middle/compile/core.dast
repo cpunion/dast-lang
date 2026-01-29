@@ -625,6 +625,11 @@ fn type_is_bool(e: &Emitter, t: &str) -> bool {
     return type_resolve(e, t) == "bool"
 }
 
+fn type_is_float(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    return rt == "f32" || rt == "f64"
+}
+
 fn type_is_string(e: &Emitter, t: &str) -> bool {
     let rt = type_resolve(e, t)
     if type_is_ref_raw(&rt) {
@@ -825,11 +830,18 @@ fn int_peer_type(e: &Emitter, lt: &str, rt: &str) -> String {
 fn type_size(e: &Emitter, t: &str) -> i64 {
     let rt = type_resolve(e, t)
     if rt == "unit" { return 0 }
-    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
         return e.ptr_size
+    }
+    if type_is_enum(e, &rt) {
+        if enum_has_payload(e, &rt) { return e.ptr_size }
+        let tag_t = enum_tag_type(e, &rt)
+        return type_size(e, &tag_t)
     }
     if rt == "bool" { return 1 }
     if rt == "char" { return 4 }
+    if rt == "f32" { return 4 }
+    if rt == "f64" { return 8 }
     let w = type_int_width(e, &rt)
     if w > 0 { return w / 8 }
     return e.ptr_size
@@ -838,11 +850,18 @@ fn type_size(e: &Emitter, t: &str) -> i64 {
 fn type_align(e: &Emitter, t: &str) -> i64 {
     let rt = type_resolve(e, t)
     if rt == "unit" { return 1 }
-    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
         return e.ptr_align
+    }
+    if type_is_enum(e, &rt) {
+        if enum_has_payload(e, &rt) { return e.ptr_align }
+        let tag_t = enum_tag_type(e, &rt)
+        return type_align(e, &tag_t)
     }
     if rt == "bool" { return 1 }
     if rt == "char" { return 4 }
+    if rt == "f32" { return 4 }
+    if rt == "f64" { return 8 }
     let w = type_int_width(e, &rt)
     if w > 0 { return w / 8 }
     return e.ptr_align
@@ -907,10 +926,17 @@ fn qbe_type(e: &Emitter, t: &str) -> String {
 
 fn store_op_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
         return "storel"
     }
+    if type_is_enum(e, &rt) {
+        if enum_has_payload(e, &rt) { return "storel" }
+        let tag_t = enum_tag_type(e, &rt)
+        return store_op_for_type(e, &tag_t)
+    }
     if rt == "bool" { return "storeb" }
+    if rt == "f32" { return "storew" }
+    if rt == "f64" { return "storel" }
     let w = type_int_width(e, &rt)
     if w == 8 { return "storeb" }
     if w == 16 { return "storeh" }
@@ -920,10 +946,17 @@ fn store_op_for_type(e: &Emitter, t: &str) -> String {
 
 fn load_op_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
         return "load"
     }
+    if type_is_enum(e, &rt) {
+        if enum_has_payload(e, &rt) { return "load" }
+        let tag_t = enum_tag_type(e, &rt)
+        return load_op_for_type(e, &tag_t)
+    }
     if rt == "bool" { return "loadub" }
+    if rt == "f32" { return "loaduw" }
+    if rt == "f64" { return "load" }
     let w = type_int_width(e, &rt)
     if w == 8 {
         if type_is_signed_int(e, &rt) { return "loadsb" }

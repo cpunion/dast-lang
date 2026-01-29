@@ -402,6 +402,10 @@ fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str
 }
 
 fn struct_load_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_enum(e, t) && !enum_has_payload(e, t) {
+        let tag_t = enum_tag_type(e, t)
+        return struct_load_fn_for_type(e, &tag_t)
+    }
     if type_is_signed_int(e, t) { return "dast_mem_load_s" }
     return "dast_mem_load_u"
 }

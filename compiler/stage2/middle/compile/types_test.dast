@@ -132,3 +132,25 @@ fn test_literal_coercion() {
     let shl = expr_binary(string_clone("<<"), args2)
     assert_str_eq(&expr_type(&e, &shl), "u8")
 }
+
+fn test_bool_ops() {
+    let mut e = setup_emitter("bool", "bool")
+    let eq = bin_expr("==")
+    let ne = bin_expr("!=")
+    let land = bin_expr("&&")
+    let lor = bin_expr("||")
+    assert_str_eq(&expr_type(&e, &eq), "bool")
+    assert_str_eq(&expr_type(&e, &ne), "bool")
+    assert_str_eq(&expr_type(&e, &land), "bool")
+    assert_str_eq(&expr_type(&e, &lor), "bool")
+}
+
+fn test_string_ops() {
+    let mut e = setup_emitter("String", "String")
+    let add = bin_expr("+")
+    let eq = bin_expr("==")
+    let ne = bin_expr("!=")
+    assert_str_eq(&expr_type(&e, &add), "String")
+    assert_str_eq(&expr_type(&e, &eq), "bool")
+    assert_str_eq(&expr_type(&e, &ne), "bool")
+}

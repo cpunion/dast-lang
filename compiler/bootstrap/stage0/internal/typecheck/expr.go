@@ -124,50 +124,124 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 	case *ast.BinaryExpr:
 		lhs := c.checkExpr(e.Left)
 		rhs := c.checkExpr(e.Right)
+		lhsLit, lhsIsLit := e.Left.(*ast.IntLit)
+		rhsLit, rhsIsLit := e.Right.(*ast.IntLit)
+		lhsName := intTypeName(lhs)
+		rhsName := intTypeName(rhs)
+		intBinaryResult := func() (string, bool) {
+			if !isInt(lhs) || !isInt(rhs) {
+				return "", false
+			}
+			if lhsIsLit && !rhsIsLit {
+				if intValueFitsType(lhsLit.Value, rhsName) {
+					return rhsName, true
+				}
+			}
+			if rhsIsLit && !lhsIsLit {
+				if intValueFitsType(rhsLit.Value, lhsName) {
+					return lhsName, true
+				}
+			}
+			pt := intPeerTypeName(lhsName, rhsName)
+			if pt == "" {
+				return "", false
+			}
+			if lhsIsLit && !intValueFitsType(lhsLit.Value, pt) {
+				return "", false
+			}
+			if rhsIsLit && !intValueFitsType(rhsLit.Value, pt) {
+				return "", false
+			}
+			return pt, true
+		}
+		shiftResult := func() (string, bool) {
+			if !isInt(lhs) || !isInt(rhs) {
+				return "", false
+			}
+			if rhsIsLit {
+				if rhsLit.Value < 0 {
+					return "", false
+				}
+				return lhsName, true
+			}
+			if !isUnsignedIntName(rhsName) {
+				return "", false
+			}
+			return lhsName, true
+		}
 		switch e.Op {
 		case "+":
-			if isInt(lhs) && isInt(rhs) {
-				return Type{Kind: TypeInt, Name: "int"}
-			}
 			if isString(lhs) && isString(rhs) {
 				return Type{Kind: TypeString, Name: "String"}
 			}
+			if t, ok := intBinaryResult(); ok {
+				return Type{Kind: TypeInt, Name: t}
+			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "'+' requires int or String/str operands")
+				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int operands", e.Op))
 			}
 			return Type{Kind: TypeInvalid}
 		case "-", "*", "/", "%":
-			if !isInt(lhs) || !isInt(rhs) {
-				if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-					c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires int operands", e.Op))
-				}
-				return Type{Kind: TypeInvalid}
+			if t, ok := intBinaryResult(); ok {
+				return Type{Kind: TypeInt, Name: t}
 			}
-			return Type{Kind: TypeInt, Name: "int"}
-		case "&", "|", "^", "<<", ">>":
-			if !isInt(lhs) || !isInt(rhs) {
-				if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-					c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires int operands", e.Op))
-				}
-				return Type{Kind: TypeInvalid}
+			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int operands", e.Op))
 			}
-			return Type{Kind: TypeInt, Name: "int"}
+			return Type{Kind: TypeInvalid}
+		case "&", "|", "^":
+			if t, ok := intBinaryResult(); ok {
+				return Type{Kind: TypeInt, Name: t}
+			}
+			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int operands", e.Op))
+			}
+			return Type{Kind: TypeInvalid}
+		case "<<", ">>":
+			if t, ok := shiftResult(); ok {
+				return Type{Kind: TypeInt, Name: t}
+			}
+			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires int lhs and unsigned rhs", e.Op))
+			}
+			return Type{Kind: TypeInvalid}
 		case "==", "!=":
-			if !typesEqual(lhs, rhs) && !(isString(lhs) && isString(rhs)) && lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "equality operands must have same type")
-			}
-			if !isComparable(lhs) && lhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "equality only supports int/bool/String/str")
-			}
-			return Type{Kind: TypeBool, Name: "bool"}
-		case "<", "<=", ">", ">=":
-			if !isInt(lhs) || !isInt(rhs) {
-				if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-					c.diag.Add(e.Span(), "comparison requires int operands")
+			if isString(lhs) || isString(rhs) {
+				if !isString(lhs) || !isString(rhs) {
+					c.diag.Add(e.Span(), "equality requires both String/str operands")
+					return Type{Kind: TypeInvalid}
 				}
-				return Type{Kind: TypeInvalid}
+				return Type{Kind: TypeBool, Name: "bool"}
 			}
-			return Type{Kind: TypeBool, Name: "bool"}
+			if lhs.Kind == TypeEnum || rhs.Kind == TypeEnum {
+				if lhs.Kind != TypeEnum || rhs.Kind != TypeEnum || lhs.Name != rhs.Name {
+					c.diag.Add(e.Span(), "equality requires matching enum types")
+					return Type{Kind: TypeInvalid}
+				}
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
+			if isBool(lhs) || isBool(rhs) {
+				if !isBool(lhs) || !isBool(rhs) {
+					c.diag.Add(e.Span(), "equality requires both bool operands")
+					return Type{Kind: TypeInvalid}
+				}
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
+			if _, ok := intBinaryResult(); ok {
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
+			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), "equality requires compatible int operands")
+			}
+			return Type{Kind: TypeInvalid}
+		case "<", "<=", ">", ">=":
+			if _, ok := intBinaryResult(); ok {
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
+			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), "comparison requires compatible int operands")
+			}
+			return Type{Kind: TypeInvalid}
 		case "&&", "||":
 			if !isBool(lhs) || !isBool(rhs) {
 				if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {

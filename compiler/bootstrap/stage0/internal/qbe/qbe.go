@@ -11,10 +11,10 @@ import (
 )
 
 type emitter struct {
-	strIDs    map[string]int
-	strOrder  []string
-	tempID    int
-	ptrSize   int
+	strIDs   map[string]int
+	strOrder []string
+	tempID   int
+	ptrSize  int
 }
 
 func newEmitter() *emitter {
@@ -345,10 +345,10 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		}
 		funcSize := typeSize(e, p, funcType)
 		envSize := typeSize(e, p, envType)
-			lines := []string{
-				fmt.Sprintf("%%t%d =l call $dast_mem_load_u(l %s, l %d, l %d)", funcTemp, e.operandExpr(i.Closure), funcOff, funcSize),
-				fmt.Sprintf("%%t%d =l call $dast_mem_load_u(l %s, l %d, l %d)", envTemp, e.operandExpr(i.Closure), envOff, envSize),
-			}
+		lines := []string{
+			fmt.Sprintf("%%t%d =l call $dast_mem_load_u(l %s, l %d, l %d)", funcTemp, e.operandExpr(i.Closure), funcOff, funcSize),
+			fmt.Sprintf("%%t%d =l call $dast_mem_load_u(l %s, l %d, l %d)", envTemp, e.operandExpr(i.Closure), envOff, envSize),
+		}
 		args := []ir.Operand{{IsConst: false, Temp: envTemp}}
 		args = append(args, i.Args...)
 		retType := ""
@@ -446,7 +446,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if ft == "" {
 			ft = "i64"
 		}
-		getFn := structLoadFn(ft)
+		getFn := structLoadFn(p, ft)
 		retType := ft
 		rawTemp := i.Dst
 		if qbeType(retType) != "l" {
@@ -1473,14 +1473,27 @@ func typeSize(e *emitter, p *ir.Program, t string) int64 {
 	if t == "" || t == "unit" {
 		return 0
 	}
-	if isRefType(t) || isArrayType(t) || isStringType(t) || isStructType(t) || isEnumTypeName(p, t) {
+	if isRefType(t) || isArrayType(t) || isStringType(t) || isStructType(t) {
 		return int64(e.ptrSize)
+	}
+	if isEnumTypeName(p, t) {
+		if enumHasPayload(p, t) {
+			return int64(e.ptrSize)
+		}
+		tagT := enumTagType(p, t)
+		return typeSize(e, p, tagT)
 	}
 	if t == "bool" {
 		return 1
 	}
 	if t == "char" {
 		return 4
+	}
+	if t == "f32" {
+		return 4
+	}
+	if t == "f64" {
+		return 8
 	}
 	if w := typeIntWidth(t, e.ptrSize); w > 0 {
 		return w / 8
@@ -1493,14 +1506,27 @@ func typeAlign(e *emitter, p *ir.Program, t string) int64 {
 	if t == "" || t == "unit" {
 		return 1
 	}
-	if isRefType(t) || isArrayType(t) || isStringType(t) || isStructType(t) || isEnumTypeName(p, t) {
+	if isRefType(t) || isArrayType(t) || isStringType(t) || isStructType(t) {
 		return int64(e.ptrSize)
+	}
+	if isEnumTypeName(p, t) {
+		if enumHasPayload(p, t) {
+			return int64(e.ptrSize)
+		}
+		tagT := enumTagType(p, t)
+		return typeAlign(e, p, tagT)
 	}
 	if t == "bool" {
 		return 1
 	}
 	if t == "char" {
 		return 4
+	}
+	if t == "f32" {
+		return 4
+	}
+	if t == "f64" {
+		return 8
 	}
 	if w := typeIntWidth(t, e.ptrSize); w > 0 {
 		return w / 8
@@ -1608,6 +1634,20 @@ func enumTagType(p *ir.Program, enumName string) string {
 		}
 	}
 	return "i32"
+}
+
+func enumHasPayload(p *ir.Program, enumName string) bool {
+	for _, e := range p.Enums {
+		if e.Name != enumName {
+			continue
+		}
+		for _, v := range e.Variants {
+			if v.PayloadType != "" && v.PayloadType != "unit" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func enumPayloadSize(e *emitter, p *ir.Program, enumName string) int64 {
@@ -1900,8 +1940,13 @@ func fieldType(p *ir.Program, ti *typeInfo, structType string, field string) str
 	return ""
 }
 
-func structLoadFn(t string) string {
-	if isSignedIntType(normalizeType(t)) {
+func structLoadFn(p *ir.Program, t string) string {
+	t = normalizeType(t)
+	if isEnumTypeName(p, t) && !enumHasPayload(p, t) {
+		tagT := enumTagType(p, t)
+		return structLoadFn(p, tagT)
+	}
+	if isSignedIntType(t) {
 		return "dast_mem_load_s"
 	}
 	return "dast_mem_load_u"
