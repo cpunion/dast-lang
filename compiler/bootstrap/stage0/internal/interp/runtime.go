@@ -158,6 +158,7 @@ func New(prog *ir.Program) *Runtime {
 		"write_file":    rt.builtinWriteFile(),
 		"mkdir":         rt.builtinMkdir(),
 		"args":          rt.builtinArgs(),
+		"getenv":        rt.builtinGetenv(),
 		"char_at":       rt.builtinCharAt(),
 		"substr":        rt.builtinSubstr(),
 		"pop":           rt.builtinPop(),

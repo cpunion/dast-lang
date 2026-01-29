@@ -194,8 +194,10 @@ fn emit_var_allocs(e: &Emitter) -> String {
     while i < len(&e.var_names) {
         let name = &e.var_names[i]
         let typ = &e.var_types[i]
-        let alloc = if type_is_bool(e, typ) { "alloc4 4" } else { "alloc8 8" }
-        out = out + "  %" + var_slot(name) + " =l " + alloc + "\n"
+        let size = type_size(e, typ)
+        let align = type_align(e, typ)
+        let alloc = if align > 4 { "alloc8" } else { "alloc4" }
+        out = out + "  %" + var_slot(name) + " =l " + alloc + " " + int_to_string(size) + "\n"
         i = i + 1
     }
     return out

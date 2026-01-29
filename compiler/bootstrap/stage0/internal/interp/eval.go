@@ -462,6 +462,27 @@ func (rt *Runtime) builtinArgs() Builtin {
 	}
 }
 
+func (rt *Runtime) builtinGetenv() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 1 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("getenv expects 1 argument")
+		}
+		nameVal := args[0]
+		if nameVal.Kind == ir.KindRef {
+			val, err := rt.deref(nameVal)
+			if err != nil {
+				return ir.Value{Kind: ir.KindUnit}, err
+			}
+			nameVal = val
+		}
+		if nameVal.Kind != ir.KindString {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("getenv expects String/str")
+		}
+		val := os.Getenv(nameVal.Str)
+		return ir.Value{Kind: ir.KindString, Str: val}, nil
+	}
+}
+
 func (rt *Runtime) builtinReadLine() Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		if len(args) != 0 {

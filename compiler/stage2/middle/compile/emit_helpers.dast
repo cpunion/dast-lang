@@ -130,27 +130,24 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
         exit(1)
     }
     let tag_t = enum_tag_type(e, enum_name)
-    let tag_q = qbe_type(e, &tag_t)
-    let tag_fn = struct_set_fn_for_type(e, &tag_t)
+    let tag_size = type_size(e, &tag_t)
     let tag_expr = cast_to_type(e, qbe_value("i64", int_to_string(tag)), &tag_t)
     if enum_has_payload(e, enum_name) {
         let name_ptr = string_data_ptr(e, enum_name)
-        let tag_field = "_tag"
-        let payload_field = "_payload"
-        let tag_ptr = string_data_ptr(e, &tag_field)
-        let payload_ptr = string_data_ptr(e, &payload_field)
         let payload_t = enum_variant_payload_type(e, enum_name, variant)
-        let payload_fn = struct_set_fn_for_type(e, &payload_t)
-        let payload_q = qbe_type(e, &payload_t)
+        let payload_size = type_size(e, &payload_t)
+        let payload_off = enum_payload_offset(e, enum_name)
+        let size = enum_layout_size(e, enum_name)
+        let align = enum_layout_align(e, enum_name)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l 2)")
-        emit_line(e, "  call $" + tag_fn + "(l " + tn + ", l " + tag_ptr + ", " + tag_q + " " + tag_expr + ")")
+        emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l " + int_to_string(size) + ", l " + int_to_string(align) + ")")
+        emit_line(e, "  call $dast_struct_store(l " + tn + ", l 0, l " + int_to_string(tag_size) + ", l " + cast_to_l(e, qbe_value(tag_t, tag_expr)) + ")")
         let mut payload_expr = "0"
         if enum_variant_has_payload(e, enum_name, variant) && has_payload_arg {
             payload_expr = cast_to_type(e, payload, &payload_t)
         }
-        emit_line(e, "  call $" + payload_fn + "(l " + tn + ", l " + payload_ptr + ", " + payload_q + " " + payload_expr + ")")
+        emit_line(e, "  call $dast_struct_store(l " + tn + ", l " + int_to_string(payload_off) + ", l " + int_to_string(payload_size) + ", l " + cast_to_l(e, qbe_value(payload_t, payload_expr)) + ")")
         return qbe_value(string_clone(enum_name), tn)
     }
     return qbe_value(string_clone(enum_name), tag_expr)
@@ -159,13 +156,11 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
 fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue {
     let tag_t = enum_tag_type(e, enum_t)
     if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
-        let tag_field = "_tag"
-        let tag_ptr = string_data_ptr(e, &tag_field)
-        let tag_fn = struct_get_fn_for_type(e, &tag_t)
-        let tag_q = qbe_type(e, &tag_t)
+        let tag_size = type_size(e, &tag_t)
+        let tag_fn = struct_load_fn_for_type(e, &tag_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =" + tag_q + " call $" + tag_fn + "(l " + v.expr + ", l " + tag_ptr + ")")
+        emit_line(e, "  " + tn + " =l call $" + tag_fn + "(l " + v.expr + ", l 0, l " + int_to_string(tag_size) + ")")
         return qbe_value(string_clone(&tag_t), tn)
     }
     let casted = cast_to_type(e, qbe_value("i64", v.expr), &tag_t)
@@ -175,13 +170,12 @@ fn enum_tag_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str) -> QbeValue 
 fn enum_payload_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str, variant: &str) -> QbeValue {
     let payload_t = enum_variant_payload_type(e, enum_t, variant)
     if type_is_enum(e, enum_t) && enum_has_payload(e, enum_t) {
-        let payload_field = "_payload"
-        let payload_ptr = string_data_ptr(e, &payload_field)
-        let payload_fn = struct_get_fn_for_type(e, &payload_t)
-        let payload_q = qbe_type(e, &payload_t)
+        let payload_off = enum_payload_offset(e, enum_t)
+        let payload_size = type_size(e, &payload_t)
+        let payload_fn = struct_load_fn_for_type(e, &payload_t)
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        emit_line(e, "  " + tn + " =" + payload_q + " call $" + payload_fn + "(l " + v.expr + ", l " + payload_ptr + ")")
+        emit_line(e, "  " + tn + " =l call $" + payload_fn + "(l " + v.expr + ", l " + int_to_string(payload_off) + ", l " + int_to_string(payload_size) + ")")
         return qbe_value(payload_t, tn)
     }
     return qbe_value(payload_t, "0")
@@ -331,12 +325,12 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
                 println("stage2: unknown struct field", f.name)
                 exit(1)
             }
-            let fname_ptr = string_data_ptr(e, &f.name)
-            let get_fn = struct_get_fn_for_type(e, &ftyp)
-            let q = qbe_type(e, &ftyp)
+            let off = struct_field_offset(e, &st_name, &f.name)
+            let size = type_size(e, &ftyp)
+            let get_fn = struct_load_fn_for_type(e, &ftyp)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + val.expr + ", l " + fname_ptr + ")")
+            emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + val.expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ")")
             let field_val = qbe_value(string_clone(&ftyp), tn)
             emit_pattern_check(e, &f.pattern, &field_val, &ftyp, next_label)
             fi = fi + 1
@@ -388,12 +382,12 @@ fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str
                 println("stage2: unknown struct field", f.name)
                 exit(1)
             }
-            let fname_ptr = string_data_ptr(e, &f.name)
-            let get_fn = struct_get_fn_for_type(e, &ftyp)
-            let q = qbe_type(e, &ftyp)
+            let off = struct_field_offset(e, &st_name, &f.name)
+            let size = type_size(e, &ftyp)
+            let get_fn = struct_load_fn_for_type(e, &ftyp)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + val.expr + ", l " + fname_ptr + ")")
+            emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + val.expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ")")
             let field_val = qbe_value(string_clone(&ftyp), tn)
             emit_pattern_bind(e, &f.pattern, &field_val, &ftyp)
             fi = fi + 1
@@ -402,24 +396,14 @@ fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str
     }
 }
 
-fn struct_set_fn_for_type(e: &Emitter, t: &str) -> String {
-    if type_is_bool(e, t) { return "dast_struct_set_bool" }
-    if type_is_string(e, t) { return "dast_struct_set_string" }
-    if type_is_i32(e, t) { return "dast_struct_set_i32" }
-    if type_is_int(e, t) { return "dast_struct_set_i64" }
-    if type_is_enum(e, t) { return "dast_struct_set_i64" }
-    if type_is_struct(e, t) { return "dast_struct_set_ptr" }
-    return "dast_struct_set_ptr"
+fn struct_load_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_signed_int(e, t) { return "dast_struct_load_s" }
+    return "dast_struct_load_u"
 }
 
-fn struct_get_fn_for_type(e: &Emitter, t: &str) -> String {
-    if type_is_bool(e, t) { return "dast_struct_get_bool" }
-    if type_is_string(e, t) { return "dast_struct_get_string" }
-    if type_is_i32(e, t) { return "dast_struct_get_i32" }
-    if type_is_int(e, t) { return "dast_struct_get_i64" }
-    if type_is_enum(e, t) { return "dast_struct_get_i64" }
-    if type_is_struct(e, t) { return "dast_struct_get_ptr" }
-    return "dast_struct_get_ptr"
+fn array_get_fn_for_type(e: &Emitter, t: &str) -> String {
+    if type_is_signed_int(e, t) { return "dast_array_get_s" }
+    return "dast_array_get_u"
 }
 
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {

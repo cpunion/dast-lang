@@ -500,7 +500,11 @@ func (c *Compiler) compileRefTarget(expr ast.Expr, mutable bool) int {
 		base := c.compileRefTarget(e.Receiver, mutable)
 		c.setTempBorrowed(base, true)
 		dst := c.newTemp()
-		c.setTempType(dst, "*i64")
+		ft := c.inferExprType(expr)
+		if ft == "" {
+			ft = "i64"
+		}
+		c.setTempType(dst, "*"+ft)
 		c.emit(&ir.FieldAddr{Dst: dst, Src: base, Field: e.Field})
 		return dst
 	case *ast.IndexExpr:
@@ -518,7 +522,15 @@ func (c *Compiler) compileRefTarget(expr ast.Expr, mutable bool) int {
 		c.setTempBorrowed(base, true)
 		index := c.compileOperandBorrow(e.Index)
 		dst := c.newTemp()
-		c.setTempType(dst, "*i64")
+		elemType := ""
+		recvType := derefTypeName(c.inferExprType(e.Receiver))
+		if isArrayTypeName(recvType) {
+			elemType = arrayElemTypeName(recvType)
+		}
+		if elemType == "" {
+			elemType = "i64"
+		}
+		c.setTempType(dst, "*"+elemType)
 		c.emit(&ir.IndexAddr{Dst: dst, Base: base, Index: index})
 		return dst
 	case *ast.DerefExpr:

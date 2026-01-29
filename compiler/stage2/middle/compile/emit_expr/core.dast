@@ -77,7 +77,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let v = emit_expr(e, inner)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =l alloc8 8")
+            let size = type_size(e, &base_t)
+            let align = type_align(e, &base_t)
+            let alloc = if align > 4 { "alloc8" } else { "alloc4" }
+            emit_line(e, "  " + tn + " =l " + alloc + " " + int_to_string(size))
             let casted = cast_to_type(e, v, &base_t)
             let op = store_op_for_type(e, &base_t)
             emit_line(e, "  " + op + " " + casted + ", " + tn)
@@ -100,15 +103,19 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_ARRAY => {
             let arr_t = expr_type(e, expr)
+            let elem_t = type_array_elem(e, &arr_t)
+            let elem_size = type_size(e, &elem_t)
+            let elem_align = type_align(e, &elem_t)
             let cap = len(&expr.args)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =l call $dast_array_new(l " + int_to_string(cap) + ")")
+            emit_line(e, "  " + tn + " =l call $dast_array_new(l " + int_to_string(elem_size) + ", l " + int_to_string(elem_align) + ", l " + int_to_string(cap) + ")")
             let mut i = 0
             while i < len(&expr.args) {
                 let v = emit_expr(e, expr_arg_ref(expr, i, "emit_array_elem"))
-                let casted = cast_to_l(e, v)
-                emit_line(e, "  call $dast_array_push(l " + tn + ", l " + casted + ")")
+                let casted = cast_to_type(e, v, &elem_t)
+                let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
+                emit_line(e, "  call $dast_array_push(l " + tn + ", l " + as_l + ")")
                 i = i + 1
             }
             return qbe_value(arr_t, tn)
@@ -118,11 +125,12 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let recv = emit_expr(e, expr_arg_ref(expr, 0, "emit_index_recv"))
             let idxv = emit_expr(e, expr_arg_ref(expr, 1, "emit_index_idx"))
             let idx = cast_to_l(e, idxv)
+            let elem_t = expr_type(e, expr)
+            let get_fn = array_get_fn_for_type(e, &elem_t)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =l call $dast_array_get(l " + recv.expr + ", l " + idx + ")")
-            let t = expr_type(e, expr)
-            return qbe_value(t, tn)
+            emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + recv.expr + ", l " + idx + ")")
+            return qbe_value(elem_t, tn)
         }
         EXPR_STRUCT_LIT => {
             let st_name = string_clone(&expr.name)
@@ -131,10 +139,11 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 exit(1)
             }
             let name_ptr = string_data_ptr(e, &st_name)
-            let field_count = struct_field_count(e, &st_name)
+            let size = struct_layout_size(e, &st_name)
+            let align = struct_layout_align(e, &st_name)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l " + int_to_string(field_count) + ")")
+            emit_line(e, "  " + tn + " =l call $dast_struct_new(l " + name_ptr + ", l " + int_to_string(size) + ", l " + int_to_string(align) + ")")
             let mut i = 0
             while i < len(&expr.fields) {
                 let f = &expr.fields[i]
@@ -146,10 +155,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 }
                 let v = emit_expr(e, &f.value)
                 let casted = cast_to_type(e, v, &ftyp)
-                let fname_ptr = string_data_ptr(e, &fname)
-                let set_fn = struct_set_fn_for_type(e, &ftyp)
-                let q = qbe_type(e, &ftyp)
-                emit_line(e, "  call $" + set_fn + "(l " + tn + ", l " + fname_ptr + ", " + q + " " + casted + ")")
+                let off = struct_field_offset(e, &st_name, &fname)
+                let size = type_size(e, &ftyp)
+                let as_l = cast_to_l(e, qbe_value(string_clone(&ftyp), casted))
+                emit_line(e, "  call $dast_struct_store(l " + tn + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
                 i = i + 1
             }
             return qbe_value(st_name, tn)
@@ -195,12 +204,12 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 println("stage2: unknown field", fname, "in", recv_base)
                 exit(1)
             }
-            let fname_ptr = string_data_ptr(e, &fname)
-            let get_fn = struct_get_fn_for_type(e, &ftyp)
-            let q = qbe_type(e, &ftyp)
+            let off = struct_field_offset(e, &recv_base, &fname)
+            let size = type_size(e, &ftyp)
+            let get_fn = struct_load_fn_for_type(e, &ftyp)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =" + q + " call $" + get_fn + "(l " + recv_expr + ", l " + fname_ptr + ")")
+            emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + recv_expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ")")
             return qbe_value(ftyp, tn)
         }
         EXPR_UNARY => { return emit_unary_expr(e, expr) }
@@ -343,7 +352,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             if expr.name == "getenv" {
                 if len(&expr.args) < 1 { return qbe_value("String", "0") }
                 let v = emit_expr(e, expr_arg_ref(expr, 0, "emit_getenv_arg"))
-                let arg = cast_to_type(e, v, "&str")
+                let target = "&str"
+                let arg = cast_to_type(e, v, &target)
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
                 emit_line(e, "  " + tn + " =l call $dast_getenv(l " + arg + ")")

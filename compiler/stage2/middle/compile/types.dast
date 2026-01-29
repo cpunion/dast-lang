@@ -628,7 +628,7 @@ fn escape_qbe_string(s: &str) -> String {
 fn expr_type(e: &Emitter, expr: &Expr) -> String {
     match expr.kind {
         EXPR_INT => { return "i64" }
-        EXPR_CHAR => { return "i64" }
+        EXPR_CHAR => { return "char" }
         EXPR_BOOL => { return "bool" }
         EXPR_STRING => { return "String" }
         EXPR_IDENT => {

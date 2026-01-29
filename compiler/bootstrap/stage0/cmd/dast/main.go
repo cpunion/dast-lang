@@ -520,10 +520,18 @@ func cTypeForIRType(t string) string {
 		return "int8_t"
 	case "i16":
 		return "int16_t"
-	case "i32", "u32", "char":
+	case "u8":
+		return "uint8_t"
+	case "u16":
+		return "uint16_t"
+	case "i32", "char":
 		return "int32_t"
+	case "u32":
+		return "uint32_t"
 	case "i64", "int", "isize", "usize":
 		return "int64_t"
+	case "u64":
+		return "uint64_t"
 	default:
 		return "int64_t"
 	}

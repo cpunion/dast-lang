@@ -90,10 +90,10 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         }
         let v = emit_expr(e, expr)
         let casted = cast_to_type(e, v, &ftyp)
-        let fname_ptr = string_data_ptr(e, &fname)
-        let set_fn = struct_set_fn_for_type(e, &ftyp)
-        let q = qbe_type(e, &ftyp)
-        emit_line(e, "  call $" + set_fn + "(l " + recv_expr + ", l " + fname_ptr + ", " + q + " " + casted + ")")
+        let off = struct_field_offset(e, &recv_base, &fname)
+        let size = type_size(e, &ftyp)
+        let as_l = cast_to_l(e, qbe_value(string_clone(&ftyp), casted))
+        emit_line(e, "  call $dast_struct_store(l " + recv_expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
         return
     }
     if lhs.kind == EXPR_INDEX {
@@ -113,7 +113,8 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let elem_t = expr_type(e, lhs)
         let v = emit_expr(e, expr)
         let casted = cast_to_type(e, v, &elem_t)
-        emit_line(e, "  call $dast_array_set(l " + recv.expr + ", l " + idx + ", l " + casted + ")")
+        let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
+        emit_line(e, "  call $dast_array_set(l " + recv.expr + ", l " + idx + ", l " + as_l + ")")
         return
     }
     if lhs.kind == EXPR_DEREF && len(&lhs.args) > 0 {

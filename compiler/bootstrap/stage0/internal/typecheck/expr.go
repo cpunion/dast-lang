@@ -379,6 +379,16 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				elem := Type{Kind: TypeString, Name: "String"}
 				return Type{Kind: TypeArray, Elem: &elem}
+			case "getenv":
+				if len(e.Args) != 1 {
+					c.diag.Add(e.Span(), "getenv expects 1 argument")
+					return Type{Kind: TypeString, Name: "String"}
+				}
+				argType := c.checkExpr(e.Args[0])
+				if !isString(argType) && argType.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "getenv expects String/str")
+				}
+				return Type{Kind: TypeString, Name: "String"}
 			case "read_line":
 				if len(e.Args) != 0 {
 					c.diag.Add(e.Span(), "read_line expects no arguments")

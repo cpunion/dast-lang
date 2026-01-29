@@ -96,6 +96,7 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 	c.funcRetTypes["write_file"] = "unit"
 	c.funcRetTypes["mkdir"] = "unit"
 	c.funcRetTypes["args"] = "[String]"
+	c.funcRetTypes["getenv"] = "String"
 	c.funcRetTypes["print"] = "unit"
 	c.funcRetTypes["println"] = "unit"
 	c.funcRetTypes["exit"] = "unit"
@@ -363,7 +364,7 @@ func (c *Compiler) callArgConsumes(callee string, index int) bool {
 		return index == 1
 	case "string_free", "array_free", "struct_free":
 		return true
-	case "print", "println", "eprint", "eprintln", "len", "char_at", "substr", "string_clone", "read_file", "read_dir", "write_file", "mkdir", "args", "read_line", "read_bytes", "exec", "ast_expr", "ast_stmt", "ast_item", "ast_block", "ast_to_string", "gensym", "bind", "parse_int", "string_to_int", "has_prefix", "int_to_string", "pop", "exit":
+	case "print", "println", "eprint", "eprintln", "len", "char_at", "substr", "string_clone", "read_file", "read_dir", "write_file", "mkdir", "args", "getenv", "read_line", "read_bytes", "exec", "ast_expr", "ast_stmt", "ast_item", "ast_block", "ast_to_string", "gensym", "bind", "parse_int", "string_to_int", "has_prefix", "int_to_string", "pop", "exit":
 		return false
 	}
 	if params, ok := c.funcParamTypes[callee]; ok {

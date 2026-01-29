@@ -25,17 +25,17 @@ typedef struct DastString {
 typedef struct DastArray {
 	dast_int len;
 	dast_int cap;
-	dast_int *data;
+	unsigned char *data;
+	dast_int elem_size;
+	dast_int elem_align;
 	dast_int debug_id;
 } DastArray;
 
 typedef struct DastStruct {
 	const char *name;
-	dast_int field_expected;
-	dast_int field_len;
-	dast_int field_cap;
-	const char **field_names;
-	dast_int *field_values;
+	dast_int size;
+	dast_int align;
+	unsigned char *data;
 } DastStruct;
 
 // Per-allocation header so we can account malloc/realloc/free totals safely.
@@ -589,20 +589,28 @@ void dast_set_args(int argc, char **argv) {
 	g_argv = argv;
 }
 
-DastArray *dast_array_new(dast_int cap) {
+DastArray *dast_array_new(dast_int elem_size, dast_int elem_align, dast_int cap) {
 	if (cap < 0) {
 		cap = 0;
+	}
+	if (elem_size <= 0) {
+		elem_size = 1;
+	}
+	if (elem_align <= 0) {
+		elem_align = 1;
 	}
 	dast_array_debug_init();
 	DastArray *arr = (DastArray *)dast_xmalloc(sizeof(DastArray));
 	dast_track_array(arr);
 	arr->len = 0;
 	arr->cap = cap > 0 ? cap : 4;
-	arr->data = (dast_int *)dast_xmalloc(sizeof(dast_int) * (size_t)arr->cap);
+	arr->elem_size = elem_size;
+	arr->elem_align = elem_align;
+	arr->data = (unsigned char *)dast_xmalloc((size_t)arr->cap * (size_t)arr->elem_size);
 	arr->debug_id = g_next_array_id++;
 	if (dast_array_debug_match(arr)) {
-		fprintf(stderr, "stage0: <runtime>:0:0: array new id=%lld arr=%p cap=%lld\n",
-		        (long long)arr->debug_id, (void *)arr, (long long)arr->cap);
+		fprintf(stderr, "stage0: <runtime>:0:0: array new id=%lld arr=%p cap=%lld elem=%lld\n",
+		        (long long)arr->debug_id, (void *)arr, (long long)arr->cap, (long long)arr->elem_size);
 		if (g_array_bt) {
 			dast_debug_backtrace();
 		}
@@ -621,7 +629,7 @@ static void dast_array_grow(DastArray *arr, dast_int need) {
 	}
 	dast_alloc_debug_init();
 	if (g_alloc_warn_bytes > 0) {
-		size_t bytes = sizeof(dast_int) * (size_t)cap;
+		size_t bytes = (size_t)arr->elem_size * (size_t)cap;
 		if (bytes >= g_alloc_warn_bytes) {
 			fprintf(stderr,
 				"stage0: <runtime>:0:0: warn array grow id=%lld arr=%p need=%lld cap=%lld bytes=%zu\n",
@@ -632,12 +640,34 @@ static void dast_array_grow(DastArray *arr, dast_int need) {
 		}
 	}
 	arr->cap = cap;
-	arr->data = (dast_int *)dast_xrealloc(arr->data, sizeof(dast_int) * (size_t)arr->cap);
+	arr->data = (unsigned char *)dast_xrealloc(arr->data, (size_t)arr->cap * (size_t)arr->elem_size);
 	if (dast_array_debug_match(arr)) {
 		fprintf(stderr,
 		        "stage0: <runtime>:0:0: array grow id=%lld arr=%p cap=%lld need=%lld\n",
 		        (long long)arr->debug_id, (void *)arr, (long long)arr->cap, (long long)need);
 	}
+}
+
+static void dast_array_store(DastArray *arr, dast_int index, dast_int value) {
+	if (arr->elem_size > 8) {
+		dast_rt_panic("array element size too large");
+	}
+	unsigned char *dst = arr->data + (size_t)index * (size_t)arr->elem_size;
+	memcpy(dst, &value, (size_t)arr->elem_size);
+}
+
+static dast_int dast_array_load(const DastArray *arr, dast_int index, int sign) {
+	if (arr->elem_size > 8) {
+		dast_rt_panic("array element size too large");
+	}
+	unsigned char *src = arr->data + (size_t)index * (size_t)arr->elem_size;
+	uint64_t tmp = 0;
+	memcpy(&tmp, src, (size_t)arr->elem_size);
+	if (sign && arr->elem_size < 8) {
+		int shift = (int)((8 - arr->elem_size) * 8);
+		return (dast_int)((int64_t)(tmp << shift) >> shift);
+	}
+	return (dast_int)tmp;
 }
 
 void dast_array_push(DastArray *arr, dast_int value) {
@@ -649,7 +679,8 @@ void dast_array_push(DastArray *arr, dast_int value) {
 		dast_debug_backtrace();
 	}
 	dast_array_grow(arr, arr->len + 1);
-	arr->data[arr->len++] = value;
+	dast_array_store(arr, arr->len, value);
+	arr->len++;
 	if (dast_array_debug_match(arr)) {
 		fprintf(stderr,
 		        "stage0: <runtime>:0:0: array push id=%lld len=%lld cap=%lld\n",
@@ -660,7 +691,7 @@ void dast_array_push(DastArray *arr, dast_int value) {
 	}
 }
 
-dast_int dast_array_get(DastArray *arr, dast_int index) {
+dast_int dast_array_get_s(DastArray *arr, dast_int index) {
 	if (!arr) {
 		dast_rt_panic("indexing requires array");
 	}
@@ -678,14 +709,42 @@ dast_int dast_array_get(DastArray *arr, dast_int index) {
 		        (long long)index, (long long)arr->len, (long long)arr->debug_id);
 		dast_rt_panic("index out of bounds");
 	}
-	return arr->data[index];
+	return dast_array_load(arr, index, 1);
 }
 
-dast_int dast_array_get_unchecked(DastArray *arr, dast_int index) {
+dast_int dast_array_get_u(DastArray *arr, dast_int index) {
 	if (!arr) {
 		dast_rt_panic("indexing requires array");
 	}
-	return arr->data[index];
+	if (dast_array_debug_match(arr)) {
+		fprintf(stderr,
+		        "stage0: <runtime>:0:0: array get id=%lld index=%lld len=%lld\n",
+		        (long long)arr->debug_id, (long long)index, (long long)arr->len);
+		if (g_array_bt) {
+			dast_debug_backtrace();
+		}
+	}
+	if (index < 0 || index >= arr->len) {
+		fprintf(stderr,
+		        "stage0: <runtime>:0:0: error index %lld out of bounds len=%lld id=%lld\n",
+		        (long long)index, (long long)arr->len, (long long)arr->debug_id);
+		dast_rt_panic("index out of bounds");
+	}
+	return dast_array_load(arr, index, 0);
+}
+
+dast_int dast_array_get_s_unchecked(DastArray *arr, dast_int index) {
+	if (!arr) {
+		dast_rt_panic("indexing requires array");
+	}
+	return dast_array_load(arr, index, 1);
+}
+
+dast_int dast_array_get_u_unchecked(DastArray *arr, dast_int index) {
+	if (!arr) {
+		dast_rt_panic("indexing requires array");
+	}
+	return dast_array_load(arr, index, 0);
 }
 
 void dast_array_set(DastArray *arr, dast_int index, dast_int value) {
@@ -706,17 +765,17 @@ void dast_array_set(DastArray *arr, dast_int index, dast_int value) {
 		        (long long)index, (long long)arr->len, (long long)arr->debug_id);
 		dast_rt_panic("index out of bounds");
 	}
-	arr->data[index] = value;
+	dast_array_store(arr, index, value);
 }
 
 void dast_array_set_unchecked(DastArray *arr, dast_int index, dast_int value) {
 	if (!arr) {
 		dast_rt_panic("index assignment requires array");
 	}
-	arr->data[index] = value;
+	dast_array_store(arr, index, value);
 }
 
-dast_int *dast_array_index_addr(DastArray *arr, dast_int index) {
+void *dast_array_index_addr(DastArray *arr, dast_int index) {
 	if (!arr) {
 		dast_rt_panic("indexing requires array");
 	}
@@ -734,7 +793,7 @@ dast_int *dast_array_index_addr(DastArray *arr, dast_int index) {
 		        (long long)index, (long long)arr->len, (long long)arr->debug_id);
 		dast_rt_panic("index out of bounds");
 	}
-	return &arr->data[index];
+	return arr->data + (size_t)index * (size_t)arr->elem_size;
 }
 
 dast_int dast_array_len(DastArray *arr) {
@@ -751,47 +810,7 @@ dast_int dast_array_len(DastArray *arr) {
 	return arr->len;
 }
 
-static dast_int dast_struct_index(DastStruct *st, const char *field) {
-	dast_str_debug_init();
-	if (!dast_struct_is_live(st)) {
-		dast_debug_backtrace();
-		if (g_drop_debug) {
-			const char *sname = st && st->name ? dast_safe_cstr(st->name) : "<struct>";
-			fprintf(stderr, "stage0: <runtime>:0:0: error use-after-free struct %p (%s)\n", (void *)st, sname);
-		}
-		dast_rt_panic("use-after-free struct");
-	}
-	if (!field) {
-		const char *sname = st && st->name ? dast_safe_cstr(st->name) : "<struct>";
-		fprintf(stderr, "stage0: <runtime>:0:0: error null field name in %s\n", sname);
-		dast_rt_panic("null field name");
-	}
-	uintptr_t fptr = (uintptr_t)field;
-	if (fptr < DAST_MIN_VALID_PTR) {
-		const char *sname = st && st->name ? dast_safe_cstr(st->name) : "<struct>";
-		fprintf(stderr,
-		        "stage0: <runtime>:0:0: error invalid field pointer %p in %s\n",
-		        (void *)field, sname);
-		dast_debug_backtrace();
-		dast_rt_panic("invalid field pointer");
-	}
-	if (g_str_debug && fptr >= DAST_MIN_VALID_PTR && field[0] == '_') {
-		const char *sname = st && st->name ? dast_safe_cstr(st->name) : "<struct>";
-		fprintf(stderr, "stage0: <runtime>:0:0: debug struct %p (%s) field=%s len=%lld\n", (void *)st, sname, field,
-		        (long long)st->field_len);
-	}
-	for (dast_int i = 0; i < st->field_len; i++) {
-		if (!st->field_names[i]) {
-			continue;
-		}
-		if (strcmp(st->field_names[i], field) == 0) {
-			return i;
-		}
-	}
-	return -1;
-}
-
-DastStruct *dast_struct_new(const char *name, dast_int field_count) {
+DastStruct *dast_struct_new(const char *name, dast_int size, dast_int align) {
 	dast_struct_debug_init();
 	DastStruct *st = (DastStruct *)dast_xmalloc(sizeof(DastStruct));
 	dast_track_struct(st);
@@ -801,158 +820,95 @@ DastStruct *dast_struct_new(const char *name, dast_int field_count) {
 		dast_debug_backtrace();
 		dast_rt_panic("invalid struct name");
 	}
-	st->field_expected = field_count;
-	st->field_len = 0;
-	st->field_cap = field_count > 0 ? field_count : 4;
-	st->field_names = (const char **)dast_xmalloc(sizeof(char *) * (size_t)st->field_cap);
-	st->field_values = (dast_int *)dast_xmalloc(sizeof(dast_int) * (size_t)st->field_cap);
+	if (size < 0) {
+		size = 0;
+	}
+	if (align <= 0) {
+		align = 1;
+	}
+	st->size = size;
+	st->align = align;
+	size_t align_u = (size_t)align;
+	if (align_u < sizeof(void *)) {
+		align_u = sizeof(void *);
+	}
+	size_t total = (size_t)size + align_u + sizeof(void *);
+	void *raw = dast_xmalloc(total);
+	uintptr_t base = (uintptr_t)raw + sizeof(void *);
+	uintptr_t aligned = (base + (align_u - 1)) & ~(uintptr_t)(align_u - 1);
+	((void **)aligned)[-1] = raw;
+	st->data = (unsigned char *)aligned;
+	memset(st->data, 0, (size_t)size);
 	if (g_struct_debug) {
 		const char *sname = name ? dast_safe_cstr(name) : "<null>";
 		fprintf(stderr,
-		        "stage0: <runtime>:0:0: debug struct_new=%p name_ptr=%p name=%s fields=%lld\n",
+		        "stage0: <runtime>:0:0: debug struct_new=%p name_ptr=%p name=%s size=%lld align=%lld\n",
 		        (void *)st,
 		        (void *)name,
 		        sname,
-		        (long long)field_count);
+		        (long long)size,
+		        (long long)align);
 	}
 	return st;
 }
 
-static void dast_struct_set_value(DastStruct *st, const char *field, dast_int value) {
-	if (!st) {
-		dast_rt_panic("field assignment requires struct");
+static void dast_struct_bounds_check(DastStruct *st, dast_int offset, dast_int size) {
+	if (!st || !st->data) {
+		dast_rt_panic("struct access requires struct");
 	}
-	uintptr_t fptr = (uintptr_t)field;
-	if (g_struct_debug) {
+	if (offset < 0 || size < 0 || offset + size > st->size) {
 		const char *sname = st->name ? dast_safe_cstr(st->name) : "<struct>";
-		const char *fname = field ? dast_safe_cstr(field) : "<null>";
-		fprintf(stderr, "stage0: <runtime>:0:0: debug set %p (%s) field=%s val=%lld len=%lld\n",
-		        (void *)st, sname, fname, (long long)value, (long long)st->field_len);
-	} else if (g_str_debug && field && fptr >= DAST_MIN_VALID_PTR && field[0] == '_') {
-		const char *sname = st->name ? dast_safe_cstr(st->name) : "<struct>";
-		const char *fname = dast_safe_cstr(field);
-		fprintf(stderr, "stage0: <runtime>:0:0: debug set %p (%s) field=%s val=%lld len=%lld\n", (void *)st, sname,
-		        fname, (long long)value, (long long)st->field_len);
+		fprintf(stderr,
+		        "stage0: <runtime>:0:0: error struct field out of bounds off=%lld size=%lld total=%lld in %s\n",
+		        (long long)offset, (long long)size, (long long)st->size, sname);
+		dast_rt_panic("struct field out of bounds");
 	}
-	dast_int idx = dast_struct_index(st, field);
-	if (idx >= 0) {
-		st->field_values[idx] = value;
-		return;
-	}
-	if (st->field_expected > 0 && st->field_len >= st->field_expected) {
-		/* Allow growth for unnamed structs (legacy dynamic usage). */
-		const char *sname_safe = st->name ? dast_safe_cstr(st->name) : "";
-		if (st->name && sname_safe[0] != '<' && sname_safe[0] != '\0') {
-			const char *fname = field ? field : "<null>";
-			const char *sname = st->name ? sname_safe : "<struct>";
-			fprintf(stderr, "stage0: <runtime>:0:0: error unknown field '%s' in %s\n", fname, sname);
-			dast_debug_backtrace();
-			exit(1);
-		}
-	}
-	if (st->field_len >= st->field_cap) {
-		st->field_cap *= 2;
-		st->field_names = (const char **)dast_xrealloc(st->field_names, sizeof(char *) * (size_t)st->field_cap);
-		st->field_values = (dast_int *)dast_xrealloc(st->field_values, sizeof(dast_int) * (size_t)st->field_cap);
-	}
-	st->field_names[st->field_len] = field;
-	st->field_values[st->field_len] = value;
-	st->field_len++;
-}
-
-static dast_int dast_struct_get_value(DastStruct *st, const char *field) {
-	if (!st) {
-		dast_rt_panic("field access requires struct");
-	}
-	dast_int idx = dast_struct_index(st, field);
-	if (idx < 0) {
-		dast_struct_debug_init();
-		const char *fname = dast_safe_cstr(field);
-		const char *sname = st && st->name ? dast_safe_cstr(st->name) : "<struct>";
-		fprintf(stderr, "stage0: <runtime>:0:0: error unknown field '%s' in %s\n", fname, sname);
-		if (g_struct_debug) {
-			fprintf(stderr,
-			        "stage0: <runtime>:0:0: debug struct=%p name_ptr=%p expected=%lld len=%lld\n",
-			        (void *)st,
-			        (void *)(st ? st->name : NULL),
-			        (long long)(st ? st->field_expected : -1),
-			        (long long)(st ? st->field_len : -1));
-			if (st) {
-				dast_int *raw = (dast_int *)st;
-				fprintf(stderr,
-				        "stage0: <runtime>:0:0: debug raw[0..3]=%lld %lld %lld %lld\n",
-				        (long long)raw[0],
-				        (long long)raw[1],
-				        (long long)raw[2],
-				        (long long)raw[3]);
-			}
-		}
+	if (!dast_struct_is_live(st)) {
 		dast_debug_backtrace();
-		if (st->field_len > 0 && st->field_names) {
-			fprintf(stderr, "stage0: <runtime>:0:0: note fields:");
-			for (dast_int i = 0; i < st->field_len; i++) {
-				const char *nm = st->field_names[i] ? dast_safe_cstr(st->field_names[i]) : "<null>";
-				fprintf(stderr, " %s", nm);
-			}
-			fprintf(stderr, "\n");
+		if (g_drop_debug) {
+			const char *sname = st->name ? dast_safe_cstr(st->name) : "<struct>";
+			fprintf(stderr, "stage0: <runtime>:0:0: error use-after-free struct %p (%s)\n", (void *)st, sname);
 		}
-		exit(1);
+		dast_rt_panic("use-after-free struct");
 	}
-	return st->field_values[idx];
 }
 
-void dast_struct_set_i64(DastStruct *st, const char *field, dast_int value) {
-	dast_struct_set_value(st, field, value);
-}
-
-void dast_struct_set_i32(DastStruct *st, const char *field, dast_i32 value) {
-	dast_struct_set_value(st, field, (dast_int)value);
-}
-
-void dast_struct_set_bool(DastStruct *st, const char *field, dast_bool value) {
-	dast_struct_set_value(st, field, (dast_int)(value != 0));
-}
-
-void dast_struct_set_string(DastStruct *st, const char *field, DastString *value) {
-	dast_struct_set_value(st, field, (dast_int)(intptr_t)value);
-}
-
-void dast_struct_set_ptr(DastStruct *st, const char *field, dast_int value) {
-	dast_struct_set_value(st, field, value);
-}
-
-dast_int dast_struct_get_i64(DastStruct *st, const char *field) {
-	return dast_struct_get_value(st, field);
-}
-
-dast_i32 dast_struct_get_i32(DastStruct *st, const char *field) {
-	return (dast_i32)dast_struct_get_value(st, field);
-}
-
-dast_bool dast_struct_get_bool(DastStruct *st, const char *field) {
-	return (dast_bool)(dast_struct_get_value(st, field) != 0);
-}
-
-const DastString *dast_struct_get_string(DastStruct *st, const char *field) {
-	return (const DastString *)(intptr_t)dast_struct_get_value(st, field);
-}
-
-dast_int dast_struct_get_ptr(DastStruct *st, const char *field) {
-	return dast_struct_get_value(st, field);
-}
-
-dast_int *dast_struct_field_addr(DastStruct *st, const char *field) {
-	if (!st) {
-		dast_rt_panic("addr_field requires struct");
+void dast_struct_store(DastStruct *st, dast_int offset, dast_int size, dast_int value) {
+	dast_struct_bounds_check(st, offset, size);
+	if (size > 8) {
+		dast_rt_panic("struct store size too large");
 	}
-	dast_int idx = dast_struct_index(st, field);
-	if (idx < 0) {
-		const char *fname = dast_safe_cstr(field);
-		const char *sname = st && st->name ? dast_safe_cstr(st->name) : "<struct>";
-		fprintf(stderr, "stage0: <runtime>:0:0: error unknown field '%s' in %s\n", fname, sname);
-		exit(1);
+	unsigned char *dst = st->data + (size_t)offset;
+	memcpy(dst, &value, (size_t)size);
+}
+
+dast_int dast_struct_load_s(DastStruct *st, dast_int offset, dast_int size) {
+	dast_struct_bounds_check(st, offset, size);
+	if (size > 8) {
+		dast_rt_panic("struct load size too large");
 	}
-	return &st->field_values[idx];
+	uint64_t tmp = 0;
+	memcpy(&tmp, st->data + (size_t)offset, (size_t)size);
+	if (size < 8) {
+		int shift = (int)((8 - size) * 8);
+		return (dast_int)((int64_t)(tmp << shift) >> shift);
+	}
+	return (dast_int)tmp;
+}
+
+dast_int dast_struct_load_u(DastStruct *st, dast_int offset, dast_int size) {
+	dast_struct_bounds_check(st, offset, size);
+	if (size > 8) {
+		dast_rt_panic("struct load size too large");
+	}
+	uint64_t tmp = 0;
+	memcpy(&tmp, st->data + (size_t)offset, (size_t)size);
+	return (dast_int)tmp;
+}
+
+void *dast_struct_field_addr(DastStruct *st, dast_int offset) {
+	dast_struct_bounds_check(st, offset, 1);
+	return st->data + (size_t)offset;
 }
 
 static DastString *dast_string_alloc(size_t len) {
@@ -1141,7 +1097,7 @@ dast_int dast_pop(dast_int *arr_ref) {
 	if (!arr || arr->len == 0) {
 		dast_rt_panic("pop from empty array");
 	}
-	dast_int value = arr->data[arr->len - 1];
+	dast_int value = dast_array_get_u_unchecked(arr, arr->len - 1);
 	arr->len--;
 	return value;
 }
@@ -1256,11 +1212,11 @@ DastArray *dast_read_dir(const DastString *path) {
 	DIR *dir = opendir(path->data);
 	if (!dir) {
 		if (errno == ENOENT || errno == ENOTDIR) {
-			return dast_array_new(0);
+			return dast_array_new((dast_int)sizeof(void *), (dast_int)sizeof(void *), 0);
 		}
 		dast_rt_panic("read_dir failed");
 	}
-	DastArray *arr = dast_array_new(8);
+	DastArray *arr = dast_array_new((dast_int)sizeof(void *), (dast_int)sizeof(void *), 8);
 	struct dirent *ent;
 	while ((ent = readdir(dir)) != NULL) {
 		if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
@@ -1274,7 +1230,7 @@ DastArray *dast_read_dir(const DastString *path) {
 }
 
 DastArray *dast_args(void) {
-	DastArray *arr = dast_array_new(g_argc);
+	DastArray *arr = dast_array_new((dast_int)sizeof(void *), (dast_int)sizeof(void *), g_argc);
 	for (int i = 0; i < g_argc; i++) {
 		DastString *arg = dast_string_from_cstr(g_argv[i]);
 		dast_array_push(arr, (dast_int)(intptr_t)arg);
@@ -1308,6 +1264,17 @@ DastString *dast_read_line(void) {
 	return dast_string_wrap(buf, len, cap);
 }
 
+DastString *dast_getenv(const DastString *name) {
+	if (!name || !name->data) {
+		return dast_string_alloc(0);
+	}
+	const char *val = getenv(name->data);
+	if (!val) {
+		return dast_string_alloc(0);
+	}
+	return dast_string_from_cstr(val);
+}
+
 DastString *dast_read_bytes(dast_int count) {
 	if (count < 0) {
 		dast_rt_panic("read_bytes count must be non-negative");
@@ -1333,7 +1300,7 @@ dast_int dast_exec(const DastString *cmd, DastArray *args) {
 	char **argv = (char **)dast_xmalloc(sizeof(char *) * (argc + 2));
 	argv[0] = cmd->data;
 	for (size_t i = 0; i < argc; i++) {
-		DastString *arg = (DastString *)(intptr_t)args->data[i];
+		DastString *arg = (DastString *)(intptr_t)dast_array_get_u_unchecked(args, (dast_int)i);
 		argv[i + 1] = arg ? arg->data : "";
 	}
 	argv[argc + 1] = NULL;
@@ -1443,8 +1410,10 @@ void dast_struct_free(DastStruct *st) {
 	if (!dast_untrack_struct(st)) {
 		dast_rt_panic("struct double free");
 	}
-	dast_xfree(st->field_names);
-	dast_xfree(st->field_values);
+	if (st->data) {
+		void *raw = ((void **)st->data)[-1];
+		dast_xfree(raw);
+	}
 	dast_xfree(st);
 }
 

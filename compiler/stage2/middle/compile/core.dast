@@ -769,16 +769,37 @@ fn qbe_type(e: &Emitter, t: &str) -> String {
 }
 
 fn store_op_for_type(e: &Emitter, t: &str) -> String {
-    if type_is_ref(e, t) { return "storel" }
-    if type_is_array(e, t) { return "storel" }
-    if type_is_bool(e, t) { return "storew" }
+    let rt = type_resolve(e, t)
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+        return "storel"
+    }
+    if rt == "bool" { return "storeb" }
+    let w = type_int_width(e, &rt)
+    if w == 8 { return "storeb" }
+    if w == 16 { return "storeh" }
+    if w == 32 { return "storew" }
     return "storel"
 }
 
 fn load_op_for_type(e: &Emitter, t: &str) -> String {
-    if type_is_ref(e, t) { return "load" }
-    if type_is_array(e, t) { return "load" }
-    if type_is_bool(e, t) { return "loadw" }
+    let rt = type_resolve(e, t)
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) || type_is_enum(e, &rt) {
+        return "load"
+    }
+    if rt == "bool" { return "loadub" }
+    let w = type_int_width(e, &rt)
+    if w == 8 {
+        if type_is_signed_int(e, &rt) { return "loadsb" }
+        return "loadub"
+    }
+    if w == 16 {
+        if type_is_signed_int(e, &rt) { return "loadsh" }
+        return "loaduh"
+    }
+    if w == 32 {
+        if type_is_signed_int(e, &rt) { return "loadsw" }
+        return "loaduw"
+    }
     return "load"
 }
 
