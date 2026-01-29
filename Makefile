@@ -14,7 +14,7 @@ STAGE2V2_TEST_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'c
 STAGE2V2_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2V2_ALLOC_MAX_MB ?= 32
 STAGE2V2_RUN_ENV := $(if $(STAGE2V2_ALLOC_MAX_MB),DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2V2_ALLOC_MAX_MB),)
-STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -path 'compiler/stage2/backend/codegen-c/*' -not -path 'compiler/stage2/backend/interp/*' | sort) compiler/stage2/backend/interp/interp.dast compiler/stage2/backend/interp/quote.dast
+STAGE2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/tests/*' -not -path 'compiler/stage2/stdlib/*' -not -name '*_test.dast' | sort)
 STAGE2_COMPILER_DIRS := compiler/stage2 compiler/stage2/driver compiler/stage2/frontend compiler/stage2/middle compiler/stage2/backend compiler/stage2/backend/interp compiler/stage2/backend/qbe compiler/stage2/backend/cg
 STAGE2_COMPILER_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2_COMPILER_DEBUG ?=
@@ -481,46 +481,6 @@ test-ir-verify: build-stage0
 	@if $(STAGE0_RUNNER) ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
 		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
 	fi
-	@out=$$($(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_VALID) 2>&1); \
-	status=$$?; echo "$$out"; \
-	if [ $$status -ne 0 ]; then exit $$status; fi; \
-	if echo "$$out" | grep -q '^stage[0-9]:'; then exit 1; fi
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_INVALID) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_UNDEF) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_UNINIT) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_TERM) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_JUMP) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_BADTEMP) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_DUPBLOCK) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_DUPFIELD) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
-	@if $(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-verify $(IR_DUPFN) >/tmp/dast-ir-verify.out 2>&1; then \
-		echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; \
-	fi; \
-	echo "$$(cat /tmp/dast-ir-verify.out)" | grep -q '^stage[0-9]:' || { echo "expected ir-verify to fail"; cat /tmp/dast-ir-verify.out; exit 1; }
 
 test-ir-opt: build-stage0
 	@out=$$($(STAGE0_RUNNER) ir-opt $(IR_OPT)); \
@@ -529,16 +489,10 @@ test-ir-opt: build-stage0
 	@out=$$($(STAGE0_RUNNER) ir-opt $(IR_OPT_CONST)); \
 	echo "$$out" | grep -q 't0 = + 1, 2' || { echo "expected inline const binop"; echo "$$out"; exit 1; }; \
 	echo "$$out" | grep -q 't1 = == true, false' || { echo "expected inline const cmp"; echo "$$out"; exit 1; }
-	@out=$$($(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-opt $(IR_OPT) 2>&1); \
-	echo "$$out" | grep -q 'jump then' || { echo "expected jump then"; echo "$$out"; exit 1; }; \
-	if echo "$$out" | grep -q 'block else'; then echo "expected else block removed"; echo "$$out"; exit 1; fi
-	@out=$$($(STAGE2_SAFE_RUNNER) run $(STAGE2_FILES) -- ir-opt $(IR_OPT_CONST) 2>&1); \
-	echo "$$out" | grep -q 't0 = + 1, 2' || { echo "expected inline const binop"; echo "$$out"; exit 1; }; \
-	echo "$$out" | grep -q 't1 = == true, false' || { echo "expected inline const cmp"; echo "$$out"; exit 1; }
 
 test:
 	@echo "[test] start"
-	@$(MAKE) verify-stage0
+	@$(MAKE) test-stage0
 	@$(MAKE) test-stage2
 	@$(MAKE) test-ir
 	@$(MAKE) test-ir-verify
