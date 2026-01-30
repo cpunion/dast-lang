@@ -473,6 +473,10 @@ fn infer_untyped_expr_expected(e: &mut Emitter, expr: &Expr, expected: &String) 
         if constrain_expr_to_type(e, lhs, expected) { changed = true }
         if constrain_expr_to_type(e, rhs, expected) { changed = true }
     }
+    if expr.kind == EXPR_UNARY && (type_is_int(e, expected) || type_is_float(e, expected)) && len(&expr.args) >= 1 {
+        let inner = expr_arg_ref(expr, 0, "infer_unary_inner_exp")
+        if constrain_expr_to_type(e, inner, expected) { changed = true }
+    }
     if infer_untyped_expr(e, expr) { changed = true }
     return changed
 }

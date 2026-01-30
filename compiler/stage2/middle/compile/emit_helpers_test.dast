@@ -118,6 +118,20 @@ fn test_emit_typed_value_untyped_float_binary() {
     assert_true(body_contains(&e2.body, " =d add "), "f64 add opcode")
 }
 
+fn test_emit_typed_value_untyped_unary() {
+    let mut e1 = emitter_new()
+    let expr1 = expr_unary(string_clone("-"), expr_int(1))
+    let v1 = emit_typed_value(&mut e1, &expr1, "i32")
+    assert_true(v1.typ == "i32", "untyped unary int to i32")
+    assert_true(body_contains(&e1.body, " =w sub "), "i32 unary opcode")
+
+    let mut e2 = emitter_new()
+    let expr2 = expr_unary(string_clone("-"), expr_float("1.0"))
+    let v2 = emit_typed_value(&mut e2, &expr2, "f32")
+    assert_true(v2.typ == "f32", "untyped unary float to f32")
+    assert_true(body_contains(&e2.body, " =s sub "), "f32 unary opcode")
+}
+
 fn test_emit_char_literal() {
     let mut e = emitter_new()
     let c = expr_char(97)

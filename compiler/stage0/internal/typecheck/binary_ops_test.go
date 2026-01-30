@@ -60,6 +60,67 @@ fn main() {
 `, "compatible int or float")
 }
 
+func TestFloatOpsSameTypeMatrix(t *testing.T) {
+	floatTypes := []string{"f32", "f64"}
+	floatOps := []string{"+", "-", "*", "/"}
+	cmpOps := []string{"==", "!=", "<", "<=", ">", ">="}
+	for _, tname := range floatTypes {
+		for _, op := range floatOps {
+			src := `
+fn main() {
+    let a: ` + tname + ` = 1.0
+    let b: ` + tname + ` = 2.0
+    let _ = a ` + op + ` b
+}
+`
+			checkTypeOK(t, src)
+		}
+		for _, op := range cmpOps {
+			src := `
+fn main() {
+    let a: ` + tname + ` = 1.0
+    let b: ` + tname + ` = 2.0
+    let _ = a ` + op + ` b
+}
+`
+			checkTypeOK(t, src)
+		}
+	}
+}
+
+func TestFloatOpsCrossTypeRejected(t *testing.T) {
+	floatTypes := []string{"f32", "f64"}
+	floatOps := []string{"+", "-", "*", "/"}
+	cmpOps := []string{"==", "!=", "<", "<=", ">", ">="}
+	for i, lt := range floatTypes {
+		for j, rt := range floatTypes {
+			if i == j {
+				continue
+			}
+			for _, op := range floatOps {
+				src := `
+fn main() {
+    let a: ` + lt + ` = 1.0
+    let b: ` + rt + ` = 2.0
+    let _ = a ` + op + ` b
+}
+`
+				checkTypeErr(t, src, "compatible")
+			}
+			for _, op := range cmpOps {
+				src := `
+fn main() {
+    let a: ` + lt + ` = 1.0
+    let b: ` + rt + ` = 2.0
+    let _ = a ` + op + ` b
+}
+`
+				checkTypeErr(t, src, "compatible")
+			}
+		}
+	}
+}
+
 func TestFloatIntLiteralAllowed(t *testing.T) {
 	checkTypeOK(t, `
 fn main() {

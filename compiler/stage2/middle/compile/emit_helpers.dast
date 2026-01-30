@@ -199,6 +199,19 @@ fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
             return emit_binary_expr_typed(e, use_expr, &rt)
         }
     }
+    if use_expr.kind == EXPR_UNARY && (expr_rt == "untyped-int" || expr_rt == "untyped-float") {
+        let op = string_clone(&use_expr.name)
+        if op == "-" && (type_is_int(e, &rt) || type_is_float(e, &rt)) {
+            let inner = expr_arg_ref(use_expr, 0, "emit_unary_typed_inner")
+            let inner_v = emit_typed_value(e, inner, &rt)
+            let tmp = new_temp(e)
+            let tn = temp_name(tmp)
+            let q = qbe_type(e, &rt)
+            let zero = if type_is_float(e, &rt) { float_zero_const(&rt) } else { string_clone("0") }
+            emit_line(e, "  " + tn + " =" + q + " sub " + zero + ", " + inner_v.expr)
+            return qbe_value(string_clone(&rt), tn)
+        }
+    }
     if type_is_ref(e, &rt) && !type_is_ref(e, &expr_rt) {
         let base_t = type_ref_base(e, &rt)
         if !type_compatible_expr(e, &base_t, use_expr) {

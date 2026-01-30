@@ -227,3 +227,22 @@ fn main() {
 		t.Fatalf("unexpected type errors: %s", diags.Error())
 	}
 }
+
+func TestUntypedUnaryAssign(t *testing.T) {
+	src := `
+fn main() {
+    let a: i32 = -1
+    let b: f32 = -1
+    let _ = a
+    let _ = b
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
+	}
+}

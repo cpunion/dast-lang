@@ -23,6 +23,13 @@ fn int_type_list() -> [String] {
     return out
 }
 
+fn float_type_list() -> [String] {
+    let mut out: [String] = []
+    push(&mut out, string_clone("f32"))
+    push(&mut out, string_clone("f64"))
+    return out
+}
+
 fn setup_emitter_types(t1: String, t2: String) -> Emitter {
     let mut e = emitter_new()
     let mut names: [String] = []
@@ -198,6 +205,25 @@ fn test_untyped_binary_coercion_float() {
     }
 }
 
+fn test_untyped_unary_coercion() {
+    let mut e = emitter_new()
+    let u1 = expr_unary(string_clone("-"), expr_int(1))
+    if !type_compatible_expr(&e, "i32", &u1) {
+        println("expected untyped int unary to coerce to i32")
+        exit(1)
+    }
+    let u2 = expr_unary(string_clone("-"), expr_float("1.0"))
+    if !type_compatible_expr(&e, "f32", &u2) {
+        println("expected untyped float unary to coerce to f32")
+        exit(1)
+    }
+    let u3 = expr_unary(string_clone("-"), expr_int(1))
+    if !type_compatible_expr(&e, "f64", &u3) {
+        println("expected untyped int unary to coerce to f64")
+        exit(1)
+    }
+}
+
 fn test_bool_ops() {
     let mut e = setup_emitter_types("bool", "bool")
     let eq = bin_expr_types("==")
@@ -344,12 +370,78 @@ fn test_float_ops() {
     assert_str_eq(expr_type(&e2, &eq), "bool")
 }
 
+fn test_float_op_result_types_matrix() {
+    let types = float_type_list()
+    let add = bin_expr_types("+")
+    let sub = bin_expr_types("-")
+    let mul = bin_expr_types("*")
+    let div = bin_expr_types("/")
+    let lt = bin_expr_types("<")
+    let le = bin_expr_types("<=")
+    let gt = bin_expr_types(">")
+    let ge = bin_expr_types(">=")
+    let eq = bin_expr_types("==")
+    let ne = bin_expr_types("!=")
+    let mut i = 0
+    while i < len(&types) {
+        let t1 = string_clone(&types[i])
+        let mut e = setup_emitter_types(string_clone(&t1), string_clone(&t1))
+        assert_str_eq(expr_type(&e, &add), string_clone(&t1))
+        assert_str_eq(expr_type(&e, &sub), string_clone(&t1))
+        assert_str_eq(expr_type(&e, &mul), string_clone(&t1))
+        assert_str_eq(expr_type(&e, &div), string_clone(&t1))
+        assert_str_eq(expr_type(&e, &lt), "bool")
+        assert_str_eq(expr_type(&e, &le), "bool")
+        assert_str_eq(expr_type(&e, &gt), "bool")
+        assert_str_eq(expr_type(&e, &ge), "bool")
+        assert_str_eq(expr_type(&e, &eq), "bool")
+        assert_str_eq(expr_type(&e, &ne), "bool")
+        i = i + 1
+    }
+}
+
 fn test_float_mixed_reject() {
     let mut e = setup_emitter_types("f32", "f64")
     let lhs = expr_ident("a")
     let rhs = expr_ident("b")
     let ft = float_bin_result_type(&e, &lhs, &rhs)
     assert_str_eq(ft, "")
+}
+
+fn test_float_cross_type_reject() {
+    let types = float_type_list()
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
+    let add = bin_expr_types("+")
+    let lt = bin_expr_types("<")
+    let mut i = 0
+    while i < len(&types) {
+        let mut j = 0
+        while j < len(&types) {
+            if i != j {
+                let t1 = string_clone(&types[i])
+                let t2 = string_clone(&types[j])
+                let mut e = setup_emitter_types(string_clone(&t1), string_clone(&t2))
+                let ft = float_bin_result_type(&e, &lhs, &rhs)
+                if ft != "" {
+                    println("expected float bin reject", t1, t2, ft)
+                    exit(1)
+                }
+                let radd = binary_op_result_type_try(&e, "+", &lhs, &rhs)
+                if radd != "" {
+                    println("expected + reject float types", t1, t2, radd)
+                    exit(1)
+                }
+                let rcmp = binary_op_result_type_try(&e, "<", &lhs, &rhs)
+                if rcmp != "" {
+                    println("expected < reject float types", t1, t2, rcmp)
+                    exit(1)
+                }
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
 }
 
 fn test_char_literal_type() {
