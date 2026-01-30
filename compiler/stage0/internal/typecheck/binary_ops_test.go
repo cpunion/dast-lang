@@ -243,3 +243,58 @@ fn main() {
 }
 `, "comparison")
 }
+
+func TestStringRefOps(t *testing.T) {
+	checkTypeOK(t, `
+fn main() {
+    let a: &str = "a"
+    let b: &str = "b"
+    let _ = a + b
+    let _ = a == b
+}
+`)
+	checkTypeOK(t, `
+fn main() {
+    let a: String = string_clone("a")
+    let b: &str = "b"
+    let _ = a + b
+    let _ = a == b
+}
+`)
+	checkTypeErr(t, `
+fn main() {
+    let a: &str = "a"
+    let b: &str = "b"
+    let _ = a < b
+}
+`, "comparison")
+}
+
+func TestEnumEquality(t *testing.T) {
+	checkTypeOK(t, `
+enum E1 { A, B }
+fn main() {
+    let a = E1.A
+    let b = E1.B
+    let _ = a == b
+    let _ = a != b
+}
+`)
+	checkTypeErr(t, `
+enum E1 { A, B }
+enum E2 { A, B }
+fn main() {
+    let a = E1.A
+    let b = E2.B
+    let _ = a == b
+}
+`, "enum")
+	checkTypeErr(t, `
+enum E1 { A, B }
+fn main() {
+    let a = E1.A
+    let b = E1.B
+    let _ = a < b
+}
+`, "comparison")
+}

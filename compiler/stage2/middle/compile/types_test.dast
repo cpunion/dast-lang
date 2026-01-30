@@ -225,6 +225,24 @@ fn test_string_ops() {
     assert_str_eq(expr_type(&e, &ne), "bool")
 }
 
+fn test_string_ref_ops() {
+    let mut e1 = setup_emitter_types("&str", "&str")
+    let lhs1 = expr_ident("a")
+    let rhs1 = expr_ident("b")
+    assert_str_eq(binary_op_result_type_try(&e1, "+", &lhs1, &rhs1), "String")
+    assert_str_eq(binary_op_result_type_try(&e1, "==", &lhs1, &rhs1), "bool")
+    if binary_op_result_type_try(&e1, "<", &lhs1, &rhs1) != "" {
+        println("expected < to reject &str")
+        exit(1)
+    }
+
+    let mut e2 = setup_emitter_types("String", "&str")
+    let lhs2 = expr_ident("a")
+    let rhs2 = expr_ident("b")
+    assert_str_eq(binary_op_result_type_try(&e2, "+", &lhs2, &rhs2), "String")
+    assert_str_eq(binary_op_result_type_try(&e2, "==", &lhs2, &rhs2), "bool")
+}
+
 fn test_string_literal_type() {
     let mut e = emitter_new()
     let lit = expr_string(string_clone("hi"))
@@ -372,6 +390,54 @@ fn add_struct_sig(e: &mut Emitter, name: &str, fields: [StructFieldSig]) {
     let mut params: [String] = []
     push(&mut sigs, StructSig { name: string_clone(name), type_params: params, fields: fields })
     e.struct_sigs = sigs
+}
+
+fn add_enum_sig_simple(e: &mut Emitter, name: &str) {
+    let mut variants: [EnumVariantSig] = []
+    push(&mut variants, EnumVariantSig { name: "A", value: 0, has_payload: false, payload_type: "" })
+    push(&mut variants, EnumVariantSig { name: "B", value: 1, has_payload: false, payload_type: "" })
+    let mut params: [String] = []
+    let mut sigs = e.enum_sigs
+    push(&mut sigs, EnumSig { name: string_clone(name), type_params: params, tag_type: "i32", variants: variants })
+    e.enum_sigs = sigs
+}
+
+fn setup_enum_emitter(t1: String, t2: String) -> Emitter {
+    let mut e = emitter_new()
+    add_enum_sig_simple(&mut e, "E1")
+    add_enum_sig_simple(&mut e, "E2")
+    let mut names: [String] = []
+    let mut types: [String] = []
+    let mut muts: [bool] = []
+    push(&mut names, string_clone("a"))
+    push(&mut names, string_clone("b"))
+    push(&mut types, t1)
+    push(&mut types, t2)
+    push(&mut muts, false)
+    push(&mut muts, false)
+    e.var_names = names
+    e.var_types = types
+    e.var_mut = muts
+    return e
+}
+
+fn test_enum_eq_ops() {
+    let mut e1 = setup_enum_emitter("E1", "E1")
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
+    assert_str_eq(binary_op_result_type_try(&e1, "==", &lhs, &rhs), "bool")
+    assert_str_eq(binary_op_result_type_try(&e1, "!=", &lhs, &rhs), "bool")
+    if binary_op_result_type_try(&e1, "<", &lhs, &rhs) != "" {
+        println("expected enum < to be rejected")
+        exit(1)
+    }
+
+    let mut e2 = setup_enum_emitter("E1", "E2")
+    let r = binary_op_result_type_try(&e2, "==", &lhs, &rhs)
+    if r != "" {
+        println("expected enum eq reject for mismatched enums", r)
+        exit(1)
+    }
 }
 
 fn test_type_size_align_basic() {
