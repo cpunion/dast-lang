@@ -224,7 +224,7 @@ fn hygiene_block(ctx: &mut MacroCtx, m: &mut RenameMap, block: &Block) -> Block 
 fn replace_expr_splices(expr: &Expr, splices: & [QuoteSplice]) -> Expr {
     if expr.kind == EXPR_IDENT {
         let idx = quote_placeholder_index(&expr.name)
-        if idx >= 0 && idx < len(&splices) {
+        if idx >= 0 && idx < len(splices) {
             let v = &(*splices)[idx].value
             if v.kind == MV_AST_EXPR {
                 return expr_clone(&v.expr)

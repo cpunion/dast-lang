@@ -1,6 +1,6 @@
 // Unit tests for expr_type / integer type rules.
 
-fn assert_str_eq(got: &str, exp: &str) {
+fn assert_str_eq(got: String, exp: String) {
     if got != exp {
         println("assert_str_eq failed", got, exp)
         exit(1)
@@ -24,15 +24,15 @@ fn int_type_list() -> [String] {
     return out
 }
 
-fn setup_emitter(t1: &str, t2: &str) -> Emitter {
+fn setup_emitter_types(t1: String, t2: String) -> Emitter {
     let mut e = emitter_new()
     let mut names: [String] = []
     let mut types: [String] = []
     let mut muts: [bool] = []
     push(&mut names, "a")
     push(&mut names, "b")
-    push(&mut types, string_clone(t1))
-    push(&mut types, string_clone(t2))
+    push(&mut types, t1)
+    push(&mut types, t2)
     push(&mut muts, false)
     push(&mut muts, false)
     e.var_names = names
@@ -41,11 +41,8 @@ fn setup_emitter(t1: &str, t2: &str) -> Emitter {
     return e
 }
 
-fn bin_expr(op: &str) -> Expr {
-    let mut args: [Expr] = []
-    push(&mut args, expr_ident("a"))
-    push(&mut args, expr_ident("b"))
-    return expr_binary(string_clone(op), args)
+fn bin_expr_types(op: String) -> Expr {
+    return expr_binary(op, expr_ident("a"), expr_ident("b"))
 }
 
 fn test_int_op_result_types() {
@@ -54,39 +51,39 @@ fn test_int_op_result_types() {
     while i < len(&types) {
         let mut j = 0
         while j < len(&types) {
-            let t1 = &types[i]
-            let t2 = &types[j]
-            let mut e = setup_emitter(t1, t2)
-            let pt = int_peer_type(&e, t1, t2)
+            let t1 = string_clone(&types[i])
+            let t2 = string_clone(&types[j])
+            let mut e = setup_emitter_types(string_clone(&t1), string_clone(&t2))
+            let pt = int_peer_type(&e, &t1, &t2)
             if pt != "" {
-                let add = bin_expr("+")
-                let sub = bin_expr("-")
-                let mul = bin_expr("*")
-                let div = bin_expr("/")
-                let rem = bin_expr("%")
-                let band = bin_expr("&")
-                let bor = bin_expr("|")
-                let bxor = bin_expr("^")
-                assert_str_eq(&expr_type(&e, &add), &pt)
-                assert_str_eq(&expr_type(&e, &sub), &pt)
-                assert_str_eq(&expr_type(&e, &mul), &pt)
-                assert_str_eq(&expr_type(&e, &div), &pt)
-                assert_str_eq(&expr_type(&e, &rem), &pt)
-                assert_str_eq(&expr_type(&e, &band), &pt)
-                assert_str_eq(&expr_type(&e, &bor), &pt)
-                assert_str_eq(&expr_type(&e, &bxor), &pt)
-                let lt = bin_expr("<")
-                let le = bin_expr("<=")
-                let gt = bin_expr(">")
-                let ge = bin_expr(">=")
-                let eq = bin_expr("==")
-                let ne = bin_expr("!=")
-                assert_str_eq(&expr_type(&e, &lt), "bool")
-                assert_str_eq(&expr_type(&e, &le), "bool")
-                assert_str_eq(&expr_type(&e, &gt), "bool")
-                assert_str_eq(&expr_type(&e, &ge), "bool")
-                assert_str_eq(&expr_type(&e, &eq), "bool")
-                assert_str_eq(&expr_type(&e, &ne), "bool")
+                let add = bin_expr_types("+")
+                let sub = bin_expr_types("-")
+                let mul = bin_expr_types("*")
+                let div = bin_expr_types("/")
+                let rem = bin_expr_types("%")
+                let band = bin_expr_types("&")
+                let bor = bin_expr_types("|")
+                let bxor = bin_expr_types("^")
+                assert_str_eq(expr_type(&e, &add), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &sub), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &mul), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &div), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &rem), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &band), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &bor), string_clone(&pt))
+                assert_str_eq(expr_type(&e, &bxor), string_clone(&pt))
+                let lt = bin_expr_types("<")
+                let le = bin_expr_types("<=")
+                let gt = bin_expr_types(">")
+                let ge = bin_expr_types(">=")
+                let eq = bin_expr_types("==")
+                let ne = bin_expr_types("!=")
+                assert_str_eq(expr_type(&e, &lt), "bool")
+                assert_str_eq(expr_type(&e, &le), "bool")
+                assert_str_eq(expr_type(&e, &gt), "bool")
+                assert_str_eq(expr_type(&e, &ge), "bool")
+                assert_str_eq(expr_type(&e, &eq), "bool")
+                assert_str_eq(expr_type(&e, &ne), "bool")
             }
             j = j + 1
         }
@@ -100,17 +97,17 @@ fn test_shift_rules() {
     while i < len(&types) {
         let mut j = 0
         while j < len(&types) {
-            let t1 = &types[i]
-            let t2 = &types[j]
-            let mut e = setup_emitter(t1, t2)
+            let t1 = string_clone(&types[i])
+            let t2 = string_clone(&types[j])
+            let mut e = setup_emitter_types(string_clone(&t1), string_clone(&t2))
             let lhs = expr_ident("a")
             let rhs = expr_ident("b")
             let st = shift_result_type(&e, &lhs, &rhs)
             if st != "" {
-                let shl = bin_expr("<<")
-                let shr = bin_expr(">>")
-                assert_str_eq(&expr_type(&e, &shl), &st)
-                assert_str_eq(&expr_type(&e, &shr), &st)
+                let shl = bin_expr_types("<<")
+                let shr = bin_expr_types(">>")
+                assert_str_eq(expr_type(&e, &shl), string_clone(&st))
+                assert_str_eq(expr_type(&e, &shr), string_clone(&st))
             }
             j = j + 1
         }
@@ -119,38 +116,80 @@ fn test_shift_rules() {
 }
 
 fn test_literal_coercion() {
-    let mut e = setup_emitter("u8", "u8")
+    let mut e = setup_emitter_types("u8", "u8")
     let mut args: [Expr] = []
     push(&mut args, expr_int(255))
     push(&mut args, expr_ident("b"))
-    let add = expr_binary(string_clone("+"), args)
-    assert_str_eq(&expr_type(&e, &add), "u8")
+    let add = expr_binary(string_clone("+"), expr_int(255), expr_ident("b"))
+    assert_str_eq(expr_type(&e, &add), "u8")
 
-    let mut args2: [Expr] = []
-    push(&mut args2, expr_ident("a"))
-    push(&mut args2, expr_int(1))
-    let shl = expr_binary(string_clone("<<"), args2)
-    assert_str_eq(&expr_type(&e, &shl), "u8")
+    let shl = expr_binary(string_clone("<<"), expr_ident("a"), expr_int(1))
+    assert_str_eq(expr_type(&e, &shl), "u8")
 }
 
 fn test_bool_ops() {
-    let mut e = setup_emitter("bool", "bool")
-    let eq = bin_expr("==")
-    let ne = bin_expr("!=")
-    let land = bin_expr("&&")
-    let lor = bin_expr("||")
-    assert_str_eq(&expr_type(&e, &eq), "bool")
-    assert_str_eq(&expr_type(&e, &ne), "bool")
-    assert_str_eq(&expr_type(&e, &land), "bool")
-    assert_str_eq(&expr_type(&e, &lor), "bool")
+    let mut e = setup_emitter_types("bool", "bool")
+    let eq = bin_expr_types("==")
+    let ne = bin_expr_types("!=")
+    let land = bin_expr_types("&&")
+    let lor = bin_expr_types("||")
+    assert_str_eq(expr_type(&e, &eq), "bool")
+    assert_str_eq(expr_type(&e, &ne), "bool")
+    assert_str_eq(expr_type(&e, &land), "bool")
+    assert_str_eq(expr_type(&e, &lor), "bool")
 }
 
 fn test_string_ops() {
-    let mut e = setup_emitter("String", "String")
-    let add = bin_expr("+")
-    let eq = bin_expr("==")
-    let ne = bin_expr("!=")
-    assert_str_eq(&expr_type(&e, &add), "String")
-    assert_str_eq(&expr_type(&e, &eq), "bool")
-    assert_str_eq(&expr_type(&e, &ne), "bool")
+    let mut e = setup_emitter_types("String", "String")
+    let add = bin_expr_types("+")
+    let eq = bin_expr_types("==")
+    let ne = bin_expr_types("!=")
+    assert_str_eq(expr_type(&e, &add), "String")
+    assert_str_eq(expr_type(&e, &eq), "bool")
+    assert_str_eq(expr_type(&e, &ne), "bool")
+}
+
+fn test_char_literal_type() {
+    let mut e = emitter_new()
+    let c = expr_char(97)
+    let t = expr_type(&e, &c)
+    assert_str_eq(t, "char")
+}
+
+fn test_len_ref_depth_guard() {
+    let mut e = emitter_new()
+    let t_arr = string_clone("&[i64]")
+    let t_str = string_clone("&str")
+    let t_arr_ref = string_clone("&&[i64]")
+    let t_str_ref = string_clone("&&str")
+    if !type_is_single_ref_to_string_or_array(&e, &t_arr) {
+        println("expected len to accept &[i64]")
+        exit(1)
+    }
+    if !type_is_single_ref_to_string_or_array(&e, &t_str) {
+        println("expected len to accept &str")
+        exit(1)
+    }
+    if type_is_single_ref_to_string_or_array(&e, &t_arr_ref) {
+        println("expected len to reject &&[i64]")
+        exit(1)
+    }
+    if type_is_single_ref_to_string_or_array(&e, &t_str_ref) {
+        println("expected len to reject &&str")
+        exit(1)
+    }
+}
+
+fn test_double_ref_rejected() {
+    let mut e = emitter_new()
+    let t_double = "&&i64"
+    let t_single = "&i64"
+    if !type_is_double_ref(&e, &t_double) {
+        println("expected &&i64 to be double ref")
+        exit(1)
+    }
+    if type_is_double_ref(&e, &t_single) {
+        println("expected &i64 to not be double ref")
+        exit(1)
+    }
 }

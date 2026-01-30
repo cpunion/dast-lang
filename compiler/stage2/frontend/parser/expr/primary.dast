@@ -4,6 +4,10 @@ fn parse_const_expr(p: &mut Parser) -> Expr {
     let t = parser_peek(p)
     if t.kind == TK_MINUS {
         let _ = parser_advance(p)
+        if parser_peek(p).kind == TK_FLOAT {
+            let lit = parser_advance(p).text
+            return expr_float("-" + lit)
+        }
         let v = parser_expect(p, TK_INT, "int").int_value
         return expr_int(-v)
     }
@@ -32,6 +36,10 @@ fn parse_primary(p: &mut Parser) -> Expr {
         TK_INT => {
             let v = parser_advance(p).int_value
             return expr_int(v)
+        }
+        TK_FLOAT => {
+            let lit = parser_advance(p).text
+            return expr_float(lit)
         }
         TK_TRUE => {
             let _ = parser_advance(p)

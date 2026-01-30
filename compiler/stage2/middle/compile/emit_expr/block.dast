@@ -95,9 +95,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let v = emit_typed_value(e, expr, &ftyp)
         let casted = cast_to_type(e, v, &ftyp)
         let off = struct_field_offset(e, &recv_base, &fname)
-        let size = type_size(e, &ftyp)
-        let as_l = cast_to_l(e, qbe_value(string_clone(&ftyp), casted))
-        emit_line(e, "  call $dast_mem_store(l " + recv_expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
+        emit_mem_store_value(e, &recv_expr, off, &ftyp, casted)
         return
     }
     if lhs.kind == EXPR_INDEX {
@@ -117,8 +115,16 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let elem_t = expr_type(e, lhs)
         let v = emit_typed_value(e, expr, &elem_t)
         let casted = cast_to_type(e, v, &elem_t)
-        let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
-        emit_line(e, "  call $dast_array_set(l " + recv.expr + ", l " + idx + ", l " + as_l + ")")
+        if type_is_float(e, &elem_t) {
+            let addr_tmp = new_temp(e)
+            let addr_tn = temp_name(addr_tmp)
+            emit_line(e, "  " + addr_tn + " =l call $dast_array_index_addr(l " + recv.expr + ", l " + idx + ")")
+            let op = store_op_for_type(e, &elem_t)
+            emit_line(e, "  " + op + " " + casted + ", " + addr_tn)
+        } else {
+            let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
+            emit_line(e, "  call $dast_array_set(l " + recv.expr + ", l " + idx + ", l " + as_l + ")")
+        }
         return
     }
     if lhs.kind == EXPR_DEREF && len(&lhs.args) > 0 {
@@ -196,10 +202,15 @@ fn emit_iflet(e: &mut Emitter, stmt: &Stmt) {
     if stmt.pat_has_binding {
         let payload_t = enum_variant_payload_type(e, &enum_t, &stmt.pat_variant)
         let payload_v = enum_payload_from_value(e, &scrut, &enum_t, &stmt.pat_variant)
-        let casted = cast_to_type(e, payload_v, &payload_t)
         let mut bind_t = var_type(e, &stmt.pat_binding)
         if bind_t == "" { bind_t = payload_t }
-        emit_store_value(e, &stmt.pat_binding, &bind_t, &casted)
+        if type_is_struct(e, &bind_t) {
+            let copy_ptr = emit_struct_copy_from_addr(e, &payload_v.expr, &bind_t)
+            emit_store_value(e, &stmt.pat_binding, &bind_t, &copy_ptr)
+        } else {
+            let casted = cast_to_type(e, payload_v, &bind_t)
+            emit_store_value(e, &stmt.pat_binding, &bind_t, &casted)
+        }
     }
     emit_block(e, &stmt.block)
     if !block_ends_with_terminator(&stmt.block) {

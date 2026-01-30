@@ -60,6 +60,8 @@ func constValueToIr(v ast.ConstValue, typeName string) ir.Value {
 		return ir.Value{Kind: ir.KindBool, Bool: v.Bool}
 	case ast.ConstString:
 		return ir.Value{Kind: ir.KindString, Str: v.Str}
+	case ast.ConstFloat:
+		return ir.Value{Kind: ir.KindFloat, FloatText: v.FloatText}
 	default:
 		return ir.Value{Kind: ir.KindUnit}
 	}

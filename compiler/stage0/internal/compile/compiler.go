@@ -125,7 +125,7 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 				c.registerTupleTypesInType(f.Type)
 				fields = append(fields, ir.Var{Name: f.Name, Type: formatType(f.Type)})
 			}
-			c.prog.TypeDecls[t.Name] = &ir.TypeDecl{Name: t.Name, Fields: fields}
+			c.prog.TypeDecls[t.Name] = &ir.TypeDecl{Name: t.Name, Borrowed: isBorrowedTypeName(t.Name), Fields: fields}
 		case *ast.EnumDecl:
 			c.enums[t.Name] = t
 			for _, v := range t.Variants {

@@ -23,7 +23,7 @@ fn enum_payload_size(e: &Emitter, enum_name: &str) -> i64 {
     while vi < len(&e.enum_sigs[ei].variants) {
         let v = &e.enum_sigs[ei].variants[vi]
         if v.has_payload {
-            let sz = type_size(e, &v.payload_type)
+            let sz = type_layout_size(e, &v.payload_type)
             if sz > max_size { max_size = sz }
         }
         vi = vi + 1
@@ -39,7 +39,7 @@ fn enum_payload_align(e: &Emitter, enum_name: &str) -> i64 {
     while vi < len(&e.enum_sigs[ei].variants) {
         let v = &e.enum_sigs[ei].variants[vi]
         if v.has_payload {
-            let al = type_align(e, &v.payload_type)
+            let al = type_layout_align(e, &v.payload_type)
             if al > max_align { max_align = al }
         }
         vi = vi + 1
@@ -195,7 +195,7 @@ fn bind_type_params(e: &Emitter, pat: &str, act: &str, params: & [String], value
         }
         return
     }
-    let idx = list_index(&params, &pat_rt)
+    let idx = list_index(params, &pat_rt)
     if idx >= 0 {
         if (*values)[idx] == "" {
             (*values)[idx] = act_rt
@@ -225,11 +225,11 @@ fn func_ret_type_for_call(e: &Emitter, name: &str, args: & [Expr]) -> String {
         let p = &f.params[ai]
         if p.has_type {
             let at = expr_type(e, &(*args)[ai])
-            bind_type_params(e, &p.typ, &at, &params, &mut values)
+            bind_type_params(e, &p.typ, &at, params, &mut values)
         }
         ai = ai + 1
     }
-    let rt = type_subst(e, &f.ret_type, &params, &values)
+    let rt = type_subst(e, &f.ret_type, params, &values)
     return type_resolve(e, &rt)
 }
 
@@ -257,9 +257,11 @@ fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
     let declared = type_resolve(e, expected)
     let actual = type_resolve(e, actual)
     if declared == actual { return true }
-    let db = type_strip_args(e, &declared)
-    let ab = type_strip_args(e, &actual)
-    if db != "" && db == ab { return true }
+    let exp_args = type_args_parse(&declared)
+    let act_args = type_args_parse(&actual)
+    if exp_args.base == act_args.base {
+        if !exp_args.has || !act_args.has { return true }
+    }
     return false
 }
 
@@ -293,6 +295,10 @@ fn expr_int_literal_value(expr: &Expr) -> i64 {
     return expr.int_value
 }
 
+fn expr_is_float_literal(expr: &Expr) -> bool {
+    return expr.kind == EXPR_FLOAT
+}
+
 fn block_expr_is_int_literal(b: &Block) -> bool {
     let n = len(&b.stmts)
     if n == 0 { return false }
@@ -312,10 +318,12 @@ fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
     let declared = type_resolve(e, expected)
     let actual = expr_type(e, expr)
     let actual_rt = type_resolve(e, &actual)
-    if declared == actual_rt { return true }
+    if type_compatible(e, &declared, &actual_rt) { return true }
+    if expr_is_float_literal(expr) && type_is_float(e, &declared) { return true }
     if expr_is_int_literal(expr) && type_is_int(e, &declared) {
         return int_value_fits_type(e, expr_int_literal_value(expr), &declared)
     }
+    if expr_is_int_literal(expr) && type_is_float(e, &declared) { return true }
     if type_is_array(e, &declared) && expr.kind == EXPR_ARRAY {
         let elem_t = type_array_elem(e, &declared)
         let mut i = 0
@@ -325,9 +333,6 @@ fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
         }
         return true
     }
-    let db = type_strip_args(e, &declared)
-    let ab = type_strip_args(e, &actual_rt)
-    if db != "" && db == ab { return true }
     return false
 }
 
@@ -363,6 +368,88 @@ fn type_matches_pattern(e: &Emitter, pat: &str, act: &str, params: & [String]) -
     return type_resolve(e, &pat_rt) == act_rt
 }
 
+fn type_is_concrete(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    if rt == "" { return false }
+    if type_is_ref_raw(&rt) {
+        let base = type_ref_base_raw(&rt)
+        return type_is_concrete(e, &base)
+    }
+    if type_is_array_raw(&rt) {
+        let elem = type_array_elem_raw(&rt)
+        return type_is_concrete(e, &elem)
+    }
+    if type_is_struct(e, &rt) || type_is_enum(e, &rt) { return true }
+    if type_is_int(e, &rt) || type_is_float(e, &rt) { return true }
+    if rt == "bool" || rt == "char" || rt == "String" || rt == "str" || rt == "unit" { return true }
+    return false
+}
+
+fn type_is_single_ref_to_string_or_array(e: &Emitter, t: &str) -> bool {
+    if !type_is_ref(e, t) { return false }
+    let base = type_ref_base(e, t)
+    if type_is_ref(e, &base) { return false }
+    if type_is_string(e, &base) { return true }
+    if type_is_array(e, &base) { return true }
+    return false
+}
+
+fn type_is_double_ref(e: &Emitter, t: &str) -> bool {
+    if !type_is_ref(e, t) { return false }
+    let base = type_ref_base(e, t)
+    return type_is_ref(e, &base)
+}
+
+fn type_is_generic_param(e: &Emitter, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    let args = type_args_parse(&rt)
+    if args.has { return false }
+    if type_is_concrete(e, &rt) { return false }
+    return true
+}
+
+fn type_matches_generic(e: &Emitter, pat: &str, act: &str) -> bool {
+    let pat_rt = type_resolve(e, pat)
+    let act_rt = type_resolve(e, act)
+    if type_is_ref_raw(&pat_rt) {
+        if !type_is_ref_raw(&act_rt) { return false }
+        let pb = type_ref_base_raw(&pat_rt)
+        let ab = type_ref_base_raw(&act_rt)
+        return type_matches_generic(e, &pb, &ab)
+    }
+    if type_is_array_raw(&pat_rt) {
+        if !type_is_array_raw(&act_rt) { return false }
+        let pe = type_array_elem_raw(&pat_rt)
+        let ae = type_array_elem_raw(&act_rt)
+        return type_matches_generic(e, &pe, &ae)
+    }
+    let pat_args = type_args_parse(&pat_rt)
+    let act_args = type_args_parse(&act_rt)
+    if pat_args.has {
+        if !act_args.has { return false }
+        if pat_args.base != act_args.base { return false }
+        if len(&pat_args.args) != len(&act_args.args) { return false }
+        let mut i = 0
+        while i < len(&pat_args.args) {
+            let pa = &pat_args.args[i]
+            let aa = &act_args.args[i]
+            if !type_is_generic_param(e, pa) {
+                if !type_matches_generic(e, pa, aa) { return false }
+            }
+            i = i + 1
+        }
+        return true
+    }
+    if type_is_generic_param(e, &pat_rt) { return true }
+    return type_compatible(e, &pat_rt, &act_rt)
+}
+
+fn type_base_match(e: &Emitter, expected: &str, actual: &str) -> bool {
+    let eb = type_strip_args(e, expected)
+    let ab = type_strip_args(e, actual)
+    return eb != "" && eb == ab
+}
+
 fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
     let mut i = 0
     while i < len(&e.impls) {
@@ -372,7 +459,7 @@ fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
             let act_res = type_resolve(e, for_type)
             if pat_res == act_res { return true }
             let params = impl_type_param_names(imp)
-            if type_matches_pattern(e, &imp.for_type, for_type, &params) { return true }
+            if type_matches_pattern(e, &imp.for_type, for_type, params) { return true }
             let pb = type_strip_args(e, &imp.for_type)
             let ab = type_strip_args(e, for_type)
             if pb != "" && pb == ab { return true }
@@ -414,7 +501,7 @@ fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String
         let p = &f.params[ai]
         if p.has_type {
             let at = expr_type(e, &(*args)[ai])
-            bind_type_params(e, &p.typ, &at, &params, &mut values)
+            bind_type_params(e, &p.typ, &at, params, &mut values)
         }
         ai = ai + 1
     }
@@ -453,12 +540,12 @@ fn ensure_inst_func(e: &mut Emitter, f: &Function, values: & [String]) -> String
     while pi < len(&inst.params) {
         let p = &inst.params[pi]
         if p.has_type {
-            let nt = type_subst(e, &p.typ, &params, &values)
+            let nt = type_subst(e, &p.typ, params, values)
             inst.params[pi] = Param { name: string_clone(&p.name), typ: nt, has_type: true }
         }
         pi = pi + 1
     }
-    inst.ret_type = type_subst(e, &inst.ret_type, &params, &values)
+    inst.ret_type = type_subst(e, &inst.ret_type, params, values)
     let mut names = e.inst_func_names
     let mut funcs = e.inst_funcs
     push(&mut names, string_clone(&inst_name))
@@ -477,7 +564,7 @@ fn func_param_types_for_call(e: &Emitter, f: &Function, values: & [String]) -> [
         if p.has_type {
             let mut t = string_clone(&p.typ)
             if len(values) > 0 {
-                t = type_subst(e, &t, &params, &values)
+                t = type_subst(e, &t, params, values)
             }
             push(&mut out, type_resolve(e, &t))
         } else {
@@ -678,10 +765,6 @@ fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
 fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
     let lt0 = expr_type(e, lhs)
     let rt0 = expr_type(e, rhs)
-    if type_is_float(e, &lt0) || type_is_float(e, &rt0) {
-        println("stage2: float ops not supported")
-        exit(1)
-    }
     if op == "&&" || op == "||" {
         let lt = lt0
         let rt = rt0
@@ -721,6 +804,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
             }
             return "bool"
         }
+        let fpt = float_bin_result_type(e, lhs, rhs)
+        if fpt != "" { return "bool" }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
@@ -731,6 +816,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
     if op == "<" || op == ">" || op == "<=" || op == ">=" {
         let lt = lt0
         let rt = rt0
+        let fpt = float_bin_result_type(e, lhs, rhs)
+        if fpt != "" { return "bool" }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
@@ -742,6 +829,8 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         let lt = lt0
         let rt = rt0
         if type_is_string(e, &lt) && type_is_string(e, &rt) { return "String" }
+        let fpt = float_bin_result_type(e, lhs, rhs)
+        if fpt != "" { return fpt }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
@@ -752,6 +841,10 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
     if op == "-" || op == "*" || op == "/" || op == "%" || op == "&" || op == "|" || op == "^" {
         let lt = lt0
         let rt = rt0
+        if op == "-" || op == "*" || op == "/" {
+            let fpt = float_bin_result_type(e, lhs, rhs)
+            if fpt != "" { return fpt }
+        }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
@@ -770,6 +863,27 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         return st
     }
     return "i64"
+}
+
+fn float_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
+    let lt = expr_type(e, lhs)
+    let rt = expr_type(e, rhs)
+    let ltf = type_is_float(e, &lt)
+    let rtf = type_is_float(e, &rt)
+    let ltu = type_is_untyped_float(e, &lt)
+    let rtu = type_is_untyped_float(e, &rt)
+    if ltf && rtf {
+        if lt == rt { return string_clone(&lt) }
+        return ""
+    }
+    if ltf && rtu { return string_clone(&lt) }
+    if rtf && ltu { return string_clone(&rt) }
+    if ltf && expr_is_int_literal(rhs) { return string_clone(&lt) }
+    if rtf && expr_is_int_literal(lhs) { return string_clone(&rt) }
+    if ltu && rtu { return "untyped-float" }
+    if ltu && expr_is_int_literal(rhs) { return "untyped-float" }
+    if rtu && expr_is_int_literal(lhs) { return "untyped-float" }
+    return ""
 }
 
 fn closure_add(e: &mut Emitter, name: &str, body: &Block) {
@@ -910,7 +1024,7 @@ fn string_data_ptr(e: &mut Emitter, s: &str) -> String {
 fn escape_qbe_string(s: &str) -> String {
     let mut out = ""
     let mut i = 0
-    let n = str_len(&s)
+    let n = str_len(s)
     while i < n {
         let c = str_char_at(s, i)
         if c == '\n' { out = out + "\\n" }
@@ -927,6 +1041,7 @@ fn escape_qbe_string(s: &str) -> String {
 fn expr_type(e: &Emitter, expr: &Expr) -> String {
     match expr.kind {
         EXPR_INT => { return "untyped-int" }
+        EXPR_FLOAT => { return "untyped-float" }
         EXPR_CHAR => { return "char" }
         EXPR_BOOL => { return "bool" }
         EXPR_STRING => { return "String" }
@@ -943,6 +1058,10 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
         EXPR_REF => {
             if len(&expr.args) == 0 { return "&i64" }
             let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_ref"))
+            if type_is_ref(e, &base) {
+                println("stage2: cannot take reference to reference")
+                exit(1)
+            }
             if expr.ref_mut {
                 return "&mut " + type_resolve(e, &base)
             }
@@ -1054,12 +1173,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                     exit(1)
                 }
                 let t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_len_arg"))
-                if !type_is_ref(e, &t) {
-                    println("stage2: len expects reference to String/str or array")
-                    exit(1)
-                }
-                let base = type_ref_base(e, &t)
-                if !type_is_string(e, &base) && !type_is_array(e, &base) {
+                if !type_is_single_ref_to_string_or_array(e, &t) {
                     println("stage2: len expects reference to String/str or array")
                     exit(1)
                 }

@@ -1,0 +1,53 @@
+// Unit tests for macro expansion of quote expr.
+
+fn find_main_func_macro(p: &Program) -> Function {
+    let mut i = 0
+    while i < len(&p.functions) {
+        if p.functions[i].name == "main" { return p.functions[i] }
+        i = i + 1
+    }
+    println("missing main")
+    exit(1)
+    return p.functions[0]
+}
+
+fn expect_int_expr(e: &Expr, v: i64) {
+    if e.kind != EXPR_INT {
+        println("expected int expr", e.kind)
+        exit(1)
+    }
+    if e.int_value != v {
+        println("int value mismatch", e.int_value, v)
+        exit(1)
+    }
+}
+
+fn expect_binary_add(e: &Expr, lhs: i64, rhs: i64) {
+    if e.kind != EXPR_BINARY || e.name != "+" {
+        println("expected binary +", e.kind, e.name)
+        exit(1)
+    }
+    if len(&e.args) != 2 {
+        println("expected 2 args", len(&e.args))
+        exit(1)
+    }
+    expect_int_expr(&e.args[0], lhs)
+    expect_int_expr(&e.args[1], rhs)
+}
+
+fn test_macro_quote_expr_expand() {
+    let src = string_clone("macro fn add1(x: AstExpr) -> AstExpr { quote expr { $x + 1 } } fn main() { let v = add1!(quote expr { 40 }); }")
+    let prog = parse_program(&src)
+    let expanded = macro_expand_program(prog)
+    let main_fn = find_main_func_macro(&expanded)
+    if len(&main_fn.body.stmts) == 0 {
+        println("missing stmts")
+        exit(1)
+    }
+    let stmt = &main_fn.body.stmts[0]
+    if stmt.kind != STMT_LET {
+        println("expected let stmt", stmt.kind)
+        exit(1)
+    }
+    expect_binary_add(&stmt.expr, 40, 1)
+}

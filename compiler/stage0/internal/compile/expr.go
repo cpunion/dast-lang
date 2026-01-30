@@ -14,6 +14,8 @@ func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
 	switch e := expr.(type) {
 	case *ast.IntLit:
 		return ir.IntOperand(e.Value)
+	case *ast.FloatLit:
+		return ir.FloatOperand(e.Text)
 	case *ast.BoolLit:
 		return ir.BoolOperand(e.Value)
 	case *ast.StringLit:
@@ -72,9 +74,55 @@ func (c *Compiler) compileCallArg(expr ast.Expr, callee string, index int) ir.Op
 }
 
 func (c *Compiler) compileOperandMove(expr ast.Expr) ir.Operand {
+	switch e := expr.(type) {
+	case *ast.AccessExpr:
+		fieldType := c.inferExprType(expr)
+		if fieldType == "" {
+			fieldType = "i64"
+		}
+		if c.needsDropType(fieldType) && !isCopyTypeName(fieldType) {
+			return c.compileAccessMove(e, fieldType)
+		}
+	case *ast.IndexExpr:
+		elemType := c.inferExprType(expr)
+		if elemType == "" {
+			elemType = "i64"
+		}
+		if c.needsDropType(elemType) && !isCopyTypeName(elemType) {
+			return c.compileIndexMove(e, elemType)
+		}
+	}
 	op := c.compileOperand(expr)
 	c.markMovedExpr(expr)
 	return op
+}
+
+func (c *Compiler) compileAccessMove(e *ast.AccessExpr, fieldType string) ir.Operand {
+	recv := c.compileExpr(e.Receiver)
+	c.markTempBorrowedVar(recv)
+	dst := c.newTemp()
+	c.setTempType(dst, fieldType)
+	c.setTempBorrowed(dst, false)
+	c.emit(&ir.GetField{Dst: dst, Src: recv, Field: e.Field})
+	// Clear the field to avoid double-drop when the base is dropped later.
+	c.emit(&ir.SetField{Src: recv, Field: e.Field, Value: ir.IntOperand(0)})
+	return ir.TempOperand(dst)
+}
+
+func (c *Compiler) compileIndexMove(e *ast.IndexExpr, elemType string) ir.Operand {
+	recv := c.compileOperandBorrow(e.Receiver)
+	index := c.compileOperandBorrow(e.Index)
+	if !recv.IsConst {
+		c.setTempBorrowed(recv.Temp, true)
+		c.markTempBorrowedVar(recv.Temp)
+	}
+	dst := c.newTemp()
+	c.setTempType(dst, elemType)
+	c.setTempBorrowed(dst, false)
+	c.emit(&ir.Index{Dst: dst, Array: recv, Index: index})
+	// Clear element to avoid double-drop when the array is dropped later.
+	c.emit(&ir.SetIndex{Array: recv, Index: index, Src: ir.IntOperand(0)})
+	return ir.TempOperand(dst)
 }
 
 func (c *Compiler) compileExpr(expr ast.Expr) int {

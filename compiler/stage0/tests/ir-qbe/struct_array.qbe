@@ -10,11 +10,15 @@ export function l $dast_user_main() {
 
 @entry
   %t0 =l call $dast_alloc(l $str_data_0, l 16, l 8)
-  call $dast_mem_store(l %t0, l 0, l 8, l 1)
-  call $dast_mem_store(l %t0, l 8, l 8, l 2)
-  %t1 =l call $dast_mem_load_s(l %t0, l 0, l 8)
-  call $dast_mem_store(l %t0, l 8, l 8, l 3)
-  %t2 =l call $dast_mem_field_addr(l %t0, l 8)
+  %t7 =l add %t0, 0
+  storel 1, %t7
+  %t8 =l add %t0, 8
+  storel 2, %t8
+  %t9 =l add %t0, 0
+  %t1 =l load %t9
+  %t10 =l add %t0, 8
+  storel 3, %t10
+  %t2 =l add %t0, 8
   storel 4, %t2
   %t3 =l call $dast_array_new(l 8, l 8, l 3)
   call $dast_array_push(l %t3, l 1)

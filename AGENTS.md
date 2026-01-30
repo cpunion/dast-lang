@@ -325,6 +325,8 @@ dast lsp
 6. **Test thoroughly**: Especially borrow checker and type system
 7. **Document as you go**: Update design docs when adding features
 8. **Layered correctness**: Validate lex → AST → semantics → IR → codegen in order. Prefer layer‑local unit tests over black‑box runs. Stage0 uses Go unit tests; stage2 uses Dast unit tests (`*_test.dast`) co‑located with the code. Only add run-pass/compile-fail tests when they specifically exercise integration across layers.
+9. **TDD for bugs**: Add a failing layer‑local unit test first, then fix the bug. If a black‑box test fails, add or extend the smallest layer test that pinpoints the failure.
+9. **TDD**: For any behavioral change, add or adjust the smallest unit test at the correct layer first (red), then fix code (green), then refactor if needed. Avoid fixing bugs only via black‑box runs.
 
 ---
 

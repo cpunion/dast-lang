@@ -84,6 +84,10 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		if !ok {
 			return Type{Kind: TypeInvalid}
 		}
+		if baseType.Ref {
+			c.diag.Add(e.Span(), "cannot take reference to reference")
+			return Type{Kind: TypeInvalid}
+		}
 		if baseType.Kind == TypeStr {
 			if e.Mutable {
 				c.diag.Add(e.Span(), "cannot take &mut of string")
@@ -329,6 +333,13 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), "len expects 1 argument")
 					return Type{Kind: TypeInt, Name: "int"}
+				}
+				if refExpr, ok := e.Args[0].(*ast.RefExpr); ok {
+					innerType := c.checkExpr(refExpr.Expr)
+					if innerType.Ref && innerType.Kind != TypeInvalid {
+						c.diag.Add(refExpr.Span(), "len expects reference to String/str or array")
+						return Type{Kind: TypeInt, Name: "int"}
+					}
 				}
 				argType := c.checkExpr(e.Args[0])
 				if !argType.Ref {

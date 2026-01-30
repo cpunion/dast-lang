@@ -63,6 +63,7 @@ const TK_PERCENT = 59
 const TK_CARET = 60
 const TK_SHL = 61
 const TK_SHR = 62
+const TK_FLOAT = 63
 
 // Character constants used by the lexer.
 const CH_TAB = '\t'
@@ -113,6 +114,11 @@ fn tok(kind: i32, text: String) -> Token {
 
 fn tok_int(v: i64) -> Token {
     return Token { kind: TK_INT, text: "", name: "", int_value: v, bool_value: false }
+}
+
+fn tok_float(text: String) -> Token {
+    let name = string_clone(&text)
+    return Token { kind: TK_FLOAT, text: text, name: name, int_value: 0, bool_value: false }
 }
 
 fn tok_bool(v: bool) -> Token {
@@ -192,11 +198,17 @@ fn lex_read_ident(l: &mut Lexer) -> String {
     return str_substr(&l.src, start, l.idx - start)
 }
 
-fn lex_read_number(l: &mut Lexer) -> i64 {
+fn lex_read_number(l: &mut Lexer) -> Token {
     let start = l.idx
     while lex_is_digit(lex_peek(l)) { let _ = lex_advance(l) }
+    if lex_peek(l) == CH_DOT && lex_peek_next(l) != CH_DOT && lex_is_digit(lex_peek_next(l)) {
+        let _ = lex_advance(l)
+        while lex_is_digit(lex_peek(l)) { let _ = lex_advance(l) }
+        let text = str_substr(&l.src, start, l.idx - start)
+        return tok_float(text)
+    }
     let text = str_substr(&l.src, start, l.idx - start)
-    return parse_int_simple(&text)
+    return tok_int(parse_int_simple(&text))
 }
 
 fn lex_escape_piece(c: i64) -> String {
@@ -299,10 +311,7 @@ fn lexer_next(l: &mut Lexer) -> Token {
         if text == "false" { return tok_bool(false) }
         return tok(TK_IDENT, text)
     }
-    if lex_is_digit(c) {
-        let v = lex_read_number(l)
-        return tok_int(v)
-    }
+    if lex_is_digit(c) { return lex_read_number(l) }
     if c == CH_QUOTE {
         let s = lex_read_string(l)
         return tok(TK_STRING, s)

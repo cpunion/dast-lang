@@ -1,17 +1,17 @@
 // Unit tests for emit_binary_expr codegen selection.
 
-fn assert_true(cond: bool, msg: &str) {
+fn assert_true(cond: bool, msg: String) {
     if !cond {
         println("assert_true failed", msg)
         exit(1)
     }
 }
 
-fn body_contains(lines: & [String], needle: &str) -> bool {
+fn body_contains(lines: & [String], needle: String) -> bool {
     let mut i = 0
     while i < len(lines) {
         let line = &(*lines)[i]
-        if str_has_substr(line, needle) { return true }
+        if str_has_substr(line, &needle) { return true }
         i = i + 1
     }
     return false
@@ -30,15 +30,15 @@ fn str_has_substr(s: &str, sub: &str) -> bool {
     return false
 }
 
-fn setup_emitter(t1: &str, t2: &str) -> Emitter {
+fn setup_emitter_emit(t1: String, t2: String) -> Emitter {
     let mut e = emitter_new()
     let mut names: [String] = []
     let mut types: [String] = []
     let mut muts: [bool] = []
     push(&mut names, "a")
     push(&mut names, "b")
-    push(&mut types, string_clone(t1))
-    push(&mut types, string_clone(t2))
+    push(&mut types, t1)
+    push(&mut types, t2)
     push(&mut muts, false)
     push(&mut muts, false)
     e.var_names = names
@@ -47,54 +47,77 @@ fn setup_emitter(t1: &str, t2: &str) -> Emitter {
     return e
 }
 
-fn bin_expr(op: &str) -> Expr {
-    let mut args: [Expr] = []
-    push(&mut args, expr_ident("a"))
-    push(&mut args, expr_ident("b"))
-    return expr_binary(string_clone(op), args)
+fn bin_expr_emit(op: String) -> Expr {
+    return expr_binary(op, expr_ident("a"), expr_ident("b"))
 }
 
 fn test_emit_div_ops() {
-    let mut e1 = setup_emitter("i32", "i16")
-    let expr1 = bin_expr("/")
+    let mut e1 = setup_emitter_emit("i32", "i32")
+    let expr1 = bin_expr_emit("/")
     let v1 = emit_binary_expr(&mut e1, &expr1)
     assert_true(v1.typ == "i32", "signed div result type")
     assert_true(body_contains(&e1.body, " div "), "signed div opcode")
 
-    let mut e2 = setup_emitter("u32", "u16")
-    let expr2 = bin_expr("/")
+    let mut e2 = setup_emitter_emit("u32", "u32")
+    let expr2 = bin_expr_emit("/")
     let v2 = emit_binary_expr(&mut e2, &expr2)
     assert_true(v2.typ == "u32", "unsigned div result type")
     assert_true(body_contains(&e2.body, " udiv "), "unsigned div opcode")
 }
 
 fn test_emit_cmp_ops() {
-    let mut e1 = setup_emitter("i8", "i16")
-    let expr1 = bin_expr("<")
+    let mut e1 = setup_emitter_emit("i16", "i16")
+    let expr1 = bin_expr_emit("<")
     let _ = emit_binary_expr(&mut e1, &expr1)
     assert_true(body_contains(&e1.body, " csltw "), "signed cmp opcode")
 
-    let mut e2 = setup_emitter("u8", "u16")
-    let expr2 = bin_expr("<")
+    let mut e2 = setup_emitter_emit("u16", "u16")
+    let expr2 = bin_expr_emit("<")
     let _ = emit_binary_expr(&mut e2, &expr2)
     assert_true(body_contains(&e2.body, " cultw "), "unsigned cmp opcode")
 }
 
 fn test_emit_shift_ops() {
-    let mut e1 = setup_emitter("i16", "u8")
-    let expr1 = bin_expr(">>")
+    let mut e1 = setup_emitter_emit("i16", "u8")
+    let expr1 = bin_expr_emit(">>")
     let _ = emit_binary_expr(&mut e1, &expr1)
     assert_true(body_contains(&e1.body, " sar "), "signed shift opcode")
 
-    let mut e2 = setup_emitter("u16", "u8")
-    let expr2 = bin_expr(">>")
+    let mut e2 = setup_emitter_emit("u16", "u8")
+    let expr2 = bin_expr_emit(">>")
     let _ = emit_binary_expr(&mut e2, &expr2)
     assert_true(body_contains(&e2.body, " shr "), "unsigned shift opcode")
 }
 
 fn test_emit_peer_type() {
-    let mut e = setup_emitter("i16", "u16")
-    let expr = bin_expr("+")
+    let mut e = setup_emitter_emit("i16", "i16")
+    let expr = bin_expr_emit("+")
     let v = emit_binary_expr(&mut e, &expr)
-    assert_true(v.typ == "i32", "peer type i32 for i16+u16")
+    assert_true(v.typ == "i16", "peer type i16 for i16+i16")
+}
+
+fn test_emit_char_literal() {
+    let mut e = emitter_new()
+    let c = expr_char(97)
+    let v = emit_expr(&mut e, &c)
+    assert_true(v.typ == "i64", "char literal qbe type")
+    assert_true(v.expr == "97", "char literal value")
+}
+
+fn test_emit_unit_field_store_skipped() {
+    let mut e = emitter_new()
+    let base = "%t0"
+    let typ = "unit"
+    emit_mem_store_value(&mut e, &base, 0, &typ, "0")
+    assert_true(len(&e.body) == 0, "unit field store emits no code")
+}
+
+fn test_emit_unit_field_load() {
+    let mut e = emitter_new()
+    let base = "%t0"
+    let typ = "unit"
+    let v = emit_mem_load_value(&mut e, &base, 0, &typ)
+    assert_true(v.typ == "unit", "unit field load type")
+    assert_true(v.expr == "0", "unit field load value")
+    assert_true(len(&e.body) == 0, "unit field load emits no code")
 }

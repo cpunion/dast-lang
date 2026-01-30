@@ -174,6 +174,18 @@ static int dast_array_debug_match(const DastArray *arr) {
 	return g_array_debug_id == 0 || arr->debug_id == g_array_debug_id;
 }
 
+static int dast_array_is_tracked(const DastArray *arr) {
+	if (!arr) {
+		return 0;
+	}
+	for (size_t i = 0; i < g_array_allocs_len; i++) {
+		if (g_array_allocs[i] == (void *)arr) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static void dast_debug_backtrace(void) {
 	void *frames[32];
 	int n = backtrace(frames, 32);
@@ -444,7 +456,7 @@ static int dast_untrack_string(DastString *s) {
 }
 
 static void dast_track_array(DastArray *arr) {
-	if (!g_drop_debug || !arr) {
+	if ((!g_drop_debug && !g_array_debug) || !arr) {
 		return;
 	}
 	for (size_t i = 0; i < g_array_allocs_len; i++) {
@@ -461,7 +473,7 @@ static void dast_track_array(DastArray *arr) {
 }
 
 static int dast_untrack_array(DastArray *arr) {
-	if (!g_drop_debug || !arr) {
+	if ((!g_drop_debug && !g_array_debug) || !arr) {
 		return 1;
 	}
 	for (size_t i = 0; i < g_array_allocs_len; i++) {
@@ -723,6 +735,16 @@ dast_int dast_array_len(DastArray *arr) {
 	if (!arr) {
 		return 0;
 	}
+	dast_array_debug_init();
+	if (g_array_debug && !dast_array_is_tracked(arr)) {
+		fprintf(stderr, "stage0: <runtime>:0:0: error array pointer not tracked %p (tracked=%zu)\n",
+		        (void *)arr, g_array_allocs_len);
+		for (size_t i = 0; i < g_array_allocs_len && i < 8; i++) {
+			fprintf(stderr, "stage0: <runtime>:0:0: tracked[%zu]=%p\n", i, g_array_allocs[i]);
+		}
+		dast_debug_backtrace();
+		dast_rt_panic("array pointer not tracked");
+	}
 	if (dast_array_debug_match(arr)) {
 		fprintf(stderr, "stage0: <runtime>:0:0: array len id=%lld len=%lld\n",
 		        (long long)arr->debug_id, (long long)arr->len);
@@ -836,6 +858,20 @@ dast_int dast_mem_load_u(void *ptr, dast_int offset, dast_int size) {
 void *dast_mem_field_addr(void *ptr, dast_int offset) {
 	dast_mem_bounds_check(ptr, offset, 1);
 	return (unsigned char *)ptr + (size_t)offset;
+}
+
+void *dast_mem_field_addr_size(void *ptr, dast_int offset, dast_int size) {
+	dast_mem_bounds_check(ptr, offset, size);
+	return (unsigned char *)ptr + (size_t)offset;
+}
+
+void dast_mem_copy_field(void *dst_base, dast_int dst_off, void *src, dast_int size) {
+	if (size <= 0) {
+		return;
+	}
+	dast_mem_bounds_check(dst_base, dst_off, size);
+	unsigned char *dst = (unsigned char *)dst_base + (size_t)dst_off;
+	memcpy(dst, src, (size_t)size);
 }
 
 static DastString *dast_string_alloc(size_t len) {
@@ -1343,6 +1379,7 @@ void dast_free(void *ptr) {
 		fprintf(stderr, "stage0: <runtime>:0:0: drop struct %p (%s)\n", ptr, sname);
 	}
 	if (g_drop_debug && dast_ptr_in_freed(ptr)) {
+		dast_debug_backtrace();
 		dast_rt_panic("struct double free");
 	}
 	if (hdr && hdr->raw) {

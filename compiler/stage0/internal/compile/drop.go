@@ -119,7 +119,7 @@ func isBorrowedTypeName(t string) bool {
 		"WildcardPattern", "VariantPattern", "StructPatternField", "StructPattern", "BindPattern", "RangePattern", "LiteralPattern", "Pattern",
 		"MatchArm", "MatchStmt", "Block", "Stmt", "AssignStmt", "FunctionDecl", "ImplDecl", "ImportItemSpec", "ImportDecl",
 		"TraitMethod", "AssociatedType", "AssociatedTypeImpl", "TraitDecl", "ImplTrait", "TraitBound", "TypeAlias", "Program", "CompileItem",
-		"MacroValue",
+		"MacroValue", "MacroEnv", "MacroCtx", "EvalResult", "QuoteSplice", "RenameMap",
 		// Stage2 IR values are also passed by value pervasively; until move tracking
 		// is complete, treat them as borrowed to prevent drop-time corruption.
 		"IrArraySafety", "IrArrayValue", "IrBinOp", "IrBlock", "IrBranch", "IrCall", "IrCallClosure",
@@ -131,7 +131,8 @@ func isBorrowedTypeName(t string) bool {
 		// Stage2 backend/driver helpers are still value-heavy; avoid auto-drop.
 		"StringMap", "StringListMap", "CgInfer", "CgTypeArgs", "ResolvedCall", "TempFieldList", "FuncInstance", "FuncInstanceResult",
 		"QbeCallArg", "QbeDerefResult", "QbeDispatchHelper", "QbeEmitter", "QbeExprLines", "QbeFuncCtx", "QbeStringConst", "QbeStructField", "QbeStructLayout",
-		"ArgSplit", "ArgSplitPkg", "ImportLoad", "LineCol", "LoadState", "Manifest", "ManifestResult", "ParseResult", "StringArrayParse", "TestCollect":
+		"ArgSplit", "ArgSplitPkg", "ImportLoad", "ImportSpec", "DepSpec", "Manifest", "ManifestInfo", "ManifestResult",
+		"WorkspaceInfo", "PackageInfo", "FileUnit", "LoadCtx", "LoadResult", "LineCol", "LoadState", "ParseResult", "StringArrayParse", "TestCollect":
 		return true
 	default:
 		return false
@@ -329,7 +330,8 @@ func (c *Compiler) emitDropHelpers() {
 		// Stage2 backend/driver helpers.
 		"StringMap", "StringListMap", "CgInfer", "CgTypeArgs", "ResolvedCall", "TempFieldList", "FuncInstance", "FuncInstanceResult",
 		"QbeCallArg", "QbeDerefResult", "QbeDispatchHelper", "QbeEmitter", "QbeExprLines", "QbeFuncCtx", "QbeStringConst", "QbeStructField", "QbeStructLayout",
-		"ArgSplit", "ArgSplitPkg", "ImportLoad", "LineCol", "LoadState", "Manifest", "ManifestResult", "ParseResult", "StringArrayParse", "TestCollect",
+		"ArgSplit", "ArgSplitPkg", "ImportLoad", "ImportSpec", "DepSpec", "Manifest", "ManifestInfo", "ManifestResult",
+		"WorkspaceInfo", "PackageInfo", "FileUnit", "LoadCtx", "LoadResult", "LineCol", "LoadState", "ParseResult", "StringArrayParse", "TestCollect",
 	} {
 		_, hasBaseDrop := c.dropFuncs[base]
 		_, hasArrayDrop := c.dropFuncs["["+base+"]"]

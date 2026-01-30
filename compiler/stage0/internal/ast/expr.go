@@ -23,6 +23,14 @@ type IntLit struct {
 func (e *IntLit) exprNode()         {}
 func (e *IntLit) Span() source.Span { return e.SpanInfo }
 
+type FloatLit struct {
+	Text     string
+	SpanInfo source.Span
+}
+
+func (e *FloatLit) exprNode()         {}
+func (e *FloatLit) Span() source.Span { return e.SpanInfo }
+
 type BoolLit struct {
 	Value    bool
 	SpanInfo source.Span

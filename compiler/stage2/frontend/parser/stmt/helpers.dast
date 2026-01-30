@@ -120,7 +120,7 @@ fn desugar_let_pattern(p: &mut Parser, names: & [String], rhs: Expr, mutable: bo
     let mut stmts: [Stmt] = []
     push(&mut stmts, stmt_let(string_clone(&tmp), false, false, "", rhs))
     let base = expr_ident(string_clone(&tmp))
-    let mut binds = desugar_pattern_lets(&names, &base, mutable)
+    let mut binds = desugar_pattern_lets(names, &base, mutable)
     let mut i = 0
     while i < len(&binds) {
         push(&mut stmts, binds[i])
@@ -211,7 +211,7 @@ fn desugar_for_stmt(p: &mut Parser, names: & [String], iter_expr: Expr, body: Bl
     } else {
         push(&mut body_stmts, stmt_let(string_clone(&elem_name), false, false, "", elem_expr))
         let base = expr_ident(string_clone(&elem_name))
-        let mut binds = desugar_pattern_lets(&names, &base, false)
+        let mut binds = desugar_pattern_lets(names, &base, false)
         let mut bi = 0
         while bi < len(&binds) {
             push(&mut body_stmts, binds[bi])

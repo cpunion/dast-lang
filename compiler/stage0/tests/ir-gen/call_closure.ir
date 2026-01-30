@@ -1,6 +1,6 @@
 ir v0
 type $Env = { count: *i64 }
-type Closure = { func: String, env: $Env }
+type Closure = { func: usize, env: $Env }
 
 fn __drop_Closure(v: Closure) -> unit
   block entry0:
@@ -8,18 +8,11 @@ fn __drop_Closure(v: Closure) -> unit
     t1: bool = == v, t0
     branch t1, done2, drop1
   block drop1:
-    t2: String = v.func
-    call __drop_String(t2)
-    t3:  = v.env
-    call __drop__Env(t3)
+    t2:  = v.env
+    call __drop__Env(t2)
     call struct_free(v)
     jump done2
   block done2:
-    return
-
-fn __drop_String(v: String) -> unit
-  block entry0:
-    call string_free(v)
     return
 
 fn __drop__Env(v: $Env) -> unit
@@ -57,7 +50,7 @@ fn main() -> unit
 
 fn main$0($env: $Env) -> unit
   block entry0:
-    t0 = .count
+    t0 = $env.count
     t1 = load_ref t0
     t2 = + t1, 1
     store_ref t0, t2

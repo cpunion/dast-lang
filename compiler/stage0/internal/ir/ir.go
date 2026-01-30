@@ -11,6 +11,7 @@ type Kind int
 
 const (
 	KindInt Kind = iota
+	KindFloat
 	KindBool
 	KindString
 	KindUnit
@@ -52,6 +53,11 @@ func IntOperand(n int64) Operand {
 	return ConstOperand(Value{Kind: KindInt, Int: n})
 }
 
+// FloatOperand creates a float constant operand (defaults to f64).
+func FloatOperand(text string) Operand {
+	return ConstOperand(Value{Kind: KindFloat, FloatText: text})
+}
+
 // BoolOperand creates a boolean constant operand
 func BoolOperand(b bool) Operand {
 	return ConstOperand(Value{Kind: KindBool, Bool: b})
@@ -73,6 +79,7 @@ type Value struct {
 	Kind    Kind
 	Int     int64
 	IntType string
+	FloatText string
 	Bool    bool
 	Str     string
 	Ref     int
@@ -107,6 +114,8 @@ func (v Value) String() string {
 			return fmt.Sprintf("%s %d", v.IntType, v.Int)
 		}
 		return fmt.Sprintf("%d", v.Int)
+	case KindFloat:
+		return v.FloatText
 	case KindBool:
 		if v.Bool {
 			return "true"
@@ -165,8 +174,9 @@ func escapeString(s string) string {
 }
 
 type TypeDecl struct {
-	Name   string
-	Fields []Var // For struct types
+	Name     string
+	Borrowed bool
+	Fields   []Var // For struct types
 }
 
 type EnumVariant struct {
@@ -545,6 +555,11 @@ func (p *Program) Format() string {
 		}
 
 		// 3-pass replacement to avoid cascading
+		escapeReplacement := func(s string) string {
+			s = strings.ReplaceAll(s, `\`, `\\`)
+			s = strings.ReplaceAll(s, `$`, `$$`)
+			return s
+		}
 		replaceTempsFn := func(s string) string {
 			// Pass 1: body temps -> intermediate
 			for old, inter := range bodyToIntermediate {
@@ -554,7 +569,7 @@ func (p *Program) Format() string {
 			// Pass 2: param IDs -> param names
 			for old, name := range paramRemap {
 				re := regexp.MustCompile(`\b` + regexp.QuoteMeta(old) + `\b`)
-				s = re.ReplaceAllString(s, name)
+				s = re.ReplaceAllString(s, escapeReplacement(name))
 			}
 			// Pass 3: intermediate -> final temps
 			for inter, final := range intermediateToFinal {

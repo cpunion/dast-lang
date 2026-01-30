@@ -439,7 +439,7 @@ fn quote_placeholder_index(name: &str) -> i64 {
     let prefix = "__dast_splice_"
     let suffix = "__"
     let plen = str_len(&prefix)
-    let slen = str_len(&name)
+    let slen = str_len(name)
     let inner_len = slen - plen - str_len(&suffix)
     if inner_len <= 0 { return -1 }
     let inner = str_substr(name, plen, inner_len)
@@ -459,7 +459,7 @@ fn quote_strip_bind_marker(name: &str) -> String {
     if !quote_is_bind_marker(name) { return string_clone(name) }
     let prefix = "__dast_bind__"
     let plen = str_len(&prefix)
-    let slen = str_len(&name)
+    let slen = str_len(name)
     if slen <= plen { return "" }
     return str_substr(name, plen, slen - plen)
 }
@@ -472,7 +472,7 @@ fn quote_join(out: String, add: &str) -> String {
     if out == "" { return string_clone(add) }
     if add == "" { return out }
     let out_len = str_len(&out)
-    let add_len = str_len(&add)
+    let add_len = str_len(add)
     if out_len > 0 && add_len > 0 {
         let last = str_char_at(&out, out_len - 1)
         let first = str_char_at(add, 0)

@@ -365,15 +365,16 @@ func (c *Compiler) compileClosureExpr(e *ast.ClosureExpr) int {
 		c.prog.TypeDecls["Closure"] = &ir.TypeDecl{
 			Name: "Closure",
 			Fields: []ir.Var{
-				{Name: "func", Type: "String"},
+				{Name: "func", Type: "usize"},
 				{Name: "env", Type: "$Env"},
 			},
 		}
 	}
 	if _, ok := c.prog.TypeDecls["$Env"]; !ok {
 		c.prog.TypeDecls["$Env"] = &ir.TypeDecl{
-			Name:   "$Env",
-			Fields: nil,
+			Name:     "$Env",
+			Borrowed: true,
+			Fields:   nil,
 		}
 	}
 	envDecl := c.prog.TypeDecls["$Env"]

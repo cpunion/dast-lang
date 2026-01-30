@@ -48,6 +48,7 @@ const (
 	ConstInt ConstKind = iota
 	ConstBool
 	ConstString
+	ConstFloat
 )
 
 type ConstValue struct {
@@ -55,6 +56,7 @@ type ConstValue struct {
 	Int  int64
 	Bool bool
 	Str  string
+	FloatText string
 	Span source.Span
 }
 

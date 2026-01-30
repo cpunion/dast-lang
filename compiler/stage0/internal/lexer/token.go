@@ -8,6 +8,7 @@ const (
 	TokenEOF TokenKind = iota
 	TokenIdent
 	TokenInt
+	TokenFloat
 	TokenString
 	TokenChar
 
@@ -95,6 +96,8 @@ func (k TokenKind) String() string {
 		return "IDENT"
 	case TokenInt:
 		return "INT"
+	case TokenFloat:
+		return "FLOAT"
 	case TokenString:
 		return "STRING"
 	case TokenChar:

@@ -148,11 +148,19 @@ func testCmd(args []string) {
 		return
 	}
 	if entry != "" {
+		fmt.Fprintf(os.Stderr, "[test] entry %s\n", entry)
+	} else {
+		fmt.Fprintln(os.Stderr, "[test] entry <none>")
+	}
+	if entry != "" {
 		irProg.Entry = entry
 	}
+	fmt.Fprintln(os.Stderr, "[test] run start")
 	if err := buildAndRun(irProg, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "[test] run error: %v\n", err)
 		exitOnExecErr(err)
 	}
+	fmt.Fprintln(os.Stderr, "[test] run ok")
 }
 
 func buildCmd(args []string) {
@@ -460,7 +468,11 @@ func buildAndRun(prog *ir.Program, progArgs []string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
+	if os.Getenv("DAST_KEEP_TMP") == "" {
+		defer os.RemoveAll(tmpDir)
+	} else {
+		fmt.Fprintln(os.Stderr, "[test] tmp", tmpDir)
+	}
 
 	binPath := filepath.Join(tmpDir, "dast-run")
 	if err := writeExecutable(binPath, prog); err != nil {
@@ -608,6 +620,14 @@ func buildProgram(paths []string, mode loader.LoadMode, testEntry *string, opts 
 		if exitOnDiag(diags) {
 			return nil
 		}
+		if len(tests) == 0 {
+			fmt.Fprintln(os.Stderr, "[test] no tests found")
+		} else {
+			fmt.Fprintf(os.Stderr, "[test] count %d\n", len(tests))
+			for _, t := range tests {
+				fmt.Fprintf(os.Stderr, "[test] %s\n", t.name)
+			}
+		}
 		testMain, diagMain := buildTestMain(prog, tests)
 		if exitOnDiag(diagMain) {
 			return nil
@@ -686,9 +706,23 @@ func buildTestMain(prog *ast.Program, tests []testInfo) (*ast.Function, *diag.Ba
 	}
 	block := &ast.Block{SpanInfo: span}
 	for _, t := range tests {
+		startArgs := []ast.Expr{
+			&ast.StringLit{Value: "test", SpanInfo: t.span},
+			&ast.StringLit{Value: t.name, SpanInfo: t.span},
+		}
+		startCall := &ast.CallExpr{Callee: "println", Args: startArgs, SpanInfo: t.span}
+		startStmt := &ast.ExprStmt{Expr: startCall, SpanInfo: t.span}
+		block.Stmts = append(block.Stmts, startStmt)
 		call := &ast.CallExpr{Callee: t.name, Args: nil, SpanInfo: t.span}
 		stmt := &ast.ExprStmt{Expr: call, SpanInfo: t.span}
 		block.Stmts = append(block.Stmts, stmt)
+		okArgs := []ast.Expr{
+			&ast.StringLit{Value: "ok", SpanInfo: t.span},
+			&ast.StringLit{Value: t.name, SpanInfo: t.span},
+		}
+		okCall := &ast.CallExpr{Callee: "println", Args: okArgs, SpanInfo: t.span}
+		okStmt := &ast.ExprStmt{Expr: okCall, SpanInfo: t.span}
+		block.Stmts = append(block.Stmts, okStmt)
 	}
 	okArgs := []ast.Expr{
 		&ast.StringLit{Value: "ok", SpanInfo: span},

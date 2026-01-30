@@ -208,6 +208,9 @@ func (p *Parser) parsePrimary() ast.Expr {
 	case lexer.TokenInt:
 		p.advance()
 		return &ast.IntLit{Value: parseInt(tok.Lexeme), SpanInfo: tok.Span}
+	case lexer.TokenFloat:
+		p.advance()
+		return &ast.FloatLit{Text: tok.Lexeme, SpanInfo: tok.Span}
 	case lexer.TokenString:
 		p.advance()
 		return &ast.StringLit{Value: tok.Lexeme, SpanInfo: tok.Span}

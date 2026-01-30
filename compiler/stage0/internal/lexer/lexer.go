@@ -39,8 +39,12 @@ func (l *Lexer) Next() Token {
 		return Token{Kind: kind, Lexeme: lex, Span: source.Span{Start: start, End: l.position()}}
 	}
 	if unicode.IsDigit(r) {
-		lex := l.readNumber()
-		return Token{Kind: TokenInt, Lexeme: lex, Span: source.Span{Start: start, End: l.position()}}
+		lex, isFloat := l.readNumber()
+		kind := TokenInt
+		if isFloat {
+			kind = TokenFloat
+		}
+		return Token{Kind: kind, Lexeme: lex, Span: source.Span{Start: start, End: l.position()}}
 	}
 
 	switch r {
@@ -272,12 +276,29 @@ func (l *Lexer) readIdent() string {
 	return string(l.src[start:l.idx])
 }
 
-func (l *Lexer) readNumber() string {
+func (l *Lexer) readNumber() (string, bool) {
 	start := l.idx
 	for !l.eof() && unicode.IsDigit(l.peek()) {
 		l.advance()
 	}
-	return string(l.src[start:l.idx])
+	if !l.eof() && l.peek() == '.' {
+		// Avoid consuming range operators like ".." or "..=".
+		if !l.peekAhead("..") && l.peekNextIsDigit() {
+			l.advance() // consume '.'
+			for !l.eof() && unicode.IsDigit(l.peek()) {
+				l.advance()
+			}
+			return string(l.src[start:l.idx]), true
+		}
+	}
+	return string(l.src[start:l.idx]), false
+}
+
+func (l *Lexer) peekNextIsDigit() bool {
+	if l.idx+1 >= len(l.src) {
+		return false
+	}
+	return unicode.IsDigit(l.src[l.idx+1])
 }
 
 func (l *Lexer) readString() (string, bool) {

@@ -20,6 +20,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     match expr.kind {
         EXPR_INT => { return qbe_value("i64", int_to_string(expr.int_value)) }
         EXPR_CHAR => { return qbe_value("i64", int_to_string(expr.int_value)) }
+        EXPR_FLOAT => { return qbe_value("f64", "d_" + string_clone(&expr.float_text)) }
         EXPR_BOOL => {
             if expr.bool_value { return qbe_value("bool", "1") }
             return qbe_value("bool", "0")
@@ -109,6 +110,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 elem_t = "i32"
                 arr_name = "[" + string_clone(&elem_t) + "]"
             }
+            if elem_t == "untyped-float" {
+                elem_t = "f64"
+                arr_name = "[" + string_clone(&elem_t) + "]"
+            }
             let elem_size = type_size(e, &elem_t)
             let elem_align = type_align(e, &elem_t)
             let cap = len(&expr.args)
@@ -119,8 +124,17 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             while i < len(&expr.args) {
                 let v = emit_typed_value(e, expr_arg_ref(expr, i, "emit_array_elem"), &elem_t)
                 let casted = cast_to_type(e, v, &elem_t)
-                let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
-                emit_line(e, "  call $dast_array_push(l " + tn + ", l " + as_l + ")")
+                if type_is_float(e, &elem_t) {
+                    emit_line(e, "  call $dast_array_push(l " + tn + ", l 0)")
+                    let addr_tmp = new_temp(e)
+                    let addr_tn = temp_name(addr_tmp)
+                    emit_line(e, "  " + addr_tn + " =l call $dast_array_index_addr(l " + tn + ", l " + int_to_string(i) + ")")
+                    let op = store_op_for_type(e, &elem_t)
+                    emit_line(e, "  " + op + " " + casted + ", " + addr_tn)
+                } else {
+                    let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
+                    emit_line(e, "  call $dast_array_push(l " + tn + ", l " + as_l + ")")
+                }
                 i = i + 1
             }
             return qbe_value(arr_name, tn)
@@ -131,6 +145,17 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let idxv = emit_expr(e, expr_arg_ref(expr, 1, "emit_index_idx"))
             let idx = cast_to_l(e, idxv)
             let elem_t = expr_type(e, expr)
+            if type_is_float(e, &elem_t) {
+                let addr_tmp = new_temp(e)
+                let addr_tn = temp_name(addr_tmp)
+                emit_line(e, "  " + addr_tn + " =l call $dast_array_index_addr(l " + recv.expr + ", l " + idx + ")")
+                let tmp = new_temp(e)
+                let tn = temp_name(tmp)
+                let op = load_op_for_type(e, &elem_t)
+                let q = qbe_type(e, &elem_t)
+                emit_line(e, "  " + tn + " =" + q + " " + op + " " + addr_tn)
+                return qbe_value(elem_t, tn)
+            }
             let get_fn = array_get_fn_for_type(e, &elem_t)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
@@ -161,9 +186,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 let v = emit_typed_value(e, &f.value, &ftyp)
                 let casted = cast_to_type(e, v, &ftyp)
                 let off = struct_field_offset(e, &st_name, &fname)
-                let size = type_size(e, &ftyp)
-                let as_l = cast_to_l(e, qbe_value(string_clone(&ftyp), casted))
-                emit_line(e, "  call $dast_mem_store(l " + tn + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ", l " + as_l + ")")
+                emit_mem_store_value(e, &tn, off, &ftyp, casted)
                 i = i + 1
             }
             return qbe_value(st_name, tn)
@@ -210,12 +233,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 exit(1)
             }
             let off = struct_field_offset(e, &recv_base, &fname)
-            let size = type_size(e, &ftyp)
-            let get_fn = struct_load_fn_for_type(e, &ftyp)
-            let tmp = new_temp(e)
-            let tn = temp_name(tmp)
-            emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + recv_expr + ", l " + int_to_string(off) + ", l " + int_to_string(size) + ")")
-            return qbe_value(ftyp, tn)
+            if type_is_struct(e, &ftyp) {
+                return emit_mem_load_value_owned(e, &recv_expr, off, &ftyp)
+            }
+            return emit_mem_load_value(e, &recv_expr, off, &ftyp)
         }
         EXPR_UNARY => { return emit_unary_expr(e, expr) }
         EXPR_BINARY => {
@@ -393,8 +414,12 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let mut rt = func_ret_type_for_call(e, &expr.name, &expr.args)
             let di = func_decl_index(e, &expr.name)
             let mut param_types: [String] = []
+            let mut call_type_params: [String] = []
             if di >= 0 {
                 let f = &e.func_decls[di]
+                if len(&f.type_params) > 0 {
+                    call_type_params = func_type_param_names(f)
+                }
                 if len(&f.type_params) > 0 {
                     let values = func_type_args_for_call(e, f, &expr.args)
                     let mut ok = true
@@ -447,24 +472,39 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                         let arg_t = expr_type(e, arg_expr)
                         if type_is_ref(e, &arg_t) {
                             if !type_compatible(e, &pt, &arg_t) {
-                                println("stage2: call arg type mismatch expected", pt, "got", arg_t)
-                                exit(1)
+                                let ok_generic = type_matches_generic(e, &pt, &arg_t)
+                                let ok_params = len(&call_type_params) > 0 && type_matches_pattern(e, &pt, &arg_t, &call_type_params)
+                                let ok_base = type_base_match(e, &pt, &arg_t)
+                                if !ok_generic && !ok_params && !ok_base {
+                                    println("stage2: call arg type mismatch expected", pt, "got", arg_t)
+                                    exit(1)
+                                }
                             }
                             v = emit_expr(e, arg_expr)
                         } else {
                             let base_t = type_ref_base(e, &pt)
                             if !type_compatible_expr(e, &base_t, arg_expr) {
                                 let actual = expr_type(e, arg_expr)
-                                println("stage2: call arg type mismatch expected", base_t, "got", actual)
-                                exit(1)
+                                let ok_generic = type_matches_generic(e, &base_t, &actual)
+                                let ok_params = len(&call_type_params) > 0 && type_matches_pattern(e, &base_t, &actual, &call_type_params)
+                                let ok_base = type_base_match(e, &base_t, &actual)
+                                if !ok_generic && !ok_params && !ok_base {
+                                    println("stage2: call arg type mismatch expected", base_t, "got", actual)
+                                    exit(1)
+                                }
                             }
                             v = emit_auto_borrow(e, arg_expr, &pt)
                         }
                     } else if pt != "" {
                         if !type_compatible_expr(e, &pt, arg_expr) {
                             let actual = expr_type(e, arg_expr)
-                            println("stage2: call arg type mismatch expected", pt, "got", actual)
-                            exit(1)
+                            let ok_generic = type_matches_generic(e, &pt, &actual)
+                            let ok_params = len(&call_type_params) > 0 && type_matches_pattern(e, &pt, &actual, &call_type_params)
+                            let ok_base = type_base_match(e, &pt, &actual)
+                            if !ok_generic && !ok_params && !ok_base {
+                                println("stage2: call arg type mismatch expected", pt, "got", actual)
+                                exit(1)
+                            }
                         }
                         v = emit_typed_value(e, arg_expr, &pt)
                     } else {

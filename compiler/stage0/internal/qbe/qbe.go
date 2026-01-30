@@ -419,9 +419,10 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 				if off < 0 {
 					panic("invalid Closure func offset")
 				}
-				size := typeSize(e, p, "i64")
 				fnName := f.Src.Const.Str
-				lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %%t%d, l %d, l %d, l $%s)", i.Dst, off, size, mangleFunc(fnName)))
+				addr := e.newTemp()
+				lines = append(lines, fmt.Sprintf("%%t%d =l add %%t%d, %d", addr, i.Dst, off))
+				lines = append(lines, fmt.Sprintf("storel $%s, %%t%d", mangleFunc(fnName), addr))
 				continue
 			}
 			ft := fieldType(p, ti, i.Name, f.Name)
@@ -431,14 +432,28 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 			if ft == "" {
 				ft = "i64"
 			}
-			valExpr, valLines := e.castOperand(ti, f.Src, "i64")
+			if normalizeType(ft) == "unit" {
+				continue
+			}
+			valExpr, valLines := e.castOperand(ti, f.Src, ft)
 			lines = append(lines, valLines...)
 			off := fieldOffset(e, p, i.Name, f.Name)
 			if off < 0 {
 				panic(fmt.Sprintf("unknown field %s in %s", f.Name, i.Name))
 			}
-			size := typeSize(e, p, ft)
-			lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %%t%d, l %d, l %d, l %s)", i.Dst, off, size, valExpr))
+			if isStructType(ft) && inlineStructField(p, ft) {
+				sz := typeLayoutSize(e, p, ft)
+				if f.Src.IsConst && f.Src.Const.Kind == ir.KindUnit {
+					lines = emitZeroMemStores(lines, fmt.Sprintf("%%t%d", i.Dst), off, sz)
+				} else {
+					lines = append(lines, fmt.Sprintf("call $dast_mem_copy_field(l %%t%d, l %d, l %s, l %d)", i.Dst, off, valExpr, sz))
+				}
+			} else {
+				addr := e.newTemp()
+				lines = append(lines, fmt.Sprintf("%%t%d =l add %%t%d, %d", addr, i.Dst, off))
+				op := storeOpForType(e, p, ft)
+				lines = append(lines, fmt.Sprintf("%s %s, %%t%d", op, valExpr, addr))
+			}
 		}
 		return lines
 	case *ir.GetField:
@@ -450,19 +465,34 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if ft == "" {
 			ft = "i64"
 		}
-		getFn := structLoadFn(p, ft)
+		if normalizeType(ft) == "unit" {
+			lines := append([]string{}, srcLines...)
+			lines = append(lines, fmt.Sprintf("%%t%d =%s copy 0", i.Dst, qbeType("unit")))
+			return lines
+		}
 		retType := ft
+		inlineStruct := isStructType(retType) && inlineStructField(p, retType)
 		rawTemp := i.Dst
-		if qbeType(retType) != "l" {
+		if qbeType(retType) != "l" || inlineStruct {
 			rawTemp = e.newTemp()
 		}
 		off := fieldOffset(e, p, baseType(srcType), i.Field)
 		if off < 0 {
 			panic(fmt.Sprintf("unknown field %s in %s", i.Field, baseType(srcType)))
 		}
-		size := typeSize(e, p, ft)
 		lines := append([]string{}, srcLines...)
-		lines = append(lines, fmt.Sprintf("%%t%d =l call $%s(l %s, l %d, l %d)", rawTemp, getFn, srcExpr, off, size))
+		addr := e.newTemp()
+		lines = append(lines, fmt.Sprintf("%%t%d =l add %s, %d", addr, srcExpr, off))
+		if inlineStruct {
+			stName := baseType(retType)
+			sz := typeLayoutSize(e, p, retType)
+			al := structLayoutAlign(e, p, retType)
+			lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_alloc(l %s, l %d, l %d)", rawTemp, e.stringDataRef(stName), sz, al))
+			lines = append(lines, fmt.Sprintf("call $dast_mem_copy_field(l %%t%d, l 0, l %%t%d, l %d)", rawTemp, addr, sz))
+		} else {
+			op := loadOpForType(e, p, retType)
+			lines = append(lines, fmt.Sprintf("%%t%d =%s %s %%t%d", rawTemp, qbeType(retType), op, addr))
+		}
 		if rawTemp != i.Dst {
 			lines = append(lines, fmt.Sprintf("%%t%d =%s copy %%t%d", i.Dst, qbeType(retType), rawTemp))
 		}
@@ -476,15 +506,29 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if ft == "" {
 			ft = "i64"
 		}
-		valExpr, valLines := e.castOperand(ti, i.Value, "i64")
+		if normalizeType(ft) == "unit" {
+			return srcLines
+		}
+		valExpr, valLines := e.castOperand(ti, i.Value, ft)
 		off := fieldOffset(e, p, baseType(srcType), i.Field)
 		if off < 0 {
 			panic(fmt.Sprintf("unknown field %s in %s", i.Field, baseType(srcType)))
 		}
-		size := typeSize(e, p, ft)
 		lines := append([]string{}, srcLines...)
 		lines = append(lines, valLines...)
-		lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %s, l %d, l %d, l %s)", srcExpr, off, size, valExpr))
+		if isStructType(ft) && inlineStructField(p, ft) {
+			sz := typeLayoutSize(e, p, ft)
+			if i.Value.IsConst && i.Value.Const.Kind == ir.KindUnit {
+				lines = emitZeroMemStores(lines, srcExpr, off, sz)
+			} else {
+				lines = append(lines, fmt.Sprintf("call $dast_mem_copy_field(l %s, l %d, l %s, l %d)", srcExpr, off, valExpr, sz))
+			}
+		} else {
+			addr := e.newTemp()
+			lines = append(lines, fmt.Sprintf("%%t%d =l add %s, %d", addr, srcExpr, off))
+			op := storeOpForType(e, p, ft)
+			lines = append(lines, fmt.Sprintf("%s %s, %%t%d", op, valExpr, addr))
+		}
 		return lines
 	case *ir.FieldAddr:
 		srcExpr, srcLines, _ := e.derefOperand(p, ti, ir.TempOperand(i.Src))
@@ -494,7 +538,7 @@ func (e *emitter) emitInstr(p *ir.Program, fn *ir.Function, ti *typeInfo, inst i
 		if off < 0 {
 			panic(fmt.Sprintf("unknown field %s in %s", i.Field, srcType))
 		}
-		lines = append(lines, fmt.Sprintf("%%t%d =l call $dast_mem_field_addr(l %s, l %d)", i.Dst, srcExpr, off))
+		lines = append(lines, fmt.Sprintf("%%t%d =l add %s, %d", i.Dst, srcExpr, off))
 		return lines
 	case *ir.IndexAddr:
 		baseExpr, baseLines, _ := e.derefOperand(p, ti, ir.TempOperand(i.Base))
@@ -617,7 +661,7 @@ func (e *emitter) emitBuiltinCall(p *ir.Program, ti *typeInfo, dst int, callee s
 	case "print", "println", "eprint", "eprintln":
 		return e.emitPrintCall(ti, dst, callee, args)
 	case "len":
-		return e.emitLenCall(ti, dst, args)
+		return e.emitLenCall(p, ti, dst, args)
 	case "string_clone":
 		if len(args) != 1 {
 			if dst >= 0 {
@@ -673,19 +717,22 @@ func (e *emitter) emitBuiltinCall(p *ir.Program, ti *typeInfo, dst int, callee s
 	return lines
 }
 
-func (e *emitter) emitLenCall(ti *typeInfo, dst int, args []ir.Operand) []string {
+func (e *emitter) emitLenCall(p *ir.Program, ti *typeInfo, dst int, args []ir.Operand) []string {
 	if len(args) != 1 {
 		return []string{fmt.Sprintf("call $dast_string_len(l 0)")}
 	}
-	argType := ti.operandType(args[0])
+	argExpr, argLines, argType := e.derefOperand(p, ti, args[0])
 	fn := "dast_string_len"
 	if isArrayType(argType) {
 		fn = "dast_array_len"
 	}
+	lines := append([]string{}, argLines...)
 	if dst >= 0 {
-		return []string{fmt.Sprintf("%%t%d =%s call $%s(l %s)", dst, qbeType("int"), fn, e.operandExpr(args[0]))}
+		lines = append(lines, fmt.Sprintf("%%t%d =%s call $%s(l %s)", dst, qbeType("int"), fn, argExpr))
+		return lines
 	}
-	return []string{fmt.Sprintf("call $%s(l %s)", fn, e.operandExpr(args[0]))}
+	lines = append(lines, fmt.Sprintf("call $%s(l %s)", fn, argExpr))
+	return lines
 }
 
 func (e *emitter) emitPrintCall(ti *typeInfo, dst int, callee string, args []ir.Operand) []string {
@@ -1062,6 +1109,30 @@ func (e *emitter) constExpr(v ir.Value) string {
 	}
 }
 
+func emitZeroMemStores(lines []string, base string, off int64, size int64) []string {
+	if size <= 0 {
+		return lines
+	}
+	remain := size
+	cur := int64(0)
+	for remain > 0 {
+		chunk := int64(8)
+		if remain < 8 {
+			if remain >= 4 {
+				chunk = 4
+			} else if remain >= 2 {
+				chunk = 2
+			} else {
+				chunk = 1
+			}
+		}
+		lines = append(lines, fmt.Sprintf("call $dast_mem_store(l %s, l %d, l %d, l 0)", base, off+cur, chunk))
+		remain -= chunk
+		cur += chunk
+	}
+	return lines
+}
+
 type typeInfo struct {
 	tempTypes []string
 	defTypes  []string
@@ -1427,6 +1498,12 @@ func qbeType(typ string) string {
 	if typ == "bool" {
 		return "w"
 	}
+	if typ == "f32" {
+		return "s"
+	}
+	if typ == "f64" {
+		return "d"
+	}
 	switch typ {
 	case "i8", "u8", "i16", "u16":
 		return "w"
@@ -1451,10 +1528,10 @@ func storeOpForType(e *emitter, p *ir.Program, t string) string {
 		return "storeb"
 	}
 	if t == "f32" {
-		return "storew"
+		return "stores"
 	}
 	if t == "f64" {
-		return "storel"
+		return "stored"
 	}
 	if w := typeIntWidth(t, e.ptrSize); w > 0 {
 		switch w {
@@ -1484,10 +1561,10 @@ func loadOpForType(e *emitter, p *ir.Program, t string) string {
 		return "loadub"
 	}
 	if t == "f32" {
-		return "loaduw"
+		return "loads"
 	}
 	if t == "f64" {
-		return "load"
+		return "loadd"
 	}
 	if w := typeIntWidth(t, e.ptrSize); w > 0 {
 		switch w {
@@ -1611,6 +1688,43 @@ func typeAlign(e *emitter, p *ir.Program, t string) int64 {
 	return int64(e.ptrSize)
 }
 
+// Layout size/align when embedding in a struct (C layout).
+func typeLayoutSize(e *emitter, p *ir.Program, t string) int64 {
+	t = normalizeType(t)
+	if isStructType(t) {
+		if inlineStructField(p, t) {
+			return structLayoutSize(e, p, t)
+		}
+		return int64(e.ptrSize)
+	}
+	return typeSize(e, p, t)
+}
+
+func typeLayoutAlign(e *emitter, p *ir.Program, t string) int64 {
+	t = normalizeType(t)
+	if isStructType(t) {
+		if inlineStructField(p, t) {
+			return structLayoutAlign(e, p, t)
+		}
+		return int64(e.ptrSize)
+	}
+	return typeAlign(e, p, t)
+}
+
+func inlineStructField(p *ir.Program, t string) bool {
+	t = normalizeType(t)
+	if !isStructType(t) {
+		return false
+	}
+	st := baseType(t)
+	if p != nil && p.TypeDecls != nil {
+		if td, ok := p.TypeDecls[st]; ok {
+			return !td.Borrowed
+		}
+	}
+	return true
+}
+
 func alignTo(n, align int64) int64 {
 	if align <= 1 {
 		return n
@@ -1635,12 +1749,12 @@ func structFieldOffset(e *emitter, p *ir.Program, structType, field string) int6
 	var off int64
 	for _, f := range td.Fields {
 		ft := f.Type
-		al := typeAlign(e, p, ft)
+		al := typeLayoutAlign(e, p, ft)
 		off = alignTo(off, al)
 		if f.Name == field {
 			return off
 		}
-		off += typeSize(e, p, ft)
+		off += typeLayoutSize(e, p, ft)
 	}
 	return -1
 }
@@ -1657,7 +1771,7 @@ func structLayoutAlign(e *emitter, p *ir.Program, structType string) int64 {
 	}
 	var max int64 = 1
 	for _, f := range td.Fields {
-		al := typeAlign(e, p, f.Type)
+		al := typeLayoutAlign(e, p, f.Type)
 		if al > max {
 			max = al
 		}
@@ -1678,12 +1792,12 @@ func structLayoutSize(e *emitter, p *ir.Program, structType string) int64 {
 	var off int64
 	var max int64 = 1
 	for _, f := range td.Fields {
-		al := typeAlign(e, p, f.Type)
+		al := typeLayoutAlign(e, p, f.Type)
 		if al > max {
 			max = al
 		}
 		off = alignTo(off, al)
-		off += typeSize(e, p, f.Type)
+		off += typeLayoutSize(e, p, f.Type)
 	}
 	return alignTo(off, max)
 }
@@ -1737,7 +1851,7 @@ func enumPayloadSize(e *emitter, p *ir.Program, enumName string) int64 {
 			if v.PayloadType == "" || v.PayloadType == "unit" {
 				continue
 			}
-			sz := typeSize(e, p, v.PayloadType)
+			sz := typeLayoutSize(e, p, v.PayloadType)
 			if sz > max {
 				max = sz
 			}
@@ -1756,7 +1870,7 @@ func enumPayloadAlign(e *emitter, p *ir.Program, enumName string) int64 {
 			if v.PayloadType == "" || v.PayloadType == "unit" {
 				continue
 			}
-			al := typeAlign(e, p, v.PayloadType)
+			al := typeLayoutAlign(e, p, v.PayloadType)
 			if al > max {
 				max = al
 			}
@@ -1819,6 +1933,24 @@ func qbeCmpOp(op string, typ string) string {
 	suffix := qbeType(typ)
 	if suffix == "" {
 		suffix = "l"
+	}
+	if typ == "f32" || typ == "f64" {
+		switch op {
+		case "==":
+			return "ceq" + suffix
+		case "!=":
+			return "cne" + suffix
+		case "<":
+			return "clt" + suffix
+		case "<=":
+			return "cle" + suffix
+		case ">":
+			return "cgt" + suffix
+		case ">=":
+			return "cge" + suffix
+		default:
+			return "ceq" + suffix
+		}
 	}
 	unsigned := isUnsignedIntType(typ)
 	switch op {
