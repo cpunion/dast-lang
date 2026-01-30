@@ -235,3 +235,55 @@ fn test_double_ref_rejected() {
         exit(1)
     }
 }
+
+fn assert_i64_eq(got: i64, exp: i64) {
+    if got != exp {
+        println("assert_i64_eq failed", got, exp)
+        exit(1)
+    }
+}
+
+fn add_struct_sig(e: &mut Emitter, name: &str, fields: [StructFieldSig]) {
+    let mut sigs = e.struct_sigs
+    let mut params: [String] = []
+    push(&mut sigs, StructSig { name: string_clone(name), type_params: params, fields: fields })
+    e.struct_sigs = sigs
+}
+
+fn test_type_size_align_basic() {
+    let mut e64 = emitter_new_with_target(64)
+    assert_i64_eq(type_size(&e64, "bool"), 1)
+    assert_i64_eq(type_align(&e64, "bool"), 1)
+    assert_i64_eq(type_size(&e64, "char"), 4)
+    assert_i64_eq(type_align(&e64, "char"), 4)
+    assert_i64_eq(type_size(&e64, "i16"), 2)
+    assert_i64_eq(type_align(&e64, "i16"), 2)
+    assert_i64_eq(type_size(&e64, "i32"), 4)
+    assert_i64_eq(type_align(&e64, "i32"), 4)
+    assert_i64_eq(type_size(&e64, "i64"), 8)
+    assert_i64_eq(type_align(&e64, "i64"), 8)
+    assert_i64_eq(type_size(&e64, "isize"), 8)
+    assert_i64_eq(type_align(&e64, "isize"), 8)
+
+    let mut e32 = emitter_new_with_target(32)
+    assert_i64_eq(type_size(&e32, "isize"), 4)
+    assert_i64_eq(type_align(&e32, "isize"), 4)
+}
+
+fn test_struct_layout_c() {
+    let mut e = emitter_new_with_target(64)
+    let mut fields_s: [StructFieldSig] = []
+    push(&mut fields_s, StructFieldSig { name: "a", typ: "i8" })
+    push(&mut fields_s, StructFieldSig { name: "b", typ: "i32" })
+    add_struct_sig(&mut e, "S", fields_s)
+
+    let mut fields_t: [StructFieldSig] = []
+    push(&mut fields_t, StructFieldSig { name: "s", typ: "S" })
+    push(&mut fields_t, StructFieldSig { name: "c", typ: "u16" })
+    add_struct_sig(&mut e, "T", fields_t)
+
+    assert_i64_eq(struct_layout_align(&e, "S"), 4)
+    assert_i64_eq(struct_layout_size(&e, "S"), 8)
+    assert_i64_eq(struct_layout_align(&e, "T"), 4)
+    assert_i64_eq(struct_layout_size(&e, "T"), 12)
+}

@@ -1,5 +1,0 @@
-fn main() {
-    let a: int = 1
-    let b: int = 2
-    let _ = a && b
-}

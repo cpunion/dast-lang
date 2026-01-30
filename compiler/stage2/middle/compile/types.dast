@@ -257,6 +257,12 @@ fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
     let declared = type_resolve(e, expected)
     let actual = type_resolve(e, actual)
     if declared == actual { return true }
+    if declared == "str" && actual == "String" { return true }
+    if type_is_ref_raw(&declared) && type_is_ref_raw(&actual) {
+        let eb = type_ref_base_raw(&declared)
+        let ab = type_ref_base_raw(&actual)
+        if eb == "str" && ab == "String" && !type_is_mut_ref_raw(&declared) { return true }
+    }
     let exp_args = type_args_parse(&declared)
     let act_args = type_args_parse(&actual)
     if exp_args.has || act_args.has {

@@ -1,5 +1,0 @@
-fn main() {
-    let a: bool = true
-    let b: int = 1
-    let _ = a << b
-}

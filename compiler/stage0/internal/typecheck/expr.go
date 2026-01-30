@@ -32,6 +32,11 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 	case *ast.BoolLit:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case *ast.StringLit:
+		if exp, ok := c.currentExpected(); ok {
+			if exp.Kind == TypeStr && exp.Ref && !exp.Mut {
+				return Type{Kind: TypeStr, Name: "str", Ref: true}
+			}
+		}
 		return Type{Kind: TypeString, Name: "String"}
 	case *ast.FloatLit:
 		if exp, ok := c.currentExpected(); ok {
@@ -105,6 +110,12 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		c.diag.Add(e.Span(), "macro call must be expanded before typecheck")
 		return Type{Kind: TypeInvalid}
 	case *ast.RefExpr:
+		if _, ok := e.Expr.(*ast.StringLit); ok {
+			if e.Mutable {
+				c.diag.Add(e.Span(), "cannot take &mut of string literal")
+			}
+			return Type{Kind: TypeStr, Name: "str", Ref: true}
+		}
 		baseType, mutable, ok := c.checkRefTarget(e.Expr)
 		if !ok {
 			return Type{Kind: TypeInvalid}
@@ -948,6 +959,8 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 
 func (c *Checker) checkRefTarget(expr ast.Expr) (Type, bool, bool) {
 	switch e := expr.(type) {
+	case *ast.StringLit:
+		return Type{Kind: TypeStr, Name: "str"}, false, true
 	case *ast.IdentExpr:
 		info, ok := c.env.lookup(e.Name)
 		if !ok {

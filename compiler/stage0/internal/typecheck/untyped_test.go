@@ -104,43 +104,6 @@ enum OptionI32 {
     None,
 }
 
-func TestPatternRangeChar(t *testing.T) {
-	src := `
-fn main() {
-    let c = 'b'
-    match c {
-        'a'..='c' => {}
-        _ => {}
-    }
-}
-
-func TestEqualityWithUnaryIntLiteral(t *testing.T) {
-	src := `
-fn main() {
-    let x: i64 = -6
-    if x == -6 { } else { }
-}
-`
-	prog, diags := parser.Parse("test.dast", src)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected parse errors: %s", diags.Error())
-	}
-	_, diags = CheckAndMonomorph(prog)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected type errors: %s", diags.Error())
-	}
-}
-`
-	prog, diags := parser.Parse("test.dast", src)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected parse errors: %s", diags.Error())
-	}
-	_, diags = CheckAndMonomorph(prog)
-	if diags.HasErrors() {
-		t.Fatalf("unexpected type errors: %s", diags.Error())
-	}
-}
-
 fn main() {
     let opt = OptionI32.Some(10)
     match opt {
@@ -191,5 +154,42 @@ fn main() {
 	}
 	if c.diag.HasErrors() {
 		t.Fatalf("unexpected diagnostics: %s", c.diag.Error())
+	}
+}
+
+func TestPatternRangeChar(t *testing.T) {
+	src := `
+fn main() {
+    let c = 'b'
+    match c {
+        'a'..='c' => {}
+        _ => {}
+    }
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
+	}
+}
+
+func TestEqualityWithUnaryIntLiteral(t *testing.T) {
+	src := `
+fn main() {
+    let x: i64 = -6
+    if x == -6 { } else { }
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
 	}
 }

@@ -11,6 +11,8 @@ func isBorrowableExpr(expr ast.Expr) bool {
 	switch expr.(type) {
 	case *ast.IdentExpr, *ast.AccessExpr, *ast.IndexExpr:
 		return true
+	case *ast.StringLit:
+		return true
 	default:
 		return false
 	}
@@ -25,6 +27,9 @@ func (c *Checker) tryAutoBorrow(arg ast.Expr, argType Type, expect Type) (ast.Ex
 	}
 	baseExpect := derefType(expect)
 	if baseExpect.Kind == TypeStr && argType.Kind == TypeString {
+		if _, ok := arg.(*ast.StringLit); ok {
+			return arg, Type{Kind: TypeStr, Name: "str", Ref: true}
+		}
 		// allow auto-borrow String -> &str
 	} else if !typesAssignable(argType, baseExpect) {
 		return arg, argType
