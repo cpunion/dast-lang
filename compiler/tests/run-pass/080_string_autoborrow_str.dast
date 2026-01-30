@@ -3,6 +3,6 @@ fn slen(s: &String) -> i64 {
 }
 
 fn main() {
-    let s = "hello"
+    let s = string_clone("hello")
     println("a", slen(&s))
 }

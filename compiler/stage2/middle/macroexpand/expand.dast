@@ -400,7 +400,7 @@ fn replace_block_splices(block: &Block, splices: & [QuoteSplice]) -> Block {
 
 fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue {
     let mut splices = quote_splice_list_empty()
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     while i < len(&expr.quote_parts) {
         let part = &expr.quote_parts[i]

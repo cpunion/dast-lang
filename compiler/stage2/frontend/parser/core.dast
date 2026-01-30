@@ -44,9 +44,9 @@ fn parser_expect(p: &mut Parser, kind: i32, label: String) -> Token {
 }
 
 fn parser_int_to_string(n: i64) -> String {
-    if n == 0 { return "0" }
+    if n == 0 { return string_clone("0") }
     let mut x = n
-    let mut out = ""
+    let mut out = string_clone("")
     let mut neg = false
     if x < 0 {
         neg = true

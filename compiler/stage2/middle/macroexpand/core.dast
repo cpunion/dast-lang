@@ -294,7 +294,7 @@ fn macro_value_expect_string(v: &MacroValue) -> String {
     if v.kind == MV_STRING { return string_clone(&v.str_value) }
     println("stage2: macro expects String/str")
     exit(1)
-    return ""
+    return string_clone("")
 }
 
 fn macro_value_to_string(v: &MacroValue) -> String {
@@ -304,7 +304,7 @@ fn macro_value_to_string(v: &MacroValue) -> String {
     }
     println("stage2: ast_to_string unsupported value")
     exit(1)
-    return ""
+    return string_clone("")
 }
 
 fn macro_value_expect_expr(v: &MacroValue) -> Expr {
@@ -612,42 +612,42 @@ fn quote_splice_list_empty() -> [QuoteSplice] {
 }
 
 fn quote_placeholder_name(id: i64) -> String {
-    return "__dast_splice_" + int_to_string(id) + "__"
+    return string_clone("__dast_splice_") + int_to_string(id) + "__"
 }
 
 fn quote_is_placeholder(name: &str) -> bool {
     let prefix = "__dast_splice_"
     let suffix = "__"
-    return str_has_prefix(name, &prefix) && str_has_suffix(name, &suffix)
+    return str_has_prefix(name, prefix) && str_has_suffix(name, suffix)
 }
 
 fn quote_placeholder_index(name: &str) -> i64 {
     if !quote_is_placeholder(name) { return -1 }
     let prefix = "__dast_splice_"
     let suffix = "__"
-    let plen = str_len(&prefix)
+    let plen = str_len(prefix)
     let slen = str_len(name)
-    let inner_len = slen - plen - str_len(&suffix)
+    let inner_len = slen - plen - str_len(suffix)
     if inner_len <= 0 { return -1 }
     let inner = str_substr(name, plen, inner_len)
     return parse_int_simple(&inner)
 }
 
 fn quote_bind_marker(name: &str) -> String {
-    return "__dast_bind__" + string_clone(name)
+    return string_clone("__dast_bind__") + string_clone(name)
 }
 
 fn quote_is_bind_marker(name: &str) -> bool {
     let prefix = "__dast_bind__"
-    return str_has_prefix(name, &prefix)
+    return str_has_prefix(name, prefix)
 }
 
 fn quote_strip_bind_marker(name: &str) -> String {
     if !quote_is_bind_marker(name) { return string_clone(name) }
     let prefix = "__dast_bind__"
-    let plen = str_len(&prefix)
+    let plen = str_len(prefix)
     let slen = str_len(name)
-    if slen <= plen { return "" }
+    if slen <= plen { return string_clone("") }
     return str_substr(name, plen, slen - plen)
 }
 

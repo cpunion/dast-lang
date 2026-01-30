@@ -344,7 +344,7 @@ fn emit_line(e: &mut Emitter, line: String) {
 }
 
 fn mangle_name(name: &str) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     let n = str_len(name)
     while i < n {
@@ -358,7 +358,7 @@ fn mangle_name(name: &str) -> String {
         }
         i = i + 1
     }
-    if out == "" { return "_" }
+    if out == "" { return string_clone("_") }
     return out
 }
 
@@ -388,22 +388,22 @@ fn enum_call_parse(name: &str) -> EnumCall {
 }
 
 fn var_slot(name: &str) -> String {
-    return "v_" + mangle_name(name)
+    return string_clone("v_") + mangle_name(name)
 }
 
 fn int_to_string(n: i64) -> String {
-    if n == 0 { return "0" }
+    if n == 0 { return string_clone("0") }
     let mut v = n
     let mut neg = false
     if v < 0 {
         neg = true
         v = -v
     }
-    let mut out = ""
+    let mut out = string_clone("")
     let digits = "0123456789"
     while v > 0 {
         let d = v % 10
-        out = str_substr(&digits, d, 1) + out
+        out = str_substr(digits, d, 1) + out
         v = v / 10
     }
     if neg { out = "-" + out }
@@ -411,7 +411,7 @@ fn int_to_string(n: i64) -> String {
 }
 
 fn temp_name(id: i64) -> String {
-    return "%t" + int_to_string(id)
+    return string_clone("%t") + int_to_string(id)
 }
 
 fn new_temp(e: &mut Emitter) -> i64 {
@@ -466,13 +466,13 @@ fn pop_continue_label(e: &mut Emitter) {
 
 fn top_break_label(e: &Emitter) -> String {
     let n = len(&e.break_labels)
-    if n == 0 { return "" }
+    if n == 0 { return string_clone("") }
     return string_clone(&e.break_labels[n - 1])
 }
 
 fn top_continue_label(e: &Emitter) -> String {
     let n = len(&e.continue_labels)
-    if n == 0 { return "" }
+    if n == 0 { return string_clone("") }
     return string_clone(&e.continue_labels[n - 1])
 }
 
@@ -490,22 +490,22 @@ fn expr_arg_ref(expr: &Expr, idx: i64, ctx: String) -> &Expr {
 
 fn type_is_ref_raw(t: &str) -> bool {
     let prefix = "&"
-    return string_has_prefix(t, &prefix)
+    return string_has_prefix(t, prefix)
 }
 
 fn type_is_mut_ref_raw(t: &str) -> bool {
     let prefix = "&mut "
-    return string_has_prefix(t, &prefix)
+    return string_has_prefix(t, prefix)
 }
 
 fn type_ref_base_raw(t: &str) -> String {
     let mut_prefix = "&mut "
     let ref_prefix = "&"
-    if string_has_prefix(t, &mut_prefix) {
+    if string_has_prefix(t, mut_prefix) {
         let n = str_len(t)
         return substr(string_clone(t), 5, n - 5)
     }
-    if string_has_prefix(t, &ref_prefix) {
+    if string_has_prefix(t, ref_prefix) {
         let n = str_len(t)
         return substr(string_clone(t), 1, n - 1)
     }
@@ -514,12 +514,12 @@ fn type_ref_base_raw(t: &str) -> String {
 
 fn type_is_array_raw(t: &str) -> bool {
     let prefix = "["
-    return string_has_prefix(t, &prefix)
+    return string_has_prefix(t, prefix)
 }
 
 fn type_array_elem_raw(t: &str) -> String {
     let n = str_len(t)
-    if n <= 2 { return "i64" }
+    if n <= 2 { return string_clone("i64") }
     return substr(string_clone(t), 1, n - 2)
 }
 
@@ -570,11 +570,11 @@ fn type_subst(e: &Emitter, t: &str, params: & [String], args: & [String]) -> Str
     let rt = type_resolve(e, t)
     if type_is_ref_raw(&rt) {
         let base = type_ref_base_raw(&rt)
-        return "&" + type_subst(e, &base, params, args)
+        return string_clone("&") + type_subst(e, &base, params, args)
     }
     if type_is_array_raw(&rt) {
         let elem = type_array_elem_raw(&rt)
-        return "[" + type_subst(e, &elem, params, args) + "]"
+        return string_clone("[") + type_subst(e, &elem, params, args) + "]"
     }
     let parsed = type_args_parse(&rt)
     if parsed.has {
@@ -617,7 +617,7 @@ fn type_alias_index(e: &Emitter, name: &str) -> i64 {
 fn type_resolve(e: &Emitter, t: &str) -> String {
     let cur = string_clone(t)
     if cur == "" { return cur }
-    if cur == "int" { return "i64" }
+    if cur == "int" { return string_clone("i64") }
     if cur == "string" {
         println("stage2: use String/str instead of string")
         exit(1)
@@ -630,13 +630,13 @@ fn type_resolve(e: &Emitter, t: &str) -> String {
             exit(1)
         }
         if type_is_mut_ref_raw(&cur) {
-            return "&mut " + resolved
+            return string_clone("&mut ") + resolved
         }
-        return "&" + resolved
+        return string_clone("&") + resolved
     }
     if type_is_array_raw(&cur) {
         let elem = type_array_elem_raw(&cur)
-        return "[" + type_resolve(e, &elem) + "]"
+        return string_clone("[") + type_resolve(e, &elem) + "]"
     }
     let mut out = cur
     let mut steps = 0
@@ -681,10 +681,10 @@ fn type_is_unit(e: &Emitter, t: &str) -> bool {
 
 fn block_expr_type(e: &Emitter, b: &Block) -> String {
     let n = len(&b.stmts)
-    if n == 0 { return "unit" }
+    if n == 0 { return string_clone("unit") }
     let last = &b.stmts[n - 1]
     if last.kind == STMT_EXPR { return expr_type(e, &last.expr) }
-    return "unit"
+    return string_clone("unit")
 }
 
 fn type_is_i32(e: &Emitter, t: &str) -> bool {
@@ -794,9 +794,9 @@ fn int_value_fits_type(e: &Emitter, val: i64, t: &str) -> bool {
 fn int_peer_type(e: &Emitter, lt: &str, rt: &str) -> String {
     let ltr = type_resolve(e, lt)
     let rtr = type_resolve(e, rt)
-    if !type_is_int(e, &ltr) || !type_is_int(e, &rtr) { return "" }
+    if !type_is_int(e, &ltr) || !type_is_int(e, &rtr) { return string_clone("") }
     if ltr == rtr { return string_clone(&ltr) }
-    return ""
+    return string_clone("")
 }
 
 fn type_size(e: &Emitter, t: &str) -> i64 {
@@ -882,7 +882,7 @@ fn type_is_array(e: &Emitter, t: &str) -> bool {
 
 fn type_array_elem(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if !type_is_array_raw(&rt) { return "i64" }
+    if !type_is_array_raw(&rt) { return string_clone("i64") }
     return type_array_elem_raw(&rt)
 }
 
@@ -905,101 +905,101 @@ fn type_strip_args(e: &Emitter, t: &str) -> String {
 fn qbe_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
     if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
-        return "l"
+        return string_clone("l")
     }
-    if type_is_enum(e, &rt) { return "l" }
-    if rt == "bool" { return "w" }
-    if rt == "f32" { return "s" }
-    if rt == "f64" { return "d" }
+    if type_is_enum(e, &rt) { return string_clone("l") }
+    if rt == "bool" { return string_clone("w") }
+    if rt == "f32" { return string_clone("s") }
+    if rt == "f64" { return string_clone("d") }
     let w = type_int_width(e, &rt)
     if w > 0 {
-        if w <= 32 { return "w" }
-        return "l"
+        if w <= 32 { return string_clone("w") }
+        return string_clone("l")
     }
-    return "l"
+    return string_clone("l")
 }
 
 fn qbe_cmp_op(e: &Emitter, op: String, typ: String) -> String {
     let rt = type_resolve(e, &typ)
     let suffix = qbe_type(e, &rt)
     if type_is_float(e, &rt) {
-        if op == "==" { return "ceq" + suffix }
-        if op == "!=" { return "cne" + suffix }
-        if op == "<" { return "clt" + suffix }
-        if op == "<=" { return "cle" + suffix }
-        if op == ">" { return "cgt" + suffix }
-        if op == ">=" { return "cge" + suffix }
-        return "ceq" + suffix
+        if op == "==" { return string_clone("ceq") + suffix }
+        if op == "!=" { return string_clone("cne") + suffix }
+        if op == "<" { return string_clone("clt") + suffix }
+        if op == "<=" { return string_clone("cle") + suffix }
+        if op == ">" { return string_clone("cgt") + suffix }
+        if op == ">=" { return string_clone("cge") + suffix }
+        return string_clone("ceq") + suffix
     }
     let unsigned = type_is_unsigned_int(e, &rt)
-    if op == "==" { return "ceq" + suffix }
-    if op == "!=" { return "cne" + suffix }
+    if op == "==" { return string_clone("ceq") + suffix }
+    if op == "!=" { return string_clone("cne") + suffix }
     if op == "<" {
-        if unsigned { return "cult" + suffix }
-        return "cslt" + suffix
+        if unsigned { return string_clone("cult") + suffix }
+        return string_clone("cslt") + suffix
     }
     if op == "<=" {
-        if unsigned { return "cule" + suffix }
-        return "csle" + suffix
+        if unsigned { return string_clone("cule") + suffix }
+        return string_clone("csle") + suffix
     }
     if op == ">" {
-        if unsigned { return "cugt" + suffix }
-        return "csgt" + suffix
+        if unsigned { return string_clone("cugt") + suffix }
+        return string_clone("csgt") + suffix
     }
     if op == ">=" {
-        if unsigned { return "cuge" + suffix }
-        return "csge" + suffix
+        if unsigned { return string_clone("cuge") + suffix }
+        return string_clone("csge") + suffix
     }
-    return "ceq" + suffix
+    return string_clone("ceq") + suffix
 }
 
 fn store_op_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
     if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
-        return "storel"
+        return string_clone("storel")
     }
     if type_is_enum(e, &rt) {
-        if enum_has_payload(e, &rt) { return "storel" }
+        if enum_has_payload(e, &rt) { return string_clone("storel") }
         let tag_t = enum_tag_type(e, &rt)
         return store_op_for_type(e, &tag_t)
     }
-    if rt == "bool" { return "storeb" }
-    if rt == "f32" { return "stores" }
-    if rt == "f64" { return "stored" }
+    if rt == "bool" { return string_clone("storeb") }
+    if rt == "f32" { return string_clone("stores") }
+    if rt == "f64" { return string_clone("stored") }
     let w = type_int_width(e, &rt)
-    if w == 8 { return "storeb" }
-    if w == 16 { return "storeh" }
-    if w == 32 { return "storew" }
-    return "storel"
+    if w == 8 { return string_clone("storeb") }
+    if w == 16 { return string_clone("storeh") }
+    if w == 32 { return string_clone("storew") }
+    return string_clone("storel")
 }
 
 fn load_op_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
     if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
-        return "load"
+        return string_clone("load")
     }
     if type_is_enum(e, &rt) {
-        if enum_has_payload(e, &rt) { return "load" }
+        if enum_has_payload(e, &rt) { return string_clone("load") }
         let tag_t = enum_tag_type(e, &rt)
         return load_op_for_type(e, &tag_t)
     }
-    if rt == "bool" { return "loadub" }
-    if rt == "f32" { return "loads" }
-    if rt == "f64" { return "loadd" }
+    if rt == "bool" { return string_clone("loadub") }
+    if rt == "f32" { return string_clone("loads") }
+    if rt == "f64" { return string_clone("loadd") }
     let w = type_int_width(e, &rt)
     if w == 8 {
-        if type_is_signed_int(e, &rt) { return "loadsb" }
-        return "loadub"
+        if type_is_signed_int(e, &rt) { return string_clone("loadsb") }
+        return string_clone("loadub")
     }
     if w == 16 {
-        if type_is_signed_int(e, &rt) { return "loadsh" }
-        return "loaduh"
+        if type_is_signed_int(e, &rt) { return string_clone("loadsh") }
+        return string_clone("loaduh")
     }
     if w == 32 {
-        if type_is_signed_int(e, &rt) { return "loadsw" }
-        return "loaduw"
+        if type_is_signed_int(e, &rt) { return string_clone("loadsw") }
+        return string_clone("loaduw")
     }
-    return "load"
+    return string_clone("load")
 }
 
 fn list_index(items: & [String], name: &str) -> i64 {
@@ -1025,7 +1025,7 @@ fn enum_var_index(e: &Emitter, name: &str) -> i64 {
 
 fn enum_var_hint(e: &Emitter, name: &str) -> String {
     let idx = enum_var_index(e, name)
-    if idx < 0 { return "" }
+    if idx < 0 { return string_clone("") }
     return string_clone(&e.enum_var_types[idx])
 }
 
@@ -1071,9 +1071,9 @@ fn struct_field_index(e: &Emitter, struct_name: &str, field: &str) -> i64 {
 
 fn struct_field_type(e: &Emitter, struct_name: &str, field: &str) -> String {
     let si = struct_index(e, struct_name)
-    if si < 0 { return "" }
+    if si < 0 { return string_clone("") }
     let fi = struct_field_index(e, struct_name, field)
-    if fi < 0 { return "" }
+    if fi < 0 { return string_clone("") }
     let mut ft = string_clone(&e.struct_sigs[si].fields[fi].typ)
     let sig = &e.struct_sigs[si]
     if len(&sig.type_params) > 0 {

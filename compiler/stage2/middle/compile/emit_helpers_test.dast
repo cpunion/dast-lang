@@ -35,8 +35,8 @@ fn setup_emitter_emit(t1: String, t2: String) -> Emitter {
     let mut names: [String] = []
     let mut types: [String] = []
     let mut muts: [bool] = []
-    push(&mut names, "a")
-    push(&mut names, "b")
+    push(&mut names, string_clone("a"))
+    push(&mut names, string_clone("b"))
     push(&mut types, t1)
     push(&mut types, t2)
     push(&mut muts, false)
@@ -121,7 +121,7 @@ fn test_emit_unit_field_store_skipped() {
     let mut e = emitter_new()
     let base = "%t0"
     let typ = "unit"
-    emit_mem_store_value(&mut e, &base, 0, &typ, "0")
+    emit_mem_store_value(&mut e, base, 0, typ, "0")
     assert_true(len(&e.body) == 0, "unit field store emits no code")
 }
 
@@ -129,7 +129,7 @@ fn test_emit_unit_field_load() {
     let mut e = emitter_new()
     let base = "%t0"
     let typ = "unit"
-    let v = emit_mem_load_value(&mut e, &base, 0, &typ)
+    let v = emit_mem_load_value(&mut e, base, 0, typ)
     assert_true(v.typ == "unit", "unit field load type")
     assert_true(v.expr == "0", "unit field load value")
     assert_true(len(&e.body) == 0, "unit field load emits no code")

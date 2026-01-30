@@ -475,7 +475,7 @@ func constValueType(v ast.ConstValue) Type {
 	case ast.ConstBool:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case ast.ConstString:
-		return Type{Kind: TypeString, Name: "String"}
+		return Type{Kind: TypeStr, Name: "str", Ref: true}
 	case ast.ConstChar:
 		return Type{Kind: TypeInt, Name: "char"}
 	case ast.ConstFloat:

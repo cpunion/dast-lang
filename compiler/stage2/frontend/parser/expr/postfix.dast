@@ -113,7 +113,7 @@ fn parse_postfix(p: &mut Parser) -> Expr {
         } else if t.kind == TK_DOT {
             let _ = parser_advance(p)
             let nt = parser_peek(p)
-            let mut fname = ""
+            let mut fname = string_clone("")
             if nt.kind == TK_IDENT {
                 fname = parser_advance(p).text
             } else if nt.kind == TK_INT {

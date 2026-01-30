@@ -212,17 +212,17 @@ fn lex_read_number(l: &mut Lexer) -> Token {
 }
 
 fn lex_escape_piece(c: i64) -> String {
-    if c == CH_LOWER_N { return "\n" }
-    if c == CH_BACKSLASH { return "\\" }
-    if c == CH_QUOTE { return "\"" }
-    if c == CH_APOSTROPHE { return "'" }
-    return ""
+    if c == CH_LOWER_N { return string_clone("\n") }
+    if c == CH_BACKSLASH { return string_clone("\\") }
+    if c == CH_QUOTE { return string_clone("\"") }
+    if c == CH_APOSTROPHE { return string_clone("'") }
+    return string_clone("")
 }
 
 fn lex_read_string(l: &mut Lexer) -> String {
     // Opening quote already checked.
     let _ = lex_advance(l)
-    let mut out = ""
+    let mut out = string_clone("")
     let mut seg_start = l.idx
     while l.idx < l.n {
         let c = lex_peek(l)

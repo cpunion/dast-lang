@@ -1,14 +1,16 @@
 fn emit_string_data(e: &Emitter) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     while i < len(&e.strings) {
         let data = str_data_label(i)
         let st = str_struct_label(i)
+        let rf = str_ref_label(i)
         let s = &e.strings[i]
         let esc = escape_qbe_string(s)
         let slen = str_len(s)
         out = out + "data $" + data + " = { b \"" + esc + "\", b 0 }\n"
         out = out + "data $" + st + " = { l $" + data + ", l " + int_to_string(slen) + ", l " + int_to_string(slen + 1) + " }\n"
+        out = out + "data $" + rf + " = { l $" + st + " }\n"
         i = i + 1
     }
     if out != "" { out = out + "\n" }
@@ -20,7 +22,7 @@ fn expr_lvalue_base(expr: &Expr) -> String {
     if (expr.kind == EXPR_FIELD || expr.kind == EXPR_INDEX) && len(&expr.args) > 0 {
         return expr_lvalue_base(expr_arg_ref(expr, 0, "expr_lvalue_base_recv"))
     }
-    return ""
+    return string_clone("")
 }
 
 fn expr_is_lvalue(expr: &Expr) -> bool {
@@ -56,7 +58,7 @@ fn emit_const_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     }
     if expr.kind == EXPR_STRING {
         let id = ensure_string(e, string_clone(&expr.name))
-        return qbe_value("String", "$" + str_struct_label(id))
+        return qbe_value("&str", "$" + str_ref_label(id))
     }
     if expr.kind == EXPR_IDENT {
         let idx = const_index(e, &expr.name)
@@ -98,26 +100,26 @@ fn ensure_bool_expr(e: &mut Emitter, v: QbeValue) -> String {
     let tmp = new_temp(e)
     let tn = temp_name(tmp)
     let cmp = qbe_cmp_op(e, "!=", string_clone(&v.typ))
-    let zero = if type_is_float(e, &v.typ) { float_zero_const(&v.typ) } else { "0" }
+    let zero = if type_is_float(e, &v.typ) { float_zero_const(&v.typ) } else { string_clone("0") }
     emit_line(e, "  " + tn + " =w " + cmp + " " + v.expr + ", " + zero)
     return tn
 }
 
 fn float_zero_const(t: &str) -> String {
     let rt = string_clone(t)
-    if rt == "f32" { return "s_0" }
-    return "d_0"
+    if rt == "f32" { return string_clone("s_0") }
+    return string_clone("d_0")
 }
 
 fn float_literal_const(t: &str, lit: &str) -> String {
     let rt = string_clone(t)
-    if rt == "f32" { return "s_" + string_clone(lit) }
-    return "d_" + string_clone(lit)
+    if rt == "f32" { return string_clone("s_") + string_clone(lit) }
+    return string_clone("d_") + string_clone(lit)
 }
 
 fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
     let rt = type_resolve(e, target_t)
-    if type_is_unit(e, &rt) { return "0" }
+    if type_is_unit(e, &rt) { return string_clone("0") }
     if type_is_bool(e, &rt) {
         if type_is_bool(e, &v.typ) { return v.expr }
         let tmp = new_temp(e)
@@ -159,7 +161,7 @@ fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
         println("stage2: cannot implicitly cast", src, "to", rt)
         exit(1)
     }
-    if type_is_unit(e, &v.typ) { return "0" }
+    if type_is_unit(e, &v.typ) { return string_clone("0") }
     if type_is_bool(e, &v.typ) {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
@@ -171,7 +173,7 @@ fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
 
 fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
     let t = "i64"
-    return cast_to_type(e, v, &t)
+    return cast_to_type(e, v, t)
 }
 
 fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
@@ -201,6 +203,10 @@ fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
     if expr_is_int_literal(use_expr) && type_is_float(e, &rt) {
         let v = int_to_string(expr_int_literal_value(use_expr))
         return qbe_value(string_clone(&rt), float_literal_const(&rt, &v))
+    }
+    if use_expr.kind == EXPR_STRING && rt == "String" {
+        let id = ensure_string(e, string_clone(&use_expr.name))
+        return qbe_value("String", "$" + str_struct_label(id))
     }
     if use_expr.kind == EXPR_ARRAY && type_is_array(e, &rt) {
         if !type_compatible_expr(e, &rt, use_expr) {
@@ -284,7 +290,7 @@ fn enum_construct(e: &mut Emitter, enum_name: &str, variant: &str, payload: QbeV
     }
     let tag_t = enum_tag_type(e, enum_name)
     let tag_size = type_size(e, &tag_t)
-    let mut tag_expr = ""
+    let mut tag_expr = string_clone("")
     if type_is_int(e, &tag_t) {
         if !int_value_fits_type(e, tag, &tag_t) {
             println("stage2: enum tag out of range for", tag_t)
@@ -647,13 +653,13 @@ fn struct_load_fn_for_type(e: &Emitter, t: &str) -> String {
         let tag_t = enum_tag_type(e, t)
         return struct_load_fn_for_type(e, &tag_t)
     }
-    if type_is_signed_int(e, t) { return "dast_mem_load_s" }
-    return "dast_mem_load_u"
+    if type_is_signed_int(e, t) { return string_clone("dast_mem_load_s") }
+    return string_clone("dast_mem_load_u")
 }
 
 fn array_get_fn_for_type(e: &Emitter, t: &str) -> String {
-    if type_is_signed_int(e, t) { return "dast_array_get_s" }
-    return "dast_array_get_u"
+    if type_is_signed_int(e, t) { return string_clone("dast_array_get_s") }
+    return string_clone("dast_array_get_u")
 }
 
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
@@ -771,13 +777,13 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             return qbe_value(int_t, tn)
         }
         if op == "/" {
-            let mut divop = "div"
+            let mut divop = string_clone("div")
             if type_is_unsigned_int(e, &int_t) { divop = "udiv" }
             emit_line(e, "  " + tn + " =" + q + " " + divop + " " + l + ", " + r)
             return qbe_value(int_t, tn)
         }
         if op == "%" {
-            let mut remop = "rem"
+            let mut remop = string_clone("rem")
             if type_is_unsigned_int(e, &int_t) { remop = "urem" }
             emit_line(e, "  " + tn + " =" + q + " " + remop + " " + l + ", " + r)
             return qbe_value(int_t, tn)
@@ -808,7 +814,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         if op == "<<" {
             emit_line(e, "  " + tn + " =" + q + " shl " + l + ", " + r)
         } else {
-            let mut shift = "sar"
+            let mut shift = string_clone("sar")
             if type_is_unsigned_int(e, &int_t) { shift = "shr" }
             emit_line(e, "  " + tn + " =" + q + " " + shift + " " + l + ", " + r)
         }
@@ -882,7 +888,7 @@ fn emit_unary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
         let q = qbe_type(e, &inner.typ)
-        let zero = if type_is_float(e, &inner.typ) { float_zero_const(&inner.typ) } else { "0" }
+        let zero = if type_is_float(e, &inner.typ) { float_zero_const(&inner.typ) } else { string_clone("0") }
         emit_line(e, "  " + tn + " =" + q + " sub " + zero + ", " + inner.expr)
         return qbe_value(string_clone(&inner.typ), tn)
     }

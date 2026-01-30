@@ -9,17 +9,17 @@ fn assert_str_eq(got: String, exp: String) {
 
 fn int_type_list() -> [String] {
     let mut out: [String] = []
-    push(&mut out, "i8")
-    push(&mut out, "i16")
-    push(&mut out, "i32")
-    push(&mut out, "i64")
-    push(&mut out, "u8")
-    push(&mut out, "u16")
-    push(&mut out, "u32")
-    push(&mut out, "u64")
-    push(&mut out, "isize")
-    push(&mut out, "usize")
-    push(&mut out, "int")
+    push(&mut out, string_clone("i8"))
+    push(&mut out, string_clone("i16"))
+    push(&mut out, string_clone("i32"))
+    push(&mut out, string_clone("i64"))
+    push(&mut out, string_clone("u8"))
+    push(&mut out, string_clone("u16"))
+    push(&mut out, string_clone("u32"))
+    push(&mut out, string_clone("u64"))
+    push(&mut out, string_clone("isize"))
+    push(&mut out, string_clone("usize"))
+    push(&mut out, string_clone("int"))
     return out
 }
 
@@ -28,8 +28,8 @@ fn setup_emitter_types(t1: String, t2: String) -> Emitter {
     let mut names: [String] = []
     let mut types: [String] = []
     let mut muts: [bool] = []
-    push(&mut names, "a")
-    push(&mut names, "b")
+    push(&mut names, string_clone("a"))
+    push(&mut names, string_clone("b"))
     push(&mut types, t1)
     push(&mut types, t2)
     push(&mut muts, false)
@@ -148,6 +148,16 @@ fn test_string_ops() {
     assert_str_eq(expr_type(&e, &ne), "bool")
 }
 
+fn test_string_literal_type() {
+    let mut e = emitter_new()
+    let lit = expr_string(string_clone("hi"))
+    assert_str_eq(expr_type(&e, &lit), "&str")
+    if !type_compatible_expr(&e, "String", &lit) {
+        println("expected string literal to coerce to String when required")
+        exit(1)
+    }
+}
+
 fn test_char_ops() {
     let mut e = setup_emitter_types("char", "char")
     let eq = bin_expr_types("==")
@@ -226,11 +236,11 @@ fn test_double_ref_rejected() {
     let mut e = emitter_new()
     let t_double = "&&i64"
     let t_single = "&i64"
-    if !type_is_double_ref(&e, &t_double) {
+    if !type_is_double_ref(&e, t_double) {
         println("expected &&i64 to be double ref")
         exit(1)
     }
-    if type_is_double_ref(&e, &t_single) {
+    if type_is_double_ref(&e, t_single) {
         println("expected &i64 to not be double ref")
         exit(1)
     }

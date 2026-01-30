@@ -2,7 +2,7 @@
 
 fn read_file(path: &str) -> String {
     let _ = path
-    return ""
+    return string_clone("")
 }
 
 fn write_file(path: &str, data: &str) -> unit {
@@ -22,12 +22,12 @@ fn args() -> [String] {
 }
 
 fn read_line() -> String {
-    return ""
+    return string_clone("")
 }
 
 fn read_bytes(count: i64) -> String {
     let _ = count
-    return ""
+    return string_clone("")
 }
 
 fn exec(cmd: &str, args: [String]) -> i64 {

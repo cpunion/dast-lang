@@ -1,6 +1,6 @@
 fn enum_tag_type(e: &Emitter, enum_name: &str) -> String {
     let ei = enum_index(e, enum_name)
-    if ei < 0 { return "i32" }
+    if ei < 0 { return string_clone("i32") }
     let mut tt = string_clone(&e.enum_sigs[ei].tag_type)
     let sig = &e.enum_sigs[ei]
     if len(&sig.type_params) > 0 {
@@ -11,7 +11,7 @@ fn enum_tag_type(e: &Emitter, enum_name: &str) -> String {
         }
     }
     tt = type_resolve(e, &tt)
-    if tt == "" { return "i32" }
+    if tt == "" { return string_clone("i32") }
     return tt
 }
 
@@ -122,14 +122,14 @@ fn enum_name_for_variant(e: &Emitter, variant: &str) -> String {
         }
         i = i + 1
     }
-    return ""
+    return string_clone("")
 }
 
 fn enum_variant_payload_type(e: &Emitter, enum_name: &str, variant: &str) -> String {
     let ei = enum_index(e, enum_name)
-    if ei < 0 { return "i64" }
+    if ei < 0 { return string_clone("i64") }
     let vi = enum_variant_index(e, enum_name, variant)
-    if vi < 0 { return "i64" }
+    if vi < 0 { return string_clone("i64") }
     let mut pt = string_clone(&e.enum_sigs[ei].variants[vi].payload_type)
     let sig = &e.enum_sigs[ei]
     if len(&sig.type_params) > 0 {
@@ -139,7 +139,7 @@ fn enum_variant_payload_type(e: &Emitter, enum_name: &str, variant: &str) -> Str
             pt = type_subst(e, &pt, &sig.type_params, &parsed.args)
         }
     }
-    if pt == "" { return "i64" }
+    if pt == "" { return string_clone("i64") }
     return type_resolve(e, &pt)
 }
 
@@ -163,7 +163,7 @@ fn func_decl_index(e: &Emitter, name: &str) -> i64 {
 
 fn func_ret_type(e: &Emitter, name: &str) -> String {
     let idx = func_index(e, name)
-    if idx < 0 { return "i64" }
+    if idx < 0 { return string_clone("i64") }
     return string_clone(&e.func_sigs[idx].ret_type)
 }
 
@@ -217,7 +217,7 @@ fn func_ret_type_for_call(e: &Emitter, name: &str, args: & [Expr]) -> String {
     let mut values: [String] = []
     let mut vi = 0
     while vi < len(&params) {
-        push(&mut values, "")
+        push(&mut values, string_clone(""))
         vi = vi + 1
     }
     let mut ai = 0
@@ -283,13 +283,13 @@ fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
 
 fn default_untyped_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if rt == "untyped-int" { return "i64" }
-    if rt == "untyped-float" { return "f64" }
+    if rt == "untyped-int" { return string_clone("i64") }
+    if rt == "untyped-float" { return string_clone("f64") }
     if type_is_array(e, &rt) {
         let elem = type_array_elem(e, &rt)
         let def_elem = default_untyped_type(e, &elem)
         if def_elem != elem {
-            return "[" + def_elem + "]"
+            return string_clone("[") + def_elem + "]"
         }
         return string_clone(&rt)
     }
@@ -335,6 +335,7 @@ fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
     let actual = expr_type(e, expr)
     let actual_rt = type_resolve(e, &actual)
     if type_compatible(e, &declared, &actual_rt) { return true }
+    if expr.kind == EXPR_STRING && declared == "String" { return true }
     if expr_is_float_literal(expr) && type_is_float(e, &declared) { return true }
     if expr_is_int_literal(expr) && type_is_int(e, &declared) {
         return int_value_fits_type(e, expr_int_literal_value(expr), &declared)
@@ -515,7 +516,7 @@ fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String
     let mut values: [String] = []
     let mut vi = 0
     while vi < len(&params) {
-        push(&mut values, "")
+        push(&mut values, string_clone(""))
         vi = vi + 1
     }
     let mut ai = 0
@@ -590,7 +591,7 @@ fn func_param_types_for_call(e: &Emitter, f: &Function, values: & [String]) -> [
             }
             push(&mut out, type_resolve(e, &t))
         } else {
-            push(&mut out, "")
+            push(&mut out, string_clone(""))
         }
         i = i + 1
     }
@@ -599,7 +600,7 @@ fn func_param_types_for_call(e: &Emitter, f: &Function, values: & [String]) -> [
 
 fn emit_auto_borrow(e: &mut Emitter, inner: &Expr, expected_ref: &str) -> QbeValue {
     let base_t = type_ref_base(e, expected_ref)
-    let mut ref_t = "&" + string_clone(&base_t)
+    let mut ref_t = string_clone("&") + string_clone(&base_t)
     let want_mut = type_is_mut_ref_raw(expected_ref)
     if want_mut {
         ref_t = "&mut " + string_clone(&base_t)
@@ -625,13 +626,13 @@ fn emit_auto_borrow(e: &mut Emitter, inner: &Expr, expected_ref: &str) -> QbeVal
 
 fn const_type(e: &Emitter, name: &str) -> String {
     let idx = const_index(e, name)
-    if idx < 0 { return "" }
+    if idx < 0 { return string_clone("") }
     return string_clone(&e.const_types[idx])
 }
 
 fn var_type(e: &Emitter, name: &str) -> String {
     let idx = var_index(e, name)
-    if idx < 0 { return "" }
+    if idx < 0 { return string_clone("") }
     return string_clone(&e.var_types[idx])
 }
 
@@ -744,25 +745,25 @@ fn int_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let rt = expr_type(e, rhs)
     let lhs_untyped = type_is_untyped_int(e, &lt)
     let rhs_untyped = type_is_untyped_int(e, &rt)
-    if !lhs_untyped && !type_is_int(e, &lt) { return "" }
-    if !rhs_untyped && !type_is_int(e, &rt) { return "" }
+    if !lhs_untyped && !type_is_int(e, &lt) { return string_clone("") }
+    if !rhs_untyped && !type_is_int(e, &rt) { return string_clone("") }
     let lhs_lit = expr_is_int_literal(lhs)
     let rhs_lit = expr_is_int_literal(rhs)
     if lhs_untyped && rhs_untyped {
-        return "untyped-int"
+        return string_clone("untyped-int")
     }
     if lhs_untyped && type_is_int(e, &rt) {
-        if lhs_lit && !int_value_fits_type(e, expr_int_literal_value(lhs), &rt) { return "" }
+        if lhs_lit && !int_value_fits_type(e, expr_int_literal_value(lhs), &rt) { return string_clone("") }
         return string_clone(&rt)
     }
     if rhs_untyped && type_is_int(e, &lt) {
-        if rhs_lit && !int_value_fits_type(e, expr_int_literal_value(rhs), &lt) { return "" }
+        if rhs_lit && !int_value_fits_type(e, expr_int_literal_value(rhs), &lt) { return string_clone("") }
         return string_clone(&lt)
     }
     let pt = int_peer_type(e, &lt, &rt)
-    if pt == "" { return "" }
-    if lhs_lit && !int_value_fits_type(e, expr_int_literal_value(lhs), &pt) { return "" }
-    if rhs_lit && !int_value_fits_type(e, expr_int_literal_value(rhs), &pt) { return "" }
+    if pt == "" { return string_clone("") }
+    if lhs_lit && !int_value_fits_type(e, expr_int_literal_value(lhs), &pt) { return string_clone("") }
+    if rhs_lit && !int_value_fits_type(e, expr_int_literal_value(rhs), &pt) { return string_clone("") }
     return pt
 }
 
@@ -771,16 +772,16 @@ fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let rt = expr_type(e, rhs)
     let lhs_untyped = type_is_untyped_int(e, &lt)
     let rhs_untyped = type_is_untyped_int(e, &rt)
-    if !lhs_untyped && !type_is_int(e, &lt) { return "" }
-    if !rhs_untyped && !type_is_int(e, &rt) { return "" }
-    if rhs_untyped && !expr_is_int_literal(rhs) { return "" }
+    if !lhs_untyped && !type_is_int(e, &lt) { return string_clone("") }
+    if !rhs_untyped && !type_is_int(e, &rt) { return string_clone("") }
+    if rhs_untyped && !expr_is_int_literal(rhs) { return string_clone("") }
     if expr_is_int_literal(rhs) {
-        if expr_int_literal_value(rhs) < 0 { return "" }
-        if lhs_untyped { return "untyped-int" }
+        if expr_int_literal_value(rhs) < 0 { return string_clone("") }
+        if lhs_untyped { return string_clone("untyped-int") }
         return string_clone(&lt)
     }
-    if !type_is_unsigned_int(e, &rt) { return "" }
-    if lhs_untyped { return "untyped-int" }
+    if !type_is_unsigned_int(e, &rt) { return string_clone("") }
+    if lhs_untyped { return string_clone("untyped-int") }
     return string_clone(&lt)
 }
 
@@ -794,7 +795,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
             println("stage2: binary op", op, "requires bool operands got", lt, "and", rt)
             exit(1)
         }
-        return "bool"
+        return string_clone("bool")
     }
     if op == "==" || op == "!=" {
         let lt = lt0
@@ -804,14 +805,14 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
                 println("stage2: binary op", op, "requires both String operands got", lt, "and", rt)
                 exit(1)
             }
-            return "bool"
+            return string_clone("bool")
         }
         if type_is_char(e, &lt) || type_is_char(e, &rt) {
             if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
                 println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
                 exit(1)
             }
-            return "bool"
+            return string_clone("bool")
         }
         if type_is_enum(e, &lt) || type_is_enum(e, &rt) {
             if !type_is_enum(e, &lt) || !type_is_enum(e, &rt) {
@@ -824,23 +825,23 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
                 println("stage2: binary op", op, "requires matching enum types got", lt, "and", rt)
                 exit(1)
             }
-            return "bool"
+            return string_clone("bool")
         }
         if type_is_bool(e, &lt) || type_is_bool(e, &rt) {
             if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
                 println("stage2: binary op", op, "requires both bool operands got", lt, "and", rt)
                 exit(1)
             }
-            return "bool"
+            return string_clone("bool")
         }
         let fpt = float_bin_result_type(e, lhs, rhs)
-        if fpt != "" { return "bool" }
+        if fpt != "" { return string_clone("bool") }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
             exit(1)
         }
-        return "bool"
+        return string_clone("bool")
     }
     if op == "<" || op == ">" || op == "<=" || op == ">=" {
         let lt = lt0
@@ -850,21 +851,21 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
                 println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
                 exit(1)
             }
-            return "bool"
+            return string_clone("bool")
         }
         let fpt = float_bin_result_type(e, lhs, rhs)
-        if fpt != "" { return "bool" }
+        if fpt != "" { return string_clone("bool") }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
             exit(1)
         }
-        return "bool"
+        return string_clone("bool")
     }
     if op == "+" {
         let lt = lt0
         let rt = rt0
-        if type_is_string(e, &lt) && type_is_string(e, &rt) { return "String" }
+        if type_is_string(e, &lt) && type_is_string(e, &rt) { return string_clone("String") }
         let fpt = float_bin_result_type(e, lhs, rhs)
         if fpt != "" { return fpt }
         let pt = int_bin_result_type(e, lhs, rhs)
@@ -898,7 +899,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         }
         return st
     }
-    return "i64"
+    return string_clone("i64")
 }
 
 fn float_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
@@ -910,16 +911,16 @@ fn float_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let rtu = type_is_untyped_float(e, &rt)
     if ltf && rtf {
         if lt == rt { return string_clone(&lt) }
-        return ""
+        return string_clone("")
     }
     if ltf && rtu { return string_clone(&lt) }
     if rtf && ltu { return string_clone(&rt) }
     if ltf && expr_is_int_literal(rhs) { return string_clone(&lt) }
     if rtf && expr_is_int_literal(lhs) { return string_clone(&rt) }
-    if ltu && rtu { return "untyped-float" }
-    if ltu && expr_is_int_literal(rhs) { return "untyped-float" }
-    if rtu && expr_is_int_literal(lhs) { return "untyped-float" }
-    return ""
+    if ltu && rtu { return string_clone("untyped-float") }
+    if ltu && expr_is_int_literal(rhs) { return string_clone("untyped-float") }
+    if rtu && expr_is_int_literal(lhs) { return string_clone("untyped-float") }
+    return string_clone("")
 }
 
 fn closure_add(e: &mut Emitter, name: &str, body: &Block) {
@@ -953,11 +954,11 @@ fn drop_needs_drop_type_env(e: &Emitter, t: &str) -> bool {
 
 fn drop_fn_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if rt == "String" { return "dast_string_free" }
-    if drop_is_array_type_name(string_clone(&rt)) { return "dast_array_free" }
-    if type_is_struct(e, &rt) { return "dast_free" }
-    if type_is_enum(e, &rt) && enum_has_payload(e, &rt) { return "dast_free" }
-    return ""
+    if rt == "String" { return string_clone("dast_string_free") }
+    if drop_is_array_type_name(string_clone(&rt)) { return string_clone("dast_array_free") }
+    if type_is_struct(e, &rt) { return string_clone("dast_free") }
+    if type_is_enum(e, &rt) && enum_has_payload(e, &rt) { return string_clone("dast_free") }
+    return string_clone("")
 }
 
 fn drop_emit_for_slot(e: &mut Emitter, name: &str, typ: &str) {
@@ -1045,20 +1046,24 @@ fn ensure_string(e: &mut Emitter, s: String) -> i64 {
 }
 
 fn str_data_label(id: i64) -> String {
-    return "str_data_" + int_to_string(id)
+    return string_clone("str_data_") + int_to_string(id)
 }
 
 fn str_struct_label(id: i64) -> String {
-    return "str_" + int_to_string(id)
+    return string_clone("str_") + int_to_string(id)
+}
+
+fn str_ref_label(id: i64) -> String {
+    return string_clone("str_ref_") + int_to_string(id)
 }
 
 fn string_data_ptr(e: &mut Emitter, s: &str) -> String {
     let id = ensure_string(e, string_clone(s))
-    return "$" + str_data_label(id)
+    return string_clone("$") + str_data_label(id)
 }
 
 fn escape_qbe_string(s: &str) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     let n = str_len(s)
     while i < n {
@@ -1076,63 +1081,63 @@ fn escape_qbe_string(s: &str) -> String {
 
 fn expr_type(e: &Emitter, expr: &Expr) -> String {
     match expr.kind {
-        EXPR_INT => { return "untyped-int" }
-        EXPR_FLOAT => { return "untyped-float" }
-        EXPR_CHAR => { return "char" }
-        EXPR_BOOL => { return "bool" }
-        EXPR_STRING => { return "String" }
+        EXPR_INT => { return string_clone("untyped-int") }
+        EXPR_FLOAT => { return string_clone("untyped-float") }
+        EXPR_CHAR => { return string_clone("char") }
+        EXPR_BOOL => { return string_clone("bool") }
+        EXPR_STRING => { return string_clone("&str") }
         EXPR_IDENT => {
             let ct = const_type(e, &expr.name)
             if ct != "" { return ct }
             let vt = var_type(e, &expr.name)
             if vt != "" { return default_untyped_type(e, &vt) }
-            return "i64"
+            return string_clone("i64")
         }
         EXPR_STRUCT_LIT => {
             return type_resolve(e, &expr.name)
         }
         EXPR_REF => {
-            if len(&expr.args) == 0 { return "&i64" }
+            if len(&expr.args) == 0 { return string_clone("&i64") }
             let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_ref"))
             if type_is_ref(e, &base) {
                 println("stage2: cannot take reference to reference")
                 exit(1)
             }
             if expr.ref_mut {
-                return "&mut " + type_resolve(e, &base)
+                return string_clone("&mut ") + type_resolve(e, &base)
             }
-            return "&" + type_resolve(e, &base)
+            return string_clone("&") + type_resolve(e, &base)
         }
         EXPR_DEREF => {
-            if len(&expr.args) == 0 { return "i64" }
+            if len(&expr.args) == 0 { return string_clone("i64") }
             let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_deref"))
             if type_is_ref(e, &base) { return type_ref_base(e, &base) }
             return type_resolve(e, &base)
         }
         EXPR_ARRAY => {
-            if len(&expr.args) == 0 { return "[untyped-int]" }
+            if len(&expr.args) == 0 { return string_clone("[untyped-int]") }
             let elem = expr_type(e, expr_arg_ref(expr, 0, "expr_type_array"))
-            return "[" + type_resolve(e, &elem) + "]"
+            return string_clone("[") + type_resolve(e, &elem) + "]"
         }
         EXPR_INDEX => {
-            if len(&expr.args) < 1 { return "i64" }
+            if len(&expr.args) < 1 { return string_clone("i64") }
             let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_index_recv"))
             if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
             if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
-            return "i64"
+            return string_clone("i64")
         }
         EXPR_CLOSURE => {
-            return "unit"
+            return string_clone("unit")
         }
         EXPR_BLOCK => {
             let n = len(&expr.block.stmts)
-            if n == 0 { return "unit" }
+            if n == 0 { return string_clone("unit") }
             let last = &expr.block.stmts[n - 1]
             if last.kind == STMT_EXPR { return expr_type(e, &last.expr) }
-            return "unit"
+            return string_clone("unit")
         }
         EXPR_MATCH => {
-            let mut out = ""
+            let mut out = string_clone("")
             let mut out_is_lit = false
             let mut out_lit_val: i64 = 0
             let mut i = 0
@@ -1163,16 +1168,16 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                 }
                 i = i + 1
             }
-            if out == "" { return "unit" }
+            if out == "" { return string_clone("unit") }
             return out
         }
         EXPR_FIELD => {
-            if len(&expr.args) == 0 { return "i64" }
+            if len(&expr.args) == 0 { return string_clone("i64") }
             if is_digit_str(&expr.name) {
                 let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_digit"))
                 if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
                 if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
-                return "i64"
+                return string_clone("i64")
             }
             let recv_expr = expr_arg_ref(expr, 0, "expr_type_field_recv_expr")
             if recv_expr.kind == EXPR_IDENT {
@@ -1188,21 +1193,21 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
             let ft = struct_field_type(e, &recv_t, &expr.name)
             if ft != "" { return type_resolve(e, &ft) }
-            return "i64"
+            return string_clone("i64")
         }
         EXPR_BINARY => {
-            if len(&expr.args) < 2 { return "i64" }
+            if len(&expr.args) < 2 { return string_clone("i64") }
             let lhs = expr_arg_ref(expr, 0, "expr_type_binary_lhs")
             let rhs = expr_arg_ref(expr, 1, "expr_type_binary_rhs")
             return binary_op_result_type(e, &expr.name, lhs, rhs)
         }
         EXPR_UNARY => {
-            if expr.name == "!" { return "bool" }
+            if expr.name == "!" { return string_clone("bool") }
             if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_unary_inner")) }
-            return "i64"
+            return string_clone("i64")
         }
         EXPR_CALL => {
-            if expr.name == "print" || expr.name == "println" { return "unit" }
+            if expr.name == "print" || expr.name == "println" { return string_clone("unit") }
             if expr.name == "len" {
                 if len(&expr.args) != 1 {
                     println("stage2: len expects 1 argument")
@@ -1213,22 +1218,22 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                     println("stage2: len expects reference to String/str or array")
                     exit(1)
                 }
-                return "i64"
+                return string_clone("i64")
             }
             if expr.name == "getenv" {
                 if len(&expr.args) != 1 {
                     println("stage2: getenv expects 1 argument")
                     exit(1)
                 }
-                return "String"
+                return string_clone("String")
             }
             let ec = enum_call_parse(&expr.name)
             if ec.ok { return string_clone(&ec.enum_name) }
             let rt = func_ret_type_for_call(e, &expr.name, &expr.args)
             return type_resolve(e, &rt)
         }
-        EXPR_MACRO_CALL => { return "unit" }
-        EXPR_QUOTE => { return "unit" }
-        _ => { return "i64" }
+        EXPR_MACRO_CALL => { return string_clone("unit") }
+        EXPR_QUOTE => { return string_clone("unit") }
+        _ => { return string_clone("i64") }
     }
 }

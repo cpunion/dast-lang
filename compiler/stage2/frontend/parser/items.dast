@@ -4,7 +4,7 @@ fn parse_const(p: &mut Parser) -> ConstDecl {
     let _ = parser_expect(p, TK_CONST, "const")
     let name = parser_expect(p, TK_IDENT, "ident").text
     let mut has_type = false
-    let mut typ = "i64"
+    let mut typ = string_clone("i64")
     if parser_peek(p).kind == TK_COLON {
         let _ = parser_advance(p)
         typ = parse_type_name(p)
@@ -60,7 +60,7 @@ fn parse_enum_variants(p: &mut Parser) -> [EnumVariant] {
     while !done {
         let vname = parser_expect(p, TK_IDENT, "variant").text
         let mut has_payload = false
-        let mut payload_type = ""
+        let mut payload_type = string_clone("")
         if parser_peek(p).kind == TK_LPAREN {
             let _ = parser_advance(p)
             payload_type = parse_type_name(p)
@@ -85,7 +85,7 @@ fn parse_enum(p: &mut Parser) -> EnumDecl {
     let _ = parser_expect(p, TK_ENUM, "enum")
     let name = parser_expect(p, TK_IDENT, "enum name").text
     let type_params = parse_generic_params(p)
-    let mut tag_type = "i32"
+    let mut tag_type = string_clone("i32")
     if parser_peek(p).kind == TK_TAG {
         let _ = parser_advance(p)
         tag_type = parse_type_name(p)
@@ -114,7 +114,7 @@ fn parse_generic_params(p: &mut Parser) -> [GenericParam] {
     while !done {
         let name = parser_expect(p, TK_IDENT, "type param").text
         let mut has_bound = false
-        let mut bound = ""
+        let mut bound = string_clone("")
         if parser_peek(p).kind == TK_COLON {
             let _ = parser_advance(p)
             bound = parser_expect(p, TK_IDENT, "trait").text
@@ -172,7 +172,7 @@ fn parse_type_name(p: &mut Parser) -> String {
             is_mut = true
         }
     }
-    let mut base = ""
+    let mut base = string_clone("")
     if parser_peek(p).kind == TK_LBRACKET {
         let _ = parser_advance(p)
         let elem = parse_type_name(p)
@@ -187,8 +187,8 @@ fn parse_type_name(p: &mut Parser) -> String {
         exit(1)
     }
     if is_ref {
-        if is_mut { return "&mut " + base }
-        return "&" + base
+        if is_mut { return string_clone("&mut ") + base }
+        return string_clone("&") + base
     }
     return base
 }
@@ -199,7 +199,7 @@ fn parse_params(p: &mut Parser) -> [Param] {
     let mut done = false
     while !done {
         let name = parser_expect(p, TK_IDENT, "param").text
-        let mut typ = "i64"
+        let mut typ = string_clone("i64")
         let mut has_type = false
         if parser_peek(p).kind == TK_COLON {
             let _ = parser_advance(p)
@@ -223,7 +223,7 @@ fn parse_fn(p: &mut Parser) -> Function {
     let _ = parser_expect(p, TK_LPAREN, "(")
     let params = parse_params(p)
     let _ = parser_expect(p, TK_RPAREN, ")")
-    let mut ret_type = ""
+    let mut ret_type = string_clone("")
     if parser_peek(p).kind == TK_ARROW {
         let _ = parser_advance(p)
         ret_type = parse_type_name(p)
@@ -258,8 +258,8 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
     let _ = parser_expect(p, TK_IMPL, "impl")
     let type_params = parse_generic_params(p)
     let first = parser_expect(p, TK_IDENT, "impl target").text
-    let mut trait_name = ""
-    let mut for_type = ""
+    let mut trait_name = string_clone("")
+    let mut for_type = string_clone("")
     if parser_peek(p).kind == TK_FOR {
         let _ = parser_advance(p)
         trait_name = first
@@ -304,7 +304,7 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
 fn parse_import(p: &mut Parser) -> ImportDecl {
     let _ = parser_expect(p, TK_IDENT, "import")
     let path = parser_expect(p, TK_STRING, "import path").text
-    let mut alias = ""
+    let mut alias = string_clone("")
     if parser_peek(p).kind == TK_IDENT && parser_peek(p).text == "as" {
         let _ = parser_advance(p)
         alias = parser_expect(p, TK_IDENT, "import alias").text

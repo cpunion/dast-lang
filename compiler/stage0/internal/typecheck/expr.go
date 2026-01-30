@@ -32,12 +32,13 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 	case *ast.BoolLit:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case *ast.StringLit:
+		// String literals are borrowed (&str) by default, but can coerce to String when expected.
 		if exp, ok := c.currentExpected(); ok {
-			if exp.Kind == TypeStr && exp.Ref && !exp.Mut {
-				return Type{Kind: TypeStr, Name: "str", Ref: true}
+			if exp.Kind == TypeString && !exp.Ref {
+				return Type{Kind: TypeString, Name: "String"}
 			}
 		}
-		return Type{Kind: TypeString, Name: "String"}
+		return Type{Kind: TypeStr, Name: "str", Ref: true}
 	case *ast.FloatLit:
 		if exp, ok := c.currentExpected(); ok {
 			if isFloat(exp) {

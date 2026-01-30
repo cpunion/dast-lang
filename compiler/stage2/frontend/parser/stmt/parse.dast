@@ -35,7 +35,7 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
             let end_kind = if parser_peek(p).kind == TK_LPAREN { TK_RPAREN } else { TK_RBRACKET }
             let _ = parser_advance(p)
             let names = parse_binding_list(p, end_kind)
-            let end_label = if end_kind == TK_RPAREN { ")" } else { "]" }
+            let end_label = if end_kind == TK_RPAREN { string_clone(")") } else { string_clone("]") }
             let _ = parser_expect(p, end_kind, end_label)
             let _ = parser_expect(p, TK_ASSIGN, "=")
             let e = parse_expr(p)
@@ -49,7 +49,7 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
         }
         let name = parser_expect(p, TK_IDENT, "ident").text
         let mut has_type = false
-        let mut typ = ""
+        let mut typ = string_clone("")
         if parser_peek(p).kind == TK_COLON {
             let _ = parser_advance(p)
             typ = parse_type_name(p)
@@ -89,7 +89,7 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
                 println("stage2: if let requires variant pattern")
                 exit(1)
             }
-            let mut binding = ""
+            let mut binding = string_clone("")
             let mut has_binding = false
             if pat.has_payload && len(&pat.payload) > 0 {
                 let pay = &pat.payload[0]
@@ -181,7 +181,7 @@ fn parse_stmt(p: &mut Parser) -> Stmt {
                 println("stage2: while let requires variant pattern")
                 exit(1)
             }
-            let mut binding = ""
+            let mut binding = string_clone("")
             let mut has_binding = false
             if pat.has_payload && len(&pat.payload) > 0 {
                 let pay = &pat.payload[0]

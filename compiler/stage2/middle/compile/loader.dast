@@ -108,7 +108,7 @@ fn str_contains_char(s: &str, ch: i64) -> bool {
 }
 
 fn str_replace_dot_slash(s: &str) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let n = str_len(s)
     let mut i = 0
     while i < n {
@@ -154,7 +154,7 @@ fn str_has_suffix_lit(s: &str, lit: String) -> bool {
 fn normalize_import_path(path: &str) -> String {
     let mut p = str_trim_space(path)
     if p == "" { return p }
-    let mut rel = ""
+    let mut rel = string_clone("")
     if str_has_prefix_lit(&p, "./") {
         rel = "./"
         p = str_substr(&p, 2, str_len(&p) - 2)
@@ -178,7 +178,7 @@ fn path_dir(path: &str) -> String {
         }
         i = i - 1
     }
-    return "."
+    return string_clone(".")
 }
 
 fn path_base(path: &str) -> String {
@@ -234,10 +234,10 @@ fn list_dast_files(dir: &str, include_tests: bool) -> [String] {
     while i < len(&names) {
         let name = names[i]
         let suffix = ".dast"
-        if str_has_suffix(&name, &suffix) {
+        if str_has_suffix(&name, suffix) {
             if !include_tests {
                 let test_suffix = "_test.dast"
-                if str_has_suffix(&name, &test_suffix) {
+                if str_has_suffix(&name, test_suffix) {
                     i = i + 1
                     continue
                 }
@@ -256,7 +256,7 @@ fn parse_string_array(text: &str) -> [String] {
     if !str_has_prefix_lit(&t, "[") || !str_has_suffix_lit(&t, "]") { return out }
     let inner = str_substr(&t, 1, str_len(&t) - 2)
     let parts = split_lines(&inner)
-    let mut cur = ""
+    let mut cur = string_clone("")
     let mut i = 0
     while i < len(&parts) {
         let line = str_trim_space(&parts[i])
@@ -291,7 +291,7 @@ fn parse_string_array(text: &str) -> [String] {
 }
 
 fn parse_dep_spec(name: &str, value: &str) -> DepSpec {
-    let mut path = ""
+    let mut path = string_clone("")
     let mut workspace = false
     let val = str_trim_space(value)
     if str_has_prefix_lit(&val, "{") && str_has_suffix_lit(&val, "}") {
@@ -330,7 +330,7 @@ fn parse_manifest_info(manifest_path: &str) -> ManifestInfo {
     let text = read_file(string_clone(manifest_path))
     if text == "" { return info }
     let lines = split_lines(&text)
-    let mut section = ""
+    let mut section = string_clone("")
     let mut i = 0
     while i < len(&lines) {
         let line0 = str_trim_space(&lines[i])
@@ -382,7 +382,7 @@ fn find_workspace_root(start: &str) -> String {
         let parent = path_dir(&cur)
         if parent == cur || parent == "" { done = true } else { cur = parent }
     }
-    return ""
+    return string_clone("")
 }
 
 fn load_workspace(ctx: &mut LoadCtx, root: &str) -> WorkspaceInfo {
@@ -428,7 +428,7 @@ fn load_package(ctx: &mut LoadCtx, pkg_root: &str, include_tests: bool) -> Packa
 
 fn stdlib_root() -> String {
     // TODO: support env var override; for now use repo path.
-    return "compiler/stage2/stdlib"
+    return string_clone("compiler/stage2/stdlib")
 }
 
 fn resolve_import(ctx: &mut LoadCtx, pkg: &PackageInfo, cur_dir: &str, path: &str) -> ImportLoad {
@@ -440,26 +440,26 @@ fn resolve_import(ctx: &mut LoadCtx, pkg: &PackageInfo, cur_dir: &str, path: &st
     if path == "" {
         return ImportLoad { ok: false, imports: "", source: "", err: "empty import path" }
     }
-    if path == up || str_has_prefix(path, &up_prefix) {
+    if path == up || str_has_prefix(path, up_prefix) {
         return ImportLoad { ok: false, imports: "", source: "", err: "import escapes root: " + path }
     }
-    if str_has_prefix(path, &abs_prefix) {
+    if str_has_prefix(path, abs_prefix) {
         return ImportLoad { ok: false, imports: "", source: "", err: "import path is absolute: " + path }
     }
-    if str_has_suffix(path, &ext) {
+    if str_has_suffix(path, ext) {
         return ImportLoad { ok: false, imports: "", source: "", err: "import path is not a directory: " + path }
     }
     let norm = normalize_import_path(path)
     let std_prefix = "std/"
     let std_dot = "std."
-    if norm == "std" || str_has_prefix(&norm, &std_prefix) || str_has_prefix(&norm, &std_dot) {
-        let mut sub = ""
+    if norm == "std" || str_has_prefix(&norm, std_prefix) || str_has_prefix(&norm, std_dot) {
+        let mut sub = string_clone("")
         if norm == "std" {
             sub = ""
-        } else if str_has_prefix(&norm, &std_prefix) {
-            sub = str_substr(&norm, str_len(&std_prefix), str_len(&norm) - str_len(&std_prefix))
-        } else if str_has_prefix(&norm, &std_dot) {
-            sub = str_substr(&norm, str_len(&std_dot), str_len(&norm) - str_len(&std_dot))
+        } else if str_has_prefix(&norm, std_prefix) {
+            sub = str_substr(&norm, str_len(std_prefix), str_len(&norm) - str_len(std_prefix))
+        } else if str_has_prefix(&norm, std_dot) {
+            sub = str_substr(&norm, str_len(std_dot), str_len(&norm) - str_len(std_dot))
         }
         let base = stdlib_root()
         let dir = if sub == "" { base } else { base + "/" + sub }
@@ -469,17 +469,17 @@ fn resolve_import(ctx: &mut LoadCtx, pkg: &PackageInfo, cur_dir: &str, path: &st
         }
         return ImportLoad { ok: true, imports: dir + "\n", source: "", err: "" }
     }
-    let rel = if str_has_prefix(&norm, &cur_prefix) { str_substr(&norm, 2, str_len(&norm) - 2) } else { string_clone(&norm) }
-    let mut dir = ""
-    if str_has_prefix(&norm, &cur_prefix) || str_has_prefix(&norm, &up_prefix) {
+    let rel = if str_has_prefix(&norm, cur_prefix) { str_substr(&norm, 2, str_len(&norm) - 2) } else { string_clone(&norm) }
+    let mut dir = string_clone("")
+    if str_has_prefix(&norm, cur_prefix) || str_has_prefix(&norm, up_prefix) {
         dir = string_clone(cur_dir) + "/" + rel
     } else {
         // dependency or local package module
         let base = rel
         let slash = str_find_char(&base, 47, 0)
         let dep_name = if slash >= 0 { str_substr(&base, 0, slash) } else { string_clone(&base) }
-        let mut dep_root = ""
-        let mut dep_code_root = ""
+        let mut dep_root = string_clone("")
+        let mut dep_code_root = string_clone("")
         let mut found = false
         let mut i = 0
         while i < len(&pkg.deps) {
@@ -556,19 +556,19 @@ fn strip_alias_prefix(name: &str, aliases: & [String]) -> String {
 }
 
 fn rewrite_type_name(name: &str, aliases: & [String]) -> String {
-    if name == "" { return "" }
+    if name == "" { return string_clone("") }
     if str_has_prefix_lit(name, "&mut ") {
         let inner = str_substr(name, 5, str_len(name) - 5)
-        return "&mut " + rewrite_type_name(&inner, aliases)
+        return string_clone("&mut ") + rewrite_type_name(&inner, aliases)
     }
     if str_has_prefix_lit(name, "&") {
         let inner = str_substr(name, 1, str_len(name) - 1)
-        return "&" + rewrite_type_name(&inner, aliases)
+        return string_clone("&") + rewrite_type_name(&inner, aliases)
     }
     if str_has_prefix_lit(name, "[") && str_has_suffix_lit(name, "]") {
         let inner = str_substr(name, 1, str_len(name) - 2)
         let inner_t = rewrite_type_name(&inner, aliases)
-        return "[" + inner_t + "]"
+        return string_clone("[") + inner_t + "]"
     }
     let parsed = type_args_parse(name)
     if parsed.has {
@@ -967,11 +967,11 @@ fn load_program_from_path(path: &str, include_tests: bool) -> LoadResult {
     let mut entry_dir = string_clone(path)
     let ext = ".dast"
     let mut entry_files: [String] = []
-    if str_has_suffix(path, &ext) {
+    if str_has_suffix(path, ext) {
         entry_dir = path_dir(path)
         push(&mut entry_files, string_clone(path))
     }
-    let pkg_root = if str_has_suffix(path, &ext) { find_package_root(&entry_dir) } else { find_package_root(path) }
+    let pkg_root = if str_has_suffix(path, ext) { find_package_root(&entry_dir) } else { find_package_root(path) }
     let mut deps: [DepSpec] = []
     let mut pkg = PackageInfo { pkg_root: string_clone(&entry_dir), code_root: string_clone(&entry_dir), deps: deps, include_tests: include_tests, workspace_root: "", has_package: false }
     if pkg_root != "" {
@@ -996,5 +996,5 @@ fn find_package_root(start: &str) -> String {
         let parent = path_dir(&cur)
         if parent == cur || parent == "" { done = true } else { cur = parent }
     }
-    return ""
+    return string_clone("")
 }

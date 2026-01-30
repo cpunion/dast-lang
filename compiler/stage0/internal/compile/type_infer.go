@@ -19,7 +19,7 @@ func (c *Compiler) inferExprType(e ast.Expr) string {
 	case *ast.BoolLit:
 		return "bool"
 	case *ast.StringLit:
-		return "String"
+		return "str"
 	case *ast.ArrayLit:
 		elemType := "i64"
 		if len(e.Elems) > 0 {

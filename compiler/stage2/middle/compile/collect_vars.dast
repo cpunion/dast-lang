@@ -15,7 +15,7 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
         if len(&expr.args) > 0 {
             collect_vars_from_expr(e, expr_arg_ref(expr, 0, "collect_vars_field_recv"))
         }
-        let mut scrut_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { "" }
+        let mut scrut_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { string_clone("") }
         if len(&expr.args) > 0 {
             let scrut = expr_arg_ref(expr, 0, "collect_vars_enum_recv_hint")
             if scrut.kind == EXPR_IDENT {
@@ -282,7 +282,7 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     let guess = enum_name_for_variant(e, &s.pat_variant)
                     if guess != "" { enum_t = guess }
                 }
-                let mut bt = "i64"
+                let mut bt = string_clone("i64")
                 if type_is_enum(e, &enum_t) {
                     bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
                 }
@@ -447,7 +447,7 @@ fn infer_untyped_expr(e: &mut Emitter, expr: &Expr) -> bool {
         fi = fi + 1
     }
     if expr.kind == EXPR_BLOCK || expr.kind == EXPR_CLOSURE {
-        let unit = "unit"
+        let unit = string_clone("unit")
         if infer_untyped_block(e, &expr.block, &unit) { changed = true }
     }
     if expr.kind == EXPR_MATCH {
@@ -456,7 +456,7 @@ fn infer_untyped_expr(e: &mut Emitter, expr: &Expr) -> bool {
             if expr.match_arms[ai].has_guard {
                 if infer_untyped_expr(e, &expr.match_arms[ai].guard) { changed = true }
             }
-            let unit = "unit"
+            let unit = string_clone("unit")
             if infer_untyped_block(e, &expr.match_arms[ai].block, &unit) { changed = true }
             ai = ai + 1
         }
@@ -571,12 +571,12 @@ fn infer_untyped_block(e: &mut Emitter, b: &Block, ret_t: &String) -> bool {
 }
 
 fn default_untyped_base(e: &Emitter, t: &str) -> String {
-    if t == "untyped-int" { return "i64" }
-    if t == "untyped-float" { return "f64" }
+    if t == "untyped-int" { return string_clone("i64") }
+    if t == "untyped-float" { return string_clone("f64") }
     if type_is_array(e, t) {
         let elem = type_array_elem(e, t)
-        if elem == "untyped-int" { return "[i64]" }
-        if elem == "untyped-float" { return "[f64]" }
+        if elem == "untyped-int" { return string_clone("[i64]") }
+        if elem == "untyped-float" { return string_clone("[f64]") }
     }
     return string_clone(t)
 }
@@ -590,7 +590,7 @@ fn finalize_untyped_vars(e: &mut Emitter) {
             if e.var_untyped_kind[i] == UNTYPED_INT && e.var_untyped_has_value[i] {
                 let v = e.var_untyped_value[i]
                 let t = "i64"
-                if !int_value_fits_type(e, v, &t) {
+                if !int_value_fits_type(e, v, t) {
                     println("stage2: integer literal out of range for i64")
                     exit(1)
                 }
@@ -629,7 +629,7 @@ fn collect_vars(e: &mut Emitter, f: &Function) {
     while pi < len(&f.params) {
         let p = &f.params[pi]
         let pname = &p.name
-        let mut ptyp = "i64"
+        let mut ptyp = string_clone("i64")
         if p.has_type { ptyp = string_clone(&p.typ) }
         if var_index(e, pname) < 0 {
             let mut names = e.var_names

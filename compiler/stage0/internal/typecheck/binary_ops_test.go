@@ -213,17 +213,32 @@ fn main() {
 func TestStringOpsMatrix(t *testing.T) {
 	checkTypeOK(t, `
 fn main() {
-    let a: String = "a"
-    let b: String = "b"
+    let a: String = string_clone("a")
+    let b: String = string_clone("b")
     let _ = a + b
     let _ = a == b
     let _ = a != b
 }
+
+func TestStringLiteralBorrowed(t *testing.T) {
+	checkTypeOK(t, `
+fn main() {
+    let s: &str = "hi"
+    let _ = s
+}
+`)
+	checkTypeOK(t, `
+fn main() {
+    let s: String = "hi"
+    let _ = s
+}
+`)
+}
 `)
 	checkTypeErr(t, `
 fn main() {
-    let a: String = "a"
-    let b: String = "b"
+    let a: String = string_clone("a")
+    let b: String = string_clone("b")
     let _ = a < b
 }
 `, "comparison")

@@ -203,7 +203,7 @@ fn parse_closure_params(p: &mut Parser) -> [Param] {
     let mut done = false
     while !done {
         let name = parser_expect(p, TK_IDENT, "param").text
-        let mut typ = "i64"
+        let mut typ = string_clone("i64")
         let mut has_type = false
         if parser_peek(p).kind == TK_COLON {
             let _ = parser_advance(p)
@@ -253,13 +253,13 @@ fn parse_struct_lit_fields(p: &mut Parser) -> [FieldInit] {
 
 fn quote_token_text(t: &Token) -> String {
     if t.kind == TK_INT { return int_to_string(t.int_value) }
-    if t.kind == TK_STRING { return "\"" + string_clone(&t.text) + "\"" }
+    if t.kind == TK_STRING { return string_clone("\"") + string_clone(&t.text) + "\"" }
     if t.kind == TK_CHAR {
         if t.text != "" { return string_clone(&t.text) }
-        return "'?'"
+        return string_clone("'?'")
     }
-    if t.kind == TK_TRUE { return "true" }
-    if t.kind == TK_FALSE { return "false" }
+    if t.kind == TK_TRUE { return string_clone("true") }
+    if t.kind == TK_FALSE { return string_clone("false") }
     return string_clone(&t.text)
 }
 
@@ -272,7 +272,7 @@ fn quote_append_token(text: String, t: &Token) -> String {
 fn parse_quote_parts(p: &mut Parser) -> [QuotePart] {
     let mut parts: [QuotePart] = []
     let mut depth = 1
-    let mut text = ""
+    let mut text = string_clone("")
     while depth > 0 {
         let t = parser_peek(p)
         if t.kind == TK_EOF { break }

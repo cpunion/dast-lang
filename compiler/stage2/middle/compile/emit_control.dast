@@ -9,7 +9,7 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     }
     let mut is_enum = type_is_enum(e, &scrut_t)
     if !is_enum {
-        let mut guess = ""
+        let mut guess = string_clone("")
         let mut ai = 0
         while ai < len(&expr.match_arms) {
             let a = &expr.match_arms[ai]
@@ -24,7 +24,7 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     let end_label = new_label(e, "match_end_")
     let ret0 = expr_type(e, expr)
     let ret_t = type_resolve(e, &ret0)
-    let mut res_ptr = ""
+    let mut res_ptr = string_clone("")
     let need_res = !type_is_unit(e, &ret_t)
     if need_res {
         let tmp = new_temp(e)
@@ -130,7 +130,7 @@ fn emit_continue(e: &mut Emitter) {
 
 fn emit_return(e: &mut Emitter, stmt: &Stmt) {
     let target_t = string_clone(&e.cur_ret_type)
-    let mut rexpr = "0"
+    let mut rexpr = string_clone("0")
     if stmt.ret_has_value {
         let v = emit_typed_value(e, &stmt.expr, &target_t)
         rexpr = cast_to_type(e, v, &target_t)
@@ -189,7 +189,7 @@ fn emit_stmt(e: &mut Emitter, stmt: &Stmt) {
 }
 
 fn emit_var_allocs(e: &Emitter) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     while i < len(&e.var_names) {
         let name = &e.var_names[i]
@@ -204,12 +204,12 @@ fn emit_var_allocs(e: &Emitter) -> String {
 }
 
 fn func_param_sig(e: &Emitter, params: & [Param]) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     while i < len(params) {
         if i > 0 { out = out + ", " }
         let p = &(*params)[i]
-        let mut ptyp = "i64"
+        let mut ptyp = string_clone("i64")
         if p.has_type { ptyp = type_resolve(e, &p.typ) }
         let qt = qbe_type(e, &ptyp)
         out = out + qt + " %p" + int_to_string(i)
@@ -226,22 +226,22 @@ fn body_ends_with_ret_line(e: &Emitter) -> bool {
     let ret_prefix = "  ret "
     while i >= 0 {
         let line = string_clone(&e.body[i])
-        if string_has_prefix(&line, &label_prefix) {
+        if string_has_prefix(&line, label_prefix) {
             i = i - 1
         } else {
-            return string_has_prefix(&line, &ret_prefix)
+            return string_has_prefix(&line, ret_prefix)
         }
     }
     return false
 }
 
 fn emit_param_store_lines(e: &Emitter, params: & [Param]) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     while i < len(params) {
         let p = &(*params)[i]
         let pname = &p.name
-        let mut ptyp = "i64"
+        let mut ptyp = string_clone("i64")
         if p.has_type { ptyp = type_resolve(e, &p.typ) }
         let ptemp = "%p" + int_to_string(i)
         let op = store_op_for_type(e, &ptyp)
@@ -252,13 +252,13 @@ fn emit_param_store_lines(e: &Emitter, params: & [Param]) -> String {
 }
 
 fn effective_ret_type(e: &Emitter, f: &Function) -> String {
-    if f.ret_type == "" { return "unit" }
+    if f.ret_type == "" { return string_clone("unit") }
     return type_resolve(e, &f.ret_type)
 }
 
 fn emit_function_text(e: &Emitter, f: &Function) -> String {
-    let mut out = ""
-    let export_kw = if f.name == "main" { "export " } else { "" }
+    let mut out = string_clone("")
+    let export_kw = if f.name == "main" { string_clone("export ") } else { string_clone("") }
     let fname = "dast_user_" + mangle_name(&f.name)
     let sig = func_param_sig(e, &f.params)
     let ret_t = effective_ret_type(e, f)
@@ -352,7 +352,7 @@ fn compile_to_qbe_with_stats(prog: Program, ptr_width: i64, stats: &mut CompileS
     stats.string_count = len(&glob.strings)
     stats.const_count = len(&glob.const_names)
 
-    let mut out_funcs = ""
+    let mut out_funcs = string_clone("")
     let mut i = 0
     while i < len(&prog.functions) {
         let f = &prog.functions[i]
@@ -385,8 +385,8 @@ fn compile_to_qbe_with_stats(prog: Program, ptr_width: i64, stats: &mut CompileS
 }
 
 fn c_ret_type(e: &Emitter, t: &str) -> String {
-    if type_is_bool(e, t) { return "int32_t" }
-    return "int64_t"
+    if type_is_bool(e, t) { return string_clone("int32_t") }
+    return string_clone("int64_t")
 }
 
 fn main_ret_type(prog: &Program) -> String {
@@ -398,7 +398,7 @@ fn main_ret_type(prog: &Program) -> String {
         if !f.is_macro && f.name == "main" { return effective_ret_type(&e, f) }
         i = i + 1
     }
-    return "unit"
+    return string_clone("unit")
 }
 
 fn program_has_main(prog: &Program) -> bool {
@@ -413,7 +413,7 @@ fn program_has_main(prog: &Program) -> bool {
 
 fn build_entry_c(e: &Emitter, main_ret_t: &str) -> String {
     // Keep it tiny; args() is rarely needed in early tests.
-    let mut out = ""
+    let mut out = string_clone("")
     out = out + "#include <stdint.h>\n\n"
     out = out + "void dast_set_args(int argc, char **argv);\n"
     let c_rt = c_ret_type(e, main_ret_t)
@@ -437,12 +437,12 @@ fn run_exec(cmd: String, args: [String]) {
 fn load_prelude_dir(dir: String) -> String {
     let names0 = read_dir(string_clone(&dir))
     let names = string_list_sorted(&names0)
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     while i < len(&names) {
         let name = names[i]
         let suffix = ".dast"
-        if str_has_suffix(&name, &suffix) {
+        if str_has_suffix(&name, suffix) {
             let path = string_clone(&dir) + "/" + name
             let text = read_file(path)
             out = out + text + "\n"
@@ -461,7 +461,7 @@ struct ImportLoad {
 
 fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     let prelude_dir = "compiler/stage2/stdlib/prelude"
-    let prelude = load_prelude_dir(prelude_dir)
+    let prelude = load_prelude_dir(string_clone(prelude_dir))
     let prelude_prog = parse_program_loose(&prelude)
     let load = load_program_from_path(&src_path, false)
     if !load.ok {
@@ -493,13 +493,21 @@ fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     write_file(qbe_path, qbe)
     write_file(entry_path, build_entry_c(&alias_e, &main_rt))
 
-    run_exec("qbe", ["-o", string_clone(&asm_path), string_clone(&qbe_path)])
-    run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
+    run_exec(string_clone("qbe"), [string_clone("-o"), string_clone(&asm_path), string_clone(&qbe_path)])
+    run_exec(string_clone("cc"), [
+        string_clone("-O2"),
+        string_clone("-std=c99"),
+        string_clone(&asm_path),
+        string_clone(runtime_path),
+        string_clone(&entry_path),
+        string_clone("-o"),
+        string_clone(&out_bin)
+    ])
 }
 
 fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64) {
     let prelude_dir = "compiler/stage2/stdlib/prelude"
-    let prelude = load_prelude_dir(prelude_dir)
+    let prelude = load_prelude_dir(string_clone(prelude_dir))
     let prelude_prog = parse_program_loose(&prelude)
     let load = load_program_from_path(&src_path, false)
     if !load.ok {
@@ -536,12 +544,20 @@ fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64
     write_file(qbe_path, qbe)
     write_file(entry_path, build_entry_c(&alias_e, &main_rt))
 
-    run_exec("qbe", ["-o", string_clone(&asm_path), string_clone(&qbe_path)])
-    run_exec("cc", ["-O2", "-std=c99", string_clone(&asm_path), runtime_path, entry_path, "-o", out_bin])
+    run_exec(string_clone("qbe"), [string_clone("-o"), string_clone(&asm_path), string_clone(&qbe_path)])
+    run_exec(string_clone("cc"), [
+        string_clone("-O2"),
+        string_clone("-std=c99"),
+        string_clone(&asm_path),
+        string_clone(runtime_path),
+        string_clone(&entry_path),
+        string_clone("-o"),
+        string_clone(&out_bin)
+    ])
 }
 
 fn compile_and_run_single(src_path: String, run_args: [String], ptr_width: i64) {
     let out_bin = "compiler/stage2/target/min/main"
-    compile_native_single(src_path, string_clone(&out_bin), ptr_width)
+    compile_native_single(src_path, string_clone(out_bin), ptr_width)
     let _ = exec(out_bin, run_args)
 }

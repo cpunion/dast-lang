@@ -49,7 +49,7 @@ fn main() {
         return
     }
 
-    let mut out_bin = "compiler/stage2/target/min/main"
+    let mut out_bin = string_clone("compiler/stage2/target/min/main")
     let mut ptr_width: i64 = 0
     let mut stats = false
     let mut arg_idx = 1

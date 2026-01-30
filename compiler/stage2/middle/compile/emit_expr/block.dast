@@ -233,7 +233,7 @@ fn emit_match(e: &mut Emitter, stmt: &Stmt) {
     }
     let mut is_enum = type_is_enum(e, &scrut_t)
     if !is_enum {
-        let mut guess = ""
+        let mut guess = string_clone("")
         let mut ai = 0
         while ai < len(&stmt.arms) {
             if stmt.arms[ai].pattern.kind == PAT_VARIANT {

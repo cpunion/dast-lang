@@ -27,7 +27,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_STRING => {
             let id = ensure_string(e, string_clone(&expr.name))
-            return qbe_value("String", "$" + str_struct_label(id))
+            return qbe_value("&str", "$" + str_ref_label(id))
         }
         EXPR_BLOCK => { return emit_block_expr(e, &expr.block) }
         EXPR_MATCH => { return emit_match_expr(e, expr) }
@@ -56,7 +56,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             }
             if var_index(e, &expr.name) >= 0 {
                 let default_t = "i64"
-                return emit_load_var(e, &expr.name, &default_t)
+                return emit_load_var(e, &expr.name, default_t)
             }
             return qbe_value("i64", "0")
         }
@@ -64,7 +64,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             if len(&expr.args) == 0 { return qbe_value("&i64", "0") }
             let inner = expr_arg_ref(expr, 0, "emit_ref")
             let base_t = expr_type(e, inner)
-            let mut ref_t = "&" + string_clone(&base_t)
+            let mut ref_t = string_clone("&") + string_clone(&base_t)
             if expr.ref_mut {
                 ref_t = "&mut " + string_clone(&base_t)
             }
@@ -379,7 +379,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 if len(&expr.args) < 1 { return qbe_value("String", "0") }
                 let v = emit_expr(e, expr_arg_ref(expr, 0, "emit_getenv_arg"))
                 let target = "&str"
-                let arg = cast_to_type(e, v, &target)
+                let arg = cast_to_type(e, v, target)
                 let tmp = new_temp(e)
                 let tn = temp_name(tmp)
                 emit_line(e, "  " + tn + " =l call $dast_getenv(l " + arg + ")")
@@ -446,7 +446,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let callee = "dast_user_" + mangle_name(&call_name)
             let ret_t = type_resolve(e, &rt)
             let ret_q = qbe_type(e, &ret_t)
-            let mut args_text = ""
+            let mut args_text = string_clone("")
             let mut i = 0
             while i < len(&expr.args) {
                 if i > 0 { args_text = args_text + ", " }
@@ -531,10 +531,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
 }
 
 fn print_fn_for_type(e: &Emitter, t: &str) -> String {
-    if type_is_bool(e, t) { return "dast_print_bool" }
-    if type_is_string(e, t) { return "dast_print_string" }
-    if type_is_struct(e, t) { return "dast_print_struct" }
-    return "dast_print_i64"
+    if type_is_bool(e, t) { return string_clone("dast_print_bool") }
+    if type_is_string(e, t) { return string_clone("dast_print_string") }
+    if type_is_struct(e, t) { return string_clone("dast_print_struct") }
+    return string_clone("dast_print_i64")
 }
 
 fn emit_print_arg(e: &mut Emitter, v: &QbeValue) {

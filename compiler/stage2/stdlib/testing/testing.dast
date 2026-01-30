@@ -1,7 +1,7 @@
 // std/testing: basic assertion macros.
 
 fn escape_str_lit(s: String) -> String {
-    let mut out = ""
+    let mut out = string_clone("")
     let mut i = 0
     let n = str_len(&s)
     while i < n {
