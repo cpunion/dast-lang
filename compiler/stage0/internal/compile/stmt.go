@@ -1252,7 +1252,7 @@ func (c *Compiler) emitShallowFree(op ir.Operand, typ string) {
 		return
 	}
 	if c.isStructTypeName(typ) || c.isEnumTypeName(typ) {
-		c.emit(&ir.Call{Dst: -1, Callee: "struct_free", Args: []ir.Operand{op}})
+		c.emit(&ir.Call{Dst: -1, Callee: "free", Args: []ir.Operand{op}})
 		return
 	}
 }

@@ -821,10 +821,10 @@ func (rt *Runtime) builtinArrayFree() Builtin {
 	}
 }
 
-func (rt *Runtime) builtinStructFree() Builtin {
+func (rt *Runtime) builtinFree() Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		if len(args) != 1 {
-			return ir.Value{Kind: ir.KindUnit}, errors.New("struct_free expects 1 argument")
+			return ir.Value{Kind: ir.KindUnit}, errors.New("free expects 1 argument")
 		}
 		return ir.Value{Kind: ir.KindUnit}, nil
 	}

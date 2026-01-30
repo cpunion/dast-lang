@@ -1,6 +1,7 @@
 package compile_test
 
 import (
+	"strings"
 	"testing"
 
 	"dastlang/internal/compile"
@@ -205,6 +206,20 @@ fn get_x(p: Point) -> i64
 	got := compileToIR(t, src)
 	if got != want {
 		t.Errorf("IR mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
+func TestDropStructUsesFree(t *testing.T) {
+	src := `
+struct S { x: i64 }
+fn main() { let s = S { x: 1 } }
+`
+	ir := compileToIR(t, src)
+	if strings.Contains(ir, "call struct_free") {
+		t.Fatalf("unexpected struct_free in IR:\n%s", ir)
+	}
+	if !strings.Contains(ir, "call free(") {
+		t.Fatalf("expected free in IR:\n%s", ir)
 	}
 }
 

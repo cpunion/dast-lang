@@ -1,0 +1,67 @@
+ir v0
+enum OptBox tag i32
+  variant Some = 0 : Box
+  variant None = 1 : unit
+
+type Box = { n: i64 }
+
+fn __drop_Box(v: Box) -> unit
+  block entry0:
+    t0: i64 = + 0, 0
+    t1: bool = == v, t0
+    branch t1, done2, drop1
+  block drop1:
+    call free(v)
+    jump done2
+  block done2:
+    return
+
+fn __drop_OptBox(v: OptBox) -> unit
+  block entry0:
+    t0: i64 = + 0, 0
+    t1: bool = == v, t0
+    branch t1, done2, check1
+  block check1:
+    t2: i32 = v._tag
+    jump check_v5
+  block done2:
+    return
+  block free3:
+    call free(v)
+    jump done2
+  block drop_v4:
+    t4: Box = v._payload
+    call __drop_Box(t4)
+    jump free3
+  block check_v5:
+    t3: bool = == t2, i32 0
+    branch t3, drop_v4, free3
+
+fn main() -> i64
+  block entry0:
+    t0: OptBox = struct OptBox { _tag: i32 1, _payload: unit }
+    store a, t0
+    t1: OptBox = load a
+    t2 = t1._tag
+    t3 = == t2, i32 0
+    t4 = t1._payload
+    branch t3, match_arm2, match_next3
+  block match_after1:
+    t10: OptBox = load a
+    call __drop_OptBox(t10)
+    return
+  block match_arm2:
+    t5: Box = t1._payload
+    t6: OptBox = load a
+    call __drop_OptBox(t6)
+    return 1
+  block match_next3:
+    t7 = t1._tag
+    t8 = == t7, i32 1
+    branch t8, match_arm4, match_next5
+  block match_arm4:
+    t9: OptBox = load a
+    call __drop_OptBox(t9)
+    return 0
+  block match_next5:
+    jump match_after1

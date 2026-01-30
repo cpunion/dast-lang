@@ -10,7 +10,7 @@ fn __drop_Closure(v: Closure) -> unit
   block drop1:
     t2:  = v.env
     call __drop__Env(t2)
-    call struct_free(v)
+    call free(v)
     jump done2
   block done2:
     return
@@ -21,7 +21,7 @@ fn __drop__Env(v: $Env) -> unit
     t1: bool = == v, t0
     branch t1, done2, drop1
   block drop1:
-    call struct_free(v)
+    call free(v)
     jump done2
   block done2:
     return

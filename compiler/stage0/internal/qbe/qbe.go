@@ -897,7 +897,7 @@ func builtinRuntimeName(name string) string {
 		return "dast_gensym"
 	case "bind":
 		return "dast_bind"
-	case "struct_free":
+	case "free":
 		return "dast_free"
 	}
 	return "dast_" + mangleName(name)
@@ -2106,7 +2106,7 @@ func isStructType(t string) bool {
 	if t == "" {
 		return false
 	}
-	if isRefType(t) || isArrayType(t) || isStringType(t) || isIntType(t) || t == "bool" || t == "unit" {
+	if isRefType(t) || isArrayType(t) || isStringType(t) || isIntType(t) || t == "bool" || t == "unit" || t == "f32" || t == "f64" || t == "untyped-float" {
 		return false
 	}
 	return true

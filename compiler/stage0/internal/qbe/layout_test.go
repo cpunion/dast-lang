@@ -21,11 +21,23 @@ func TestTypeSizeAlignBasic(t *testing.T) {
 	if got := typeAlign(e64, p, "char"); got != 4 {
 		t.Fatalf("char align = %d, want 4", got)
 	}
+	if got := typeSize(e64, p, "u8"); got != 1 {
+		t.Fatalf("u8 size = %d, want 1", got)
+	}
+	if got := typeAlign(e64, p, "u8"); got != 1 {
+		t.Fatalf("u8 align = %d, want 1", got)
+	}
 	if got := typeSize(e64, p, "i16"); got != 2 {
 		t.Fatalf("i16 size = %d, want 2", got)
 	}
 	if got := typeAlign(e64, p, "i16"); got != 2 {
 		t.Fatalf("i16 align = %d, want 2", got)
+	}
+	if got := typeSize(e64, p, "u16"); got != 2 {
+		t.Fatalf("u16 size = %d, want 2", got)
+	}
+	if got := typeAlign(e64, p, "u16"); got != 2 {
+		t.Fatalf("u16 align = %d, want 2", got)
 	}
 	if got := typeSize(e64, p, "i32"); got != 4 {
 		t.Fatalf("i32 size = %d, want 4", got)
@@ -33,11 +45,35 @@ func TestTypeSizeAlignBasic(t *testing.T) {
 	if got := typeAlign(e64, p, "i32"); got != 4 {
 		t.Fatalf("i32 align = %d, want 4", got)
 	}
+	if got := typeSize(e64, p, "u32"); got != 4 {
+		t.Fatalf("u32 size = %d, want 4", got)
+	}
+	if got := typeAlign(e64, p, "u32"); got != 4 {
+		t.Fatalf("u32 align = %d, want 4", got)
+	}
 	if got := typeSize(e64, p, "i64"); got != 8 {
 		t.Fatalf("i64 size = %d, want 8", got)
 	}
 	if got := typeAlign(e64, p, "i64"); got != 8 {
 		t.Fatalf("i64 align = %d, want 8", got)
+	}
+	if got := typeSize(e64, p, "u64"); got != 8 {
+		t.Fatalf("u64 size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "u64"); got != 8 {
+		t.Fatalf("u64 align = %d, want 8", got)
+	}
+	if got := typeSize(e64, p, "f32"); got != 4 {
+		t.Fatalf("f32 size = %d, want 4", got)
+	}
+	if got := typeAlign(e64, p, "f32"); got != 4 {
+		t.Fatalf("f32 align = %d, want 4", got)
+	}
+	if got := typeSize(e64, p, "f64"); got != 8 {
+		t.Fatalf("f64 size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "f64"); got != 8 {
+		t.Fatalf("f64 align = %d, want 8", got)
 	}
 	if got := typeSize(e64, p, "isize"); got != 8 {
 		t.Fatalf("isize size = %d, want 8", got)
@@ -45,12 +81,66 @@ func TestTypeSizeAlignBasic(t *testing.T) {
 	if got := typeAlign(e64, p, "isize"); got != 8 {
 		t.Fatalf("isize align = %d, want 8", got)
 	}
+	if got := typeSize(e64, p, "usize"); got != 8 {
+		t.Fatalf("usize size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "usize"); got != 8 {
+		t.Fatalf("usize align = %d, want 8", got)
+	}
+	if got := typeSize(e64, p, "*i32"); got != 8 {
+		t.Fatalf("*i32 size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "*i32"); got != 8 {
+		t.Fatalf("*i32 align = %d, want 8", got)
+	}
+	if got := typeSize(e64, p, "[i32]"); got != 8 {
+		t.Fatalf("[i32] size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "[i32]"); got != 8 {
+		t.Fatalf("[i32] align = %d, want 8", got)
+	}
+	if got := typeSize(e64, p, "String"); got != 8 {
+		t.Fatalf("String size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "String"); got != 8 {
+		t.Fatalf("String align = %d, want 8", got)
+	}
+	if got := typeSize(e64, p, "str"); got != 8 {
+		t.Fatalf("str size = %d, want 8", got)
+	}
+	if got := typeAlign(e64, p, "str"); got != 8 {
+		t.Fatalf("str align = %d, want 8", got)
+	}
 	e32 := &emitter{ptrSize: 4}
 	if got := typeSize(e32, p, "isize"); got != 4 {
 		t.Fatalf("isize size (32-bit) = %d, want 4", got)
 	}
 	if got := typeAlign(e32, p, "isize"); got != 4 {
 		t.Fatalf("isize align (32-bit) = %d, want 4", got)
+	}
+	if got := typeSize(e32, p, "usize"); got != 4 {
+		t.Fatalf("usize size (32-bit) = %d, want 4", got)
+	}
+	if got := typeAlign(e32, p, "usize"); got != 4 {
+		t.Fatalf("usize align (32-bit) = %d, want 4", got)
+	}
+	if got := typeSize(e32, p, "*i32"); got != 4 {
+		t.Fatalf("*i32 size (32-bit) = %d, want 4", got)
+	}
+	if got := typeAlign(e32, p, "*i32"); got != 4 {
+		t.Fatalf("*i32 align (32-bit) = %d, want 4", got)
+	}
+	if got := typeSize(e32, p, "String"); got != 4 {
+		t.Fatalf("String size (32-bit) = %d, want 4", got)
+	}
+	if got := typeAlign(e32, p, "String"); got != 4 {
+		t.Fatalf("String align (32-bit) = %d, want 4", got)
+	}
+	if got := typeSize(e32, p, "str"); got != 4 {
+		t.Fatalf("str size (32-bit) = %d, want 4", got)
+	}
+	if got := typeAlign(e32, p, "str"); got != 4 {
+		t.Fatalf("str align (32-bit) = %d, want 4", got)
 	}
 }
 

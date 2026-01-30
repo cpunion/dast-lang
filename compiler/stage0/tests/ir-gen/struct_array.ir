@@ -7,7 +7,7 @@ fn __drop_Point(v: Point) -> unit
     t1: bool = == v, t0
     branch t1, done2, drop1
   block drop1:
-    call struct_free(v)
+    call free(v)
     jump done2
   block done2:
     return

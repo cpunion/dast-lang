@@ -585,7 +585,7 @@ func buildDropStructFunc(structType string, c *Compiler) *ir.Function {
 			}
 		}
 	}
-	b.emit(&ir.Call{Dst: -1, Callee: "struct_free", Args: []ir.Operand{ir.TempOperand(0)}})
+	b.emit(&ir.Call{Dst: -1, Callee: "free", Args: []ir.Operand{ir.TempOperand(0)}})
 	b.emitTerm(&ir.Jump{Target: done.Label})
 
 	b.setBlock(done)
@@ -610,7 +610,7 @@ func buildDropEnumFunc(enumType string, c *Compiler) *ir.Function {
 	b.setBlock(check)
 	decl, ok := c.enums[enumType]
 	if !ok || decl == nil {
-		b.emit(&ir.Call{Dst: -1, Callee: "struct_free", Args: []ir.Operand{ir.TempOperand(0)}})
+		b.emit(&ir.Call{Dst: -1, Callee: "free", Args: []ir.Operand{ir.TempOperand(0)}})
 		b.emitTerm(&ir.Jump{Target: done.Label})
 		b.setBlock(done)
 		b.emitTerm(&ir.Return{Value: nil})
@@ -625,7 +625,7 @@ func buildDropEnumFunc(enumType string, c *Compiler) *ir.Function {
 
 	freeBlock := b.newBlock("free")
 	b.setBlock(freeBlock)
-	b.emit(&ir.Call{Dst: -1, Callee: "struct_free", Args: []ir.Operand{ir.TempOperand(0)}})
+	b.emit(&ir.Call{Dst: -1, Callee: "free", Args: []ir.Operand{ir.TempOperand(0)}})
 	b.emitTerm(&ir.Jump{Target: done.Label})
 
 	nextBlock := freeBlock

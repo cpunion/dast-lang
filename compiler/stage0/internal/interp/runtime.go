@@ -177,7 +177,7 @@ func New(prog *ir.Program) *Runtime {
 		"string_clone":  rt.builtinStringClone(),
 		"string_free":   rt.builtinStringFree(),
 		"array_free":    rt.builtinArrayFree(),
-		"struct_free":   rt.builtinStructFree(),
+		"free":          rt.builtinFree(),
 	}
 	return rt
 }
