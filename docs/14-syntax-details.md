@@ -65,6 +65,33 @@ false       // 假
 
 ---
 
+## 泛型约束语法
+
+```dast
+// 行内约束（多个 trait 用 +）
+fn f[T: Clone + Display](x: T) -> T { x }
+
+// trait 带类型参数
+fn g[T: Iterator[i32]](it: T) { }
+
+// where 子句（复杂场景）
+fn h[T, U](x: T, y: U)
+where
+    T: Clone + Into[U],
+    U: Display,
+{
+    println("{}", y.display())
+}
+```
+
+说明：
+- 约束只支持 **trait bound**，`T: Trait + Trait2[...]`。
+- `where` 子句是语法糖，等价于把约束合并到对应的类型参数上。
+- trait 有类型参数时，约束必须提供**完整**类型实参列表。
+- 约束对象必须是**名义类型**（不能写 `&T` / `[]` / tuple）。
+
+---
+
 ## 运算符优先级
 
 ### 优先级表（从高到低）

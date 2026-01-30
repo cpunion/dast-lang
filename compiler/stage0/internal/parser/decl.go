@@ -12,6 +12,7 @@ func (p *Parser) parseStructDecl(vis ast.Visibility) ast.Item {
 	if p.at(lexer.TokenLBracket) {
 		decl.TypeParams = p.parseTypeParams()
 	}
+	decl.TypeParams = p.parseWhereClause(decl.TypeParams)
 	p.expect(lexer.TokenLBrace, "expected '{'")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		fieldName := p.expect(lexer.TokenIdent, "expected field name")
@@ -52,6 +53,7 @@ func (p *Parser) parseEnumDecl(repr string, vis ast.Visibility) ast.Item {
 		tagTok := p.expect(lexer.TokenIdent, "expected enum tag type")
 		decl.Repr = tagTok.Lexeme
 	}
+	decl.TypeParams = p.parseWhereClause(decl.TypeParams)
 	p.expect(lexer.TokenLBrace, "expected '{'")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		variantTok := p.expect(lexer.TokenIdent, "expected variant name")
@@ -99,6 +101,7 @@ func (p *Parser) parseTypeAlias(vis ast.Visibility) ast.Item {
 	if p.at(lexer.TokenLBracket) {
 		alias.TypeParams = p.parseTypeParams()
 	}
+	alias.TypeParams = p.parseWhereClause(alias.TypeParams)
 	p.expect(lexer.TokenAssign, "expected '=' in type alias")
 	val := p.parseType()
 	alias.Value = val
@@ -113,6 +116,7 @@ func (p *Parser) parseTraitDecl(vis ast.Visibility) ast.Item {
 	if p.at(lexer.TokenLBracket) {
 		decl.TypeParams = p.parseTypeParams()
 	}
+	decl.TypeParams = p.parseWhereClause(decl.TypeParams)
 	p.expect(lexer.TokenLBrace, "expected '{' after trait name")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		vis := ast.VisPrivate
@@ -181,6 +185,7 @@ func (p *Parser) parseFunction(vis ast.Visibility, isMacro bool) *ast.Function {
 		ret := p.parseType()
 		fn.ReturnType = &ret
 	}
+	fn.TypeParams = p.parseWhereClause(fn.TypeParams)
 
 	body := p.parseBlock()
 	fn.Body = body
@@ -198,11 +203,11 @@ func (p *Parser) parseTypeParams() []ast.TypeParam {
 		param := ast.TypeParam{Name: nameTok.Lexeme, Span: nameTok.Span}
 		if p.match(lexer.TokenColon) {
 			for {
-				boundName, boundSpan := p.parseQualifiedName()
-				if boundName == "" {
-					p.diag.Add(boundSpan, "expected trait bound")
+				bound := p.parseType()
+				if bound.Name == "" || bound.IsRef || bound.IsArray || bound.IsTuple {
+					p.diag.Add(bound.Span, "trait bound must be nominal type")
 				} else {
-					param.Bounds = append(param.Bounds, boundName)
+					param.Bounds = append(param.Bounds, bound)
 				}
 				if !p.match(lexer.TokenPlus) {
 					break
@@ -216,6 +221,47 @@ func (p *Parser) parseTypeParams() []ast.TypeParam {
 		break
 	}
 	p.expect(lexer.TokenRBracket, "expected ']' after type parameters")
+	return params
+}
+
+func typeParamIndex(params []ast.TypeParam, name string) int {
+	for i := range params {
+		if params[i].Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func (p *Parser) parseWhereClause(params []ast.TypeParam) []ast.TypeParam {
+	if !p.match(lexer.TokenWhere) {
+		return params
+	}
+	for !p.at(lexer.TokenEOF) {
+		nameTok := p.expect(lexer.TokenIdent, "expected type parameter")
+		idx := typeParamIndex(params, nameTok.Lexeme)
+		p.expect(lexer.TokenColon, "expected ':' in where clause")
+		var bounds []ast.Type
+		for {
+			bound := p.parseType()
+			if bound.Name == "" || bound.IsRef || bound.IsArray || bound.IsTuple {
+				p.diag.Add(bound.Span, "trait bound must be nominal type")
+			} else {
+				bounds = append(bounds, bound)
+			}
+			if !p.match(lexer.TokenPlus) {
+				break
+			}
+		}
+		if idx < 0 {
+			p.diag.Add(nameTok.Span, "unknown type parameter in where clause")
+		} else {
+			params[idx].Bounds = append(params[idx].Bounds, bounds...)
+		}
+		if !p.match(lexer.TokenComma) {
+			break
+		}
+	}
 	return params
 }
 
@@ -494,6 +540,7 @@ func (p *Parser) parseImplDecl(vis ast.Visibility) ast.Item {
 		if forType.IsRef || forType.IsArray {
 			p.diag.Add(forType.Span, "impl target must be nominal type")
 		}
+		typeParams = p.parseWhereClause(typeParams)
 		impl := &ast.ImplTraitDecl{
 			TraitName: traitType.Name,
 			TraitArgs: traitType.Args,
@@ -528,6 +575,7 @@ func (p *Parser) parseImplDecl(vis ast.Visibility) ast.Item {
 		Vis:       vis,
 		SpanInfo:  mergeSpan(start, baseType.Span),
 	}
+	impl.TypeParams = p.parseWhereClause(impl.TypeParams)
 	p.expect(lexer.TokenLBrace, "expected '{' after impl type")
 	for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
 		vis := ast.VisPrivate

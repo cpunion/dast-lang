@@ -64,6 +64,7 @@ const TK_CARET: i32 = 60
 const TK_SHL: i32 = 61
 const TK_SHR: i32 = 62
 const TK_FLOAT: i32 = 63
+const TK_WHERE: i32 = 64
 
 // Character constants used by the lexer.
 const CH_TAB = 9
@@ -305,6 +306,7 @@ fn lexer_next(l: &mut Lexer) -> Token {
         if text == "impl" { return tok(TK_IMPL, text) }
         if text == "for" { return tok(TK_FOR, text) }
         if text == "in" { return tok(TK_IN, text) }
+        if text == "where" { return tok(TK_WHERE, text) }
         if text == "macro" { return tok(TK_MACRO, text) }
         if text == "quote" { return tok(TK_QUOTE, text) }
         if text == "true" { return tok_bool(true) }

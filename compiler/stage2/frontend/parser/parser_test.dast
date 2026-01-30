@@ -1,0 +1,42 @@
+fn test_parse_where_fn_bounds() {
+    let src = "fn f[T: Clone](x: T) where T: Display + Iter[i32] { } fn main() { }"
+    let prog = parse_program(src)
+    if len(&prog.functions) == 0 {
+        println("missing functions")
+        exit(1)
+    }
+    let mut fi = 0
+    let mut found = false
+    let mut f = function_clone(&prog.functions[0])
+    while fi < len(&prog.functions) {
+        if prog.functions[fi].name == "f" {
+            f = function_clone(&prog.functions[fi])
+            found = true
+        }
+        fi = fi + 1
+    }
+    if !found {
+        println("missing function f")
+        exit(1)
+    }
+    assert_i64_eq(len(&f.type_params), 1)
+    let tp = f.type_params[0]
+    assert_i64_eq(len(&tp.bounds), 3)
+    assert_str_eq(tp.bounds[0], "Clone")
+    assert_str_eq(tp.bounds[1], "Display")
+    assert_str_eq(tp.bounds[2], "Iter[i32]")
+}
+
+fn test_parse_where_struct_bounds() {
+    let src = "struct Box[T] where T: Clone { v: T } fn main() { }"
+    let prog = parse_program(src)
+    if len(&prog.structs) == 0 {
+        println("missing struct")
+        exit(1)
+    }
+    let s = struct_decl_clone(&prog.structs[0])
+    assert_i64_eq(len(&s.type_params), 1)
+    let tp = s.type_params[0]
+    assert_i64_eq(len(&tp.bounds), 1)
+    assert_str_eq(tp.bounds[0], "Clone")
+}

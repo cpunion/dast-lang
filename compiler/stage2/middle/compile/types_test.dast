@@ -479,7 +479,8 @@ fn test_trait_impl_validation() {
 fn test_trait_impl_args_validation() {
     let mut e = emitter_new()
     let mut tparams = generic_param_list_empty()
-    push(&mut tparams, GenericParam { name: "Rhs", has_bound: false, bound: "" })
+    let mut rhs_bounds: [String] = []
+    push(&mut tparams, GenericParam { name: "Rhs", bounds: rhs_bounds })
     let mut tm_params: [Param] = []
     push(&mut tm_params, Param { name: "self", typ: "&Self", has_type: true })
     push(&mut tm_params, Param { name: "other", typ: "&Rhs", has_type: true })
@@ -533,6 +534,88 @@ fn test_trait_impl_args_validation() {
     e3.impls = miss_impls
     if validate_trait_impls_impl(&e3, true) {
         println("expected trait impl missing args to fail")
+        exit(1)
+    }
+}
+
+fn test_type_param_bounds_with_args() {
+    let mut e = emitter_new()
+    let mut trait_params: [GenericParam] = []
+    let mut empty_bounds: [String] = []
+    push(&mut trait_params, GenericParam { name: "Rhs", bounds: empty_bounds })
+    let mut methods: [TraitMethod] = []
+    push(&mut methods, TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: param_list_empty(), ret_type: "bool" })
+    let mut traits: [TraitDecl] = []
+    push(&mut traits, TraitDecl { name: "PartialEq", type_params: trait_params, methods: methods })
+    e.traits = traits
+
+    let mut impls: [ImplDecl] = []
+    push(&mut impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: trait_method_list_empty() })
+    e.impls = impls
+
+    let mut bounds: [String] = []
+    push(&mut bounds, string_clone("PartialEq[i32]"))
+    let mut fparams: [GenericParam] = []
+    push(&mut fparams, GenericParam { name: "T", bounds: bounds })
+    let mut params: [Param] = []
+    push(&mut params, Param { name: "x", typ: "T", has_type: true })
+    let f = Function { name: "f", type_params: fparams, params: params, ret_type: "", body: block_empty(), is_macro: false }
+    let mut values: [String] = []
+    push(&mut values, string_clone("Foo"))
+    check_type_param_bounds(&mut e, &f, &values)
+}
+
+fn test_type_param_bounds_errors() {
+    let mut e = emitter_new()
+    let mut traits: [TraitDecl] = []
+    let mut tparams: [GenericParam] = []
+    let mut empty_bounds: [String] = []
+    push(&mut tparams, GenericParam { name: "Rhs", bounds: empty_bounds })
+    let mut methods: [TraitMethod] = []
+    push(&mut methods, TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: param_list_empty(), ret_type: "bool" })
+    push(&mut traits, TraitDecl { name: "PartialEq", type_params: tparams, methods: methods })
+    e.traits = traits
+
+    let mut impls: [ImplDecl] = []
+    push(&mut impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: trait_method_list_empty() })
+    e.impls = impls
+
+    // unknown trait
+    let mut b1: [String] = []
+    push(&mut b1, string_clone("Missing"))
+    let mut fparams1: [GenericParam] = []
+    push(&mut fparams1, GenericParam { name: "T", bounds: b1 })
+    let f1 = Function { name: "f1", type_params: fparams1, params: param_list_empty(), ret_type: "", body: block_empty(), is_macro: false }
+    let mut vals1: [String] = []
+    push(&mut vals1, string_clone("Foo"))
+    if check_type_param_bounds_impl(&mut e, &f1, &vals1, true) {
+        println("expected unknown trait bound to fail")
+        exit(1)
+    }
+
+    // trait arg count mismatch
+    let mut b2: [String] = []
+    push(&mut b2, string_clone("PartialEq[i32,i64]"))
+    let mut fparams2: [GenericParam] = []
+    push(&mut fparams2, GenericParam { name: "T", bounds: b2 })
+    let f2 = Function { name: "f2", type_params: fparams2, params: param_list_empty(), ret_type: "", body: block_empty(), is_macro: false }
+    let mut vals2: [String] = []
+    push(&mut vals2, string_clone("Foo"))
+    if check_type_param_bounds_impl(&mut e, &f2, &vals2, true) {
+        println("expected trait arg mismatch to fail")
+        exit(1)
+    }
+
+    // missing impl for bound
+    let mut b3: [String] = []
+    push(&mut b3, string_clone("PartialEq[i64]"))
+    let mut fparams3: [GenericParam] = []
+    push(&mut fparams3, GenericParam { name: "T", bounds: b3 })
+    let f3 = Function { name: "f3", type_params: fparams3, params: param_list_empty(), ret_type: "", body: block_empty(), is_macro: false }
+    let mut vals3: [String] = []
+    push(&mut vals3, string_clone("Foo"))
+    if check_type_param_bounds_impl(&mut e, &f3, &vals3, true) {
+        println("expected missing impl to fail")
         exit(1)
     }
 }

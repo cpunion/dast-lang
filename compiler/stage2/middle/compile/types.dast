@@ -668,12 +668,20 @@ fn type_base_match(e: &Emitter, expected: &str, actual: &str) -> bool {
 }
 
 fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
+    let bound_args = type_args_parse(trait_name)
     let mut i = 0
     while i < len(&e.impls) {
         let imp = &e.impls[i]
         let imp_base = type_strip_args(e, &imp.trait_name)
         let want_base = type_strip_args(e, trait_name)
         if imp.trait_name != "" && imp_base == want_base {
+            if bound_args.has {
+                let params = impl_type_param_names(imp)
+                if !type_matches_pattern(e, &imp.trait_name, trait_name, params) {
+                    i = i + 1
+                    continue
+                }
+            }
             let pat_res = type_resolve(e, &imp.for_type)
             let act_res = type_resolve(e, for_type)
             if pat_res == act_res { return true }
@@ -688,27 +696,51 @@ fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
     return false
 }
 
-fn check_type_param_bounds(e: &Emitter, f: &Function, values: & [String]) {
+fn check_type_param_bounds_impl(e: &Emitter, f: &Function, values: & [String], allow_fail: bool) -> bool {
     let mut i = 0
     while i < len(&f.type_params) {
         let tp = &f.type_params[i]
-        if tp.has_bound {
-            if trait_decl_index(e, &tp.bound) < 0 {
-                println("stage2: unknown trait", tp.bound)
-                exit(1)
-            }
+        if len(&tp.bounds) > 0 {
             if i >= len(values) || (*values)[i] == "" {
+                if allow_fail { return false }
                 println("stage2: cannot infer type for", tp.name)
                 exit(1)
             }
             let val = &(*values)[i]
-            if !impl_has_trait(e, &tp.bound, val) {
-                println("stage2: type", val, "does not implement trait", tp.bound)
-                exit(1)
+            let mut bi = 0
+            while bi < len(&tp.bounds) {
+                let bound = tp.bounds[bi]
+                let tidx = trait_decl_index(e, &bound)
+                if tidx < 0 {
+                    if allow_fail { return false }
+                    println("stage2: unknown trait", bound)
+                    exit(1)
+                }
+                let decl = &e.traits[tidx]
+                let parsed = type_args_parse(&bound)
+                let want = len(&decl.type_params)
+                let mut have: i64 = 0
+                if parsed.has { have = len(&parsed.args) }
+                if want != have {
+                    if allow_fail { return false }
+                    println("stage2: trait", decl.name, "expects", want, "type args, got", have)
+                    exit(1)
+                }
+                if !impl_has_trait(e, &bound, val) {
+                    if allow_fail { return false }
+                    println("stage2: type", val, "does not implement trait", bound)
+                    exit(1)
+                }
+                bi = bi + 1
             }
         }
         i = i + 1
     }
+    return true
+}
+
+fn check_type_param_bounds(e: &Emitter, f: &Function, values: & [String]) {
+    let _ = check_type_param_bounds_impl(e, f, values, false)
 }
 
 fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String] {

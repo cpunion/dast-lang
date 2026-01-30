@@ -52,3 +52,47 @@ func TestParseCharLiterals(t *testing.T) {
 		}
 	}
 }
+
+func TestParseWhereBounds(t *testing.T) {
+	src := `fn f[T: Clone](x: T) where T: Display + Iter[i32] {}`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	if len(prog.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(prog.Items))
+	}
+	fn, ok := prog.Items[0].(*ast.Function)
+	if !ok {
+		t.Fatalf("expected function item")
+	}
+	if len(fn.TypeParams) != 1 {
+		t.Fatalf("expected 1 type param, got %d", len(fn.TypeParams))
+	}
+	bounds := fn.TypeParams[0].Bounds
+	if len(bounds) != 3 {
+		t.Fatalf("expected 3 bounds, got %d", len(bounds))
+	}
+	if bounds[0].Name != "Clone" || bounds[1].Name != "Display" {
+		t.Fatalf("unexpected bounds: %v", bounds)
+	}
+	if bounds[2].Name != "Iter" || len(bounds[2].Args) != 1 || bounds[2].Args[0].Name != "i32" {
+		t.Fatalf("unexpected trait args in bound: %v", bounds[2])
+	}
+}
+
+func TestParseWhereUnknownParam(t *testing.T) {
+	src := `fn f[T](x: T) where U: Clone {}`
+	_, diags := parser.Parse("test.dast", src)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse errors for unknown where param")
+	}
+}
+
+func TestParseWhereNonNominalBound(t *testing.T) {
+	src := `fn f[T](x: T) where T: &str {}`
+	_, diags := parser.Parse("test.dast", src)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse errors for non-nominal bound")
+	}
+}

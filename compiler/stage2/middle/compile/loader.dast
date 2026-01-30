@@ -592,6 +592,26 @@ fn rewrite_type_name(name: &str, aliases: & [String]) -> String {
     return strip_alias_prefix(name, aliases)
 }
 
+fn rewrite_generic_param(p: &GenericParam, aliases: & [String]) -> GenericParam {
+    let mut bounds: [String] = []
+    let mut i = 0
+    while i < len(&p.bounds) {
+        push(&mut bounds, rewrite_type_name(&p.bounds[i], aliases))
+        i = i + 1
+    }
+    return GenericParam { name: string_clone(&p.name), bounds: bounds }
+}
+
+fn rewrite_generic_params(params: & [GenericParam], aliases: & [String]) -> [GenericParam] {
+    let mut out: [GenericParam] = []
+    let mut i = 0
+    while i < len(params) {
+        push(&mut out, rewrite_generic_param(&(*params)[i], aliases))
+        i = i + 1
+    }
+    return out
+}
+
 fn rewrite_trait_method(m: &TraitMethod, aliases: & [String]) -> TraitMethod {
     let mut params: [Param] = []
     let mut i = 0
@@ -604,7 +624,8 @@ fn rewrite_trait_method(m: &TraitMethod, aliases: & [String]) -> TraitMethod {
     }
     let mut rt = string_clone(&m.ret_type)
     if rt != "" { rt = rewrite_type_name(&m.ret_type, aliases) }
-    return TraitMethod { name: string_clone(&m.name), type_params: generic_param_list_clone(&m.type_params), params: params, ret_type: rt }
+    let tparams = rewrite_generic_params(&m.type_params, aliases)
+    return TraitMethod { name: string_clone(&m.name), type_params: tparams, params: params, ret_type: rt }
 }
 
 fn expr_path_segments(expr: &Expr, segs: &mut [String]) -> bool {
@@ -822,7 +843,8 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
             push(&mut fields, StructField { name: string_clone(&f.name), typ: rewrite_type_name(&f.typ, aliases) })
             fi = fi + 1
         }
-        push(&mut structs, StructDecl { name: string_clone(&s.name), type_params: generic_param_list_clone(&s.type_params), fields: fields })
+        let tparams = rewrite_generic_params(&s.type_params, aliases)
+        push(&mut structs, StructDecl { name: string_clone(&s.name), type_params: tparams, fields: fields })
         i = i + 1
     }
     out.structs = structs
@@ -839,7 +861,8 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
             push(&mut variants, EnumVariant { name: string_clone(&v.name), has_payload: v.has_payload, payload_type: payload })
             vi = vi + 1
         }
-        push(&mut enums, EnumDecl { name: string_clone(&e.name), type_params: generic_param_list_clone(&e.type_params), tag_type: rewrite_type_name(&e.tag_type, aliases), variants: variants })
+        let tparams = rewrite_generic_params(&e.type_params, aliases)
+        push(&mut enums, EnumDecl { name: string_clone(&e.name), type_params: tparams, tag_type: rewrite_type_name(&e.tag_type, aliases), variants: variants })
         i = i + 1
     }
     out.enums = enums
@@ -866,7 +889,8 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
         }
         let mut rt = string_clone(&f.ret_type)
         if rt != "" { rt = rewrite_type_name(&f.ret_type, aliases) }
-        let mut nf = Function { name: string_clone(&f.name), type_params: generic_param_list_clone(&f.type_params), params: params, ret_type: rt, body: block_clone(&f.body), is_macro: f.is_macro }
+        let tparams = rewrite_generic_params(&f.type_params, aliases)
+        let mut nf = Function { name: string_clone(&f.name), type_params: tparams, params: params, ret_type: rt, body: block_clone(&f.body), is_macro: f.is_macro }
         nf.body = rewrite_block(&nf.body, aliases)
         push(&mut funcs, nf)
         i = i + 1
@@ -892,7 +916,8 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
             push(&mut methods, rewrite_trait_method(&t.methods[mi], aliases))
             mi = mi + 1
         }
-        push(&mut traits, TraitDecl { name: strip_alias_prefix(&t.name, aliases), type_params: generic_param_list_clone(&t.type_params), methods: methods })
+        let tparams = rewrite_generic_params(&t.type_params, aliases)
+        push(&mut traits, TraitDecl { name: strip_alias_prefix(&t.name, aliases), type_params: tparams, methods: methods })
         i = i + 1
     }
     out.traits = traits
@@ -908,7 +933,8 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
             push(&mut methods, rewrite_trait_method(&im.methods[mi], aliases))
             mi = mi + 1
         }
-        push(&mut impls, ImplDecl { trait_name: tname, for_type: for_type, type_params: generic_param_list_clone(&im.type_params), methods: methods })
+        let tparams = rewrite_generic_params(&im.type_params, aliases)
+        push(&mut impls, ImplDecl { trait_name: tname, for_type: for_type, type_params: tparams, methods: methods })
         i = i + 1
     }
     out.impls = impls

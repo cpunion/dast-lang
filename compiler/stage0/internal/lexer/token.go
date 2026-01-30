@@ -27,6 +27,7 @@ const (
 	TokenImport
 	TokenAs
 	TokenIn
+	TokenWhere
 	TokenLet
 	TokenMut
 	TokenIf
@@ -132,6 +133,8 @@ func (k TokenKind) String() string {
 		return "as"
 	case TokenIn:
 		return "in"
+	case TokenWhere:
+		return "where"
 	case TokenLet:
 		return "let"
 	case TokenMut:

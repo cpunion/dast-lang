@@ -236,6 +236,16 @@ trait Cloneable { fn clone(self: &Self) -> Self }
 impl Cloneable for Point { ... }
 
 fn use_bound[T: Cloneable](x: T) -> i32 { 1 }
+
+fn use_multi[T: Cloneable + Display](x: T) { }
+
+fn use_where[T, U](x: T, y: U)
+where
+    T: Cloneable,
+    U: Iterator[i32],
+{
+    // ...
+}
 ```
 
 ### 9.3 type alias

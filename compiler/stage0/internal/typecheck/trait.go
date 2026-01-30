@@ -99,13 +99,14 @@ func (c *Checker) traitSubstForImplTrait(impl *ast.ImplTraitDecl, baseSubst map[
 func (c *Checker) applyImplTrait(impl *ast.ImplTraitDecl, implType Type, traitSig *TraitSig, traitSubst map[string]Type) {
 	implType = c.canonicalizeType(implType)
 	typeKey := typeKey(implType)
-	if _, ok := c.traitImpls[traitSig.Name]; !ok {
-		c.traitImpls[traitSig.Name] = map[string]struct{}{}
+	traitKey := traitKeyFromAst(ast.Type{Name: impl.TraitName, Args: impl.TraitArgs})
+	if _, ok := c.traitImpls[traitKey]; !ok {
+		c.traitImpls[traitKey] = map[string]struct{}{}
 	}
-	if _, exists := c.traitImpls[traitSig.Name][typeKey]; exists {
+	if _, exists := c.traitImpls[traitKey][typeKey]; exists {
 		c.diag.Add(impl.Span(), fmt.Sprintf("duplicate impl of trait '%s' for '%s'", impl.TraitName, impl.ForTypeName))
 	}
-	c.traitImpls[traitSig.Name][typeKey] = struct{}{}
+	c.traitImpls[traitKey][typeKey] = struct{}{}
 
 	implMethods := map[string]*ast.Function{}
 	for _, m := range impl.Methods {
@@ -201,19 +202,30 @@ func (c *Checker) checkTypeParamBounds(params []ast.TypeParam, subst map[string]
 			continue
 		}
 		for _, bound := range p.Bounds {
-			if _, ok := c.traits[bound]; !ok {
-				c.diag.Add(span, fmt.Sprintf("unknown trait '%s'", bound))
+			traitSig, ok := c.traits[bound.Name]
+			if !ok {
+				c.diag.Add(span, fmt.Sprintf("unknown trait '%s'", bound.Name))
 				continue
 			}
-			if !c.typeImplementsTrait(arg, bound) {
-				c.diag.Add(span, fmt.Sprintf("type '%s' does not implement trait '%s'", arg.String(), bound))
+			if len(bound.Args) != len(traitSig.TypeParams) {
+				c.diag.Add(span, fmt.Sprintf("trait '%s' expects %d type arguments, got %d", traitSig.Name, len(traitSig.TypeParams), len(bound.Args)))
+				continue
+			}
+			instBound := c.cloneType(bound, subst)
+			if !c.typeImplementsTrait(arg, instBound) {
+				c.diag.Add(span, fmt.Sprintf("type '%s' does not implement trait '%s'", arg.String(), ast.FormatType(instBound)))
 			}
 		}
 	}
 }
 
-func (c *Checker) typeImplementsTrait(t Type, trait string) bool {
-	impls, ok := c.traitImpls[trait]
+func traitKeyFromAst(t ast.Type) string {
+	return ast.FormatType(t)
+}
+
+func (c *Checker) typeImplementsTrait(t Type, trait ast.Type) bool {
+	traitKey := traitKeyFromAst(trait)
+	impls, ok := c.traitImpls[traitKey]
 	if ok {
 		if _, exists := impls[typeKey(t)]; exists {
 			return true
@@ -234,23 +246,41 @@ func (c *Checker) typeImplementsTrait(t Type, trait string) bool {
 	return c.hasImplTraitTemplate(expanded.Name, expanded.Args, trait)
 }
 
-func (c *Checker) hasImplTraitTemplate(base string, args []Type, trait string) bool {
+func (c *Checker) hasImplTraitTemplate(base string, args []Type, trait ast.Type) bool {
 	templates := c.implTraitTemplates[base]
 	if len(templates) == 0 {
 		return false
 	}
-	traitSig, ok := c.traits[trait]
+	traitSig, ok := c.traits[trait.Name]
 	if !ok {
 		return false
 	}
+	if len(trait.Args) != len(traitSig.TypeParams) {
+		return false
+	}
 	for _, tmpl := range templates {
-		if tmpl.TraitName != trait {
+		if tmpl.TraitName != trait.Name {
 			continue
 		}
 		if len(tmpl.TypeParams) != len(args) {
 			continue
 		}
 		if len(traitSig.TypeParams) != len(tmpl.TraitArgs) {
+			continue
+		}
+		restore := c.pushTypeParams(tmpl.TypeParams)
+		match := true
+		subst := map[string]Type{}
+		for i := range tmpl.TraitArgs {
+			pat := c.fromAstType(tmpl.TraitArgs[i])
+			act := c.fromAstType(trait.Args[i])
+			if !c.unifyType(pat, act, subst) {
+				match = false
+				break
+			}
+		}
+		c.popTypeParams(restore)
+		if !match {
 			continue
 		}
 		return true

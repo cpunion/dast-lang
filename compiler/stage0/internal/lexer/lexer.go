@@ -412,6 +412,8 @@ func lookupKeyword(lex string) TokenKind {
 		return TokenAs
 	case "in":
 		return TokenIn
+	case "where":
+		return TokenWhere
 	case "let":
 		return TokenLet
 	case "mut":

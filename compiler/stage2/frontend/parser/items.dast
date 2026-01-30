@@ -44,7 +44,8 @@ fn parse_struct_fields(p: &mut Parser) -> [StructField] {
 fn parse_struct(p: &mut Parser) -> StructDecl {
     let _ = parser_expect(p, TK_STRUCT, "struct")
     let name = parser_expect(p, TK_IDENT, "struct name").text
-    let type_params = parse_generic_params(p)
+    let mut type_params = parse_generic_params(p)
+    parse_where_clause(p, &mut type_params)
     let fields = parse_struct_fields(p)
     return StructDecl { name: name, type_params: type_params, fields: fields }
 }
@@ -84,12 +85,13 @@ fn parse_enum_variants(p: &mut Parser) -> [EnumVariant] {
 fn parse_enum(p: &mut Parser) -> EnumDecl {
     let _ = parser_expect(p, TK_ENUM, "enum")
     let name = parser_expect(p, TK_IDENT, "enum name").text
-    let type_params = parse_generic_params(p)
+    let mut type_params = parse_generic_params(p)
     let mut tag_type = string_clone("i32")
     if parser_peek(p).kind == TK_TAG {
         let _ = parser_advance(p)
         tag_type = parse_type_name(p)
     }
+    parse_where_clause(p, &mut type_params)
     let variants = parse_enum_variants(p)
     return EnumDecl { name: name, type_params: type_params, tag_type: tag_type, variants: variants }
 }
@@ -113,14 +115,12 @@ fn parse_generic_params(p: &mut Parser) -> [GenericParam] {
     let mut done = false
     while !done {
         let name = parser_expect(p, TK_IDENT, "type param").text
-        let mut has_bound = false
-        let mut bound = string_clone("")
+        let mut bounds: [String] = []
         if parser_peek(p).kind == TK_COLON {
             let _ = parser_advance(p)
-            bound = parser_expect(p, TK_IDENT, "trait").text
-            has_bound = true
+            bounds = parse_bound_list(p)
         }
-        push(&mut params, GenericParam { name: name, has_bound: has_bound, bound: bound })
+        push(&mut params, GenericParam { name: name, bounds: bounds })
         if parser_peek(p).kind == TK_COMMA {
             let _ = parser_advance(p)
         } else {
@@ -129,6 +129,82 @@ fn parse_generic_params(p: &mut Parser) -> [GenericParam] {
     }
     let _ = parser_expect(p, TK_RBRACKET, "]")
     return params
+}
+
+fn string_list_contains(items: & [String], name: &str) -> bool {
+    let mut i = 0
+    while i < len(items) {
+        if (*items)[i] == name { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fn generic_param_index(params: & [GenericParam], name: &str) -> i64 {
+    let mut i = 0
+    while i < len(params) {
+        if (*params)[i].name == name { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn generic_param_add_bound(params: &mut [GenericParam], idx: i64, bound: &str) {
+    if idx < 0 { return }
+    let mut p = (*params)[idx]
+    if !string_list_contains(&p.bounds, bound) {
+        push(&mut p.bounds, string_clone(bound))
+    }
+    (*params)[idx] = p
+}
+
+fn parse_trait_bound(p: &mut Parser) -> String {
+    let t = parse_type_name(p)
+    if str_len(&t) == 0 {
+        println("stage2: expected trait bound")
+        exit(1)
+    }
+    if str_has_prefix_lit(&t, "&") || str_has_prefix_lit(&t, "[") {
+        println("stage2: trait bound must be nominal type")
+        exit(1)
+    }
+    return t
+}
+
+fn parse_bound_list(p: &mut Parser) -> [String] {
+    let mut out: [String] = []
+    push(&mut out, parse_trait_bound(p))
+    while parser_peek(p).kind == TK_PLUS {
+        let _ = parser_advance(p)
+        push(&mut out, parse_trait_bound(p))
+    }
+    return out
+}
+
+fn parse_where_clause(p: &mut Parser, params: &mut [GenericParam]) {
+    if parser_peek(p).kind != TK_WHERE { return }
+    let _ = parser_advance(p)
+    let mut done = false
+    while !done {
+        let name = parser_expect(p, TK_IDENT, "type param").text
+        let idx = generic_param_index(params, &name)
+        if idx < 0 {
+            println("stage2: unknown type param in where clause", name)
+            exit(1)
+        }
+        let _ = parser_expect(p, TK_COLON, ":")
+        let bounds = parse_bound_list(p)
+        let mut bi = 0
+        while bi < len(&bounds) {
+            generic_param_add_bound(params, idx, &bounds[bi])
+            bi = bi + 1
+        }
+        if parser_peek(p).kind == TK_COMMA {
+            let _ = parser_advance(p)
+        } else {
+            done = true
+        }
+    }
 }
 
 fn parse_type_suffix(p: &mut Parser, base: String) -> String {
@@ -219,7 +295,7 @@ fn parse_params(p: &mut Parser) -> [Param] {
 fn parse_fn(p: &mut Parser) -> Function {
     let _ = parser_expect(p, TK_FN, "fn")
     let name = parser_expect(p, TK_IDENT, "main").text
-    let type_params = parse_generic_params(p)
+    let mut type_params = parse_generic_params(p)
     let _ = parser_expect(p, TK_LPAREN, "(")
     let params = parse_params(p)
     let _ = parser_expect(p, TK_RPAREN, ")")
@@ -228,6 +304,7 @@ fn parse_fn(p: &mut Parser) -> Function {
         let _ = parser_advance(p)
         ret_type = parse_type_name(p)
     }
+    parse_where_clause(p, &mut type_params)
     let body_block = parse_block(p)
     return Function { name: name, type_params: type_params, params: params, ret_type: ret_type, body: body_block, is_macro: false }
 }
@@ -242,7 +319,8 @@ fn parse_macro_fn(p: &mut Parser) -> Function {
 fn parse_trait(p: &mut Parser) -> TraitDecl {
     let _ = parser_expect(p, TK_TRAIT, "trait")
     let name = parser_expect(p, TK_IDENT, "trait name").text
-    let type_params = parse_generic_params(p)
+    let mut type_params = parse_generic_params(p)
+    parse_where_clause(p, &mut type_params)
     let _ = parser_expect(p, TK_LBRACE, "{")
     let mut methods: [TraitMethod] = []
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
@@ -290,7 +368,7 @@ fn parse_trait_method(p: &mut Parser) -> TraitMethod {
 
 fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
     let _ = parser_expect(p, TK_IMPL, "impl")
-    let type_params = parse_generic_params(p)
+    let mut type_params = parse_generic_params(p)
     let first = parser_expect(p, TK_IDENT, "impl target").text
     let mut trait_name = string_clone("")
     let mut for_type = string_clone("")
@@ -302,6 +380,7 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
     } else {
         for_type = target
     }
+    parse_where_clause(p, &mut type_params)
     let _ = parser_expect(p, TK_LBRACE, "{")
     let mut methods: [TraitMethod] = []
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {

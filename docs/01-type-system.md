@@ -254,6 +254,21 @@ fn process[T: Clone + Display](value: T) {
     let copy = value.clone()
     println("{}", copy.display())
 }
+
+// trait 带类型参数
+fn iter_sum[T: Iterator[i32]](it: T) -> i32 {
+    // ...
+}
+
+// where 子句
+fn complex[T, U](x: T, y: U) -> T
+where
+    T: Clone + Into[U],
+    U: Display,
+{
+    println("{}", y.display())
+    return x.clone()
+}
 ```
 
 ### 关联类型 (可选，简化版)

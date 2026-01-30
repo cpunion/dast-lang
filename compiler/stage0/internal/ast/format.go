@@ -479,7 +479,11 @@ func formatTypeParams(params []TypeParam) string {
 	for _, p := range params {
 		entry := p.Name
 		if len(p.Bounds) > 0 {
-			entry += ": " + strings.Join(p.Bounds, " + ")
+			bounds := make([]string, 0, len(p.Bounds))
+			for _, b := range p.Bounds {
+				bounds = append(bounds, FormatType(b))
+			}
+			entry += ": " + strings.Join(bounds, " + ")
 		}
 		parts = append(parts, entry)
 	}

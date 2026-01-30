@@ -57,12 +57,11 @@ fn ast_string_list_clone(items: & [String]) -> [String] {
 
 struct GenericParam {
     name: String,
-    has_bound: bool,
-    bound: String,
+    bounds: [String],
 }
 
 fn generic_param_clone(p: &GenericParam) -> GenericParam {
-    return GenericParam { name: string_clone(&p.name), has_bound: p.has_bound, bound: string_clone(&p.bound) }
+    return GenericParam { name: string_clone(&p.name), bounds: ast_string_list_clone(&p.bounds) }
 }
 
 fn generic_param_list_clone(items: & [GenericParam]) -> [GenericParam] {

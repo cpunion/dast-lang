@@ -4,6 +4,6 @@ import "dastlang/internal/source"
 
 type TypeParam struct {
 	Name   string
-	Bounds []string
+	Bounds []Type
 	Span   source.Span
 }

@@ -37,6 +37,11 @@ fn process[T: Clone + Display](value: T) {
     println("{}", copy.display())
 }
 
+// trait 带类型参数
+fn iter_sum[T: Iterator[i32]](it: T) -> i32 {
+    // ...
+}
+
 // where 子句 (复杂场景)
 fn complex[T, U](x: T, y: U) -> T
 where

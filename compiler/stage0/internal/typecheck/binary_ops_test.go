@@ -219,21 +219,6 @@ fn main() {
     let _ = a == b
     let _ = a != b
 }
-
-func TestStringLiteralBorrowed(t *testing.T) {
-	checkTypeOK(t, `
-fn main() {
-    let s: &str = "hi"
-    let _ = s
-}
-`)
-	checkTypeOK(t, `
-fn main() {
-    let s: String = "hi"
-    let _ = s
-}
-`)
-}
 `)
 	checkTypeErr(t, `
 fn main() {
@@ -242,6 +227,21 @@ fn main() {
     let _ = a < b
 }
 `, "comparison")
+}
+
+func TestStringLiteralBorrowed(t *testing.T) {
+	checkTypeOK(t, `
+fn main() {
+    let s: &str = "hi"
+    let t: &str = s
+}
+`)
+	checkTypeOK(t, `
+fn main() {
+    let s: String = "hi"
+    let t: String = s
+}
+`)
 }
 
 func TestStringRefOps(t *testing.T) {

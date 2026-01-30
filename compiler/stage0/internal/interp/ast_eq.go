@@ -413,7 +413,7 @@ func typeParamListEq(a, b []ast.TypeParam) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].Name != b[i].Name || stringListEq(a[i].Bounds, b[i].Bounds) == false {
+		if a[i].Name != b[i].Name || typeListEq(a[i].Bounds, b[i].Bounds) == false {
 			return false
 		}
 	}
