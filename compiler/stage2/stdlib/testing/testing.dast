@@ -1,5 +1,22 @@
 // std/testing: basic assertion macros.
 
+fn escape_str_lit(s: String) -> String {
+    let mut out = ""
+    let mut i = 0
+    let n = str_len(&s)
+    while i < n {
+        let c = str_char_at(&s, i)
+        if c == '\n' { out = out + "\\n" }
+        else if c == '\r' { out = out + "\\r" }
+        else if c == '\t' { out = out + "\\t" }
+        else if c == '\\' { out = out + "\\\\" }
+        else if c == '"' { out = out + "\\\"" }
+        else { out = out + str_substr(&s, i, 1) }
+        i = i + 1
+    }
+    return out
+}
+
 macro fn assert(cond: AstExpr) -> AstStmt {
     let s = ast_to_string(cond)
     let code = "if !(" + s + ") { println(\"assert failed\"); exit(1); }"
@@ -17,5 +34,12 @@ macro fn assert_ne(a: AstExpr, b: AstExpr) -> AstStmt {
     let sa = ast_to_string(a)
     let sb = ast_to_string(b)
     let code = "if !(" + sa + " != " + sb + ") { println(\"assert_ne failed\"); exit(1); }"
+    return ast_stmt(code)
+}
+
+macro fn assert_ast_eq(actual: AstExpr, expected: AstExpr) -> AstStmt {
+    let sa = escape_str_lit(ast_to_string(actual))
+    let sb = escape_str_lit(ast_to_string(expected))
+    let code = "if !(\"" + sa + "\" == \"" + sb + "\") { println(\"assert_ast_eq failed\", \"" + sa + "\", \"" + sb + "\"); exit(1); }"
     return ast_stmt(code)
 }

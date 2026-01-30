@@ -1,0 +1,9 @@
+fn test_assert_ast_eq_basic() {
+    assert_ast_eq(quote expr { 1 + 2 }, quote expr { 1 + 2 })
+}
+
+fn test_escape_str_lit_quotes() {
+    let s = "a\"b\\c"
+    let esc = escape_str_lit(string_clone(&s))
+    if esc != "a\\\"b\\\\c" { exit(1) }
+}
