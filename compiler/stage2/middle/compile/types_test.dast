@@ -440,6 +440,42 @@ fn test_enum_eq_ops() {
     }
 }
 
+fn test_trait_impl_validation() {
+    let mut e = emitter_new()
+    let tparams = generic_param_list_empty()
+    let mut mparams: [Param] = []
+    push(&mut mparams, Param { name: "self", typ: "&Self", has_type: true })
+    let tm = TraitMethod { name: "f", type_params: tparams, params: mparams, ret_type: "i32" }
+    let mut tmethods: [TraitMethod] = []
+    push(&mut tmethods, tm)
+    let mut traits: [TraitDecl] = []
+    push(&mut traits, TraitDecl { name: "T", type_params: generic_param_list_empty(), methods: tmethods })
+    e.traits = traits
+
+    let mut imparams: [Param] = []
+    push(&mut imparams, Param { name: "self", typ: "&Foo", has_type: true })
+    let im = TraitMethod { name: "f", type_params: generic_param_list_empty(), params: imparams, ret_type: "i32" }
+    let mut imethods: [TraitMethod] = []
+    push(&mut imethods, im)
+    let mut impls: [ImplDecl] = []
+    push(&mut impls, ImplDecl { trait_name: "T", for_type: "Foo", type_params: generic_param_list_empty(), methods: imethods })
+    e.impls = impls
+    if !validate_trait_impls_impl(&e, true) {
+        println("expected trait impl validation ok")
+        exit(1)
+    }
+
+    let mut e2 = emitter_new()
+    e2.traits = trait_decl_list_clone(&e.traits)
+    let mut bad_impls: [ImplDecl] = []
+    push(&mut bad_impls, ImplDecl { trait_name: "T", for_type: "Foo", type_params: generic_param_list_empty(), methods: trait_method_list_empty() })
+    e2.impls = bad_impls
+    if validate_trait_impls_impl(&e2, true) {
+        println("expected trait impl validation failure")
+        exit(1)
+    }
+}
+
 fn test_type_size_align_basic() {
     let mut e64 = emitter_new_with_target(64)
     assert_i64_eq(type_size(&e64, "bool"), 1)

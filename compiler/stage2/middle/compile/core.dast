@@ -217,6 +217,8 @@ struct Emitter {
     // Function table.
     func_sigs: [FuncSig],
     func_decls: [Function],
+    // Trait declarations.
+    traits: [TraitDecl],
     // Trait impls.
     impls: [ImplDecl],
     // Monomorphized functions.
@@ -267,6 +269,7 @@ fn emitter_new() -> Emitter {
         enum_sigs: enum_sig_list_empty(),
         func_sigs: func_sig_list_empty(),
         func_decls: function_list_empty(),
+        traits: trait_decl_list_empty(),
         impls: impl_decl_list_empty(),
         inst_func_names: string_list_empty(),
         inst_funcs: function_list_empty(),
@@ -306,6 +309,7 @@ fn emitter_with_globals(glob: &Emitter) -> Emitter {
     e.enum_sigs = enum_sig_list_clone(&glob.enum_sigs)
     e.func_sigs = func_sig_list_clone(&glob.func_sigs)
     e.func_decls = function_list_clone(&glob.func_decls)
+    e.traits = trait_decl_list_clone(&glob.traits)
     e.impls = impl_decl_list_clone(&glob.impls)
     e.inst_func_names = ast_string_list_clone(&glob.inst_func_names)
     e.inst_funcs = function_list_clone(&glob.inst_funcs)

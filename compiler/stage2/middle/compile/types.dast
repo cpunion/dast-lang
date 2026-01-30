@@ -253,6 +253,172 @@ fn impl_type_param_names(imp: &ImplDecl) -> [String] {
     return params
 }
 
+fn trait_type_param_names(t: &TraitDecl) -> [String] {
+    let mut params: [String] = []
+    let mut i = 0
+    while i < len(&t.type_params) {
+        push(&mut params, string_clone(&t.type_params[i].name))
+        i = i + 1
+    }
+    return params
+}
+
+fn trait_method_type_param_names(m: &TraitMethod) -> [String] {
+    let mut params: [String] = []
+    let mut i = 0
+    while i < len(&m.type_params) {
+        push(&mut params, string_clone(&m.type_params[i].name))
+        i = i + 1
+    }
+    return params
+}
+
+fn trait_decl_index(e: &Emitter, name: &str) -> i64 {
+    let base = type_strip_args(e, name)
+    let mut i = 0
+    while i < len(&e.traits) {
+        if e.traits[i].name == base { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+fn type_is_trait_param_name(t: &str, params: & [String]) -> bool {
+    let mut rt = string_clone(t)
+    if type_is_ref_raw(&rt) { rt = type_ref_base_raw(&rt) }
+    let parsed = type_args_parse(&rt)
+    let mut base = string_clone(&rt)
+    if parsed.has { base = parsed.base }
+    return list_index(params, &base) >= 0
+}
+
+fn type_subst_self(e: &Emitter, t: &str, for_type: &str) -> String {
+    let rt = string_clone(t)
+    if rt == "Self" { return string_clone(for_type) }
+    if rt == "&Self" { return string_clone("&") + string_clone(for_type) }
+    if rt == "&mut Self" { return string_clone("&mut ") + string_clone(for_type) }
+    if type_is_ref_raw(&rt) {
+        let base = type_ref_base_raw(&rt)
+        let sub = type_subst_self(e, &base, for_type)
+        if type_is_mut_ref_raw(&rt) { return string_clone("&mut ") + sub }
+        return string_clone("&") + sub
+    }
+    if type_is_array_raw(&rt) {
+        let elem = type_array_elem_raw(&rt)
+        return string_clone("[") + type_subst_self(e, &elem, for_type) + "]"
+    }
+    let parsed = type_args_parse(&rt)
+    if parsed.has {
+        let mut out_args: [String] = []
+        let mut i = 0
+        while i < len(&parsed.args) {
+            push(&mut out_args, type_subst_self(e, &parsed.args[i], for_type))
+            i = i + 1
+        }
+        let mut s = parsed.base + "["
+        let mut j = 0
+        while j < len(&out_args) {
+            if j > 0 { s = s + "," }
+            s = s + out_args[j]
+            j = j + 1
+        }
+        s = s + "]"
+        return s
+    }
+    return rt
+}
+
+fn trait_method_sig_match(e: &Emitter, tm: &TraitMethod, im: &TraitMethod, for_type: &str, trait_params: & [String]) -> bool {
+    if len(&tm.type_params) != len(&im.type_params) { return false }
+    if len(&tm.params) != len(&im.params) { return false }
+    let mut i = 0
+    while i < len(&tm.params) {
+        let tp = &tm.params[i]
+        let ip = &im.params[i]
+        if !tp.has_type || !ip.has_type { return false }
+        let ttype = type_subst_self(e, &tp.typ, for_type)
+        let itype = string_clone(&ip.typ)
+        if !type_is_trait_param_name(&ttype, trait_params) {
+            if type_resolve(e, &ttype) != type_resolve(e, &itype) { return false }
+        }
+        i = i + 1
+    }
+    let tret = if tm.ret_type == "" { string_clone("unit") } else { type_subst_self(e, &tm.ret_type, for_type) }
+    let iret = if im.ret_type == "" { string_clone("unit") } else { string_clone(&im.ret_type) }
+    if !type_is_trait_param_name(&tret, trait_params) {
+        if type_resolve(e, &tret) != type_resolve(e, &iret) { return false }
+    }
+    return true
+}
+
+fn validate_trait_impls(e: &Emitter) {
+    let _ = validate_trait_impls_impl(e, false)
+}
+
+fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
+    let mut names: [String] = []
+    let mut i = 0
+    while i < len(&e.traits) {
+        let tn = &e.traits[i].name
+        if list_index(&names, tn) >= 0 {
+            if allow_fail { return false }
+            println("stage2: duplicate trait", tn)
+            exit(1)
+        }
+        push(&mut names, string_clone(tn))
+        i = i + 1
+    }
+    let mut keys: [String] = []
+    i = 0
+    while i < len(&e.impls) {
+        let imp = &e.impls[i]
+        if imp.trait_name != "" {
+            let ti = trait_decl_index(e, &imp.trait_name)
+            if ti < 0 {
+                if allow_fail { return false }
+                println("stage2: unknown trait", imp.trait_name)
+                exit(1)
+            }
+            let key = type_strip_args(e, &imp.trait_name) + "|" + type_resolve(e, &imp.for_type)
+            if list_index(&keys, &key) >= 0 {
+                if allow_fail { return false }
+                println("stage2: duplicate impl of trait", imp.trait_name, "for", imp.for_type)
+                exit(1)
+            }
+            push(&mut keys, key)
+            let tr = &e.traits[ti]
+            let tparams = trait_type_param_names(tr)
+            let mut mi = 0
+            while mi < len(&tr.methods) {
+                let tm = &tr.methods[mi]
+                let mut found = false
+                let mut j = 0
+                while j < len(&imp.methods) {
+                    let im = &imp.methods[j]
+                    if im.name == tm.name {
+                        found = true
+                        if !trait_method_sig_match(e, tm, im, &imp.for_type, &tparams) {
+                            if allow_fail { return false }
+                            println("stage2: trait method signature mismatch", tm.name, "for", imp.for_type)
+                            exit(1)
+                        }
+                        break
+                    }
+                    j = j + 1
+                }
+                if !found {
+                    if allow_fail { return false }
+                    println("stage2: missing trait method", tm.name, "for", imp.for_type)
+                    exit(1)
+                }
+                mi = mi + 1
+            }
+        }
+        i = i + 1
+    }
+    return true
+}
+
 fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
     let declared = type_resolve(e, expected)
     let actual = type_resolve(e, actual)
@@ -477,7 +643,9 @@ fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
     let mut i = 0
     while i < len(&e.impls) {
         let imp = &e.impls[i]
-        if imp.trait_name == trait_name {
+        let imp_base = type_strip_args(e, &imp.trait_name)
+        let want_base = type_strip_args(e, trait_name)
+        if imp.trait_name != "" && imp_base == want_base {
             let pat_res = type_resolve(e, &imp.for_type)
             let act_res = type_resolve(e, for_type)
             if pat_res == act_res { return true }
@@ -497,6 +665,10 @@ fn check_type_param_bounds(e: &Emitter, f: &Function, values: & [String]) {
     while i < len(&f.type_params) {
         let tp = &f.type_params[i]
         if tp.has_bound {
+            if trait_decl_index(e, &tp.bound) < 0 {
+                println("stage2: unknown trait", tp.bound)
+                exit(1)
+            }
             if i >= len(values) || (*values)[i] == "" {
                 println("stage2: cannot infer type for", tp.name)
                 exit(1)

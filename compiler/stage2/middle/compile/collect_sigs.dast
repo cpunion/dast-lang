@@ -86,6 +86,10 @@ fn collect_impls(e: &mut Emitter, prog: &Program) {
     e.impls = impl_decl_list_clone(&prog.impls)
 }
 
+fn collect_traits(e: &mut Emitter, prog: &Program) {
+    e.traits = trait_decl_list_clone(&prog.traits)
+}
+
 fn collect_consts(e: &mut Emitter, prog: &Program) {
     let mut i = 0
     while i < len(&prog.consts) {
@@ -104,4 +108,3 @@ fn collect_consts(e: &mut Emitter, prog: &Program) {
         i = i + 1
     }
 }
-

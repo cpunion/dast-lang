@@ -244,14 +244,48 @@ fn parse_trait(p: &mut Parser) -> TraitDecl {
     let name = parser_expect(p, TK_IDENT, "trait name").text
     let type_params = parse_generic_params(p)
     let _ = parser_expect(p, TK_LBRACE, "{")
-    let mut depth = 1
-    while depth > 0 {
-        let t = parser_advance(p)
-        if t.kind == TK_LBRACE { depth = depth + 1 }
-        if t.kind == TK_RBRACE { depth = depth - 1 }
-        if t.kind == TK_EOF { break }
+    let mut methods: [TraitMethod] = []
+    while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
+        if parser_peek(p).kind != TK_FN {
+            println("stage2: trait body expects method")
+            exit(1)
+        }
+        let m = parse_trait_method(p)
+        push(&mut methods, m)
     }
-    return TraitDecl { name: name, type_params: type_params }
+    let _ = parser_expect(p, TK_RBRACE, "}")
+    return TraitDecl { name: name, type_params: type_params, methods: methods }
+}
+
+fn parse_trait_method(p: &mut Parser) -> TraitMethod {
+    let _ = parser_expect(p, TK_FN, "fn")
+    let name = parser_expect(p, TK_IDENT, "trait method name").text
+    let type_params = parse_generic_params(p)
+    let _ = parser_expect(p, TK_LPAREN, "(")
+    let params = parse_params(p)
+    let _ = parser_expect(p, TK_RPAREN, ")")
+    let mut ret_type = string_clone("")
+    if parser_peek(p).kind == TK_ARROW {
+        let _ = parser_advance(p)
+        ret_type = parse_type_name(p)
+    }
+    let _ = parser_expect(p, TK_SEMI, ";")
+    let mut out_params: [Param] = []
+    let mut i = 0
+    while i < len(&params) {
+        let mut p0 = params[i]
+        if p0.name == "self" && !p0.has_type {
+            p0.typ = "Self"
+            p0.has_type = true
+        }
+        if !p0.has_type {
+            println("stage2: trait method param requires type")
+            exit(1)
+        }
+        push(&mut out_params, p0)
+        i = i + 1
+    }
+    return TraitMethod { name: name, type_params: type_params, params: out_params, ret_type: ret_type }
 }
 
 fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
@@ -268,8 +302,10 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
         for_type = parse_type_suffix(p, first)
     }
     let _ = parser_expect(p, TK_LBRACE, "{")
+    let mut methods: [TraitMethod] = []
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
         let mut m = parse_fn(p)
+        let method_type_params = generic_param_list_clone(&m.type_params)
         let mut pi = 0
         while pi < len(&m.params) {
             let name = m.params[pi].name
@@ -286,6 +322,8 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
             pi = pi + 1
         }
         if m.ret_type == "Self" { m.ret_type = string_clone(&for_type) }
+        let tm = TraitMethod { name: string_clone(&m.name), type_params: method_type_params, params: param_list_clone(&m.params), ret_type: string_clone(&m.ret_type) }
+        push(&mut methods, tm)
         if len(&type_params) > 0 {
             let mut combined = generic_param_list_clone(&type_params)
             let mut ti = 0
@@ -298,7 +336,7 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
         push(funcs, m)
     }
     let _ = parser_expect(p, TK_RBRACE, "}")
-    return ImplDecl { trait_name: trait_name, for_type: for_type, type_params: type_params }
+    return ImplDecl { trait_name: trait_name, for_type: for_type, type_params: type_params, methods: methods }
 }
 
 fn parse_import(p: &mut Parser) -> ImportDecl {

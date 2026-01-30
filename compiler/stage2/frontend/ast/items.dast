@@ -75,6 +75,11 @@ fn generic_param_list_clone(items: & [GenericParam]) -> [GenericParam] {
     return out
 }
 
+fn generic_param_list_empty() -> [GenericParam] {
+    let mut out: [GenericParam] = []
+    return out
+}
+
 struct StructField {
     name: String,
     typ: String,
@@ -199,6 +204,37 @@ fn param_list_empty() -> [Param] {
     return out
 }
 
+struct TraitMethod {
+    name: String,
+    type_params: [GenericParam],
+    params: [Param],
+    ret_type: String,
+}
+
+fn trait_method_clone(m: &TraitMethod) -> TraitMethod {
+    return TraitMethod {
+        name: string_clone(&m.name),
+        type_params: generic_param_list_clone(&m.type_params),
+        params: param_list_clone(&m.params),
+        ret_type: string_clone(&m.ret_type),
+    }
+}
+
+fn trait_method_list_clone(items: & [TraitMethod]) -> [TraitMethod] {
+    let mut out: [TraitMethod] = []
+    let mut i = 0
+    while i < len(items) {
+        push(&mut out, trait_method_clone(&(*items)[i]))
+        i = i + 1
+    }
+    return out
+}
+
+fn trait_method_list_empty() -> [TraitMethod] {
+    let mut out: [TraitMethod] = []
+    return out
+}
+
 struct Function {
     name: String,
     type_params: [GenericParam],
@@ -272,10 +308,11 @@ struct Program {
 struct TraitDecl {
     name: String,
     type_params: [GenericParam],
+    methods: [TraitMethod],
 }
 
 fn trait_decl_clone(t: &TraitDecl) -> TraitDecl {
-    return TraitDecl { name: string_clone(&t.name), type_params: generic_param_list_clone(&t.type_params) }
+    return TraitDecl { name: string_clone(&t.name), type_params: generic_param_list_clone(&t.type_params), methods: trait_method_list_clone(&t.methods) }
 }
 
 fn trait_decl_list_clone(items: & [TraitDecl]) -> [TraitDecl] {
@@ -292,10 +329,11 @@ struct ImplDecl {
     trait_name: String,
     for_type: String,
     type_params: [GenericParam],
+    methods: [TraitMethod],
 }
 
 fn impl_decl_clone(i: &ImplDecl) -> ImplDecl {
-    return ImplDecl { trait_name: string_clone(&i.trait_name), for_type: string_clone(&i.for_type), type_params: generic_param_list_clone(&i.type_params) }
+    return ImplDecl { trait_name: string_clone(&i.trait_name), for_type: string_clone(&i.for_type), type_params: generic_param_list_clone(&i.type_params), methods: trait_method_list_clone(&i.methods) }
 }
 
 fn impl_decl_list_clone(items: & [ImplDecl]) -> [ImplDecl] {
@@ -310,5 +348,10 @@ fn impl_decl_list_clone(items: & [ImplDecl]) -> [ImplDecl] {
 
 fn impl_decl_list_empty() -> [ImplDecl] {
     let mut out: [ImplDecl] = []
+    return out
+}
+
+fn trait_decl_list_empty() -> [TraitDecl] {
+    let mut out: [TraitDecl] = []
     return out
 }

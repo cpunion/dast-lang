@@ -592,6 +592,21 @@ fn rewrite_type_name(name: &str, aliases: & [String]) -> String {
     return strip_alias_prefix(name, aliases)
 }
 
+fn rewrite_trait_method(m: &TraitMethod, aliases: & [String]) -> TraitMethod {
+    let mut params: [Param] = []
+    let mut i = 0
+    while i < len(&m.params) {
+        let p0 = &m.params[i]
+        let mut pt = string_clone(&p0.typ)
+        if p0.has_type { pt = rewrite_type_name(&p0.typ, aliases) }
+        push(&mut params, Param { name: string_clone(&p0.name), typ: pt, has_type: p0.has_type })
+        i = i + 1
+    }
+    let mut rt = string_clone(&m.ret_type)
+    if rt != "" { rt = rewrite_type_name(&m.ret_type, aliases) }
+    return TraitMethod { name: string_clone(&m.name), type_params: generic_param_list_clone(&m.type_params), params: params, ret_type: rt }
+}
+
 fn expr_path_segments(expr: &Expr, segs: &mut [String]) -> bool {
     if expr.kind == EXPR_IDENT {
         push(segs, string_clone(&expr.name))
@@ -871,7 +886,13 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
     i = 0
     while i < len(&out.traits) {
         let t = &out.traits[i]
-        push(&mut traits, TraitDecl { name: strip_alias_prefix(&t.name, aliases), type_params: generic_param_list_clone(&t.type_params) })
+        let mut methods: [TraitMethod] = []
+        let mut mi = 0
+        while mi < len(&t.methods) {
+            push(&mut methods, rewrite_trait_method(&t.methods[mi], aliases))
+            mi = mi + 1
+        }
+        push(&mut traits, TraitDecl { name: strip_alias_prefix(&t.name, aliases), type_params: generic_param_list_clone(&t.type_params), methods: methods })
         i = i + 1
     }
     out.traits = traits
@@ -881,7 +902,13 @@ fn rewrite_program(p: &Program, aliases: & [String]) -> Program {
         let im = &out.impls[i]
         let tname = strip_alias_prefix(&im.trait_name, aliases)
         let for_type = rewrite_type_name(&im.for_type, aliases)
-        push(&mut impls, ImplDecl { trait_name: tname, for_type: for_type, type_params: generic_param_list_clone(&im.type_params) })
+        let mut methods: [TraitMethod] = []
+        let mut mi = 0
+        while mi < len(&im.methods) {
+            push(&mut methods, rewrite_trait_method(&im.methods[mi], aliases))
+            mi = mi + 1
+        }
+        push(&mut impls, ImplDecl { trait_name: tname, for_type: for_type, type_params: generic_param_list_clone(&im.type_params), methods: methods })
         i = i + 1
     }
     out.impls = impls
