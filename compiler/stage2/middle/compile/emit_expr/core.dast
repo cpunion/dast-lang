@@ -282,6 +282,18 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 emit_line(e, "  " + tn + " =l call $dast_string_clone(l " + v.expr + ")")
                 return qbe_value("String", tn)
             }
+            if expr.name == "alloc_total_bytes" {
+                let tmp = new_temp(e)
+                let tn = temp_name(tmp)
+                emit_line(e, "  " + tn + " =l call $dast_alloc_total_bytes()")
+                return qbe_value("i64", tn)
+            }
+            if expr.name == "alloc_total_peak_bytes" {
+                let tmp = new_temp(e)
+                let tn = temp_name(tmp)
+                emit_line(e, "  " + tn + " =l call $dast_alloc_total_peak_bytes()")
+                return qbe_value("i64", tn)
+            }
             if expr.name == "char_at" {
                 if len(&expr.args) < 2 { return qbe_value("i64", "0") }
                 let mut s = emit_expr(e, expr_arg_ref(expr, 0, "emit_char_at_s"))

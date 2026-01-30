@@ -859,6 +859,10 @@ func builtinRuntimeName(name string) string {
 		return "dast_read_bytes"
 	case "exec":
 		return "dast_exec"
+	case "alloc_total_bytes":
+		return "dast_alloc_total_bytes"
+	case "alloc_total_peak_bytes":
+		return "dast_alloc_total_peak_bytes"
 	case "int_to_string":
 		return "dast_int_to_string"
 	case "parse_int":
@@ -2238,6 +2242,10 @@ func builtinReturnType(name string) string {
 		return "bool"
 	case "exec":
 		return "i64"
+	case "alloc_total_bytes":
+		return "int"
+	case "alloc_total_peak_bytes":
+		return "int"
 	case "ast_expr":
 		return "AstExpr"
 	case "ast_stmt":

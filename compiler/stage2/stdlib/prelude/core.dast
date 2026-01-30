@@ -17,6 +17,15 @@ fn string_clone(x: &str) -> String {
     return string_clone("")
 }
 
+// Allocation tracking (debugging).
+fn alloc_total_bytes() -> i64 {
+    return 0
+}
+
+fn alloc_total_peak_bytes() -> i64 {
+    return 0
+}
+
 // Callable traits (minimal surface; semantics implemented by compiler).
 trait Fn[Ret] {
     fn call(self: &Self) -> Ret;

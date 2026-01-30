@@ -541,6 +541,11 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					c.diag.Add(e.Span(), "len expects reference to String/str or array")
 				}
 				return Type{Kind: TypeInt, Name: "int"}
+			case "alloc_total_bytes", "alloc_total_peak_bytes":
+				if len(e.Args) != 0 {
+					c.diag.Add(e.Span(), e.Callee+" expects 0 arguments")
+				}
+				return Type{Kind: TypeInt, Name: "int"}
 			case "push":
 				if len(e.Args) != 2 {
 					c.diag.Add(e.Span(), "push expects 2 arguments")

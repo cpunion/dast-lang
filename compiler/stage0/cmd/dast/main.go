@@ -706,6 +706,17 @@ func buildTestMain(prog *ast.Program, tests []testInfo) (*ast.Function, *diag.Ba
 	}
 	block := &ast.Block{SpanInfo: span}
 	for _, t := range tests {
+		beforeArgs := []ast.Expr{
+			&ast.StringLit{Value: "mem", SpanInfo: t.span},
+			&ast.StringLit{Value: "before", SpanInfo: t.span},
+			&ast.StringLit{Value: t.name, SpanInfo: t.span},
+			&ast.CallExpr{Callee: "alloc_total_bytes", Args: nil, SpanInfo: t.span},
+			&ast.CallExpr{Callee: "alloc_total_peak_bytes", Args: nil, SpanInfo: t.span},
+		}
+		beforeCall := &ast.CallExpr{Callee: "println", Args: beforeArgs, SpanInfo: t.span}
+		beforeStmt := &ast.ExprStmt{Expr: beforeCall, SpanInfo: t.span}
+		block.Stmts = append(block.Stmts, beforeStmt)
+
 		startArgs := []ast.Expr{
 			&ast.StringLit{Value: "test", SpanInfo: t.span},
 			&ast.StringLit{Value: t.name, SpanInfo: t.span},
@@ -716,6 +727,16 @@ func buildTestMain(prog *ast.Program, tests []testInfo) (*ast.Function, *diag.Ba
 		call := &ast.CallExpr{Callee: t.name, Args: nil, SpanInfo: t.span}
 		stmt := &ast.ExprStmt{Expr: call, SpanInfo: t.span}
 		block.Stmts = append(block.Stmts, stmt)
+		afterArgs := []ast.Expr{
+			&ast.StringLit{Value: "mem", SpanInfo: t.span},
+			&ast.StringLit{Value: "after", SpanInfo: t.span},
+			&ast.StringLit{Value: t.name, SpanInfo: t.span},
+			&ast.CallExpr{Callee: "alloc_total_bytes", Args: nil, SpanInfo: t.span},
+			&ast.CallExpr{Callee: "alloc_total_peak_bytes", Args: nil, SpanInfo: t.span},
+		}
+		afterCall := &ast.CallExpr{Callee: "println", Args: afterArgs, SpanInfo: t.span}
+		afterStmt := &ast.ExprStmt{Expr: afterCall, SpanInfo: t.span}
+		block.Stmts = append(block.Stmts, afterStmt)
 		okArgs := []ast.Expr{
 			&ast.StringLit{Value: "ok", SpanInfo: t.span},
 			&ast.StringLit{Value: t.name, SpanInfo: t.span},

@@ -75,6 +75,16 @@ static size_t g_alloc_total_max_bytes = 0;
 static atomic_size_t g_alloc_total_bytes = 0;
 static atomic_size_t g_alloc_total_peak_bytes = 0;
 static int g_alloc_report = 0;
+typedef struct DastAllocStat {
+	const char *name;
+	size_t cur;
+	size_t peak;
+	size_t total;
+	size_t freed;
+} DastAllocStat;
+static DastAllocStat *g_alloc_stats = NULL;
+static size_t g_alloc_stats_len = 0;
+static size_t g_alloc_stats_cap = 0;
 static int g_array_debug_checked = 0;
 static int g_array_debug = 0;
 static int g_array_bt = 0;
@@ -86,6 +96,9 @@ static pthread_once_t g_array_debug_once = PTHREAD_ONCE_INIT;
 
 static void dast_drop_debug_report(void);
 static void dast_alloc_report(void);
+static DastAllocStat *dast_alloc_stat_get(const char *name);
+static void dast_alloc_stat_add(const char *name, size_t size);
+static void dast_alloc_stat_release(const char *name, size_t size);
 
 static void dast_drop_debug_init_once(void) {
 	const char *env = getenv("DAST_DROP_DEBUG");
@@ -796,6 +809,7 @@ void *dast_alloc(const char *name, dast_int size, dast_int align) {
 	hdr->size = size;
 	hdr->align = align;
 	hdr->raw = raw;
+	dast_alloc_stat_add(hdr->name, (size_t)size);
 	uintptr_t base = (uintptr_t)raw + sizeof(DastAllocHdr) + sizeof(void *);
 	uintptr_t aligned = (base + (align_u - 1)) & ~(uintptr_t)(align_u - 1);
 	((void **)aligned)[-1] = raw;
@@ -1318,6 +1332,18 @@ static void dast_alloc_report(void) {
 	size_t cur = atomic_load_explicit(&g_alloc_total_bytes, memory_order_relaxed);
 	size_t peak = atomic_load_explicit(&g_alloc_total_peak_bytes, memory_order_relaxed);
 	fprintf(stderr, "stage0: <runtime>:0:0: alloc report total=%zu peak=%zu\n", cur, peak);
+	if (g_alloc_stats_len == 0) {
+		return;
+	}
+	for (size_t i = 0; i < g_alloc_stats_len; i++) {
+		DastAllocStat *st = &g_alloc_stats[i];
+		if (st->peak == 0 && st->cur == 0) {
+			continue;
+		}
+		fprintf(stderr,
+		        "stage0: <runtime>:0:0: alloc stat name=%s cur=%zu peak=%zu total=%zu freed=%zu\n",
+		        st->name ? dast_safe_cstr(st->name) : "<nil>", st->cur, st->peak, st->total, st->freed);
+	}
 }
 
 // Exposed helpers for tests/diagnostics.
@@ -1327,6 +1353,64 @@ dast_int dast_alloc_total_bytes(void) {
 
 dast_int dast_alloc_total_peak_bytes(void) {
 	return (dast_int)atomic_load_explicit(&g_alloc_total_peak_bytes, memory_order_relaxed);
+}
+
+static DastAllocStat *dast_alloc_stat_get(const char *name) {
+	if (!name) {
+		name = "";
+	}
+	for (size_t i = 0; i < g_alloc_stats_len; i++) {
+		if (g_alloc_stats[i].name == name || strcmp(g_alloc_stats[i].name, name) == 0) {
+			return &g_alloc_stats[i];
+		}
+	}
+	if (g_alloc_stats_len >= g_alloc_stats_cap) {
+		size_t next = g_alloc_stats_cap == 0 ? 64 : g_alloc_stats_cap * 2;
+		DastAllocStat *next_stats = (DastAllocStat *)realloc(g_alloc_stats, sizeof(DastAllocStat) * next);
+		if (!next_stats) {
+			return NULL;
+		}
+		g_alloc_stats = next_stats;
+		g_alloc_stats_cap = next;
+	}
+	DastAllocStat *st = &g_alloc_stats[g_alloc_stats_len++];
+	st->name = name;
+	st->cur = 0;
+	st->peak = 0;
+	st->total = 0;
+	st->freed = 0;
+	return st;
+}
+
+static void dast_alloc_stat_add(const char *name, size_t size) {
+	if (size == 0) {
+		return;
+	}
+	DastAllocStat *st = dast_alloc_stat_get(name);
+	if (!st) {
+		return;
+	}
+	st->cur += size;
+	st->total += size;
+	if (st->cur > st->peak) {
+		st->peak = st->cur;
+	}
+}
+
+static void dast_alloc_stat_release(const char *name, size_t size) {
+	if (size == 0) {
+		return;
+	}
+	DastAllocStat *st = dast_alloc_stat_get(name);
+	if (!st) {
+		return;
+	}
+	if (st->cur >= size) {
+		st->cur -= size;
+	} else {
+		st->cur = 0;
+	}
+	st->freed += size;
 }
 
 DastString *dast_int_to_string(dast_int v) {
@@ -1421,6 +1505,7 @@ void dast_free(void *ptr) {
 		dast_rt_panic("struct double free");
 	}
 	if (hdr && hdr->raw) {
+		dast_alloc_stat_release(hdr->name, (size_t)hdr->size);
 		dast_xfree(hdr->raw);
 	}
 }
