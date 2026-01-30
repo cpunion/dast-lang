@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"dastlang/internal/ast"
 	"dastlang/internal/ir"
 )
 
@@ -676,6 +677,75 @@ func (rt *Runtime) builtinAstToString() Builtin {
 			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_to_string expects ast")
 		}
 		return ir.Value{Kind: ir.KindString, Str: args[0].AstSrc}, nil
+	}
+}
+
+func (rt *Runtime) builtinAstEq() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 2 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_eq expects 2 arguments")
+		}
+		kindA, nodeA, err := rt.parseAstValue(args[0])
+		if err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		kindB, nodeB, err := rt.parseAstValue(args[1])
+		if err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		if kindA != kindB {
+			return ir.Value{Kind: ir.KindBool, Bool: false}, nil
+		}
+		ok := false
+		switch kindA {
+		case ir.AstExpr:
+			ok = astExprEq(nodeA.(ast.Expr), nodeB.(ast.Expr))
+		case ir.AstStmt:
+			ok = astStmtEq(nodeA.(ast.Stmt), nodeB.(ast.Stmt))
+		case ir.AstBlock:
+			ok = astBlockEq(nodeA.(*ast.Block), nodeB.(*ast.Block))
+		case ir.AstItem:
+			ok = astItemEq(nodeA.(ast.Item), nodeB.(ast.Item))
+		default:
+			ok = false
+		}
+		return ir.Value{Kind: ir.KindBool, Bool: ok}, nil
+	}
+}
+
+func (rt *Runtime) builtinAstAssertEq() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 2 {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_assert_eq expects 2 arguments")
+		}
+		kindA, nodeA, err := rt.parseAstValue(args[0])
+		if err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		kindB, nodeB, err := rt.parseAstValue(args[1])
+		if err != nil {
+			return ir.Value{Kind: ir.KindUnit}, err
+		}
+		if kindA != kindB {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_assert_eq expects same ast kind")
+		}
+		ok := false
+		switch kindA {
+		case ir.AstExpr:
+			ok = astExprEq(nodeA.(ast.Expr), nodeB.(ast.Expr))
+		case ir.AstStmt:
+			ok = astStmtEq(nodeA.(ast.Stmt), nodeB.(ast.Stmt))
+		case ir.AstBlock:
+			ok = astBlockEq(nodeA.(*ast.Block), nodeB.(*ast.Block))
+		case ir.AstItem:
+			ok = astItemEq(nodeA.(ast.Item), nodeB.(ast.Item))
+		default:
+			ok = false
+		}
+		if !ok {
+			return ir.Value{Kind: ir.KindUnit}, errors.New("ast_assert_eq failed")
+		}
+		return ir.Value{Kind: ir.KindUnit}, nil
 	}
 }
 

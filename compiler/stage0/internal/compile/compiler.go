@@ -113,6 +113,8 @@ func CompileWithOptions(prog *ast.Program, opts Options) (*ir.Program, *diag.Bag
 	c.funcRetTypes["ast_item"] = "AstItem"
 	c.funcRetTypes["ast_block"] = "AstBlock"
 	c.funcRetTypes["ast_to_string"] = "String"
+	c.funcRetTypes["ast_eq"] = "bool"
+	c.funcRetTypes["ast_assert_eq"] = "unit"
 	c.funcRetTypes["gensym"] = "AstExpr"
 	c.funcRetTypes["bind"] = "AstExpr"
 	for _, item := range prog.Items {
@@ -401,7 +403,7 @@ func (c *Compiler) callArgConsumes(callee string, index int) bool {
 		return index == 1
 	case "string_free", "array_free", "struct_free":
 		return true
-	case "print", "println", "eprint", "eprintln", "len", "char_at", "substr", "string_clone", "read_file", "read_dir", "write_file", "mkdir", "args", "getenv", "read_line", "read_bytes", "exec", "ast_expr", "ast_stmt", "ast_item", "ast_block", "ast_to_string", "gensym", "bind", "parse_int", "string_to_int", "has_prefix", "int_to_string", "pop", "exit":
+	case "print", "println", "eprint", "eprintln", "len", "char_at", "substr", "string_clone", "read_file", "read_dir", "write_file", "mkdir", "args", "getenv", "read_line", "read_bytes", "exec", "ast_expr", "ast_stmt", "ast_item", "ast_block", "ast_to_string", "ast_eq", "ast_assert_eq", "gensym", "bind", "parse_int", "string_to_int", "has_prefix", "int_to_string", "pop", "exit":
 		return false
 	}
 	if params, ok := c.funcParamTypes[callee]; ok {

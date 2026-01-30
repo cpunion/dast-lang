@@ -319,6 +319,34 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					c.diag.Add(e.Args[0].Span(), "ast_to_string expects ast")
 				}
 				return Type{Kind: TypeString, Name: "String"}
+			case "ast_eq":
+				if len(e.Args) != 2 {
+					c.diag.Add(e.Span(), "ast_eq expects 2 arguments")
+					return Type{Kind: TypeBool, Name: "bool"}
+				}
+				a0 := c.checkExpr(e.Args[0])
+				a1 := c.checkExpr(e.Args[1])
+				if a0.Kind != TypeAstExpr && a0.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "ast_eq expects AstExpr")
+				}
+				if a1.Kind != TypeAstExpr && a1.Kind != TypeInvalid {
+					c.diag.Add(e.Args[1].Span(), "ast_eq expects AstExpr")
+				}
+				return Type{Kind: TypeBool, Name: "bool"}
+			case "ast_assert_eq":
+				if len(e.Args) != 2 {
+					c.diag.Add(e.Span(), "ast_assert_eq expects 2 arguments")
+					return Type{Kind: TypeUnit}
+				}
+				a0 := c.checkExpr(e.Args[0])
+				a1 := c.checkExpr(e.Args[1])
+				if a0.Kind != TypeAstExpr && a0.Kind != TypeInvalid {
+					c.diag.Add(e.Args[0].Span(), "ast_assert_eq expects AstExpr")
+				}
+				if a1.Kind != TypeAstExpr && a1.Kind != TypeInvalid {
+					c.diag.Add(e.Args[1].Span(), "ast_assert_eq expects AstExpr")
+				}
+				return Type{Kind: TypeUnit}
 			case "gensym", "bind":
 				if len(e.Args) != 1 {
 					c.diag.Add(e.Span(), e.Callee+" expects 1 argument")

@@ -1433,6 +1433,26 @@ DastString *dast_ast_to_string(const DastString *ast) {
 	return dast_string_from_cstr(ast->data);
 }
 
+dast_bool dast_ast_eq(const DastString *a, const DastString *b) {
+	if (!a || !b || !a->data || !b->data) {
+		return 0;
+	}
+	if (a->len != b->len) {
+		return 0;
+	}
+	if (a->len == 0) {
+		return 1;
+	}
+	return memcmp(a->data, b->data, (size_t)a->len) == 0 ? 1 : 0;
+}
+
+void dast_ast_assert_eq(const DastString *a, const DastString *b) {
+	if (!dast_ast_eq(a, b)) {
+		fprintf(stderr, "ast_assert_eq failed\n");
+		dast_exit(1);
+	}
+}
+
 DastString *dast_gensym(const DastString *prefix) {
 	static dast_int counter = 0;
 	DastString *clean = dast_sanitize_ident(prefix);

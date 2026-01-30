@@ -307,6 +307,165 @@ fn macro_value_to_string(v: &MacroValue) -> String {
     return ""
 }
 
+fn macro_value_expect_expr(v: &MacroValue) -> Expr {
+    if v.kind == MV_AST_EXPR { return expr_clone(&v.expr) }
+    println("stage2: ast_eq expects AstExpr")
+    exit(1)
+    return expr_int(0)
+}
+
+fn ast_expr_list_eq(a: & [Expr], b: & [Expr]) -> bool {
+    if len(a) != len(b) { return false }
+    let mut i = 0
+    while i < len(a) {
+        if !ast_expr_eq(&(*a)[i], &(*b)[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ast_field_init_eq(a: &FieldInit, b: &FieldInit) -> bool {
+    if a.name != b.name { return false }
+    return ast_expr_eq(&a.value, &b.value)
+}
+
+fn ast_field_init_list_eq(a: & [FieldInit], b: & [FieldInit]) -> bool {
+    if len(a) != len(b) { return false }
+    let mut i = 0
+    while i < len(a) {
+        if !ast_field_init_eq(&(*a)[i], &(*b)[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ast_param_eq(a: &Param, b: &Param) -> bool {
+    if a.name != b.name { return false }
+    if a.has_type != b.has_type { return false }
+    if a.has_type && a.typ != b.typ { return false }
+    return true
+}
+
+fn ast_param_list_eq(a: & [Param], b: & [Param]) -> bool {
+    if len(a) != len(b) { return false }
+    let mut i = 0
+    while i < len(a) {
+        if !ast_param_eq(&(*a)[i], &(*b)[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ast_quote_part_eq(a: &QuotePart, b: &QuotePart) -> bool {
+    if a.text != b.text { return false }
+    if a.has_expr != b.has_expr { return false }
+    if a.has_expr && !ast_expr_eq(&a.expr, &b.expr) { return false }
+    return true
+}
+
+fn ast_quote_part_list_eq(a: & [QuotePart], b: & [QuotePart]) -> bool {
+    if len(a) != len(b) { return false }
+    let mut i = 0
+    while i < len(a) {
+        if !ast_quote_part_eq(&(*a)[i], &(*b)[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ast_pattern_eq(a: &Pattern, b: &Pattern) -> bool {
+    if a.kind != b.kind { return false }
+    if a.name != b.name { return false }
+    if a.int_value != b.int_value { return false }
+    if a.range_inclusive != b.range_inclusive { return false }
+    if a.range_has_start != b.range_has_start { return false }
+    if a.range_has_end != b.range_has_end { return false }
+    if a.range_has_start && !ast_expr_eq(&a.range_start, &b.range_start) { return false }
+    if a.range_has_end && !ast_expr_eq(&a.range_end, &b.range_end) { return false }
+    if a.variant != b.variant { return false }
+    if a.has_payload != b.has_payload { return false }
+    if len(&a.payload) != len(&b.payload) { return false }
+    let mut pi = 0
+    while pi < len(&a.payload) {
+        if !ast_pattern_eq(&a.payload[pi], &b.payload[pi]) { return false }
+        pi = pi + 1
+    }
+    if a.struct_name != b.struct_name { return false }
+    if len(&a.struct_fields) != len(&b.struct_fields) { return false }
+    let mut fi = 0
+    while fi < len(&a.struct_fields) {
+        let fa = &a.struct_fields[fi]
+        let fb = &b.struct_fields[fi]
+        if fa.name != fb.name { return false }
+        if !ast_pattern_eq(&fa.pattern, &fb.pattern) { return false }
+        fi = fi + 1
+    }
+    return true
+}
+
+fn ast_match_arm_eq(a: &MatchArm, b: &MatchArm) -> bool {
+    if !ast_pattern_eq(&a.pattern, &b.pattern) { return false }
+    if a.has_guard != b.has_guard { return false }
+    if a.has_guard && !ast_expr_eq(&a.guard, &b.guard) { return false }
+    return ast_block_eq(&a.block, &b.block)
+}
+
+fn ast_match_arm_list_eq(a: & [MatchArm], b: & [MatchArm]) -> bool {
+    if len(a) != len(b) { return false }
+    let mut i = 0
+    while i < len(a) {
+        if !ast_match_arm_eq(&(*a)[i], &(*b)[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ast_stmt_eq(a: &Stmt, b: &Stmt) -> bool {
+    if a.kind != b.kind { return false }
+    if a.name != b.name { return false }
+    if a.mutable != b.mutable { return false }
+    if a.has_type != b.has_type { return false }
+    if a.has_type && a.typ != b.typ { return false }
+    if !ast_expr_eq(&a.lhs, &b.lhs) { return false }
+    if !ast_expr_eq(&a.expr, &b.expr) { return false }
+    if !ast_block_eq(&a.block, &b.block) { return false }
+    if a.has_else != b.has_else { return false }
+    if a.has_else && !ast_block_eq(&a.else_block, &b.else_block) { return false }
+    if a.ret_has_value != b.ret_has_value { return false }
+    if a.pat_variant != b.pat_variant { return false }
+    if a.pat_binding != b.pat_binding { return false }
+    if a.pat_has_binding != b.pat_has_binding { return false }
+    if !ast_match_arm_list_eq(&a.arms, &b.arms) { return false }
+    return true
+}
+
+fn ast_block_eq(a: &Block, b: &Block) -> bool {
+    if len(&a.stmts) != len(&b.stmts) { return false }
+    let mut i = 0
+    while i < len(&a.stmts) {
+        if !ast_stmt_eq(&a.stmts[i], &b.stmts[i]) { return false }
+        i = i + 1
+    }
+    return true
+}
+
+fn ast_expr_eq(a: &Expr, b: &Expr) -> bool {
+    if a.kind != b.kind { return false }
+    if a.name != b.name { return false }
+    if a.int_value != b.int_value { return false }
+    if a.float_text != b.float_text { return false }
+    if a.bool_value != b.bool_value { return false }
+    if a.ref_mut != b.ref_mut { return false }
+    if a.quote_kind != b.quote_kind { return false }
+    if !ast_expr_list_eq(&a.args, &b.args) { return false }
+    if !ast_field_init_list_eq(&a.fields, &b.fields) { return false }
+    if !ast_param_list_eq(&a.params, &b.params) { return false }
+    if !ast_block_eq(&a.block, &b.block) { return false }
+    if !ast_match_arm_list_eq(&a.match_arms, &b.match_arms) { return false }
+    if !ast_quote_part_list_eq(&a.quote_parts, &b.quote_parts) { return false }
+    return true
+}
+
 fn eval_macro_fn(ctx: &mut MacroCtx, f: &Function, args: [MacroValue]) -> MacroValue {
     if len(&args) != len(&f.params) {
         println("stage2: macro arg mismatch", f.name, len(&args), len(&f.params))
@@ -393,6 +552,34 @@ fn eval_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue 
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
                 return macro_value_string(macro_value_to_string(&v))
+            }
+            if name == "ast_eq" {
+                if len(&expr.args) != 2 { println("stage2: ast_eq expects 2 args"); exit(1) }
+                let a0 = expr_clone(&expr.args[0])
+                let a1 = expr_clone(&expr.args[1])
+                let v0 = eval_expr(ctx, env, &a0)
+                let v1 = eval_expr(ctx, env, &a1)
+                let e0 = macro_value_expect_expr(&v0)
+                let e1 = macro_value_expect_expr(&v1)
+                let ok = ast_expr_eq(&e0, &e1)
+                return macro_value_bool(ok)
+            }
+            if name == "ast_assert_eq" {
+                if len(&expr.args) != 2 { println("stage2: ast_assert_eq expects 2 args"); exit(1) }
+                let a0 = expr_clone(&expr.args[0])
+                let a1 = expr_clone(&expr.args[1])
+                let v0 = eval_expr(ctx, env, &a0)
+                let v1 = eval_expr(ctx, env, &a1)
+                let e0 = macro_value_expect_expr(&v0)
+                let e1 = macro_value_expect_expr(&v1)
+                let ok = ast_expr_eq(&e0, &e1)
+                if !ok {
+                    let s0 = macro_value_to_string(&v0)
+                    let s1 = macro_value_to_string(&v1)
+                    println("stage2: assert_ast_eq failed", s0, s1)
+                    exit(1)
+                }
+                return macro_value_unit()
             }
             if name == "gensym" {
                 let arg0 = expr_clone(&expr.args[0])

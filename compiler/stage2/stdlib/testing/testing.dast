@@ -38,8 +38,6 @@ macro fn assert_ne(a: AstExpr, b: AstExpr) -> AstStmt {
 }
 
 macro fn assert_ast_eq(actual: AstExpr, expected: AstExpr) -> AstStmt {
-    let sa = escape_str_lit(ast_to_string(actual))
-    let sb = escape_str_lit(ast_to_string(expected))
-    let code = "if !(\"" + sa + "\" == \"" + sb + "\") { println(\"assert_ast_eq failed\", \"" + sa + "\", \"" + sb + "\"); exit(1); }"
-    return ast_stmt(code)
+    ast_assert_eq(actual, expected)
+    return ast_stmt("")
 }

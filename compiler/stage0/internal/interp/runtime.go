@@ -170,6 +170,8 @@ func New(prog *ir.Program) *Runtime {
 		"ast_item":      rt.builtinAst(ir.AstItem),
 		"ast_block":     rt.builtinAst(ir.AstBlock),
 		"ast_to_string": rt.builtinAstToString(),
+		"ast_eq":        rt.builtinAstEq(),
+		"ast_assert_eq": rt.builtinAstAssertEq(),
 		"gensym":        rt.builtinGensym(),
 		"bind":          rt.builtinBind(),
 		"string_clone":  rt.builtinStringClone(),

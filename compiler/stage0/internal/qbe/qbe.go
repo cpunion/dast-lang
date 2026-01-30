@@ -885,6 +885,10 @@ func builtinRuntimeName(name string) string {
 		return "dast_ast_block"
 	case "ast_to_string":
 		return "dast_ast_to_string"
+	case "ast_eq":
+		return "dast_ast_eq"
+	case "ast_assert_eq":
+		return "dast_ast_assert_eq"
 	case "gensym":
 		return "dast_gensym"
 	case "bind":
@@ -2242,6 +2246,10 @@ func builtinReturnType(name string) string {
 		return "AstItem"
 	case "ast_block":
 		return "AstBlock"
+	case "ast_eq":
+		return "bool"
+	case "ast_assert_eq":
+		return "unit"
 	}
 	return ""
 }
@@ -2280,6 +2288,10 @@ func builtinArgTypes(name string) []string {
 		return []string{"i64"}
 	case "ast_to_string":
 		return []string{"String"}
+	case "ast_eq":
+		return []string{"AstExpr", "AstExpr"}
+	case "ast_assert_eq":
+		return []string{"AstExpr", "AstExpr"}
 	case "gensym":
 		return []string{"String"}
 	case "bind":
