@@ -187,6 +187,34 @@ fn test_bool_ops() {
     assert_str_eq(expr_type(&e, &lor), "bool")
 }
 
+fn test_binop_try_rejects_mixed_kinds() {
+    let mut e1 = setup_emitter_types("i32", "bool")
+    let lhs1 = expr_ident("a")
+    let rhs1 = expr_ident("b")
+    let r1 = binary_op_result_type_try(&e1, "&&", &lhs1, &rhs1)
+    if r1 != "" { println("expected && reject i32/bool", r1); exit(1) }
+    let r2 = binary_op_result_type_try(&e1, "==", &lhs1, &rhs1)
+    if r2 != "" { println("expected == reject i32/bool", r2); exit(1) }
+
+    let mut e2 = setup_emitter_types("String", "i32")
+    let lhs2 = expr_ident("a")
+    let rhs2 = expr_ident("b")
+    let r3 = binary_op_result_type_try(&e2, "+", &lhs2, &rhs2)
+    if r3 != "" { println("expected + reject String/i32", r3); exit(1) }
+
+    let mut e3 = setup_emitter_types("char", "char")
+    let lhs3 = expr_ident("a")
+    let rhs3 = expr_ident("b")
+    let r4 = binary_op_result_type_try(&e3, "+", &lhs3, &rhs3)
+    if r4 != "" { println("expected + reject char/char", r4); exit(1) }
+
+    let mut e4 = setup_emitter_types("f32", "i32")
+    let lhs4 = expr_ident("a")
+    let rhs4 = expr_ident("b")
+    let r5 = binary_op_result_type_try(&e4, "+", &lhs4, &rhs4)
+    if r5 != "" { println("expected + reject f32/i32", r5); exit(1) }
+}
+
 fn test_string_ops() {
     let mut e = setup_emitter_types("String", "String")
     let add = bin_expr_types("+")

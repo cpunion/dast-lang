@@ -785,13 +785,22 @@ fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     return string_clone(&lt)
 }
 
+fn binary_op_result_type_try(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
+    return binary_op_result_type_impl(e, op, lhs, rhs, true)
+}
+
 fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
+    return binary_op_result_type_impl(e, op, lhs, rhs, false)
+}
+
+fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, allow_fail: bool) -> String {
     let lt0 = expr_type(e, lhs)
     let rt0 = expr_type(e, rhs)
     if op == "&&" || op == "||" {
         let lt = lt0
         let rt = rt0
         if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
+            if allow_fail { return string_clone("") }
             println("stage2: binary op", op, "requires bool operands got", lt, "and", rt)
             exit(1)
         }
@@ -802,6 +811,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         let rt = rt0
         if type_is_string(e, &lt) || type_is_string(e, &rt) {
             if !type_is_string(e, &lt) || !type_is_string(e, &rt) {
+                if allow_fail { return string_clone("") }
                 println("stage2: binary op", op, "requires both String operands got", lt, "and", rt)
                 exit(1)
             }
@@ -809,6 +819,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         }
         if type_is_char(e, &lt) || type_is_char(e, &rt) {
             if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
+                if allow_fail { return string_clone("") }
                 println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
                 exit(1)
             }
@@ -816,12 +827,14 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         }
         if type_is_enum(e, &lt) || type_is_enum(e, &rt) {
             if !type_is_enum(e, &lt) || !type_is_enum(e, &rt) {
+                if allow_fail { return string_clone("") }
                 println("stage2: binary op", op, "requires both enum operands got", lt, "and", rt)
                 exit(1)
             }
             let lb = type_strip_args(e, &lt)
             let rb = type_strip_args(e, &rt)
             if lb != rb {
+                if allow_fail { return string_clone("") }
                 println("stage2: binary op", op, "requires matching enum types got", lt, "and", rt)
                 exit(1)
             }
@@ -829,6 +842,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         }
         if type_is_bool(e, &lt) || type_is_bool(e, &rt) {
             if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
+                if allow_fail { return string_clone("") }
                 println("stage2: binary op", op, "requires both bool operands got", lt, "and", rt)
                 exit(1)
             }
@@ -838,6 +852,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         if fpt != "" { return string_clone("bool") }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
+            if allow_fail { return string_clone("") }
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
             exit(1)
         }
@@ -848,6 +863,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         let rt = rt0
         if type_is_char(e, &lt) || type_is_char(e, &rt) {
             if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
+                if allow_fail { return string_clone("") }
                 println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
                 exit(1)
             }
@@ -857,6 +873,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         if fpt != "" { return string_clone("bool") }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
+            if allow_fail { return string_clone("") }
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
             exit(1)
         }
@@ -870,6 +887,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         if fpt != "" { return fpt }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
+            if allow_fail { return string_clone("") }
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
             exit(1)
         }
@@ -884,6 +902,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         }
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
+            if allow_fail { return string_clone("") }
             println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
             exit(1)
         }
@@ -894,6 +913,7 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
         let rt = rt0
         let st = shift_result_type(e, lhs, rhs)
         if st == "" {
+            if allow_fail { return string_clone("") }
             println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lt, "and", rt)
             exit(1)
         }
