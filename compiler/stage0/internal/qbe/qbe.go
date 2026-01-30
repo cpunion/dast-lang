@@ -1728,6 +1728,11 @@ func inlineStructField(p *ir.Program, t string) bool {
 	if strings.HasPrefix(st, "$") {
 		return false
 	}
+	if p != nil && p.TypeDecls != nil {
+		if td, ok := p.TypeDecls[st]; ok {
+			return !td.Borrowed
+		}
+	}
 	return true
 }
 
