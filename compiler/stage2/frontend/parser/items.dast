@@ -485,7 +485,7 @@ fn parse_program_internal(p: &mut Parser, require_main: bool) -> Program {
             if parser_peek(p).kind == TK_SEMI { let _ = parser_advance(p) }
         } else {
             let mut msg = string_clone("parse error: unexpected token in program ")
-            msg = msg + parser_int_to_string(k)
+            msg = msg + parser_int_to_string_i32(k)
             if parser_peek(p).text != "" { msg = msg + " " + parser_peek(p).text }
             parser_fail(p, msg)
             let _ = parser_advance(p)

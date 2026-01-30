@@ -130,6 +130,10 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 			s.Type.Args = nil
 		}
 		initType = c.checkExprWithExpected(s.Init, declType)
+		if expr, borrowed := c.tryAutoBorrow(s.Init, initType, declType); expr != s.Init {
+			s.Init = expr
+			initType = borrowed
+		}
 	} else {
 		initType = c.checkExpr(s.Init)
 		if isUntypedInt(initType) {
@@ -179,6 +183,10 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign to immutable variable '%s'", target.Name))
 		}
 		valType := c.checkExprWithExpected(s.Value, info.Type)
+		if expr, borrowed := c.tryAutoBorrow(s.Value, valType, info.Type); expr != s.Value {
+			s.Value = expr
+			valType = borrowed
+		}
 		if !typesAssignable(valType, info.Type) && valType.Kind != TypeInvalid && info.Type.Kind != TypeInvalid {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", valType.String(), info.Type.String()))
 		}
@@ -278,6 +286,10 @@ func (c *Checker) checkReturn(s *ast.ReturnStmt) {
 			return
 		}
 		valType := c.checkExprWithExpected(s.Value, retType)
+		if expr, borrowed := c.tryAutoBorrow(s.Value, valType, retType); expr != s.Value {
+			s.Value = expr
+			valType = borrowed
+		}
 		if retType.Kind == TypeUnit {
 			if valType.Kind != TypeUnit && valType.Kind != TypeInvalid {
 				c.diag.Add(s.Span(), "returning value from unit function")

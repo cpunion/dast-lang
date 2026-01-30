@@ -189,6 +189,25 @@ fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
             use_expr = &local
         }
     }
+    let expr_t = expr_type(e, use_expr)
+    let expr_rt = type_resolve(e, &expr_t)
+    if use_expr.kind == EXPR_BINARY {
+        if type_is_int(e, &rt) && expr_rt == "untyped-int" {
+            return emit_binary_expr_typed(e, use_expr, &rt)
+        }
+        if type_is_float(e, &rt) && (expr_rt == "untyped-float" || expr_rt == "untyped-int") {
+            return emit_binary_expr_typed(e, use_expr, &rt)
+        }
+    }
+    if type_is_ref(e, &rt) && !type_is_ref(e, &expr_rt) {
+        let base_t = type_ref_base(e, &rt)
+        if !type_compatible_expr(e, &base_t, use_expr) {
+            let actual = expr_type(e, use_expr)
+            println("stage2: type mismatch expected", rt, "got", actual)
+            exit(1)
+        }
+        return emit_auto_borrow(e, use_expr, &rt)
+    }
     if expr_is_int_literal(use_expr) && type_is_int(e, &rt) {
         let v = expr_int_literal_value(use_expr)
         if !int_value_fits_type(e, v, &rt) {
@@ -660,6 +679,99 @@ fn struct_load_fn_for_type(e: &Emitter, t: &str) -> String {
 fn array_get_fn_for_type(e: &Emitter, t: &str) -> String {
     if type_is_signed_int(e, t) { return string_clone("dast_array_get_s") }
     return string_clone("dast_array_get_u")
+}
+
+fn emit_binary_expr_typed(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
+    if len(&expr.args) < 2 { return qbe_value(string_clone(target_t), "0") }
+    let op = string_clone(&expr.name)
+    let lhs_expr = expr_arg_ref(expr, 0, "emit_binary_typed_lhs_expr")
+    let rhs_expr = expr_arg_ref(expr, 1, "emit_binary_typed_rhs_expr")
+    let lhs = emit_expr(e, lhs_expr)
+    let rhs = emit_expr(e, rhs_expr)
+    let rt = type_resolve(e, target_t)
+    if type_is_float(e, &rt) {
+        if op != "+" && op != "-" && op != "*" && op != "/" {
+            println("stage2: binary op", op, "requires int operands got", lhs.typ, "and", rhs.typ)
+            exit(1)
+        }
+        let l = emit_float_operand(e, lhs_expr, lhs, &rt)
+        let r = emit_float_operand(e, rhs_expr, rhs, &rt)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        let q = qbe_type(e, &rt)
+        if op == "+" {
+            emit_line(e, "  " + tn + " =" + q + " add " + l + ", " + r)
+        } else if op == "-" {
+            emit_line(e, "  " + tn + " =" + q + " sub " + l + ", " + r)
+        } else if op == "*" {
+            emit_line(e, "  " + tn + " =" + q + " mul " + l + ", " + r)
+        } else {
+            emit_line(e, "  " + tn + " =" + q + " div " + l + ", " + r)
+        }
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if !type_is_int(e, &rt) {
+        println("stage2: binary op", op, "requires int operands got", lhs.typ, "and", rhs.typ)
+        exit(1)
+    }
+    if op == "<<" || op == ">>" {
+        let l = emit_int_operand(e, lhs_expr, lhs, &rt)
+        let r = emit_shift_rhs(e, rhs_expr, rhs, &rt)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        let q = qbe_type(e, &rt)
+        if op == "<<" {
+            emit_line(e, "  " + tn + " =" + q + " shl " + l + ", " + r)
+        } else {
+            let mut shift = string_clone("sar")
+            if type_is_unsigned_int(e, &rt) { shift = "shr" }
+            emit_line(e, "  " + tn + " =" + q + " " + shift + " " + l + ", " + r)
+        }
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op != "+" && op != "-" && op != "*" && op != "/" && op != "%" && op != "&" && op != "|" && op != "^" {
+        println("stage2: binary op", op, "requires int operands got", lhs.typ, "and", rhs.typ)
+        exit(1)
+    }
+    let l = emit_int_operand(e, lhs_expr, lhs, &rt)
+    let r = emit_int_operand(e, rhs_expr, rhs, &rt)
+    let tmp = new_temp(e)
+    let tn = temp_name(tmp)
+    let q = qbe_type(e, &rt)
+    if op == "+" {
+        emit_line(e, "  " + tn + " =" + q + " add " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op == "-" {
+        emit_line(e, "  " + tn + " =" + q + " sub " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op == "*" {
+        emit_line(e, "  " + tn + " =" + q + " mul " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op == "/" {
+        let mut divop = string_clone("div")
+        if type_is_unsigned_int(e, &rt) { divop = "udiv" }
+        emit_line(e, "  " + tn + " =" + q + " " + divop + " " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op == "%" {
+        let mut remop = string_clone("rem")
+        if type_is_unsigned_int(e, &rt) { remop = "urem" }
+        emit_line(e, "  " + tn + " =" + q + " " + remop + " " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op == "&" {
+        emit_line(e, "  " + tn + " =" + q + " and " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    if op == "|" {
+        emit_line(e, "  " + tn + " =" + q + " or " + l + ", " + r)
+        return qbe_value(string_clone(&rt), tn)
+    }
+    emit_line(e, "  " + tn + " =" + q + " xor " + l + ", " + r)
+    return qbe_value(string_clone(&rt), tn)
 }
 
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {

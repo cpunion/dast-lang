@@ -175,6 +175,29 @@ fn test_literal_coercion() {
     assert_str_eq(expr_type(&e, &shl), "u8")
 }
 
+fn test_untyped_binary_coercion_int() {
+    let mut e = emitter_new()
+    let expr = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
+    if !type_compatible_expr(&e, "i32", &expr) {
+        println("expected untyped int binary to coerce to i32")
+        exit(1)
+    }
+}
+
+fn test_untyped_binary_coercion_float() {
+    let mut e = emitter_new()
+    let fexpr = expr_binary(string_clone("+"), expr_float("1.0"), expr_float("2.0"))
+    if !type_compatible_expr(&e, "f32", &fexpr) {
+        println("expected untyped float binary to coerce to f32")
+        exit(1)
+    }
+    let iexpr = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
+    if !type_compatible_expr(&e, "f64", &iexpr) {
+        println("expected untyped int binary to coerce to f64")
+        exit(1)
+    }
+}
+
 fn test_bool_ops() {
     let mut e = setup_emitter_types("bool", "bool")
     let eq = bin_expr_types("==")
@@ -249,6 +272,31 @@ fn test_string_literal_type() {
     assert_str_eq(expr_type(&e, &lit), "&str")
     if !type_compatible_expr(&e, "String", &lit) {
         println("expected string literal to coerce to String when required")
+        exit(1)
+    }
+}
+
+fn test_string_borrow_compat() {
+    let mut e = setup_emitter_types("String", "String")
+    let ident = expr_ident("a")
+    if !type_compatible_expr(&e, "&str", &ident) {
+        println("expected String to coerce to &str")
+        exit(1)
+    }
+    if type_compatible(&e, "str", "String") {
+        println("expected String to not coerce to str value")
+        exit(1)
+    }
+}
+
+fn test_ref_covariance() {
+    let mut e = emitter_new()
+    if !type_compatible(&e, "&i32", "&mut i32") {
+        println("expected &mut i32 to coerce to &i32")
+        exit(1)
+    }
+    if type_compatible(&e, "&mut i32", "&i32") {
+        println("expected &i32 to not coerce to &mut i32")
         exit(1)
     }
 }

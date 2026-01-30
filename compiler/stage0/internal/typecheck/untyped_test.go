@@ -62,7 +62,7 @@ enum OptionI32 {
 
 fn main() {
     let opt = OptionI32.Some(10)
-    let mut v = 0
+    let mut v: i32 = 0
     match opt {
         .Some(n) => { v = n + 1 }
         .None => { v = 0 }
@@ -182,6 +182,40 @@ func TestEqualityWithUnaryIntLiteral(t *testing.T) {
 fn main() {
     let x: i64 = -6
     if x == -6 { } else { }
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
+	}
+}
+
+func TestUntypedBinaryAssignToInt(t *testing.T) {
+	src := `
+fn main() {
+    let x: i32 = 1 + 2
+    let _ = x
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
+	}
+}
+
+func TestUntypedBinaryAssignToFloat(t *testing.T) {
+	src := `
+fn main() {
+    let x: f32 = 1 + 2
+    let _ = x
 }
 `
 	prog, diags := parser.Parse("test.dast", src)

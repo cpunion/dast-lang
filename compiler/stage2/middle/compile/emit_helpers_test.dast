@@ -96,6 +96,28 @@ fn test_emit_peer_type() {
     assert_true(v.typ == "i16", "peer type i16 for i16+i16")
 }
 
+fn test_emit_typed_value_untyped_int_binary() {
+    let mut e = emitter_new()
+    let expr = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
+    let v = emit_typed_value(&mut e, &expr, "i32")
+    assert_true(v.typ == "i32", "untyped int binary to i32")
+    assert_true(body_contains(&e.body, " =w add "), "i32 add opcode")
+}
+
+fn test_emit_typed_value_untyped_float_binary() {
+    let mut e1 = emitter_new()
+    let expr1 = expr_binary(string_clone("+"), expr_float("1.0"), expr_float("2.0"))
+    let v1 = emit_typed_value(&mut e1, &expr1, "f32")
+    assert_true(v1.typ == "f32", "untyped float binary to f32")
+    assert_true(body_contains(&e1.body, " =s add "), "f32 add opcode")
+
+    let mut e2 = emitter_new()
+    let expr2 = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
+    let v2 = emit_typed_value(&mut e2, &expr2, "f64")
+    assert_true(v2.typ == "f64", "untyped int binary to f64")
+    assert_true(body_contains(&e2.body, " =d add "), "f64 add opcode")
+}
+
 fn test_emit_char_literal() {
     let mut e = emitter_new()
     let c = expr_char(97)

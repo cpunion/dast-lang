@@ -231,22 +231,6 @@ func typesAssignable(actual, expected Type) bool {
 	if isUntypedInt(actual) && isFloat(expected) {
 		return true
 	}
-	if isInt(actual) && isInt(expected) {
-		at := canonicalIntName(intTypeName(actual))
-		et := canonicalIntName(intTypeName(expected))
-		if at == et {
-			return true
-		}
-		aSigned := isSignedIntName(at)
-		eSigned := isSignedIntName(et)
-		if aSigned == eSigned {
-			aw := intTypeWidth(at)
-			ew := intTypeWidth(et)
-			if aw > 0 && ew > 0 && aw <= ew {
-				return true
-			}
-		}
-	}
 	if isUntypedFloat(actual) && isFloat(expected) {
 		return true
 	}

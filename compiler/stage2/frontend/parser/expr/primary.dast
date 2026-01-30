@@ -121,7 +121,7 @@ fn parse_primary(p: &mut Parser) -> Expr {
         }
         _ => {
             let mut msg = string_clone("parse error: unexpected token ")
-            msg = msg + parser_int_to_string(t.kind)
+            msg = msg + parser_int_to_string_i32(t.kind)
             if t.text != "" { msg = msg + " " + t.text }
             parser_fail(p, msg)
             return expr_int(0)

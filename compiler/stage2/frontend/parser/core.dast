@@ -43,7 +43,7 @@ fn parser_expect(p: &mut Parser, kind: i32, label: String) -> Token {
     if t.kind != kind {
         let mut msg = string_clone("parse error: expected ")
         msg = msg + label + " got "
-        msg = msg + parser_int_to_string(t.kind)
+        msg = msg + parser_int_to_string_i32(t.kind)
         if t.text != "" { msg = msg + " " + t.text }
         parser_fail(p, msg)
     }
@@ -79,6 +79,38 @@ fn parser_int_to_string(n: i64) -> String {
     }
     if neg { out = "-" + out }
     return out
+}
+
+fn parser_int_to_string_i32(n: i32) -> String {
+    if n == 0 { return string_clone("0") }
+    let mut x = n
+    let mut out = string_clone("")
+    let mut neg = false
+    if x < 0 {
+        neg = true
+        x = 0 - x
+    }
+    while x > 0 {
+        let d = x % 10
+        let digit = parser_digit_i32(d)
+        out = digit + out
+        x = x / 10
+    }
+    if neg { out = "-" + out }
+    return out
+}
+
+fn parser_digit_i32(d: i32) -> String {
+    if d == 0 { return string_clone("0") }
+    if d == 1 { return string_clone("1") }
+    if d == 2 { return string_clone("2") }
+    if d == 3 { return string_clone("3") }
+    if d == 4 { return string_clone("4") }
+    if d == 5 { return string_clone("5") }
+    if d == 6 { return string_clone("6") }
+    if d == 7 { return string_clone("7") }
+    if d == 8 { return string_clone("8") }
+    return string_clone("9")
 }
 
 fn parser_gensym(p: &mut Parser, prefix: String) -> String {

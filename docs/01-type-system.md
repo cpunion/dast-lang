@@ -292,7 +292,7 @@ trait Iterator[T] {
 ### 局部变量
 
 ```dast
-let x = 42          // 推断为 i32
+let x = 42          // 推断为 i64（未约束时默认 i64）
 let y = 3.14        // 推断为 f64
 let s = "hello"     // 推断为 &str
 let v = Vec.new()   // 需要上下文推断元素类型
@@ -314,6 +314,24 @@ let result = add(1, 2)     // 推断 a: i32, b: i32
 let opt = Option.Some(42)  // Option[i32]
 let opt: Option[i32] = .None
 ```
+
+---
+
+## 数值运算与隐式转换规则（对齐 Zig）
+
+- **整数/浮点二元运算**：两侧类型必须完全一致（含位宽与有/无符号），否则编译错误。
+- **untyped-int / untyped-float**：字面量初始为无类型数值，需由上下文约束到具体类型。
+  - 未被约束时默认 `untyped-int -> i64`，`untyped-float -> f64`。
+  - `untyped-int` 可按上下文收敛为任意整数或浮点类型。
+  - `untyped-float` 只能收敛为浮点类型。
+- **char**：仅允许比较（`== != < <= > >=`），算术需显式转为整数。
+- **不做隐式数值扩展/缩窄**：不同整数宽度或整数/浮点混用必须显式转换。
+
+## 引用与字符串的隐式规则
+
+- 允许 `&mut T -> &T`（只读协变）。
+- 允许 `String -> &str` 的只读借用（期望类型为 `&str` 时）。
+- 不允许 `String` 直接当作 `str` 值使用（必须显式借用）。
 
 ---
 

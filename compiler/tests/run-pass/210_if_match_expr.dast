@@ -17,7 +17,7 @@ fn main() {
     println("z", z)
 
     let opt = OptionI32.Some(10)
-    let mut v = 0
+    let mut v: i32 = 0
     match opt {
         .Some(n) => { v = n + 1 }
         .None => { v = 0 }

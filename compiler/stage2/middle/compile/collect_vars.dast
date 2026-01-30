@@ -467,7 +467,7 @@ fn infer_untyped_expr(e: &mut Emitter, expr: &Expr) -> bool {
 fn infer_untyped_expr_expected(e: &mut Emitter, expr: &Expr, expected: &String) -> bool {
     let mut changed = false
     if constrain_expr_to_type(e, expr, expected) { changed = true }
-    if expr.kind == EXPR_BINARY && type_is_int(e, expected) && len(&expr.args) >= 2 {
+    if expr.kind == EXPR_BINARY && (type_is_int(e, expected) || type_is_float(e, expected)) && len(&expr.args) >= 2 {
         let lhs = expr_arg_ref(expr, 0, "infer_bin_lhs_exp")
         let rhs = expr_arg_ref(expr, 1, "infer_bin_rhs_exp")
         if constrain_expr_to_type(e, lhs, expected) { changed = true }
