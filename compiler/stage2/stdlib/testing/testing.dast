@@ -6,11 +6,11 @@ fn escape_str_lit(s: String) -> String {
     let n = str_len(&s)
     while i < n {
         let c = str_char_at(&s, i)
-        if c == '\n' { out = out + "\\n" }
-        else if c == '\r' { out = out + "\\r" }
-        else if c == '\t' { out = out + "\\t" }
-        else if c == '\\' { out = out + "\\\\" }
-        else if c == '"' { out = out + "\\\"" }
+        if c == 10 { out = out + "\\n" }
+        else if c == 13 { out = out + "\\r" }
+        else if c == 9 { out = out + "\\t" }
+        else if c == 92 { out = out + "\\\\" }
+        else if c == 34 { out = out + "\\\"" }
         else { out = out + str_substr(&s, i, 1) }
         i = i + 1
     }

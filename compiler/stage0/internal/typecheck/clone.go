@@ -223,6 +223,12 @@ func (c *Checker) cloneExpr(expr ast.Expr, subst map[string]Type) ast.Expr {
 	case *ast.IntLit:
 		out := *e
 		return &out
+	case *ast.CharLit:
+		out := *e
+		return &out
+	case *ast.FloatLit:
+		out := *e
+		return &out
 	case *ast.BoolLit:
 		out := *e
 		return &out

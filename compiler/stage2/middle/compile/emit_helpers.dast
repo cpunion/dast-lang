@@ -97,7 +97,7 @@ fn ensure_bool_expr(e: &mut Emitter, v: QbeValue) -> String {
     if type_is_bool(e, &v.typ) { return v.expr }
     let tmp = new_temp(e)
     let tn = temp_name(tmp)
-    let cmp = qbe_cmp_op(e, "!=", &v.typ)
+    let cmp = qbe_cmp_op(e, "!=", string_clone(&v.typ))
     let zero = if type_is_float(e, &v.typ) { float_zero_const(&v.typ) } else { "0" }
     emit_line(e, "  " + tn + " =w " + cmp + " " + v.expr + ", " + zero)
     return tn
@@ -122,7 +122,7 @@ fn cast_to_type(e: &mut Emitter, v: QbeValue, target_t: &str) -> String {
         if type_is_bool(e, &v.typ) { return v.expr }
         let tmp = new_temp(e)
         let tn = temp_name(tmp)
-        let cmp = qbe_cmp_op(e, "!=", &v.typ)
+        let cmp = qbe_cmp_op(e, "!=", string_clone(&v.typ))
         emit_line(e, "  " + tn + " =w " + cmp + " " + v.expr + ", 0")
         return tn
     }
@@ -364,11 +364,11 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             check_expr = string_clone(&tagv.expr)
             check_t = enum_tag_type(e, &check_t)
         }
-        if !type_is_int(e, &check_t) && !type_is_bool(e, &check_t) {
-            println("stage2: literal pattern requires int or bool")
+        if !type_is_int(e, &check_t) && !type_is_bool(e, &check_t) && !type_is_char(e, &check_t) {
+            println("stage2: literal pattern requires int, bool, or char")
             exit(1)
         }
-        let cmp = qbe_cmp_op(e, "==", &check_t)
+        let cmp = qbe_cmp_op(e, "==", string_clone(&check_t))
         let cond_tmp = new_temp(e)
         let cond_tn = temp_name(cond_tmp)
         emit_line(e, "  " + cond_tn + " =w " + cmp + " " + check_expr + ", " + int_to_string(pat.int_value))
@@ -378,7 +378,8 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
         return
     }
     if pat.kind == PAT_RANGE {
-        if type_is_enum(e, val_t) || !type_is_int(e, val_t) {
+        let is_char = type_is_char(e, val_t)
+        if type_is_enum(e, val_t) || (!type_is_int(e, val_t) && !is_char) {
             println("stage2: range pattern requires int scrutinee")
             exit(1)
         }
@@ -386,14 +387,19 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
         let check_t = type_resolve(e, val_t)
         if pat.range_has_start {
             let start_v = emit_typed_value(e, &pat.range_start, val_t)
-            if !type_is_int(e, &start_v.typ) {
+            if is_char {
+                if !type_is_char(e, &start_v.typ) {
+                    println("stage2: range pattern requires char start")
+                    exit(1)
+                }
+            } else if !type_is_int(e, &start_v.typ) {
                 println("stage2: range pattern requires int start")
                 exit(1)
             }
             let start_expr = start_v.expr
             let cond_tmp = new_temp(e)
             let cond_tn = temp_name(cond_tmp)
-            let cmp = qbe_cmp_op(e, "<", &check_t)
+            let cmp = qbe_cmp_op(e, "<", string_clone(&check_t))
             emit_line(e, "  " + cond_tn + " =w " + cmp + " " + check_expr + ", " + start_expr)
             let ok_label = new_label(e, "match_range_")
             emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(next_label) + ", @" + string_clone(&ok_label))
@@ -401,14 +407,19 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
         }
         if pat.range_has_end {
             let end_v = emit_typed_value(e, &pat.range_end, val_t)
-            if !type_is_int(e, &end_v.typ) {
+            if is_char {
+                if !type_is_char(e, &end_v.typ) {
+                    println("stage2: range pattern requires char end")
+                    exit(1)
+                }
+            } else if !type_is_int(e, &end_v.typ) {
                 println("stage2: range pattern requires int end")
                 exit(1)
             }
             let end_expr = end_v.expr
             let cond_tmp = new_temp(e)
             let cond_tn = temp_name(cond_tmp)
-            let cmp = qbe_cmp_op(e, "<", &check_t)
+            let cmp = qbe_cmp_op(e, "<", string_clone(&check_t))
             if pat.range_inclusive {
                 emit_line(e, "  " + cond_tn + " =w " + cmp + " " + end_expr + ", " + check_expr)
                 let ok_label = new_label(e, "match_range_")
@@ -436,7 +447,7 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
             println("stage2: unknown enum variant", pat.variant)
             exit(1)
         }
-        let cmp = qbe_cmp_op(e, "==", &tag_t)
+        let cmp = qbe_cmp_op(e, "==", string_clone(&tag_t))
         let cond_tmp = new_temp(e)
         let cond_tn = temp_name(cond_tmp)
         emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tagv.expr + ", " + int_to_string(tag_val))
@@ -800,17 +811,26 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let r = emit_deref_value(e, rhs)
             emit_line(e, "  " + tn + " =w call $dast_string_eq(l " + l.expr + ", l " + r.expr + ")")
         } else if type_is_enum(e, &lhs.typ) || type_is_enum(e, &rhs.typ) {
-            let cmp = qbe_cmp_op(e, "==", &lhs.typ)
+            let cmp = qbe_cmp_op(e, "==", string_clone(&lhs.typ))
             emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         } else if type_is_bool(e, &lhs.typ) || type_is_bool(e, &rhs.typ) {
-            let cmp = qbe_cmp_op(e, "==", &lhs.typ)
+            let cmp = qbe_cmp_op(e, "==", string_clone(&lhs.typ))
+            emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
+        } else if type_is_char(e, &lhs.typ) || type_is_char(e, &rhs.typ) {
+            if !type_is_char(e, &lhs.typ) || !type_is_char(e, &rhs.typ) {
+                println("stage2: binary op", op, "requires both char operands got", lhs_t, "and", rhs_t)
+                exit(1)
+            }
+            let mut cmp_op = string_clone(&op)
+            if op == "!=" { cmp_op = "==" }
+            let cmp = qbe_cmp_op(e, cmp_op, "char")
             emit_line(e, "  " + tn + " =w " + cmp + " " + lhs.expr + ", " + rhs.expr)
         } else if float_t != "" {
             let l = emit_float_operand(e, lhs_expr, lhs, &float_t)
             let r = emit_float_operand(e, rhs_expr, rhs, &float_t)
             let mut cmp_op = string_clone(&op)
             if op == "!=" { cmp_op = "==" }
-            let cmp = qbe_cmp_op(e, cmp_op, &float_t)
+            let cmp = qbe_cmp_op(e, cmp_op, string_clone(&float_t))
             emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
         } else {
             let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
@@ -823,7 +843,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let r = emit_int_operand(e, rhs_expr, rhs, &int_t)
             let mut cmp_op = string_clone(&op)
             if op == "!=" { cmp_op = "==" }
-            let cmp = qbe_cmp_op(e, cmp_op, &int_t)
+            let cmp = qbe_cmp_op(e, cmp_op, string_clone(&int_t))
             emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
         }
         if op == "!=" {

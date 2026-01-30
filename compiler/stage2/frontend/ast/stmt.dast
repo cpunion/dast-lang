@@ -1,24 +1,24 @@
 // AST: statements and blocks for stage2.
 
-const STMT_LET = 1
-const STMT_EXPR = 2
-const STMT_ASSIGN = 3
-const STMT_IF = 4
-const STMT_WHILE = 5
-const STMT_LOOP = 6
-const STMT_BREAK = 7
-const STMT_CONTINUE = 8
-const STMT_RETURN = 9
-const STMT_IFLET = 10
-const STMT_MATCH = 11
-const STMT_BREAK_VALUE = 12
+const STMT_LET: i32 = 1
+const STMT_EXPR: i32 = 2
+const STMT_ASSIGN: i32 = 3
+const STMT_IF: i32 = 4
+const STMT_WHILE: i32 = 5
+const STMT_LOOP: i32 = 6
+const STMT_BREAK: i32 = 7
+const STMT_CONTINUE: i32 = 8
+const STMT_RETURN: i32 = 9
+const STMT_IFLET: i32 = 10
+const STMT_MATCH: i32 = 11
+const STMT_BREAK_VALUE: i32 = 12
 
-const PAT_VARIANT = 1
-const PAT_INT = 2
-const PAT_WILDCARD = 3
-const PAT_STRUCT = 4
-const PAT_RANGE = 5
-const PAT_BIND = 6
+const PAT_VARIANT: i32 = 1
+const PAT_INT: i32 = 2
+const PAT_WILDCARD: i32 = 3
+const PAT_STRUCT: i32 = 4
+const PAT_RANGE: i32 = 5
+const PAT_BIND: i32 = 6
 
 struct Block {
     stmts: [Stmt],

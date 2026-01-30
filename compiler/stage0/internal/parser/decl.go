@@ -402,6 +402,8 @@ func evalConstExpr(expr ast.Expr) (ast.ConstValue, bool) {
 	switch e := expr.(type) {
 	case *ast.IntLit:
 		return ast.ConstValue{Kind: ast.ConstInt, Int: e.Value, Span: e.Span()}, true
+	case *ast.CharLit:
+		return ast.ConstValue{Kind: ast.ConstChar, Int: e.Value, Span: e.Span()}, true
 	case *ast.FloatLit:
 		return ast.ConstValue{Kind: ast.ConstFloat, FloatText: e.Text, Span: e.Span()}, true
 	case *ast.BoolLit:

@@ -39,9 +39,9 @@ func TestParseCharLiterals(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected let stmt, got %T", stmt)
 		}
-		lit, ok := letStmt.Init.(*ast.IntLit)
+		lit, ok := letStmt.Init.(*ast.CharLit)
 		if !ok {
-			t.Fatalf("expected int literal init, got %T", letStmt.Init)
+			t.Fatalf("expected char literal init, got %T", letStmt.Init)
 		}
 		want, ok := expect[letStmt.Name]
 		if !ok {

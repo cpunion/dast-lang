@@ -12,6 +12,7 @@ const (
 	TypeInvalid Kind = iota
 	TypeParam
 	TypeInt
+	TypeFloat
 	TypeBool
 	TypeString
 	TypeStr
@@ -60,6 +61,11 @@ func (t Type) baseName() string {
 			return t.Name
 		}
 		return "int"
+	case TypeFloat:
+		if t.Name != "" {
+			return t.Name
+		}
+		return "f64"
 	case TypeBool:
 		return "bool"
 	case TypeString:

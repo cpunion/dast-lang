@@ -2,7 +2,7 @@
 // This is a deliberately tiny, linear-scan pass we can trust first.
 
 struct DropInstr {
-    kind: i32,   // 1=store, 2=drop, 3=ret
+    kind: i64,   // 1=store, 2=drop, 3=ret
     name: String,
     typ: String,
 }
@@ -12,9 +12,9 @@ struct LiveVar {
     typ: String,
 }
 
-fn drop_kind_store() -> i32 { return 1 }
-fn drop_kind_drop() -> i32 { return 2 }
-fn drop_kind_ret() -> i32 { return 3 }
+fn drop_kind_store() -> i64 { return 1 }
+fn drop_kind_drop() -> i64 { return 2 }
+fn drop_kind_ret() -> i64 { return 3 }
 
 fn drop_instr_store(name: String, typ: String) -> DropInstr {
     return DropInstr { kind: drop_kind_store(), name: name, typ: typ }
@@ -28,7 +28,7 @@ fn drop_instr_ret() -> DropInstr {
     return DropInstr { kind: drop_kind_ret(), name: "", typ: "" }
 }
 
-fn live_index(live: & [LiveVar], name: &str) -> i32 {
+fn live_index(live: & [LiveVar], name: &str) -> i64 {
     let key = string_clone(name)
     let mut i = 0
     while i < len(live) {
@@ -111,7 +111,7 @@ fn drop_pass(instrs: [DropInstr]) -> [DropInstr] {
     return out
 }
 
-fn drop_count(instrs: & [DropInstr]) -> i32 {
+fn drop_count(instrs: & [DropInstr]) -> i64 {
     let mut n = 0
     let mut i = 0
     while i < len(instrs) {
@@ -121,7 +121,7 @@ fn drop_count(instrs: & [DropInstr]) -> i32 {
     return n
 }
 
-fn drop_pass_self_test() -> i32 {
+fn drop_pass_self_test() -> i64 {
     let mut instrs: [DropInstr] = []
     push(&mut instrs, drop_instr_store("x", "String"))
     push(&mut instrs, drop_instr_store("y", "i64"))

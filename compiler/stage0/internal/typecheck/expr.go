@@ -10,11 +10,36 @@ import (
 func (c *Checker) checkExpr(expr ast.Expr) Type {
 	switch e := expr.(type) {
 	case *ast.IntLit:
-		return Type{Kind: TypeInt, Name: "int"}
+		if exp, ok := c.currentExpected(); ok {
+			if isInt(exp) {
+				if intValueFitsType(e.Value, intTypeName(exp)) {
+					return exp
+				}
+				c.diag.Add(e.Span(), fmt.Sprintf("int literal out of range for %s", exp.String()))
+				return Type{Kind: TypeInvalid}
+			}
+			if isFloat(exp) {
+				return exp
+			}
+			if isChar(exp) {
+				c.diag.Add(e.Span(), "int literal cannot coerce to char")
+				return Type{Kind: TypeInvalid}
+			}
+		}
+		return Type{Kind: TypeInt, Name: "untyped-int"}
+	case *ast.CharLit:
+		return Type{Kind: TypeInt, Name: "char"}
 	case *ast.BoolLit:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case *ast.StringLit:
 		return Type{Kind: TypeString, Name: "String"}
+	case *ast.FloatLit:
+		if exp, ok := c.currentExpected(); ok {
+			if isFloat(exp) {
+				return exp
+			}
+		}
+		return Type{Kind: TypeFloat, Name: "untyped-float"}
 	case *ast.ArrayLit:
 		if len(e.Elems) == 0 {
 			return Type{Kind: TypeArray, Elem: &Type{Kind: TypeInvalid}}
@@ -112,10 +137,13 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		operand := c.checkExpr(e.Expr)
 		switch e.Op {
 		case "-":
-			if !isInt(operand) && operand.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "unary '-' requires int")
+			if isInt(operand) || isUntypedInt(operand) || isFloat(operand) || isUntypedFloat(operand) {
+				return operand
 			}
-			return Type{Kind: TypeInt, Name: "int"}
+			if operand.Kind != TypeInvalid {
+				c.diag.Add(e.Span(), "unary '-' requires int or float")
+			}
+			return Type{Kind: TypeInvalid}
 		case "!":
 			if !isBool(operand) && operand.Kind != TypeInvalid {
 				c.diag.Add(e.Span(), "unary '!' requires bool")
@@ -128,71 +156,166 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 	case *ast.BinaryExpr:
 		lhs := c.checkExpr(e.Left)
 		rhs := c.checkExpr(e.Right)
-		lhsLit, lhsIsLit := e.Left.(*ast.IntLit)
-		rhsLit, rhsIsLit := e.Right.(*ast.IntLit)
-		lhsName := intTypeName(lhs)
-		rhsName := intTypeName(rhs)
-		intBinaryResult := func() (string, bool) {
-			if !isInt(lhs) || !isInt(rhs) {
-				return "", false
+		lhsIntVal := int64(0)
+		rhsIntVal := int64(0)
+		lhsIsIntLit := false
+		rhsIsIntLit := false
+		if lit, ok := e.Left.(*ast.IntLit); ok {
+			lhsIntVal = lit.Value
+			lhsIsIntLit = true
+		} else if id, ok := e.Left.(*ast.IdentExpr); ok {
+			if cinfo, ok := c.consts[id.Name]; ok && isUntypedInt(cinfo.Type) && cinfo.Value.Kind == ast.ConstInt {
+				lhsIntVal = cinfo.Value.Int
+				lhsIsIntLit = true
 			}
-			if lhsIsLit && !rhsIsLit {
-				if intValueFitsType(lhsLit.Value, rhsName) {
-					return rhsName, true
-				}
-			}
-			if rhsIsLit && !lhsIsLit {
-				if intValueFitsType(rhsLit.Value, lhsName) {
-					return lhsName, true
-				}
-			}
-			pt := intPeerTypeName(lhsName, rhsName)
-			if pt == "" {
-				return "", false
-			}
-			if lhsIsLit && !intValueFitsType(lhsLit.Value, pt) {
-				return "", false
-			}
-			if rhsIsLit && !intValueFitsType(rhsLit.Value, pt) {
-				return "", false
-			}
-			return pt, true
 		}
-		shiftResult := func() (string, bool) {
-			if !isInt(lhs) || !isInt(rhs) {
-				return "", false
+		if lit, ok := e.Right.(*ast.IntLit); ok {
+			rhsIntVal = lit.Value
+			rhsIsIntLit = true
+		} else if id, ok := e.Right.(*ast.IdentExpr); ok {
+			if cinfo, ok := c.consts[id.Name]; ok && isUntypedInt(cinfo.Type) && cinfo.Value.Kind == ast.ConstInt {
+				rhsIntVal = cinfo.Value.Int
+				rhsIsIntLit = true
 			}
-			if rhsIsLit {
-				if rhsLit.Value < 0 {
-					return "", false
+		}
+		intBinaryResult := func() (Type, bool) {
+			if isChar(lhs) || isChar(rhs) {
+				return Type{}, false
+			}
+			lhsTyped := isInt(lhs)
+			rhsTyped := isInt(rhs)
+			lhsUntyped := isUntypedInt(lhs)
+			rhsUntyped := isUntypedInt(rhs)
+			if !lhsTyped && !lhsUntyped {
+				return Type{}, false
+			}
+			if !rhsTyped && !rhsUntyped {
+				return Type{}, false
+			}
+			if lhsTyped && rhsTyped {
+				lt := canonicalIntName(intTypeName(lhs))
+				rt := canonicalIntName(intTypeName(rhs))
+				if lt != rt {
+					return Type{}, false
 				}
-				return lhsName, true
+				return Type{Kind: TypeInt, Name: lt}, true
 			}
-			return lhsName, true
+			if lhsTyped && rhsUntyped {
+				lt := canonicalIntName(intTypeName(lhs))
+				if rhsIsIntLit && intValueFitsType(rhsIntVal, intTypeName(lhs)) {
+					return Type{Kind: TypeInt, Name: lt}, true
+				}
+				return Type{}, false
+			}
+			if rhsTyped && lhsUntyped {
+				rt := canonicalIntName(intTypeName(rhs))
+				if lhsIsIntLit && intValueFitsType(lhsIntVal, intTypeName(rhs)) {
+					return Type{Kind: TypeInt, Name: rt}, true
+				}
+				return Type{}, false
+			}
+			return Type{Kind: TypeInt, Name: "untyped-int"}, true
+		}
+
+		floatBinaryResult := func() (Type, bool) {
+			lhsTyped := isFloat(lhs)
+			rhsTyped := isFloat(rhs)
+			lhsUntyped := isUntypedFloat(lhs)
+			rhsUntyped := isUntypedFloat(rhs)
+			if lhsTyped && rhsTyped {
+				if lhs.Name != rhs.Name {
+					return Type{}, false
+				}
+				return lhs, true
+			}
+			if lhsTyped && rhsUntyped {
+				return lhs, true
+			}
+			if rhsTyped && lhsUntyped {
+				return rhs, true
+			}
+			if lhsTyped && rhsIsIntLit {
+				return lhs, true
+			}
+			if rhsTyped && lhsIsIntLit {
+				return rhs, true
+			}
+			if lhsUntyped && rhsUntyped {
+				return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+			}
+			if lhsUntyped && rhsIsIntLit {
+				return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+			}
+			if rhsUntyped && lhsIsIntLit {
+				return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+			}
+			return Type{}, false
+		}
+
+		shiftResult := func() (Type, bool) {
+			if isChar(lhs) || isChar(rhs) {
+				return Type{}, false
+			}
+			lhsTyped := isInt(lhs)
+			lhsUntyped := isUntypedInt(lhs)
+			if !lhsTyped && !lhsUntyped {
+				return Type{}, false
+			}
+			if rhsIsIntLit {
+				if rhsIntVal < 0 {
+					return Type{}, false
+				}
+				if lhsTyped {
+					return Type{Kind: TypeInt, Name: canonicalIntName(intTypeName(lhs))}, true
+				}
+				return Type{Kind: TypeInt, Name: "untyped-int"}, true
+			}
+			if !isInt(rhs) {
+				return Type{}, false
+			}
+			if !isUnsignedIntName(intTypeName(rhs)) {
+				return Type{}, false
+			}
+			if lhsTyped {
+				return Type{Kind: TypeInt, Name: canonicalIntName(intTypeName(lhs))}, true
+			}
+			return Type{Kind: TypeInt, Name: "untyped-int"}, true
 		}
 		switch e.Op {
 		case "+":
 			if isString(lhs) && isString(rhs) {
 				return Type{Kind: TypeString, Name: "String"}
 			}
+			if t, ok := floatBinaryResult(); ok {
+				return t
+			}
 			if t, ok := intBinaryResult(); ok {
-				return Type{Kind: TypeInt, Name: t}
+				return t
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int operands", e.Op))
+				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int or float operands", e.Op))
 			}
 			return Type{Kind: TypeInvalid}
 		case "-", "*", "/", "%":
+			if e.Op != "%" {
+				if t, ok := floatBinaryResult(); ok {
+					return t
+				}
+			}
 			if t, ok := intBinaryResult(); ok {
-				return Type{Kind: TypeInt, Name: t}
+				return t
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int operands", e.Op))
+				msg := fmt.Sprintf("'%s' requires compatible int operands", e.Op)
+				if e.Op != "%" {
+					msg = fmt.Sprintf("'%s' requires compatible int or float operands", e.Op)
+				}
+				c.diag.Add(e.Span(), msg)
 			}
 			return Type{Kind: TypeInvalid}
 		case "&", "|", "^":
 			if t, ok := intBinaryResult(); ok {
-				return Type{Kind: TypeInt, Name: t}
+				return t
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
 				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires compatible int operands", e.Op))
@@ -200,7 +323,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			return Type{Kind: TypeInvalid}
 		case "<<", ">>":
 			if t, ok := shiftResult(); ok {
-				return Type{Kind: TypeInt, Name: t}
+				return t
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
 				c.diag.Add(e.Span(), fmt.Sprintf("'%s' requires int lhs and unsigned rhs", e.Op))
@@ -228,19 +351,39 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				}
 				return Type{Kind: TypeBool, Name: "bool"}
 			}
+			if isChar(lhs) || isChar(rhs) {
+				if !isChar(lhs) || !isChar(rhs) {
+					c.diag.Add(e.Span(), "equality requires both char operands")
+					return Type{Kind: TypeInvalid}
+				}
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
+			if _, ok := floatBinaryResult(); ok {
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
 			if _, ok := intBinaryResult(); ok {
 				return Type{Kind: TypeBool, Name: "bool"}
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "equality requires compatible int operands")
+				c.diag.Add(e.Span(), "equality requires compatible operands")
 			}
 			return Type{Kind: TypeInvalid}
 		case "<", "<=", ">", ">=":
+			if isChar(lhs) || isChar(rhs) {
+				if !isChar(lhs) || !isChar(rhs) {
+					c.diag.Add(e.Span(), "comparison requires both char operands")
+					return Type{Kind: TypeInvalid}
+				}
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
+			if _, ok := floatBinaryResult(); ok {
+				return Type{Kind: TypeBool, Name: "bool"}
+			}
 			if _, ok := intBinaryResult(); ok {
 				return Type{Kind: TypeBool, Name: "bool"}
 			}
 			if lhs.Kind != TypeInvalid && rhs.Kind != TypeInvalid {
-				c.diag.Add(e.Span(), "comparison requires compatible int operands")
+				c.diag.Add(e.Span(), "comparison requires compatible operands")
 			}
 			return Type{Kind: TypeInvalid}
 		case "&&", "||":
@@ -425,7 +568,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				if !isString(strType) && strType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[0].Span(), "char_at expects String/str")
 				}
-				if !isInt(idxType) && idxType.Kind != TypeInvalid {
+				if !isInt(idxType) && !isUntypedInt(idxType) && idxType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[1].Span(), "char_at expects int index")
 				}
 				return Type{Kind: TypeInt, Name: "int"}
@@ -440,10 +583,10 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				if !isString(strType) && strType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[0].Span(), "substr expects String/str")
 				}
-				if !isInt(startType) && startType.Kind != TypeInvalid {
+				if !isInt(startType) && !isUntypedInt(startType) && startType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[1].Span(), "substr expects int start")
 				}
-				if !isInt(lenType) && lenType.Kind != TypeInvalid {
+				if !isInt(lenType) && !isUntypedInt(lenType) && lenType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[2].Span(), "substr expects int length")
 				}
 				return Type{Kind: TypeString, Name: "String"}
@@ -518,7 +661,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 					return Type{Kind: TypeString, Name: "String"}
 				}
 				argType := c.checkExpr(e.Args[0])
-				if !isInt(argType) && argType.Kind != TypeInvalid {
+				if !isInt(argType) && !isUntypedInt(argType) && argType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[0].Span(), "read_bytes expects int count")
 				}
 				return Type{Kind: TypeString, Name: "String"}
@@ -716,7 +859,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 	case *ast.IndexExpr:
 		recvType := c.checkExpr(e.Receiver)
 		indexType := c.checkExpr(e.Index)
-		if !isInt(indexType) && indexType.Kind != TypeInvalid {
+		if !isInt(indexType) && !isUntypedInt(indexType) && indexType.Kind != TypeInvalid {
 			c.diag.Add(e.Index.Span(), "index requires int")
 		}
 		if recvType.Ref {
@@ -848,7 +991,7 @@ func (c *Checker) checkRefTarget(expr ast.Expr) (Type, bool, bool) {
 			return Type{Kind: TypeInvalid}, false, false
 		}
 		indexType := c.checkExpr(e.Index)
-		if !isInt(indexType) && indexType.Kind != TypeInvalid {
+		if !isInt(indexType) && !isUntypedInt(indexType) && indexType.Kind != TypeInvalid {
 			c.diag.Add(e.Index.Span(), "index requires int")
 		}
 		if recvType.Ref {

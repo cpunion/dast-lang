@@ -132,7 +132,13 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 		initType = c.checkExprWithExpected(s.Init, declType)
 	} else {
 		initType = c.checkExpr(s.Init)
-		declType = initType
+		if isUntypedInt(initType) {
+			declType = Type{Kind: TypeInt, Name: "i64"}
+		} else if isUntypedFloat(initType) {
+			declType = Type{Kind: TypeFloat, Name: "f64"}
+		} else {
+			declType = initType
+		}
 	}
 	if s.Type != nil {
 		if lit, ok := s.Init.(*ast.ArrayLit); ok && len(lit.Elems) == 0 && declType.Kind == TypeArray {
@@ -208,7 +214,7 @@ func (c *Checker) checkAssign(s *ast.AssignStmt) {
 			return
 		}
 		indexType := c.checkExpr(target.Index)
-		if !isInt(indexType) && indexType.Kind != TypeInvalid {
+		if !isInt(indexType) && !isUntypedInt(indexType) && indexType.Kind != TypeInvalid {
 			c.diag.Add(target.Index.Span(), "index requires int")
 		}
 		valType := c.checkExprWithExpected(s.Value, *recvType.Elem)

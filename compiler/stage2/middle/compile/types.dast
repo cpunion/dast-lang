@@ -259,15 +259,25 @@ fn type_compatible(e: &Emitter, expected: &str, actual: &str) -> bool {
     if declared == actual { return true }
     let exp_args = type_args_parse(&declared)
     let act_args = type_args_parse(&actual)
-    if exp_args.base == act_args.base {
-        if !exp_args.has || !act_args.has { return true }
+    if exp_args.has || act_args.has {
+        if !exp_args.has || !act_args.has { return false }
+        if exp_args.base != act_args.base { return false }
+        if len(&exp_args.args) != len(&act_args.args) { return false }
+        let mut i = 0
+        while i < len(&exp_args.args) {
+            let ea = type_resolve(e, &exp_args.args[i])
+            let aa = type_resolve(e, &act_args.args[i])
+            if ea != aa { return false }
+            i = i + 1
+        }
+        return true
     }
     return false
 }
 
 fn default_untyped_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if rt == "untyped-int" { return "i32" }
+    if rt == "untyped-int" { return "i64" }
     if rt == "untyped-float" { return "f64" }
     if type_is_array(e, &rt) {
         let elem = type_array_elem(e, &rt)
@@ -288,7 +298,7 @@ fn default_untyped_type(e: &Emitter, t: &str) -> String {
 }
 
 fn expr_is_int_literal(expr: &Expr) -> bool {
-    return expr.kind == EXPR_INT || expr.kind == EXPR_CHAR
+    return expr.kind == EXPR_INT
 }
 
 fn expr_int_literal_value(expr: &Expr) -> i64 {
@@ -395,9 +405,9 @@ fn type_is_single_ref_to_string_or_array(e: &Emitter, t: &str) -> bool {
 }
 
 fn type_is_double_ref(e: &Emitter, t: &str) -> bool {
-    if !type_is_ref(e, t) { return false }
-    let base = type_ref_base(e, t)
-    return type_is_ref(e, &base)
+    if !type_is_ref_raw(t) { return false }
+    let base = type_ref_base_raw(t)
+    return type_is_ref_raw(&base)
 }
 
 fn type_is_generic_param(e: &Emitter, t: &str) -> bool {
@@ -784,6 +794,13 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
             }
             return "bool"
         }
+        if type_is_char(e, &lt) || type_is_char(e, &rt) {
+            if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
+                println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
+                exit(1)
+            }
+            return "bool"
+        }
         if type_is_enum(e, &lt) || type_is_enum(e, &rt) {
             if !type_is_enum(e, &lt) || !type_is_enum(e, &rt) {
                 println("stage2: binary op", op, "requires both enum operands got", lt, "and", rt)
@@ -816,6 +833,13 @@ fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> Strin
     if op == "<" || op == ">" || op == "<=" || op == ">=" {
         let lt = lt0
         let rt = rt0
+        if type_is_char(e, &lt) || type_is_char(e, &rt) {
+            if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
+                println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
+                exit(1)
+            }
+            return "bool"
+        }
         let fpt = float_bin_result_type(e, lhs, rhs)
         if fpt != "" { return "bool" }
         let pt = int_bin_result_type(e, lhs, rhs)
@@ -1027,11 +1051,11 @@ fn escape_qbe_string(s: &str) -> String {
     let n = str_len(s)
     while i < n {
         let c = str_char_at(s, i)
-        if c == '\n' { out = out + "\\n" }
-        else if c == '\r' { out = out + "\\r" }
-        else if c == '\t' { out = out + "\\t" }
-        else if c == '\\' { out = out + "\\\\" }
-        else if c == '"' { out = out + "\\\"" }
+        if c == 10 { out = out + "\\n" }
+        else if c == 13 { out = out + "\\r" }
+        else if c == 9 { out = out + "\\t" }
+        else if c == 92 { out = out + "\\\\" }
+        else if c == 34 { out = out + "\\\"" }
         else { out = out + str_substr(s, i, 1) }
         i = i + 1
     }
@@ -1105,7 +1129,7 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                 let bt = block_expr_type(e, &arm.block)
                 let bt_res = type_resolve(e, &bt)
                 let bt_lit = block_expr_is_int_literal(&arm.block)
-                let bt_lit_val = if bt_lit { block_expr_int_literal_value(&arm.block) } else { 0 }
+            let bt_lit_val: i64 = if bt_lit { block_expr_int_literal_value(&arm.block) } else { 0 }
                 if out == "" {
                     out = bt_res
                     out_is_lit = bt_lit

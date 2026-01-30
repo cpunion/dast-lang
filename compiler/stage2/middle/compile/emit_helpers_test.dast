@@ -100,8 +100,21 @@ fn test_emit_char_literal() {
     let mut e = emitter_new()
     let c = expr_char(97)
     let v = emit_expr(&mut e, &c)
-    assert_true(v.typ == "i64", "char literal qbe type")
+    assert_true(v.typ == "char", "char literal type")
     assert_true(v.expr == "97", "char literal value")
+}
+
+fn test_emit_float_ops() {
+    let mut e1 = setup_emitter_emit("f32", "f32")
+    let expr1 = bin_expr_emit("+")
+    let v1 = emit_binary_expr(&mut e1, &expr1)
+    assert_true(v1.typ == "f32", "f32 add result type")
+    assert_true(body_contains(&e1.body, " =s add "), "f32 add opcode")
+
+    let mut e2 = setup_emitter_emit("f64", "f64")
+    let expr2 = bin_expr_emit("<")
+    let _ = emit_binary_expr(&mut e2, &expr2)
+    assert_true(body_contains(&e2.body, " cltd "), "f64 cmp opcode")
 }
 
 fn test_emit_unit_field_store_skipped() {

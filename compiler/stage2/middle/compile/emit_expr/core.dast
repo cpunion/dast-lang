@@ -19,7 +19,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     }
     match expr.kind {
         EXPR_INT => { return qbe_value("i64", int_to_string(expr.int_value)) }
-        EXPR_CHAR => { return qbe_value("i64", int_to_string(expr.int_value)) }
+        EXPR_CHAR => { return qbe_value("char", int_to_string(expr.int_value)) }
         EXPR_FLOAT => { return qbe_value("f64", "d_" + string_clone(&expr.float_text)) }
         EXPR_BOOL => {
             if expr.bool_value { return qbe_value("bool", "1") }

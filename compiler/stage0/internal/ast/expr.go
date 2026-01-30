@@ -16,16 +16,24 @@ func (e *IdentExpr) exprNode()         {}
 func (e *IdentExpr) Span() source.Span { return e.SpanInfo }
 
 type IntLit struct {
-	Value    int64
-	SpanInfo source.Span
+    Value    int64
+    SpanInfo source.Span
 }
 
 func (e *IntLit) exprNode()         {}
 func (e *IntLit) Span() source.Span { return e.SpanInfo }
 
+type CharLit struct {
+    Value    int64
+    SpanInfo source.Span
+}
+
+func (e *CharLit) exprNode()         {}
+func (e *CharLit) Span() source.Span { return e.SpanInfo }
+
 type FloatLit struct {
-	Text     string
-	SpanInfo source.Span
+    Text     string
+    SpanInfo source.Span
 }
 
 func (e *FloatLit) exprNode()         {}

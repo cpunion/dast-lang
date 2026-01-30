@@ -200,7 +200,7 @@ func (c *Checker) collectConsts(prog *ast.Program) {
 		finalType := valueType
 		if decl.Type != nil {
 			finalType = c.fromAstType(*decl.Type)
-			if !typesEqual(finalType, valueType) && finalType.Kind != TypeInvalid && valueType.Kind != TypeInvalid {
+			if !typesAssignable(valueType, finalType) && finalType.Kind != TypeInvalid && valueType.Kind != TypeInvalid {
 				c.diag.Add(decl.Span(), fmt.Sprintf("const '%s' expects %s, got %s", decl.Name, finalType.String(), valueType.String()))
 			}
 		}

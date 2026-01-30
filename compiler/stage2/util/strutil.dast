@@ -88,15 +88,15 @@ fn parse_int_simple(text: &str) -> i64 {
     if n == 0 { return 0 }
     let mut i = 0
     let mut sign = 1
-    if str_char_at(text, 0) == '-' {
+    if str_char_at(text, 0) == 45 {
         sign = -1
         i = 1
     }
     let mut v: i64 = 0
     while i < n {
         let c = str_char_at(text, i)
-        if c < '0' || c > '9' { break }
-        v = v * 10 + (c - '0')
+        if c < 48 || c > 57 { break }
+        v = v * 10 + (c - 48)
         i = i + 1
     }
     return v * sign

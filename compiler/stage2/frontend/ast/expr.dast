@@ -1,29 +1,29 @@
 // AST: expressions for stage2.
 
-const EXPR_IDENT = 1
-const EXPR_INT = 2
-const EXPR_FLOAT = 3
-const EXPR_BOOL = 4
-const EXPR_CHAR = 5
-const EXPR_STRING = 6
-const EXPR_CALL = 7
-const EXPR_BINARY = 8
-const EXPR_UNARY = 9
-const EXPR_STRUCT_LIT = 10
-const EXPR_FIELD = 11
-const EXPR_REF = 12
-const EXPR_DEREF = 13
-const EXPR_ARRAY = 14
-const EXPR_INDEX = 15
-const EXPR_CLOSURE = 16
-const EXPR_MACRO_CALL = 17
-const EXPR_QUOTE = 18
-const EXPR_BLOCK = 19
-const EXPR_MATCH = 20
+const EXPR_IDENT: i32 = 1
+const EXPR_INT: i32 = 2
+const EXPR_FLOAT: i32 = 3
+const EXPR_BOOL: i32 = 4
+const EXPR_CHAR: i32 = 5
+const EXPR_STRING: i32 = 6
+const EXPR_CALL: i32 = 7
+const EXPR_BINARY: i32 = 8
+const EXPR_UNARY: i32 = 9
+const EXPR_STRUCT_LIT: i32 = 10
+const EXPR_FIELD: i32 = 11
+const EXPR_REF: i32 = 12
+const EXPR_DEREF: i32 = 13
+const EXPR_ARRAY: i32 = 14
+const EXPR_INDEX: i32 = 15
+const EXPR_CLOSURE: i32 = 16
+const EXPR_MACRO_CALL: i32 = 17
+const EXPR_QUOTE: i32 = 18
+const EXPR_BLOCK: i32 = 19
+const EXPR_MATCH: i32 = 20
 
-const QUOTE_EXPR = 1
-const QUOTE_STMT = 2
-const QUOTE_ITEM = 3
+const QUOTE_EXPR: i32 = 1
+const QUOTE_STMT: i32 = 2
+const QUOTE_ITEM: i32 = 3
 
 struct FieldInit {
     name: String,

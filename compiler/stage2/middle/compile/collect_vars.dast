@@ -571,11 +571,11 @@ fn infer_untyped_block(e: &mut Emitter, b: &Block, ret_t: &String) -> bool {
 }
 
 fn default_untyped_base(e: &Emitter, t: &str) -> String {
-    if t == "untyped-int" { return "i32" }
+    if t == "untyped-int" { return "i64" }
     if t == "untyped-float" { return "f64" }
     if type_is_array(e, t) {
         let elem = type_array_elem(e, t)
-        if elem == "untyped-int" { return "[i32]" }
+        if elem == "untyped-int" { return "[i64]" }
         if elem == "untyped-float" { return "[f64]" }
     }
     return string_clone(t)
@@ -589,13 +589,13 @@ fn finalize_untyped_vars(e: &mut Emitter) {
         if cur == "untyped-int" {
             if e.var_untyped_kind[i] == UNTYPED_INT && e.var_untyped_has_value[i] {
                 let v = e.var_untyped_value[i]
-                let t = "i32"
+                let t = "i64"
                 if !int_value_fits_type(e, v, &t) {
-                    println("stage2: integer literal out of range for i32")
+                    println("stage2: integer literal out of range for i64")
                     exit(1)
                 }
             }
-            e.var_types[i] = "i32"
+            e.var_types[i] = "i64"
             e.var_untyped_kind[i] = UNTYPED_NONE
             e.var_untyped_has_value[i] = false
         } else if cur == "untyped-float" {

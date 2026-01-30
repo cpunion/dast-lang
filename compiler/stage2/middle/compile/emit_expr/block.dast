@@ -192,7 +192,7 @@ fn emit_iflet(e: &mut Emitter, stmt: &Stmt) {
     let tag_val = enum_variant_value(e, &enum_t, &stmt.pat_variant)
     let cond_tmp = new_temp(e)
     let cond_tn = temp_name(cond_tmp)
-    let cmp = qbe_cmp_op(e, "==", &tag_t)
+    let cmp = qbe_cmp_op(e, "==", string_clone(&tag_t))
     emit_line(e, "  " + cond_tn + " =w " + cmp + " " + tagv.expr + ", " + int_to_string(tag_val))
     let then_label = new_label(e, "iflet_then_")
     let else_label = new_label(e, "iflet_else_")

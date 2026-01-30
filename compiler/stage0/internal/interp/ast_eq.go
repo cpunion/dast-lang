@@ -54,6 +54,9 @@ func astExprEq(a, b ast.Expr) bool {
 	case *ast.IntLit:
 		tb, ok := b.(*ast.IntLit)
 		return ok && ta.Value == tb.Value
+	case *ast.CharLit:
+		tb, ok := b.(*ast.CharLit)
+		return ok && ta.Value == tb.Value
 	case *ast.FloatLit:
 		tb, ok := b.(*ast.FloatLit)
 		return ok && ta.Text == tb.Text

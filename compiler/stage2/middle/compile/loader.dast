@@ -113,7 +113,7 @@ fn str_replace_dot_slash(s: &str) -> String {
     let mut i = 0
     while i < n {
         let c = str_char_at(s, i)
-        if c == '.' { out = out + "/" } else { out = out + str_substr(s, i, 1) }
+        if c == 46 { out = out + "/" } else { out = out + str_substr(s, i, 1) }
         i = i + 1
     }
     return out
@@ -138,7 +138,7 @@ fn split_lines(s: &str) -> [String] {
 }
 
 fn strip_inline_comment(line: &str) -> String {
-    let hash = str_find_char(line, '#', 0)
+    let hash = str_find_char(line, 35, 0)
     if hash < 0 { return string_clone(line) }
     return str_substr(line, 0, hash)
 }
@@ -162,7 +162,7 @@ fn normalize_import_path(path: &str) -> String {
         rel = "../"
         p = str_substr(&p, 3, str_len(&p) - 3)
     }
-    if !str_contains_char(&p, '/') && str_contains_char(&p, '.') {
+    if !str_contains_char(&p, 47) && str_contains_char(&p, 46) {
         if !str_has_prefix_lit(&p, ".") && !str_has_suffix_lit(&p, ".dast") {
             p = str_replace_dot_slash(&p)
         }
@@ -173,7 +173,7 @@ fn normalize_import_path(path: &str) -> String {
 fn path_dir(path: &str) -> String {
     let mut i = str_len(path) - 1
     while i >= 0 {
-        if str_char_at(path, i) == '/' {
+        if str_char_at(path, i) == 47 {
             return str_substr(path, 0, i)
         }
         i = i - 1
@@ -184,7 +184,7 @@ fn path_dir(path: &str) -> String {
 fn path_base(path: &str) -> String {
     let mut i = str_len(path) - 1
     while i >= 0 {
-        if str_char_at(path, i) == '/' {
+        if str_char_at(path, i) == 47 {
             return str_substr(path, i + 1, str_len(path) - i - 1)
         }
         i = i - 1
@@ -270,10 +270,10 @@ fn parse_string_array(text: &str) -> [String] {
     let n = str_len(&cur)
     let mut idx = 0
     while idx < n {
-        if str_char_at(&cur, idx) == ',' {
+        if str_char_at(&cur, idx) == 44 {
             let part0 = str_substr(&cur, start, idx - start)
             let part = str_trim_space(&part0)
-            if str_len(&part) >= 2 && str_char_at(&part, 0) == '"' {
+            if str_len(&part) >= 2 && str_char_at(&part, 0) == 34 {
                 let val = str_substr(&part, 1, str_len(&part) - 2)
                 push(&mut out, val)
             }
@@ -283,7 +283,7 @@ fn parse_string_array(text: &str) -> [String] {
     }
     let last0 = str_substr(&cur, start, n - start)
     let last = str_trim_space(&last0)
-    if str_len(&last) >= 2 && str_char_at(&last, 0) == '"' {
+    if str_len(&last) >= 2 && str_char_at(&last, 0) == 34 {
         let val = str_substr(&last, 1, str_len(&last) - 2)
         push(&mut out, val)
     }
@@ -301,13 +301,13 @@ fn parse_dep_spec(name: &str, value: &str) -> DepSpec {
         while i < len(&parts) {
             let line = str_trim_space(&parts[i])
             if line != "" {
-                let eq = str_find_char(&line, '=', 0)
+                let eq = str_find_char(&line, 61, 0)
                 if eq >= 0 {
                     let key0 = str_substr(&line, 0, eq)
                     let key = str_trim_space(&key0)
                     let val0a = str_substr(&line, eq + 1, str_len(&line) - eq - 1)
                     let val0 = str_trim_space(&val0a)
-                    if key == "path" && str_len(&val0) >= 2 && str_char_at(&val0, 0) == '"' {
+                    if key == "path" && str_len(&val0) >= 2 && str_char_at(&val0, 0) == 34 {
                         path = str_substr(&val0, 1, str_len(&val0) - 2)
                     }
                     if key == "workspace" && val0 == "true" {
@@ -342,7 +342,7 @@ fn parse_manifest_info(manifest_path: &str) -> ManifestInfo {
             i = i + 1
             continue
         }
-        let eq = str_find_char(&line, '=', 0)
+        let eq = str_find_char(&line, 61, 0)
         if eq >= 0 {
             let key0 = str_substr(&line, 0, eq)
             let key = str_trim_space(&key0)
@@ -350,7 +350,7 @@ fn parse_manifest_info(manifest_path: &str) -> ManifestInfo {
             let value = str_trim_space(&value0)
             if section == "package" {
                 info.has_package = true
-                if key == "name" && str_len(&value) >= 2 && str_char_at(&value, 0) == '"' {
+                if key == "name" && str_len(&value) >= 2 && str_char_at(&value, 0) == 34 {
                     info.pkg_name = str_substr(&value, 1, str_len(&value) - 2)
                 }
             } else if section == "workspace" {
@@ -476,7 +476,7 @@ fn resolve_import(ctx: &mut LoadCtx, pkg: &PackageInfo, cur_dir: &str, path: &st
     } else {
         // dependency or local package module
         let base = rel
-        let slash = str_find_char(&base, '/', 0)
+        let slash = str_find_char(&base, 47, 0)
         let dep_name = if slash >= 0 { str_substr(&base, 0, slash) } else { string_clone(&base) }
         let mut dep_root = ""
         let mut dep_code_root = ""
@@ -546,7 +546,7 @@ fn alias_contains(aliases: & [String], name: &str) -> bool {
 }
 
 fn strip_alias_prefix(name: &str, aliases: & [String]) -> String {
-    let dot = str_find_char(name, '.', 0)
+    let dot = str_find_char(name, 46, 0)
     if dot <= 0 { return string_clone(name) }
     let prefix = str_substr(name, 0, dot)
     if alias_contains(aliases, &prefix) {

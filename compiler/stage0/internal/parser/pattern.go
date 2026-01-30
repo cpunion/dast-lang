@@ -232,10 +232,14 @@ func patternToRangeExpr(pat ast.Pattern) (ast.Expr, bool) {
 		switch p.Value.Kind {
 		case ast.ConstInt:
 			return &ast.IntLit{Value: p.Value.Int, SpanInfo: p.SpanInfo}, true
+		case ast.ConstChar:
+			return &ast.CharLit{Value: p.Value.Int, SpanInfo: p.SpanInfo}, true
 		case ast.ConstBool:
 			return &ast.BoolLit{Value: p.Value.Bool, SpanInfo: p.SpanInfo}, true
 		case ast.ConstString:
 			return &ast.StringLit{Value: p.Value.Str, SpanInfo: p.SpanInfo}, true
+		case ast.ConstFloat:
+			return &ast.FloatLit{Text: p.Value.FloatText, SpanInfo: p.SpanInfo}, true
 		}
 	}
 	return nil, false

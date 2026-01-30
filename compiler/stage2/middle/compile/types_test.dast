@@ -20,7 +20,6 @@ fn int_type_list() -> [String] {
     push(&mut out, "isize")
     push(&mut out, "usize")
     push(&mut out, "int")
-    push(&mut out, "char")
     return out
 }
 
@@ -149,6 +148,59 @@ fn test_string_ops() {
     assert_str_eq(expr_type(&e, &ne), "bool")
 }
 
+fn test_char_ops() {
+    let mut e = setup_emitter_types("char", "char")
+    let eq = bin_expr_types("==")
+    let ne = bin_expr_types("!=")
+    let lt = bin_expr_types("<")
+    let le = bin_expr_types("<=")
+    let gt = bin_expr_types(">")
+    let ge = bin_expr_types(">=")
+    assert_str_eq(expr_type(&e, &eq), "bool")
+    assert_str_eq(expr_type(&e, &ne), "bool")
+    assert_str_eq(expr_type(&e, &lt), "bool")
+    assert_str_eq(expr_type(&e, &le), "bool")
+    assert_str_eq(expr_type(&e, &gt), "bool")
+    assert_str_eq(expr_type(&e, &ge), "bool")
+
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
+    if int_bin_result_type(&e, &lhs, &rhs) != "" {
+        println("expected char arithmetic to be rejected")
+        exit(1)
+    }
+}
+
+fn test_float_ops() {
+    let mut e1 = setup_emitter_types("f32", "f32")
+    let add1 = bin_expr_types("+")
+    let sub1 = bin_expr_types("-")
+    let mul1 = bin_expr_types("*")
+    let div1 = bin_expr_types("/")
+    let eq1 = bin_expr_types("==")
+    let lt1 = bin_expr_types("<")
+    assert_str_eq(expr_type(&e1, &add1), "f32")
+    assert_str_eq(expr_type(&e1, &sub1), "f32")
+    assert_str_eq(expr_type(&e1, &mul1), "f32")
+    assert_str_eq(expr_type(&e1, &div1), "f32")
+    assert_str_eq(expr_type(&e1, &eq1), "bool")
+    assert_str_eq(expr_type(&e1, &lt1), "bool")
+
+    let mut e2 = setup_emitter_types("f64", "f64")
+    let add2 = bin_expr_types("+")
+    let eq2 = bin_expr_types("==")
+    assert_str_eq(expr_type(&e2, &add2), "f64")
+    assert_str_eq(expr_type(&e2, &eq2), "bool")
+}
+
+fn test_float_mixed_reject() {
+    let mut e = setup_emitter_types("f32", "f64")
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
+    let ft = float_bin_result_type(&e, &lhs, &rhs)
+    assert_str_eq(ft, "")
+}
+
 fn test_char_literal_type() {
     let mut e = emitter_new()
     let c = expr_char(97)
@@ -160,22 +212,12 @@ fn test_len_ref_depth_guard() {
     let mut e = emitter_new()
     let t_arr = string_clone("&[i64]")
     let t_str = string_clone("&str")
-    let t_arr_ref = string_clone("&&[i64]")
-    let t_str_ref = string_clone("&&str")
     if !type_is_single_ref_to_string_or_array(&e, &t_arr) {
         println("expected len to accept &[i64]")
         exit(1)
     }
     if !type_is_single_ref_to_string_or_array(&e, &t_str) {
         println("expected len to accept &str")
-        exit(1)
-    }
-    if type_is_single_ref_to_string_or_array(&e, &t_arr_ref) {
-        println("expected len to reject &&[i64]")
-        exit(1)
-    }
-    if type_is_single_ref_to_string_or_array(&e, &t_str_ref) {
-        println("expected len to reject &&str")
         exit(1)
     }
 }

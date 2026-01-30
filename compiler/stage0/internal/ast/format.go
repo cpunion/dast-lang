@@ -11,6 +11,10 @@ func FormatExpr(e Expr) string {
 		return v.Name
 	case *IntLit:
 		return strconv.FormatInt(v.Value, 10)
+	case *CharLit:
+		return "'" + escapeChar(rune(v.Value)) + "'"
+	case *FloatLit:
+		return v.Text
 	case *BoolLit:
 		if v.Value {
 			return "true"
@@ -510,6 +514,10 @@ func formatConstValue(v ConstValue) string {
 		return "false"
 	case ConstString:
 		return `"` + escapeString(v.Str) + `"`
+	case ConstChar:
+		return "'" + escapeChar(rune(v.Int)) + "'"
+	case ConstFloat:
+		return v.FloatText
 	default:
 		return strconv.FormatInt(v.Int, 10)
 	}
@@ -517,10 +525,27 @@ func formatConstValue(v ConstValue) string {
 
 func formatExprNested(e Expr) string {
 	switch e.(type) {
-	case *IdentExpr, *IntLit, *BoolLit, *StringLit:
+	case *IdentExpr, *IntLit, *CharLit, *FloatLit, *BoolLit, *StringLit:
 		return FormatExpr(e)
 	default:
 		return "(" + FormatExpr(e) + ")"
+	}
+}
+
+func escapeChar(r rune) string {
+	switch r {
+	case '\\':
+		return "\\\\"
+	case '\'':
+		return "\\'"
+	case '\n':
+		return "\\n"
+	case '\t':
+		return "\\t"
+	case '\r':
+		return "\\r"
+	default:
+		return string(r)
 	}
 }
 

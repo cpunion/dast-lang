@@ -56,6 +56,8 @@ func constValueToIr(v ast.ConstValue, typeName string) ir.Value {
 			intType = typeName
 		}
 		return ir.Value{Kind: ir.KindInt, Int: v.Int, IntType: intType}
+	case ast.ConstChar:
+		return ir.Value{Kind: ir.KindInt, Int: v.Int, IntType: "char"}
 	case ast.ConstBool:
 		return ir.Value{Kind: ir.KindBool, Bool: v.Bool}
 	case ast.ConstString:
@@ -234,13 +236,41 @@ func tupleTypeName(elemTypes []string) string {
 }
 
 func isIntTypeName(name string) bool {
-	switch name {
+	switch strings.TrimSpace(name) {
 	case "int", "i8", "i16", "i32", "i64", "i128",
 		"u8", "u16", "u32", "u64", "u128",
-		"isize", "usize", "char":
+		"isize", "usize":
 		return true
 	default:
 		return false
+	}
+}
+
+func isCharTypeName(name string) bool {
+	return strings.TrimSpace(name) == "char"
+}
+
+func isFloatTypeName(name string) bool {
+	n := strings.TrimSpace(name)
+	return n == "f32" || n == "f64"
+}
+
+func isUntypedIntTypeName(name string) bool {
+	return strings.TrimSpace(name) == "untyped-int"
+}
+
+func isUntypedFloatTypeName(name string) bool {
+	return strings.TrimSpace(name) == "untyped-float"
+}
+
+func defaultUntypedTypeName(name string) string {
+	switch strings.TrimSpace(name) {
+	case "untyped-int":
+		return "i64"
+	case "untyped-float":
+		return "f64"
+	default:
+		return name
 	}
 }
 

@@ -86,8 +86,11 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 	}
 	base := Type{Kind: TypeInvalid, Name: name}
 	switch name {
-	case "int", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char":
+	case "int", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char", "untyped-int":
 		base.Kind = TypeInt
+		base.Name = name
+	case "f32", "f64", "untyped-float":
+		base.Kind = TypeFloat
 		base.Name = name
 	case "bool":
 		base.Kind = TypeBool
@@ -152,6 +155,10 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 		c.diag.Add(t.Span, "type arguments not allowed on '"+name+"'")
 	}
 	if t.IsRef {
+		if base.Ref {
+			c.diag.Add(t.Span, "double reference type is not allowed")
+			return Type{Kind: TypeInvalid}
+		}
 		base.Ref = true
 		base.Mut = t.IsMut
 	}
@@ -166,6 +173,12 @@ func typesEqual(a, b Type) bool {
 		return false
 	}
 	if a.Kind == TypeParam {
+		return a.Name == b.Name && a.Ref == b.Ref && a.Mut == b.Mut
+	}
+	if a.Kind == TypeInt {
+		return canonicalIntName(a.Name) == canonicalIntName(b.Name) && a.Ref == b.Ref && a.Mut == b.Mut
+	}
+	if a.Kind == TypeFloat {
 		return a.Name == b.Name && a.Ref == b.Ref && a.Mut == b.Mut
 	}
 	if (a.Kind == TypeStruct || a.Kind == TypeEnum) && a.Name != b.Name {
@@ -212,6 +225,15 @@ func typesAssignable(actual, expected Type) bool {
 	if typesEqual(actual, expected) {
 		return true
 	}
+	if isUntypedInt(actual) && isInt(expected) {
+		return true
+	}
+	if isUntypedInt(actual) && isFloat(expected) {
+		return true
+	}
+	if isUntypedFloat(actual) && isFloat(expected) {
+		return true
+	}
 	if isString(actual) && isString(expected) {
 		if actual.Kind == TypeString && expected.Kind == TypeStr {
 			if actual.Ref && expected.Ref && !expected.Mut {
@@ -242,7 +264,23 @@ func typesAssignable(actual, expected Type) bool {
 }
 
 func isInt(t Type) bool {
-	return t.Kind == TypeInt && !t.Ref
+	return t.Kind == TypeInt && !t.Ref && t.Name != "untyped-int" && t.Name != "char"
+}
+
+func isUntypedInt(t Type) bool {
+	return t.Kind == TypeInt && !t.Ref && t.Name == "untyped-int"
+}
+
+func isChar(t Type) bool {
+	return t.Kind == TypeInt && !t.Ref && t.Name == "char"
+}
+
+func isFloat(t Type) bool {
+	return t.Kind == TypeFloat && !t.Ref && t.Name != "untyped-float"
+}
+
+func isUntypedFloat(t Type) bool {
+	return t.Kind == TypeFloat && !t.Ref && t.Name == "untyped-float"
 }
 
 func isBool(t Type) bool {
@@ -276,6 +314,8 @@ func intTypeName(t Type) string {
 
 func intTypeWidth(name string) int64 {
 	switch strings.TrimSpace(name) {
+	case "untyped-int":
+		return 0
 	case "i8", "u8":
 		return 8
 	case "i16", "u16":
@@ -300,10 +340,18 @@ func isSignedIntName(name string) bool {
 
 func isUnsignedIntName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "u8", "u16", "u32", "u64", "usize", "char":
+	case "u8", "u16", "u32", "u64", "usize":
 		return true
 	}
 	return false
+}
+
+func canonicalIntName(name string) string {
+	n := strings.TrimSpace(name)
+	if n == "int" {
+		return "i64"
+	}
+	return n
 }
 
 func i64MaxValue() int64 { return 9223372036854775807 }
@@ -363,100 +411,13 @@ func intValueFitsType(val int64, name string) bool {
 }
 
 func intPeerTypeName(a, b string) string {
-	la := strings.TrimSpace(a)
-	lb := strings.TrimSpace(b)
+	la := canonicalIntName(a)
+	lb := canonicalIntName(b)
 	if intTypeWidth(la) == 0 || intTypeWidth(lb) == 0 {
-		return ""
-	}
-	abits := intTypeWidth(la)
-	bbits := intTypeWidth(lb)
-	if isUnsignedIntName(la) && abits == 64 && intTypeMin(lb) < 0 {
-		return ""
-	}
-	if isUnsignedIntName(lb) && bbits == 64 && intTypeMin(la) < 0 {
 		return ""
 	}
 	if la == lb {
 		return la
-	}
-	minAll := intTypeMin(la)
-	if intTypeMin(lb) < minAll {
-		minAll = intTypeMin(lb)
-	}
-	maxAll := intTypeMax(la)
-	if intTypeMax(lb) > maxAll {
-		maxAll = intTypeMax(lb)
-	}
-	if la == "int" || lb == "int" {
-		t := la
-		if t != "int" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	if la == "isize" || lb == "isize" {
-		t := la
-		if t != "isize" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	if la == "usize" || lb == "usize" {
-		t := la
-		if t != "usize" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	if la == "char" || lb == "char" {
-		t := la
-		if t != "char" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	signed := []string{"i8", "i16", "i32"}
-	if ptrWidthBytes() == 4 {
-		signed = append(signed, "isize")
-	}
-	signed = append(signed, "i64")
-	if ptrWidthBytes() == 8 {
-		signed = append(signed, "isize")
-	}
-	signed = append(signed, "int")
-	unsigned := []string{"u8", "u16", "u32", "char"}
-	if ptrWidthBytes() == 4 {
-		unsigned = append(unsigned, "usize")
-	}
-	unsigned = append(unsigned, "u64")
-	if ptrWidthBytes() == 8 {
-		unsigned = append(unsigned, "usize")
-	}
-	if minAll < 0 {
-		for _, t := range signed {
-			if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-				return t
-			}
-		}
-		return ""
-	}
-	for _, t := range unsigned {
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	for _, t := range signed {
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
 	}
 	return ""
 }
@@ -464,11 +425,15 @@ func intPeerTypeName(a, b string) string {
 func constValueType(v ast.ConstValue) Type {
 	switch v.Kind {
 	case ast.ConstInt:
-		return Type{Kind: TypeInt, Name: "int"}
+		return Type{Kind: TypeInt, Name: "untyped-int"}
 	case ast.ConstBool:
 		return Type{Kind: TypeBool, Name: "bool"}
 	case ast.ConstString:
 		return Type{Kind: TypeString, Name: "String"}
+	case ast.ConstChar:
+		return Type{Kind: TypeInt, Name: "char"}
+	case ast.ConstFloat:
+		return Type{Kind: TypeFloat, Name: "untyped-float"}
 	default:
 		return Type{Kind: TypeInvalid}
 	}
@@ -486,7 +451,7 @@ func isValidEnumRepr(name string) bool {
 }
 
 func isComparable(t Type) bool {
-	return isInt(t) || isBool(t) || isString(t) || t.Kind == TypeEnum
+	return isInt(t) || isChar(t) || isFloat(t) || isBool(t) || isString(t) || t.Kind == TypeEnum
 }
 
 func derefType(t Type) Type {

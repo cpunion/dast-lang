@@ -45,10 +45,11 @@ func (s *StructDecl) Span() source.Span {
 type ConstKind int
 
 const (
-	ConstInt ConstKind = iota
-	ConstBool
-	ConstString
-	ConstFloat
+    ConstInt ConstKind = iota
+    ConstBool
+    ConstString
+    ConstChar
+    ConstFloat
 )
 
 type ConstValue struct {
