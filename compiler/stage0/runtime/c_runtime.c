@@ -537,8 +537,10 @@ void dast_string_free(DastString *s) {
 		return;
 	}
 	if (s->data) {
+		dast_alloc_stat_release("StringData", (size_t)s->cap + 1);
 		dast_xfree(s->data);
 	}
+	dast_alloc_stat_release("String", sizeof(DastString));
 	dast_xfree(s);
 }
 
@@ -560,12 +562,14 @@ DastArray *dast_array_new(dast_int elem_size, dast_int elem_align, dast_int cap)
 	}
 	dast_array_debug_init();
 	DastArray *arr = (DastArray *)dast_xmalloc(sizeof(DastArray));
+	dast_alloc_stat_add("Array", sizeof(DastArray));
 	dast_track_array(arr);
 	arr->len = 0;
 	arr->cap = cap > 0 ? cap : 4;
 	arr->elem_size = elem_size;
 	arr->elem_align = elem_align;
 	arr->data = (unsigned char *)dast_xmalloc((size_t)arr->cap * (size_t)arr->elem_size);
+	dast_alloc_stat_add("ArrayData", (size_t)arr->cap * (size_t)arr->elem_size);
 	arr->debug_id = g_next_array_id++;
 	if (dast_array_debug_match(arr)) {
 		fprintf(stderr, "stage0: <runtime>:0:0: array new id=%lld arr=%p cap=%lld elem=%lld\n",
@@ -583,6 +587,7 @@ static void dast_array_grow(DastArray *arr, dast_int need) {
 	}
 	dast_array_debug_init();
 	dast_int cap = arr->cap > 0 ? arr->cap : 4;
+	size_t old_bytes = (size_t)arr->cap * (size_t)arr->elem_size;
 	while (cap < need) {
 		cap *= 2;
 	}
@@ -600,6 +605,10 @@ static void dast_array_grow(DastArray *arr, dast_int need) {
 	}
 	arr->cap = cap;
 	arr->data = (unsigned char *)dast_xrealloc(arr->data, (size_t)arr->cap * (size_t)arr->elem_size);
+	size_t new_bytes = (size_t)arr->cap * (size_t)arr->elem_size;
+	if (new_bytes > old_bytes) {
+		dast_alloc_stat_add("ArrayData", new_bytes - old_bytes);
+	}
 	if (dast_array_debug_match(arr)) {
 		fprintf(stderr,
 		        "stage0: <runtime>:0:0: array grow id=%lld arr=%p cap=%lld need=%lld\n",
@@ -897,9 +906,11 @@ void dast_mem_copy_field(void *dst_base, dast_int dst_off, void *src, dast_int s
 
 static DastString *dast_string_alloc(size_t len) {
 	DastString *s = (DastString *)dast_xmalloc(sizeof(DastString));
+	dast_alloc_stat_add("String", sizeof(DastString));
 	s->len = (dast_int)len;
 	s->cap = (dast_int)len;
 	s->data = (char *)dast_xmalloc(len + 1);
+	dast_alloc_stat_add("StringData", len + 1);
 	s->data[len] = '\0';
 	dast_track_string(s);
 	return s;
@@ -1485,7 +1496,9 @@ void dast_array_free(DastArray *arr) {
 	if (!dast_untrack_array(arr)) {
 		dast_rt_panic("array double free");
 	}
+	dast_alloc_stat_release("ArrayData", (size_t)arr->cap * (size_t)arr->elem_size);
 	dast_xfree(arr->data);
+	dast_alloc_stat_release("Array", sizeof(DastArray));
 	dast_xfree(arr);
 }
 
