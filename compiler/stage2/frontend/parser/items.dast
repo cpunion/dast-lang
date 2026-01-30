@@ -191,7 +191,11 @@ fn parse_where_clause(p: &mut Parser, params: &mut [GenericParam]) {
             // skip bounds to keep progress
             let _ = parser_expect(p, TK_COLON, ":")
             let _ = parse_bound_list(p)
-            if parser_peek(p).kind == TK_COMMA { let _ = parser_advance(p) }
+            if parser_peek(p).kind == TK_COMMA {
+                let _ = parser_advance(p)
+            } else {
+                done = true
+            }
             continue
         }
         let _ = parser_expect(p, TK_COLON, ":")

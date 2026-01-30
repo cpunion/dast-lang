@@ -709,7 +709,9 @@ fn check_type_param_bounds_impl(e: &Emitter, f: &Function, values: & [String], a
             let val = &(*values)[i]
             let mut bi = 0
             while bi < len(&tp.bounds) {
-                let bound = tp.bounds[bi]
+                // Do not move bounds out of the function signature. This check can
+                // run multiple times during compilation.
+                let bound = string_clone(&tp.bounds[bi])
                 let tidx = trait_decl_index(e, &bound)
                 if tidx < 0 {
                     if allow_fail { return false }

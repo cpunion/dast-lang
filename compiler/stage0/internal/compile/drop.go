@@ -120,7 +120,7 @@ func isBorrowedTypeName(t string) bool {
 		"MatchArm", "MatchStmt", "Block", "Stmt", "AssignStmt", "FunctionDecl", "ImplDecl", "ImportItemSpec", "ImportDecl",
 		"TraitMethod", "AssociatedType", "AssociatedTypeImpl", "TraitDecl", "ImplTrait", "TraitBound", "TypeAlias", "Program", "CompileItem",
 		"MacroValue", "MacroEnv", "MacroCtx", "EvalResult", "QuoteSplice", "RenameMap",
-		// Stage2 IR values are also passed by value pervasively; until move tracking
+		// Stage2 IR values are passed by value pervasively; until move tracking
 		// is complete, treat them as borrowed to prevent drop-time corruption.
 		"IrArraySafety", "IrArrayValue", "IrBinOp", "IrBlock", "IrBranch", "IrCall", "IrCallClosure",
 		"IrConstMap", "IrEnumDecl", "IrEnumHeaderParse", "IrEnumNameParse", "IrEnumValue", "IrEnumVariant", "IrEnumVariantParse",

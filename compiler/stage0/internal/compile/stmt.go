@@ -775,7 +775,12 @@ func (c *Compiler) compileIfExpr(e *ast.IfExpr) int {
 	elseBlock := c.newBlock("if_else")
 	mergeBlock := c.newBlock("if_merge")
 
-	dstName := c.declareMutVar("__if", c.inferExprType(e))
+	// Use a unique internal variable name per if-expr so drop tracking doesn't
+	// conflate multiple temporaries in the same scope.
+	tmpKey := fmt.Sprintf("__if_tmp#%d", c.nameCount["__if_tmp"])
+	c.nameCount["__if_tmp"]++
+	dstType := c.inferExprType(e)
+	dstName := c.declareMutVar(tmpKey, dstType)
 	base := c.snapshotScopes()
 	c.emitTerm(&ir.Branch{Cond: cond, Then: thenBlock.Label, Else: elseBlock.Label})
 
@@ -784,7 +789,7 @@ func (c *Compiler) compileIfExpr(e *ast.IfExpr) int {
 	if c.currentBlock().Term == nil {
 		borrowed := c.operandBorrowed(thenOp)
 		c.emit(&ir.StoreVar{Name: dstName, Src: thenOp})
-		c.updateVar("__if", func(v *VarInfo) {
+		c.updateVar(tmpKey, func(v *VarInfo) {
 			v.Borrowed = borrowed
 			v.Moved = false
 		})
@@ -802,7 +807,7 @@ func (c *Compiler) compileIfExpr(e *ast.IfExpr) int {
 	if c.currentBlock().Term == nil {
 		borrowed := c.operandBorrowed(elseOp)
 		c.emit(&ir.StoreVar{Name: dstName, Src: elseOp})
-		c.updateVar("__if", func(v *VarInfo) {
+		c.updateVar(tmpKey, func(v *VarInfo) {
 			v.Borrowed = borrowed
 			v.Moved = false
 		})
@@ -835,10 +840,15 @@ func (c *Compiler) compileIfExpr(e *ast.IfExpr) int {
 
 	c.setCurrentBlock(mergeBlock)
 	dst := c.newTemp()
-	c.setTempType(dst, c.inferExprType(e))
+	c.setTempType(dst, dstType)
 	c.emit(&ir.LoadVar{Dst: dst, Name: dstName})
-	if info, ok := c.lookupVar("__if"); ok {
+	if info, ok := c.lookupVar(tmpKey); ok {
 		c.setTempBorrowed(dst, info.Borrowed)
+	}
+	// Move out of the internal storage to avoid double-drop when the
+	// result is further moved into a user variable.
+	if c.needsDropType(dstType) && !isCopyTypeName(dstType) {
+		c.updateVar(tmpKey, func(v *VarInfo) { v.Moved = true })
 	}
 	return dst
 }
@@ -862,7 +872,11 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) int {
 		c.markMovedExpr(e.Expr)
 	}
 	after := c.newBlock("match_after")
-	dstName := c.declareMutVar("__match", c.inferExprType(e))
+	// Unique internal storage per match-expr to keep drop tracking correct.
+	tmpKey := fmt.Sprintf("__match_tmp#%d", c.nameCount["__match_tmp"])
+	c.nameCount["__match_tmp"]++
+	dstType := c.inferExprType(e)
+	dstName := c.declareMutVar(tmpKey, dstType)
 	c.emit(&ir.StoreVar{Name: dstName, Src: ir.ConstOperand(ir.Value{Kind: ir.KindUnit})})
 
 	for i, arm := range e.Arms {
@@ -901,8 +915,11 @@ func (c *Compiler) compileMatchExpr(e *ast.MatchExpr) int {
 	}
 	c.setCurrentBlock(after)
 	dst := c.newTemp()
-	c.setTempType(dst, c.inferExprType(e))
+	c.setTempType(dst, dstType)
 	c.emit(&ir.LoadVar{Dst: dst, Name: dstName})
+	if c.needsDropType(dstType) && !isCopyTypeName(dstType) {
+		c.updateVar(tmpKey, func(v *VarInfo) { v.Moved = true })
+	}
 	return dst
 }
 

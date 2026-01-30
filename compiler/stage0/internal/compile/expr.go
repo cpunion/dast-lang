@@ -44,6 +44,20 @@ func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
 }
 
 func (c *Compiler) compileOperandBorrow(expr ast.Expr) ir.Operand {
+	// "Borrow" means: produce an operand that does not take ownership, so it must
+	// not trigger drop of the underlying value. This is required for owned,
+	// non-copy values (e.g. String) used as operands to non-consuming operations
+	// (calls, comparisons, etc.).
+	switch e := expr.(type) {
+	case *ast.IdentExpr:
+		if varInfo, ok := c.lookupVar(e.Name); ok {
+			if c.needsDropType(varInfo.Type) && !isCopyTypeName(varInfo.Type) && !isRefTypeName(varInfo.Type) {
+				t := c.compileExpr(expr)
+				c.setTempBorrowed(t, true)
+				return ir.TempOperand(t)
+			}
+		}
+	}
 	return c.compileOperand(expr)
 }
 
@@ -59,6 +73,9 @@ func (c *Compiler) compileCallArg(expr ast.Expr, callee string, index int) ir.Op
 			}
 			c.setTempType(t, typ)
 			c.emit(&ir.LoadVar{Dst: t, Ref: true, RefTemp: refTemp})
+			// len() borrows its argument. The loaded value is a borrowed view into
+			// the referenced storage and must not be dropped.
+			c.setTempBorrowed(t, true)
 			return ir.TempOperand(t)
 		}
 	}

@@ -46,6 +46,20 @@ fn bin_expr_types(op: String) -> Expr {
 
 fn test_int_op_result_types() {
     let types = int_type_list()
+    let add = bin_expr_types("+")
+    let sub = bin_expr_types("-")
+    let mul = bin_expr_types("*")
+    let div = bin_expr_types("/")
+    let rem = bin_expr_types("%")
+    let band = bin_expr_types("&")
+    let bor = bin_expr_types("|")
+    let bxor = bin_expr_types("^")
+    let lt = bin_expr_types("<")
+    let le = bin_expr_types("<=")
+    let gt = bin_expr_types(">")
+    let ge = bin_expr_types(">=")
+    let eq = bin_expr_types("==")
+    let ne = bin_expr_types("!=")
     let mut i = 0
     while i < len(&types) {
         let mut j = 0
@@ -55,14 +69,6 @@ fn test_int_op_result_types() {
             let mut e = setup_emitter_types(string_clone(&t1), string_clone(&t2))
             let pt = int_peer_type(&e, &t1, &t2)
             if pt != "" {
-                let add = bin_expr_types("+")
-                let sub = bin_expr_types("-")
-                let mul = bin_expr_types("*")
-                let div = bin_expr_types("/")
-                let rem = bin_expr_types("%")
-                let band = bin_expr_types("&")
-                let bor = bin_expr_types("|")
-                let bxor = bin_expr_types("^")
                 assert_str_eq(expr_type(&e, &add), string_clone(&pt))
                 assert_str_eq(expr_type(&e, &sub), string_clone(&pt))
                 assert_str_eq(expr_type(&e, &mul), string_clone(&pt))
@@ -71,12 +77,6 @@ fn test_int_op_result_types() {
                 assert_str_eq(expr_type(&e, &band), string_clone(&pt))
                 assert_str_eq(expr_type(&e, &bor), string_clone(&pt))
                 assert_str_eq(expr_type(&e, &bxor), string_clone(&pt))
-                let lt = bin_expr_types("<")
-                let le = bin_expr_types("<=")
-                let gt = bin_expr_types(">")
-                let ge = bin_expr_types(">=")
-                let eq = bin_expr_types("==")
-                let ne = bin_expr_types("!=")
                 assert_str_eq(expr_type(&e, &lt), "bool")
                 assert_str_eq(expr_type(&e, &le), "bool")
                 assert_str_eq(expr_type(&e, &gt), "bool")
@@ -92,6 +92,8 @@ fn test_int_op_result_types() {
 
 fn test_shift_rules() {
     let types = int_type_list()
+    let shl = bin_expr_types("<<")
+    let shr = bin_expr_types(">>")
     let mut i = 0
     while i < len(&types) {
         let mut j = 0
@@ -103,8 +105,6 @@ fn test_shift_rules() {
             let rhs = expr_ident("b")
             let st = shift_result_type(&e, &lhs, &rhs)
             if st != "" {
-                let shl = bin_expr_types("<<")
-                let shr = bin_expr_types(">>")
                 assert_str_eq(expr_type(&e, &shl), string_clone(&st))
                 assert_str_eq(expr_type(&e, &shr), string_clone(&st))
             }
@@ -116,6 +116,8 @@ fn test_shift_rules() {
 
 fn test_int_bin_cross_type_reject() {
     let types = int_type_list()
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
     let mut i = 0
     while i < len(&types) {
         let mut j = 0
@@ -126,8 +128,6 @@ fn test_int_bin_cross_type_reject() {
             let r1 = type_resolve(&e, &t1)
             let r2 = type_resolve(&e, &t2)
             if r1 != r2 {
-                let lhs = expr_ident("a")
-                let rhs = expr_ident("b")
                 let res = int_bin_result_type(&e, &lhs, &rhs)
                 if res != "" {
                     println("expected int_bin_result_type reject", t1, t2, res)
@@ -143,6 +143,8 @@ fn test_int_bin_cross_type_reject() {
 fn test_shift_result_reject_signed_rhs() {
     let signed = [string_clone("i8"), string_clone("i16"), string_clone("i32"), string_clone("i64"), string_clone("isize"), string_clone("int")]
     let all = int_type_list()
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
     let mut i = 0
     while i < len(&all) {
         let mut j = 0
@@ -150,8 +152,6 @@ fn test_shift_result_reject_signed_rhs() {
             let lhs_t = string_clone(&all[i])
             let rhs_t = string_clone(&signed[j])
             let mut e = setup_emitter_types(lhs_t, rhs_t)
-            let lhs = expr_ident("a")
-            let rhs = expr_ident("b")
             let st = shift_result_type(&e, &lhs, &rhs)
             if st != "" {
                 println("expected shift_result_type reject signed rhs", all[i], signed[j], st)
@@ -277,25 +277,23 @@ fn test_char_ops() {
 }
 
 fn test_float_ops() {
+    let add = bin_expr_types("+")
+    let sub = bin_expr_types("-")
+    let mul = bin_expr_types("*")
+    let div = bin_expr_types("/")
+    let eq = bin_expr_types("==")
+    let lt = bin_expr_types("<")
     let mut e1 = setup_emitter_types("f32", "f32")
-    let add1 = bin_expr_types("+")
-    let sub1 = bin_expr_types("-")
-    let mul1 = bin_expr_types("*")
-    let div1 = bin_expr_types("/")
-    let eq1 = bin_expr_types("==")
-    let lt1 = bin_expr_types("<")
-    assert_str_eq(expr_type(&e1, &add1), "f32")
-    assert_str_eq(expr_type(&e1, &sub1), "f32")
-    assert_str_eq(expr_type(&e1, &mul1), "f32")
-    assert_str_eq(expr_type(&e1, &div1), "f32")
-    assert_str_eq(expr_type(&e1, &eq1), "bool")
-    assert_str_eq(expr_type(&e1, &lt1), "bool")
+    assert_str_eq(expr_type(&e1, &add), "f32")
+    assert_str_eq(expr_type(&e1, &sub), "f32")
+    assert_str_eq(expr_type(&e1, &mul), "f32")
+    assert_str_eq(expr_type(&e1, &div), "f32")
+    assert_str_eq(expr_type(&e1, &eq), "bool")
+    assert_str_eq(expr_type(&e1, &lt), "bool")
 
     let mut e2 = setup_emitter_types("f64", "f64")
-    let add2 = bin_expr_types("+")
-    let eq2 = bin_expr_types("==")
-    assert_str_eq(expr_type(&e2, &add2), "f64")
-    assert_str_eq(expr_type(&e2, &eq2), "bool")
+    assert_str_eq(expr_type(&e2, &add), "f64")
+    assert_str_eq(expr_type(&e2, &eq), "bool")
 }
 
 fn test_float_mixed_reject() {
@@ -562,6 +560,37 @@ fn test_type_param_bounds_with_args() {
     let f = Function { name: "f", type_params: fparams, params: params, ret_type: "", body: block_empty(), is_macro: false }
     let mut values: [String] = []
     push(&mut values, string_clone("Foo"))
+    check_type_param_bounds(&mut e, &f, &values)
+}
+
+fn test_type_param_bounds_not_consumed() {
+    // Regression: check_type_param_bounds_impl must not move bounds out of the
+    // function signature (it can be called multiple times during compilation).
+    let mut e = emitter_new()
+    let mut trait_params: [GenericParam] = []
+    let mut empty_bounds: [String] = []
+    push(&mut trait_params, GenericParam { name: "Rhs", bounds: empty_bounds })
+    let mut methods: [TraitMethod] = []
+    push(&mut methods, TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: param_list_empty(), ret_type: "bool" })
+    let mut traits: [TraitDecl] = []
+    push(&mut traits, TraitDecl { name: "PartialEq", type_params: trait_params, methods: methods })
+    e.traits = traits
+
+    let mut impls: [ImplDecl] = []
+    push(&mut impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: trait_method_list_empty() })
+    e.impls = impls
+
+    let mut bounds: [String] = []
+    push(&mut bounds, string_clone("PartialEq[i32]"))
+    let mut fparams: [GenericParam] = []
+    push(&mut fparams, GenericParam { name: "T", bounds: bounds })
+    let mut params: [Param] = []
+    push(&mut params, Param { name: "x", typ: "T", has_type: true })
+    let f = Function { name: "f", type_params: fparams, params: params, ret_type: "", body: block_empty(), is_macro: false }
+    let mut values: [String] = []
+    push(&mut values, string_clone("Foo"))
+    check_type_param_bounds(&mut e, &f, &values)
+    // Should still pass on a second call.
     check_type_param_bounds(&mut e, &f, &values)
 }
 

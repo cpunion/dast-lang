@@ -409,8 +409,9 @@ fn lexer_all(src: &str) -> [Token] {
     let mut out: [Token] = []
     while true {
         let t = lexer_next(&mut l)
+        let k = t.kind
         push(&mut out, t)
-        if t.kind == TK_EOF { break }
+        if k == TK_EOF { break }
     }
     return out
 }

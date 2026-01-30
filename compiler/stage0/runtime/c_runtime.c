@@ -394,6 +394,11 @@ static void *dast_xrealloc(void *p, size_t n) {
 	if (!p) {
 		return dast_xmalloc(n);
 	}
+	if (g_str_debug && dast_ptr_in_freed(p)) {
+		fprintf(stderr, "stage0: <runtime>:0:0: error realloc on freed pointer %p\n", p);
+		dast_debug_backtrace();
+		exit(1);
+	}
 	if (n == 0) {
 		n = 1;
 	}
@@ -437,6 +442,11 @@ static void dast_xfree(void *p) {
 		return;
 	}
 	dast_str_debug_init();
+	if (g_str_debug && dast_ptr_in_freed(p)) {
+		fprintf(stderr, "stage0: <runtime>:0:0: error double free %p\n", p);
+		dast_debug_backtrace();
+		exit(1);
+	}
 	DastAllocHeader *h = ((DastAllocHeader *)p) - 1;
 	size_t old = h->size;
 	dast_freed_add(p, old);

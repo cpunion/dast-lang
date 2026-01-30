@@ -135,14 +135,14 @@ fn is_type_arg_struct_lit(p: &Parser) -> bool {
     let mut idx = p.idx
     let mut depth = 0
     while idx < p.n {
-        let t = token_clone(&p.tokens[idx])
+        let t = p.tokens[idx]
         if t.kind == TK_LBRACKET { depth = depth + 1 }
         if t.kind == TK_RBRACKET {
             depth = depth - 1
             if depth == 0 {
                 let next = idx + 1
                 if next >= p.n { return false }
-                let nt = token_clone(&p.tokens[next])
+                let nt = p.tokens[next]
                 return nt.kind == TK_LBRACE
             }
         }

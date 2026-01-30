@@ -11,7 +11,7 @@ struct Parser {
     errors: [String],
 }
 
-fn token_clone(t: &Token) -> Token {
+fn token_clone(t: Token) -> Token {
     return Token { kind: t.kind, text: string_clone(&t.text), name: string_clone(&t.name), int_value: t.int_value, bool_value: t.bool_value }
 }
 
@@ -23,13 +23,13 @@ fn parser_new(tokens: [Token]) -> Parser {
 
 fn parser_peek(p: &Parser) -> Token {
     if p.idx >= p.n { return Token { kind: TK_EOF, text: "", name: "", int_value: 0, bool_value: false } }
-    return token_clone(&p.tokens[p.idx])
+    return p.tokens[p.idx]
 }
 
 fn parser_peek_next(p: &Parser) -> Token {
     let next = p.idx + 1
     if next >= p.n { return Token { kind: TK_EOF, text: "", name: "", int_value: 0, bool_value: false } }
-    return token_clone(&p.tokens[next])
+    return p.tokens[next]
 }
 
 fn parser_advance(p: &mut Parser) -> Token {
