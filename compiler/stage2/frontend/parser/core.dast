@@ -6,6 +6,9 @@ struct Parser {
     n: i64,
     no_struct_lit: bool,
     gensym: i64,
+    soft_errors: bool,
+    had_error: bool,
+    errors: [String],
 }
 
 fn token_clone(t: &Token) -> Token {
@@ -14,7 +17,8 @@ fn token_clone(t: &Token) -> Token {
 
 fn parser_new(tokens: [Token]) -> Parser {
     let n = len(&tokens)
-    return Parser { tokens: tokens, idx: 0, n: n, no_struct_lit: false, gensym: 0 }
+    let mut errs: [String] = []
+    return Parser { tokens: tokens, idx: 0, n: n, no_struct_lit: false, gensym: 0, soft_errors: false, had_error: false, errors: errs }
 }
 
 fn parser_peek(p: &Parser) -> Token {
@@ -37,10 +41,25 @@ fn parser_advance(p: &mut Parser) -> Token {
 fn parser_expect(p: &mut Parser, kind: i32, label: String) -> Token {
     let t = parser_advance(p)
     if t.kind != kind {
-        println("parse error: expected", label, "got", t.kind, t.text)
-        exit(1)
+        let mut msg = string_clone("parse error: expected ")
+        msg = msg + label + " got "
+        msg = msg + parser_int_to_string(t.kind)
+        if t.text != "" { msg = msg + " " + t.text }
+        parser_fail(p, msg)
     }
     return t
+}
+
+fn parser_fail(p: &mut Parser, msg: String) {
+    if p.soft_errors {
+        let mut errs = p.errors
+        push(&mut errs, msg)
+        p.errors = errs
+        p.had_error = true
+        return
+    }
+    println(msg)
+    exit(1)
 }
 
 fn parser_int_to_string(n: i64) -> String {

@@ -11,6 +11,7 @@ STAGE0_RUNNER := $(STAGE0_SAFE_CMD) env $(STAGE0_RUN_ENV) ./$(STAGE0_BIN)
 STAGE2V2_DRIVER := compiler/stage2/driver/main.dast
 STAGE2V2_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/stdlib/prelude/*' -not -name '*_test.dast' | sort)
 STAGE2V2_TEST_FILES := $(shell find compiler/stage2 -name '*.dast' -not -path 'compiler/stage2/stdlib/prelude/*' | sort)
+STAGE2V2_TEST_ALLOC_MAX_MB ?= $(STAGE2V2_ALLOC_MAX_MB)
 STAGE2V2_OUT ?= compiler/stage2/target/dast-stage2
 STAGE2V2_ALLOC_MAX_MB ?= 32
 STAGE2V2_RUN_ENV := $(if $(STAGE2V2_ALLOC_MAX_MB),DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2V2_ALLOC_MAX_MB),)
@@ -306,7 +307,7 @@ test-stage2: build-stage0
 	done
 
 test-stage2-unit: build-stage0
-	@$(STAGE2V2_RUN_ENV) ./$(STAGE0_BIN) test $(STAGE2V2_TEST_FILES)
+	@DAST_ALLOC_TOTAL_MAX_MB=$(STAGE2V2_TEST_ALLOC_MAX_MB) ./$(STAGE0_BIN) test $(STAGE2V2_TEST_FILES)
 
 test-stage2v2: test-stage2
 

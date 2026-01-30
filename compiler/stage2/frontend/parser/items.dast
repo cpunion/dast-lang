@@ -161,12 +161,10 @@ fn generic_param_add_bound(params: &mut [GenericParam], idx: i64, bound: &str) {
 fn parse_trait_bound(p: &mut Parser) -> String {
     let t = parse_type_name(p)
     if str_len(&t) == 0 {
-        println("stage2: expected trait bound")
-        exit(1)
+        parser_fail(p, "stage2: expected trait bound")
     }
     if str_has_prefix_lit(&t, "&") || str_has_prefix_lit(&t, "[") {
-        println("stage2: trait bound must be nominal type")
-        exit(1)
+        parser_fail(p, "stage2: trait bound must be nominal type")
     }
     return t
 }
@@ -189,8 +187,12 @@ fn parse_where_clause(p: &mut Parser, params: &mut [GenericParam]) {
         let name = parser_expect(p, TK_IDENT, "type param").text
         let idx = generic_param_index(params, &name)
         if idx < 0 {
-            println("stage2: unknown type param in where clause", name)
-            exit(1)
+            parser_fail(p, "stage2: unknown type param in where clause")
+            // skip bounds to keep progress
+            let _ = parser_expect(p, TK_COLON, ":")
+            let _ = parse_bound_list(p)
+            if parser_peek(p).kind == TK_COMMA { let _ = parser_advance(p) }
+            continue
         }
         let _ = parser_expect(p, TK_COLON, ":")
         let bounds = parse_bound_list(p)
@@ -259,8 +261,7 @@ fn parse_type_name(p: &mut Parser) -> String {
         base = parse_type_suffix(p, base)
     }
     if base == "string" {
-        println("parse error: use String/str instead of string")
-        exit(1)
+        parser_fail(p, "parse error: use String/str instead of string")
     }
     if is_ref {
         if is_mut { return string_clone("&mut ") + base }
@@ -325,8 +326,9 @@ fn parse_trait(p: &mut Parser) -> TraitDecl {
     let mut methods: [TraitMethod] = []
     while parser_peek(p).kind != TK_RBRACE && parser_peek(p).kind != TK_EOF {
         if parser_peek(p).kind != TK_FN {
-            println("stage2: trait body expects method")
-            exit(1)
+            parser_fail(p, "stage2: trait body expects method")
+            let _ = parser_advance(p)
+            continue
         }
         let m = parse_trait_method(p)
         push(&mut methods, m)
@@ -357,8 +359,7 @@ fn parse_trait_method(p: &mut Parser) -> TraitMethod {
             p0.has_type = true
         }
         if !p0.has_type {
-            println("stage2: trait method param requires type")
-            exit(1)
+            parser_fail(p, "stage2: trait method param requires type")
         }
         push(&mut out_params, p0)
         i = i + 1
@@ -431,9 +432,12 @@ fn parse_import(p: &mut Parser) -> ImportDecl {
     return ImportDecl { path: path, alias: alias }
 }
 
-fn parse_program(src: &str) -> Program {
-    let toks = lexer_all(src)
-    let mut p = parser_new(toks)
+struct ParseResult {
+    program: Program,
+    errors: [String],
+}
+
+fn parse_program_internal(p: &mut Parser, require_main: bool) -> Program {
     let mut imports: [ImportDecl] = []
     let mut structs: [StructDecl] = []
     let mut enums: [EnumDecl] = []
@@ -446,94 +450,84 @@ fn parse_program(src: &str) -> Program {
     let mut has_main = false
     let mut done = false
     while !done {
-        let k = parser_peek(&p).kind
+        let k = parser_peek(p).kind
         if k == TK_EOF {
             done = true
         } else if k == TK_STRUCT {
-            push(&mut structs, parse_struct(&mut p))
+            push(&mut structs, parse_struct(p))
         } else if k == TK_ENUM {
-            push(&mut enums, parse_enum(&mut p))
+            push(&mut enums, parse_enum(p))
         } else if k == TK_TYPE {
-            push(&mut type_aliases, parse_type_alias(&mut p))
+            push(&mut type_aliases, parse_type_alias(p))
         } else if k == TK_CONST {
-            push(&mut consts, parse_const(&mut p))
+            push(&mut consts, parse_const(p))
         } else if k == TK_MACRO {
-            let f = parse_macro_fn(&mut p)
+            let f = parse_macro_fn(p)
             push(&mut funcs, f)
         } else if k == TK_TRAIT {
-            push(&mut traits, parse_trait(&mut p))
+            push(&mut traits, parse_trait(p))
         } else if k == TK_IMPL {
-            let imp = parse_impl(&mut p, &mut funcs)
+            let imp = parse_impl(p, &mut funcs)
             push(&mut impls, imp)
-        } else if k == TK_IDENT && parser_peek(&p).text == "import" {
-            push(&mut imports, parse_import(&mut p))
+        } else if k == TK_IDENT && parser_peek(p).text == "import" {
+            push(&mut imports, parse_import(p))
         } else if k == TK_FN {
-            let f = parse_fn(&mut p)
+            let f = parse_fn(p)
             if !f.is_macro && string_clone(&f.name) == "main" { has_main = true }
             push(&mut funcs, f)
-        } else if k == TK_IDENT && parser_peek(&p).text == "compile" && parser_peek_next(&p).kind == TK_BANG {
-            let expr = parse_expr(&mut p)
+        } else if k == TK_IDENT && parser_peek(p).text == "compile" && parser_peek_next(p).kind == TK_BANG {
+            let expr = parse_expr(p)
             push(&mut compile_items, CompileItem { expr: expr })
-            if parser_peek(&p).kind == TK_SEMI { let _ = parser_advance(&mut p) }
+            if parser_peek(p).kind == TK_SEMI { let _ = parser_advance(p) }
         } else {
-            println("parse error: unexpected token in program", k, parser_peek(&p).text)
-            exit(1)
+            let mut msg = string_clone("parse error: unexpected token in program ")
+            msg = msg + parser_int_to_string(k)
+            if parser_peek(p).text != "" { msg = msg + " " + parser_peek(p).text }
+            parser_fail(p, msg)
+            let _ = parser_advance(p)
         }
     }
-    if !has_main {
-        println("parse error: missing fn main")
-        exit(1)
+    if require_main && !has_main {
+        parser_fail(p, "parse error: missing fn main")
     }
     return Program { imports: imports, structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
+}
+
+fn parse_program_with_errors(src: &str) -> ParseResult {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    p.soft_errors = true
+    let prog = parse_program_internal(&mut p, true)
+    return ParseResult { program: prog, errors: ast_string_list_clone(&p.errors) }
+}
+
+fn parse_program(src: &str) -> Program {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    let prog = parse_program_internal(&mut p, true)
+    if p.had_error {
+        let mut i = 0
+        while i < len(&p.errors) {
+            println(p.errors[i])
+            i = i + 1
+        }
+        exit(1)
+    }
+    return prog
 }
 
 // Parse a program without requiring fn main (used by macro expansion).
 fn parse_program_loose(src: &str) -> Program {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
-    let mut imports: [ImportDecl] = []
-    let mut structs: [StructDecl] = []
-    let mut enums: [EnumDecl] = []
-    let mut type_aliases: [TypeAlias] = []
-    let mut consts: [ConstDecl] = []
-    let mut funcs: [Function] = []
-    let mut compile_items: [CompileItem] = []
-    let mut traits: [TraitDecl] = []
-    let mut impls: [ImplDecl] = []
-    let mut done = false
-    while !done {
-        let k = parser_peek(&p).kind
-        if k == TK_EOF {
-            done = true
-        } else if k == TK_STRUCT {
-            push(&mut structs, parse_struct(&mut p))
-        } else if k == TK_ENUM {
-            push(&mut enums, parse_enum(&mut p))
-        } else if k == TK_TYPE {
-            push(&mut type_aliases, parse_type_alias(&mut p))
-        } else if k == TK_CONST {
-            push(&mut consts, parse_const(&mut p))
-        } else if k == TK_MACRO {
-            let f = parse_macro_fn(&mut p)
-            push(&mut funcs, f)
-        } else if k == TK_TRAIT {
-            push(&mut traits, parse_trait(&mut p))
-        } else if k == TK_IMPL {
-            let imp = parse_impl(&mut p, &mut funcs)
-            push(&mut impls, imp)
-        } else if k == TK_IDENT && parser_peek(&p).text == "import" {
-            push(&mut imports, parse_import(&mut p))
-        } else if k == TK_FN {
-            let f = parse_fn(&mut p)
-            push(&mut funcs, f)
-        } else if k == TK_IDENT && parser_peek(&p).text == "compile" && parser_peek_next(&p).kind == TK_BANG {
-            let expr = parse_expr(&mut p)
-            push(&mut compile_items, CompileItem { expr: expr })
-            if parser_peek(&p).kind == TK_SEMI { let _ = parser_advance(&mut p) }
-        } else {
-            println("parse error: unexpected token in program", k, parser_peek(&p).text)
-            exit(1)
+    let prog = parse_program_internal(&mut p, false)
+    if p.had_error {
+        let mut i = 0
+        while i < len(&p.errors) {
+            println(p.errors[i])
+            i = i + 1
         }
+        exit(1)
     }
-    return Program { imports: imports, structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
+    return prog
 }

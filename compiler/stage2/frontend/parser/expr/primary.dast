@@ -120,8 +120,10 @@ fn parse_primary(p: &mut Parser) -> Expr {
             return parse_quote_expr(p)
         }
         _ => {
-            println("parse error: unexpected token", t.kind, t.text)
-            exit(1)
+            let mut msg = string_clone("parse error: unexpected token ")
+            msg = msg + parser_int_to_string(t.kind)
+            if t.text != "" { msg = msg + " " + t.text }
+            parser_fail(p, msg)
             return expr_int(0)
         }
     }
@@ -176,8 +178,7 @@ fn parse_if_expr(p: &mut Parser) -> Expr {
             else_block = parse_block(p)
         }
     } else {
-        println("parse error: if expression requires else")
-        exit(1)
+        parser_fail(p, "parse error: if expression requires else")
     }
     let mut arms = match_arm_list_empty()
     let arm_true = MatchArm {
@@ -319,8 +320,8 @@ fn parse_quote_expr(p: &mut Parser) -> Expr {
     else if kind_name == "stmt" { kind = QUOTE_STMT }
     else if kind_name == "item" { kind = QUOTE_ITEM }
     else {
-        println("parse error: unknown quote kind", kind_name)
-        exit(1)
+        parser_fail(p, "parse error: unknown quote kind")
+        return expr_int(0)
     }
     let _ = parser_expect(p, TK_LBRACE, "{")
     let parts = parse_quote_parts(p)

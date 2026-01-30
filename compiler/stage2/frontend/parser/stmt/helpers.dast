@@ -166,8 +166,7 @@ fn desugar_struct_pattern_let(p: &mut Parser, pat: &Pattern, rhs: Expr, mutable:
     push(&mut stmts, stmt_let(string_clone(&tmp), false, false, "", rhs))
     let base = expr_ident(string_clone(&tmp))
     if !pattern_irrefutable(pat) {
-        println("stage2: let struct pattern must be irrefutable")
-        exit(1)
+        parser_fail(p, "stage2: let struct pattern must be irrefutable")
     }
     desugar_struct_pattern_bindings(&mut stmts, &base, pat, mutable)
     return stmt_expr(expr_block(Block { stmts: stmts }))

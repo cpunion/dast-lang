@@ -81,8 +81,8 @@ fn parse_postfix(p: &mut Parser) -> Expr {
                     cur = expr_call(cur.name, full_args)
                 }
             } else {
-                println("parse error: call target")
-                exit(1)
+                parser_fail(p, "parse error: call target")
+                return expr_int(0)
             }
         } else if t.kind == TK_BANG {
             let _ = parser_advance(p)
@@ -96,8 +96,8 @@ fn parse_postfix(p: &mut Parser) -> Expr {
                 let callee = recv_name + "." + cur.name
                 cur = expr_macro_call(callee, args)
             } else {
-                println("parse error: macro call target")
-                exit(1)
+                parser_fail(p, "parse error: macro call target")
+                return expr_int(0)
             }
         } else if t.kind == TK_LBRACKET {
             if cur.kind == EXPR_IDENT && is_type_arg_struct_lit(p) {
@@ -119,8 +119,8 @@ fn parse_postfix(p: &mut Parser) -> Expr {
             } else if nt.kind == TK_INT {
                 fname = parser_int_to_string(parser_advance(p).int_value)
             } else {
-                println("parse error: expected field")
-                exit(1)
+                parser_fail(p, "parse error: expected field")
+                return expr_int(0)
             }
             cur = expr_field(cur, fname)
         } else {

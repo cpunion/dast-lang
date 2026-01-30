@@ -92,8 +92,9 @@ fn parse_struct_pattern(p: &mut Parser) -> Pattern {
         let mut done = false
         while !done {
             if parser_peek(p).kind == TK_DOTDOT {
-                println("stage2: unsupported '..' in struct pattern")
-                exit(1)
+                parser_fail(p, "stage2: unsupported '..' in struct pattern")
+                let _ = parser_advance(p)
+                return pattern_wildcard()
             }
             let fname = parser_expect(p, TK_IDENT, "field").text
             let mut pat = pattern_bind(string_clone(&fname))
@@ -183,7 +184,7 @@ fn parse_pattern_expr(p: &mut Parser) -> Expr {
     return e
 }
 
-fn pattern_from_expr(expr: &Expr) -> Pattern {
+fn pattern_from_expr(p: &mut Parser, expr: &Expr) -> Pattern {
     if expr.kind == EXPR_IDENT {
         if expr.name == "_" { return pattern_wildcard() }
         return pattern_bind(string_clone(&expr.name))
@@ -195,8 +196,7 @@ fn pattern_from_expr(expr: &Expr) -> Pattern {
         let v = if expr.bool_value { 1 } else { 0 }
         return pattern_int(v)
     }
-    println("parse error: unsupported pattern")
-    exit(1)
+    parser_fail(p, "parse error: unsupported pattern")
     return pattern_wildcard()
 }
 
@@ -213,8 +213,7 @@ fn parse_range_pattern_with_start(p: &mut Parser, start_expr: Expr) -> Pattern {
         end_expr = parse_pattern_expr(p)
         has_end = true
     } else if inclusive {
-        println("stage2: range pattern requires end for ..=")
-        exit(1)
+        parser_fail(p, "stage2: range pattern requires end for ..=")
     }
     return pattern_range(start_expr, true, end_expr, has_end, inclusive)
 }
@@ -228,8 +227,7 @@ fn parse_range_pattern_open(p: &mut Parser) -> Pattern {
     }
     if pattern_range_end_terminator(parser_peek(p).kind) {
         if inclusive {
-            println("stage2: range pattern requires end for ..=")
-            exit(1)
+            parser_fail(p, "stage2: range pattern requires end for ..=")
         }
         return pattern_wildcard()
     }
@@ -256,7 +254,7 @@ fn parse_pattern(p: &mut Parser) -> Pattern {
     if parser_peek(p).kind == TK_DOTDOT {
         return parse_range_pattern_with_start(p, start_expr)
     }
-    return pattern_from_expr(&start_expr)
+    return pattern_from_expr(p, &start_expr)
 }
 
 fn parse_match_pattern_list(p: &mut Parser) -> [Pattern] {
@@ -269,8 +267,7 @@ fn parse_match_pattern_list(p: &mut Parser) -> [Pattern] {
         let next = parse_pattern(p)
         let next_bindings = pattern_binding_names(&next)
         if !binding_list_equal(&first_bindings, &next_bindings) {
-            println("stage2: or-patterns must bind same names")
-            exit(1)
+            parser_fail(p, "stage2: or-patterns must bind same names")
         }
         push(&mut out, next)
     }

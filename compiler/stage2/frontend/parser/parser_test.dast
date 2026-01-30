@@ -40,3 +40,21 @@ fn test_parse_where_struct_bounds() {
     assert_i64_eq(len(&tp.bounds), 1)
     assert_str_eq(tp.bounds[0], "Clone")
 }
+
+fn test_parse_where_unknown_param_error() {
+    let src = "fn f[T](x: T) where U: Clone { } fn main() { }"
+    let res = parse_program_with_errors(src)
+    if !string_list_contains(&res.errors, "stage2: unknown type param in where clause") {
+        println("expected unknown param error")
+        exit(1)
+    }
+}
+
+fn test_parse_where_non_nominal_bound_error() {
+    let src = "fn f[T](x: T) where T: &str { } fn main() { }"
+    let res = parse_program_with_errors(src)
+    if !string_list_contains(&res.errors, "stage2: trait bound must be nominal type") {
+        println("expected non-nominal bound error")
+        exit(1)
+    }
+}
