@@ -294,12 +294,13 @@ fn parse_impl(p: &mut Parser, funcs: &mut [Function]) -> ImplDecl {
     let first = parser_expect(p, TK_IDENT, "impl target").text
     let mut trait_name = string_clone("")
     let mut for_type = string_clone("")
+    let target = parse_type_suffix(p, first)
     if parser_peek(p).kind == TK_FOR {
         let _ = parser_advance(p)
-        trait_name = first
+        trait_name = target
         for_type = parse_type_name(p)
     } else {
-        for_type = parse_type_suffix(p, first)
+        for_type = target
     }
     let _ = parser_expect(p, TK_LBRACE, "{")
     let mut methods: [TraitMethod] = []
