@@ -476,6 +476,67 @@ fn test_trait_impl_validation() {
     }
 }
 
+fn test_trait_impl_args_validation() {
+    let mut e = emitter_new()
+    let mut tparams = generic_param_list_empty()
+    push(&mut tparams, GenericParam { name: "Rhs", has_bound: false, bound: "" })
+    let mut tm_params: [Param] = []
+    push(&mut tm_params, Param { name: "self", typ: "&Self", has_type: true })
+    push(&mut tm_params, Param { name: "other", typ: "&Rhs", has_type: true })
+    let tm = TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: tm_params, ret_type: "bool" }
+    let mut tmethods: [TraitMethod] = []
+    push(&mut tmethods, tm)
+    let mut traits: [TraitDecl] = []
+    push(&mut traits, TraitDecl { name: "PartialEq", type_params: tparams, methods: tmethods })
+    e.traits = traits
+
+    let mut ok_params: [Param] = []
+    push(&mut ok_params, Param { name: "self", typ: "&Foo", has_type: true })
+    push(&mut ok_params, Param { name: "other", typ: "&i32", has_type: true })
+    let ok_method = TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: ok_params, ret_type: "bool" }
+    let mut ok_methods: [TraitMethod] = []
+    push(&mut ok_methods, ok_method)
+    let mut ok_impls: [ImplDecl] = []
+    push(&mut ok_impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: ok_methods })
+    e.impls = ok_impls
+    if !validate_trait_impls_impl(&e, true) {
+        println("expected trait impl with args ok")
+        exit(1)
+    }
+
+    let mut e2 = emitter_new()
+    e2.traits = trait_decl_list_clone(&e.traits)
+    let mut bad_params: [Param] = []
+    push(&mut bad_params, Param { name: "self", typ: "&Foo", has_type: true })
+    push(&mut bad_params, Param { name: "other", typ: "&u32", has_type: true })
+    let bad_method = TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: bad_params, ret_type: "bool" }
+    let mut bad_methods: [TraitMethod] = []
+    push(&mut bad_methods, bad_method)
+    let mut bad_impls: [ImplDecl] = []
+    push(&mut bad_impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: bad_methods })
+    e2.impls = bad_impls
+    if validate_trait_impls_impl(&e2, true) {
+        println("expected trait impl args mismatch to fail")
+        exit(1)
+    }
+
+    let mut e3 = emitter_new()
+    e3.traits = trait_decl_list_clone(&e.traits)
+    let mut miss_impls: [ImplDecl] = []
+    let mut miss_params: [Param] = []
+    push(&mut miss_params, Param { name: "self", typ: "&Foo", has_type: true })
+    push(&mut miss_params, Param { name: "other", typ: "&u32", has_type: true })
+    let miss_method = TraitMethod { name: "eq", type_params: generic_param_list_empty(), params: miss_params, ret_type: "bool" }
+    let mut miss_methods: [TraitMethod] = []
+    push(&mut miss_methods, miss_method)
+    push(&mut miss_impls, ImplDecl { trait_name: "PartialEq", for_type: "Foo", type_params: generic_param_list_empty(), methods: miss_methods })
+    e3.impls = miss_impls
+    if validate_trait_impls_impl(&e3, true) {
+        println("expected trait impl missing args to fail")
+        exit(1)
+    }
+}
+
 fn test_type_size_align_basic() {
     let mut e64 = emitter_new_with_target(64)
     assert_i64_eq(type_size(&e64, "bool"), 1)

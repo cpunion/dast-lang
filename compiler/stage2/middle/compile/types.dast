@@ -328,24 +328,38 @@ fn type_subst_self(e: &Emitter, t: &str, for_type: &str) -> String {
     return rt
 }
 
-fn trait_method_sig_match(e: &Emitter, tm: &TraitMethod, im: &TraitMethod, for_type: &str, trait_params: & [String]) -> bool {
+fn trait_method_sig_match(e: &Emitter, tm: &TraitMethod, im: &TraitMethod, for_type: &str, trait_params: & [String], trait_args: & [String]) -> bool {
     if len(&tm.type_params) != len(&im.type_params) { return false }
     if len(&tm.params) != len(&im.params) { return false }
+    let method_params = trait_method_type_param_names(tm)
+    let mut all_params = string_list_empty()
     let mut i = 0
+    while i < len(trait_params) {
+        push(&mut all_params, string_clone(&(*trait_params)[i]))
+        i = i + 1
+    }
+    i = 0
+    while i < len(&method_params) {
+        push(&mut all_params, string_clone(&method_params[i]))
+        i = i + 1
+    }
+    i = 0
     while i < len(&tm.params) {
         let tp = &tm.params[i]
         let ip = &im.params[i]
         if !tp.has_type || !ip.has_type { return false }
-        let ttype = type_subst_self(e, &tp.typ, for_type)
+        let mut ttype = type_subst_self(e, &tp.typ, for_type)
+        if len(trait_args) > 0 { ttype = type_subst(e, &ttype, trait_params, trait_args) }
         let itype = string_clone(&ip.typ)
-        if !type_is_trait_param_name(&ttype, trait_params) {
+        if !type_is_trait_param_name(&ttype, &all_params) {
             if type_resolve(e, &ttype) != type_resolve(e, &itype) { return false }
         }
         i = i + 1
     }
-    let tret = if tm.ret_type == "" { string_clone("unit") } else { type_subst_self(e, &tm.ret_type, for_type) }
+    let mut tret = if tm.ret_type == "" { string_clone("unit") } else { type_subst_self(e, &tm.ret_type, for_type) }
+    if len(trait_args) > 0 { tret = type_subst(e, &tret, trait_params, trait_args) }
     let iret = if im.ret_type == "" { string_clone("unit") } else { string_clone(&im.ret_type) }
-    if !type_is_trait_param_name(&tret, trait_params) {
+    if !type_is_trait_param_name(&tret, &all_params) {
         if type_resolve(e, &tret) != type_resolve(e, &iret) { return false }
     }
     return true
@@ -373,7 +387,9 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
     while i < len(&e.impls) {
         let imp = &e.impls[i]
         if imp.trait_name != "" {
-            let ti = trait_decl_index(e, &imp.trait_name)
+            let parsed = type_args_parse(&imp.trait_name)
+            let trait_base = parsed.base
+            let ti = trait_decl_index(e, &trait_base)
             if ti < 0 {
                 if allow_fail { return false }
                 println("stage2: unknown trait", imp.trait_name)
@@ -388,6 +404,18 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
             push(&mut keys, key)
             let tr = &e.traits[ti]
             let tparams = trait_type_param_names(tr)
+            if parsed.has {
+                if len(&parsed.args) != len(&tparams) {
+                    if allow_fail { return false }
+                    println("stage2: trait", tr.name, "expects", len(&tparams), "type args got", len(&parsed.args))
+                    exit(1)
+                }
+            } else if len(&tparams) > 0 {
+                if allow_fail { return false }
+                println("stage2: trait", tr.name, "requires type args")
+                exit(1)
+            }
+            let targs = parsed.args
             let mut mi = 0
             while mi < len(&tr.methods) {
                 let tm = &tr.methods[mi]
@@ -397,7 +425,7 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
                     let im = &imp.methods[j]
                     if im.name == tm.name {
                         found = true
-                        if !trait_method_sig_match(e, tm, im, &imp.for_type, &tparams) {
+                        if !trait_method_sig_match(e, tm, im, &imp.for_type, &tparams, &targs) {
                             if allow_fail { return false }
                             println("stage2: trait method signature mismatch", tm.name, "for", imp.for_type)
                             exit(1)
