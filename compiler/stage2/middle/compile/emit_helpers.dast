@@ -176,33 +176,44 @@ fn cast_to_l(e: &mut Emitter, v: QbeValue) -> String {
 
 fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
     let rt = type_resolve(e, target_t)
-    if expr_is_int_literal(expr) && type_is_int(e, &rt) {
-        let v = expr_int_literal_value(expr)
+    let mut use_expr = expr
+    let mut local = expr_clone(expr)
+    if expr.kind == EXPR_STRUCT_LIT && type_is_struct(e, &rt) {
+        let exp = type_resolve(e, &rt)
+        let db = type_strip_args(e, &exp)
+        let ab = type_strip_args(e, &expr.name)
+        if db != "" && db == ab && exp != expr.name {
+            local.name = string_clone(&exp)
+            use_expr = &local
+        }
+    }
+    if expr_is_int_literal(use_expr) && type_is_int(e, &rt) {
+        let v = expr_int_literal_value(use_expr)
         if !int_value_fits_type(e, v, &rt) {
             println("stage2: integer literal out of range for", rt)
             exit(1)
         }
         return qbe_value(string_clone(&rt), int_to_string(v))
     }
-    if expr_is_float_literal(expr) && type_is_float(e, &rt) {
-        return qbe_value(string_clone(&rt), float_literal_const(&rt, &expr.float_text))
+    if expr_is_float_literal(use_expr) && type_is_float(e, &rt) {
+        return qbe_value(string_clone(&rt), float_literal_const(&rt, &use_expr.float_text))
     }
-    if expr_is_int_literal(expr) && type_is_float(e, &rt) {
-        let v = int_to_string(expr_int_literal_value(expr))
+    if expr_is_int_literal(use_expr) && type_is_float(e, &rt) {
+        let v = int_to_string(expr_int_literal_value(use_expr))
         return qbe_value(string_clone(&rt), float_literal_const(&rt, &v))
     }
-    if expr.kind == EXPR_ARRAY && type_is_array(e, &rt) {
-        if !type_compatible_expr(e, &rt, expr) {
-            let actual = expr_type(e, expr)
+    if use_expr.kind == EXPR_ARRAY && type_is_array(e, &rt) {
+        if !type_compatible_expr(e, &rt, use_expr) {
+            let actual = expr_type(e, use_expr)
             println("stage2: type mismatch expected", rt, "got", actual)
             exit(1)
         }
-        let mut v = emit_expr(e, expr)
+        let mut v = emit_expr(e, use_expr)
         // Retag empty or literal arrays to the contextual element type.
         v.typ = string_clone(&rt)
         return v
     }
-    let v = emit_expr(e, expr)
+    let v = emit_expr(e, use_expr)
     let at = type_resolve(e, &v.typ)
     if rt == "" {
         println("stage2: internal error: missing target type for expr", expr.kind, expr.name, "got", at)
@@ -711,7 +722,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             return qbe_value(float_t, tn)
         }
         let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
-        if int_t == "untyped-int" { int_t = "i32" }
+        if int_t == "untyped-int" { int_t = "i64" }
         if int_t == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
             exit(1)
@@ -741,7 +752,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             return qbe_value(float_t, tn)
         }
         let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
-        if int_t == "untyped-int" { int_t = "i32" }
+        if int_t == "untyped-int" { int_t = "i64" }
         if int_t == "" {
             println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
             exit(1)
@@ -784,7 +795,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     }
     if op == "<<" || op == ">>" {
         let mut int_t = shift_result_type(e, lhs_expr, rhs_expr)
-        if int_t == "untyped-int" { int_t = "i32" }
+        if int_t == "untyped-int" { int_t = "i64" }
         if int_t == "" {
             println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lhs_t, "and", rhs_t)
             exit(1)
@@ -834,7 +845,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  " + tn + " =w " + cmp + " " + l + ", " + r)
         } else {
             let mut int_t = int_bin_result_type(e, lhs_expr, rhs_expr)
-            if int_t == "untyped-int" { int_t = "i32" }
+            if int_t == "untyped-int" { int_t = "i64" }
             if int_t == "" {
                 println("stage2: binary op", op, "requires compatible int operands got", lhs_t, "and", rhs_t)
                 exit(1)

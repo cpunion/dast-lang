@@ -170,7 +170,7 @@ test-stage0: build-stage0
 	done
 	@echo "[stage0-build] $(STAGE0_MODULE_TEST_DIR)"; \
 	$(STAGE0_RUNNER) build --emit-ir $(STAGE0_MODULE_TEST_DIR) -o /tmp/dast-stage0-module.ir || exit 1; \
-	rm -f /tmp/dast-stage0-module.ir
+	rm -f /tmp/dast-stage0-module.ir || true
 	@echo "[stage0-run] $(STAGE0_MODULE_TEST_DIR)"; \
 	$(STAGE0_RUNNER) run $(STAGE0_MODULE_TEST_DIR) || exit 1
 	@echo "[stage0-test] $(STAGE0_MODULE_TEST_DIR)"; \
@@ -189,7 +189,7 @@ test-stage0: build-stage0
 	if [ -z "$$out" ]; then echo "expected diagnostics"; exit 1; fi
 	@echo "[stage0-deps-build] $(STAGE0_DEPS_APP_DIR)"; \
 	$(STAGE0_RUNNER) build --emit-ir $(STAGE0_DEPS_APP_DIR) -o /tmp/dast-stage0-deps.ir || exit 1; \
-	rm -f /tmp/dast-stage0-deps.ir
+	rm -f /tmp/dast-stage0-deps.ir || true
 	@echo "[stage0-deps-run] $(STAGE0_DEPS_APP_DIR)"; \
 	$(STAGE0_RUNNER) run $(STAGE0_DEPS_APP_DIR) || exit 1
 	@echo "[stage0-deps-test] $(STAGE0_DEPS_APP_DIR)"; \

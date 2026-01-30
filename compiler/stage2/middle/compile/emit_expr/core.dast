@@ -107,7 +107,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let mut elem_t = type_array_elem(e, &arr_t)
             let mut arr_name = arr_t
             if elem_t == "untyped-int" {
-                elem_t = "i32"
+                elem_t = "i64"
                 arr_name = "[" + string_clone(&elem_t) + "]"
             }
             if elem_t == "untyped-float" {

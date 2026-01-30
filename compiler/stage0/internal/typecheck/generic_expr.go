@@ -94,6 +94,10 @@ func (c *Checker) checkCallExpr(e *ast.CallExpr, sig *FuncSig) Type {
 				return Type{Kind: TypeInvalid}
 			}
 		}
+		for name, v := range subst {
+			subst[name] = defaultUntypedType(v)
+		}
+		typeArgs = nil
 		for _, p := range sig.TypeParams {
 			typeArgs = append(typeArgs, subst[p.Name])
 		}
@@ -183,7 +187,13 @@ func (c *Checker) checkStructLit(e *ast.StructLit) Type {
 			exp := c.expandInstType(expected)
 			if exp.Kind == TypeStruct && exp.Name == e.Name && len(exp.Args) == len(decl.TypeParams) {
 				for i, p := range decl.TypeParams {
-					if _, ok := subst[p.Name]; !ok {
+					if bound, ok := subst[p.Name]; ok {
+						if isUntypedInt(bound) && isInt(exp.Args[i]) {
+							subst[p.Name] = exp.Args[i]
+						} else if isUntypedFloat(bound) && isFloat(exp.Args[i]) {
+							subst[p.Name] = exp.Args[i]
+						}
+					} else {
 						subst[p.Name] = exp.Args[i]
 					}
 				}

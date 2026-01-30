@@ -231,6 +231,22 @@ func typesAssignable(actual, expected Type) bool {
 	if isUntypedInt(actual) && isFloat(expected) {
 		return true
 	}
+	if isInt(actual) && isInt(expected) {
+		at := canonicalIntName(intTypeName(actual))
+		et := canonicalIntName(intTypeName(expected))
+		if at == et {
+			return true
+		}
+		aSigned := isSignedIntName(at)
+		eSigned := isSignedIntName(et)
+		if aSigned == eSigned {
+			aw := intTypeWidth(at)
+			ew := intTypeWidth(et)
+			if aw > 0 && ew > 0 && aw <= ew {
+				return true
+			}
+		}
+	}
 	if isUntypedFloat(actual) && isFloat(expected) {
 		return true
 	}
@@ -245,6 +261,9 @@ func typesAssignable(actual, expected Type) bool {
 			return actual.Ref == expected.Ref && actual.Mut == expected.Mut
 		}
 		return false
+	}
+	if actual.Kind == TypeArray && expected.Kind == TypeArray && actual.Elem != nil && expected.Elem != nil {
+		return typesAssignable(*actual.Elem, *expected.Elem)
 	}
 	if !actual.Ref && expected.Ref && !expected.Mut && actual.Kind == TypeArray && expected.Kind == TypeArray {
 		if actual.Elem != nil && expected.Elem != nil {
@@ -269,6 +288,33 @@ func isInt(t Type) bool {
 
 func isUntypedInt(t Type) bool {
 	return t.Kind == TypeInt && !t.Ref && t.Name == "untyped-int"
+}
+
+func defaultUntypedType(t Type) Type {
+	if isUntypedInt(t) {
+		return Type{Kind: TypeInt, Name: "i64"}
+	}
+	if isUntypedFloat(t) {
+		return Type{Kind: TypeFloat, Name: "f64"}
+	}
+	if t.Kind == TypeArray && t.Elem != nil {
+		elem := defaultUntypedType(*t.Elem)
+		out := t
+		out.Elem = &elem
+		return out
+	}
+	if t.Kind == TypeTuple {
+		out := t
+		if len(out.Elems) > 0 {
+			elems := make([]Type, len(out.Elems))
+			for i := range out.Elems {
+				elems[i] = defaultUntypedType(out.Elems[i])
+			}
+			out.Elems = elems
+		}
+		return out
+	}
+	return t
 }
 
 func isChar(t Type) bool {

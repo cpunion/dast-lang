@@ -100,6 +100,24 @@ fn main() -> unit
 	}
 }
 
+func TestLetBindingCharLiteral(t *testing.T) {
+	src := `fn main() { let a = 'a'; println(a) }`
+
+	want := `ir v0
+fn main() -> unit
+  block entry0:
+    store a, char 97
+    t0: char = load a
+    t1: unit = call println(t0)
+    return t1
+
+`
+	got := compileToIR(t, src)
+	if got != want {
+		t.Errorf("IR mismatch\nwant:\n%s\ngot:\n%s", want, got)
+	}
+}
+
 func TestLetBindingExpr(t *testing.T) {
 	src := `fn calc(a: i64, b: i64) -> i64 { let sum = a + b; sum * 2 }`
 

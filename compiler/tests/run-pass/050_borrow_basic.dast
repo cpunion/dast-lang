@@ -1,8 +1,8 @@
-fn add(x: &i32, y: &i32) -> i32 {
+fn add(x: &i64, y: &i64) -> i64 {
     *x + *y
 }
 
-fn inc(x: &mut i32) {
+fn inc(x: &mut i64) {
     *x = *x + 1
 }
 

@@ -3,6 +3,7 @@ import "std/testing" as t
 fn test_ops_i8() {
     let a: [i8] = [6, 7, 8]
     let b: [i8] = [3, 2, 1]
+    let sh: [u8] = [3, 2, 1]
     let exp_add: [i8] = [9, 9, 9]
     let exp_sub: [i8] = [3, 5, 7]
     let exp_mul: [i8] = [18, 14, 8]
@@ -25,8 +26,8 @@ fn test_ops_i8() {
         t.assert_eq!(x & y, exp_and[i])
         t.assert_eq!(x | y, exp_or[i])
         t.assert_eq!(x ^ y, exp_xor[i])
-        t.assert_eq!(x << y, exp_shl[i])
-        t.assert_eq!(x >> y, exp_shr[i])
+        t.assert_eq!(x << sh[i], exp_shl[i])
+        t.assert_eq!(x >> sh[i], exp_shr[i])
         i = i + 1
     }
     let c: [i8] = [1, 2, 3]
@@ -57,8 +58,8 @@ fn test_ops_i8() {
     let _and: i8 = a[0] & b[0]
     let _or: i8 = a[0] | b[0]
     let _xor: i8 = a[0] ^ b[0]
-    let _shl: i8 = a[0] << b[0]
-    let _shr: i8 = a[0] >> b[0]
+    let _shl: i8 = a[0] << sh[0]
+    let _shr: i8 = a[0] >> sh[0]
     let _lt: bool = c[0] < d[0]
     let _le: bool = c[0] <= d[0]
     let _gt: bool = c[0] > d[0]
@@ -70,6 +71,7 @@ fn test_ops_i8() {
 fn test_ops_i16() {
     let a: [i16] = [6, 7, 8]
     let b: [i16] = [3, 2, 1]
+    let sh: [u16] = [3, 2, 1]
     let exp_add: [i16] = [9, 9, 9]
     let exp_sub: [i16] = [3, 5, 7]
     let exp_mul: [i16] = [18, 14, 8]
@@ -92,8 +94,8 @@ fn test_ops_i16() {
         t.assert_eq!(x & y, exp_and[i])
         t.assert_eq!(x | y, exp_or[i])
         t.assert_eq!(x ^ y, exp_xor[i])
-        t.assert_eq!(x << y, exp_shl[i])
-        t.assert_eq!(x >> y, exp_shr[i])
+        t.assert_eq!(x << sh[i], exp_shl[i])
+        t.assert_eq!(x >> sh[i], exp_shr[i])
         i = i + 1
     }
     let c: [i16] = [1, 2, 3]
@@ -124,8 +126,8 @@ fn test_ops_i16() {
     let _and: i16 = a[0] & b[0]
     let _or: i16 = a[0] | b[0]
     let _xor: i16 = a[0] ^ b[0]
-    let _shl: i16 = a[0] << b[0]
-    let _shr: i16 = a[0] >> b[0]
+    let _shl: i16 = a[0] << sh[0]
+    let _shr: i16 = a[0] >> sh[0]
     let _lt: bool = c[0] < d[0]
     let _le: bool = c[0] <= d[0]
     let _gt: bool = c[0] > d[0]
@@ -137,6 +139,7 @@ fn test_ops_i16() {
 fn test_ops_i32() {
     let a: [i32] = [6, 7, 8]
     let b: [i32] = [3, 2, 1]
+    let sh: [u32] = [3, 2, 1]
     let exp_add: [i32] = [9, 9, 9]
     let exp_sub: [i32] = [3, 5, 7]
     let exp_mul: [i32] = [18, 14, 8]
@@ -159,8 +162,8 @@ fn test_ops_i32() {
         t.assert_eq!(x & y, exp_and[i])
         t.assert_eq!(x | y, exp_or[i])
         t.assert_eq!(x ^ y, exp_xor[i])
-        t.assert_eq!(x << y, exp_shl[i])
-        t.assert_eq!(x >> y, exp_shr[i])
+        t.assert_eq!(x << sh[i], exp_shl[i])
+        t.assert_eq!(x >> sh[i], exp_shr[i])
         i = i + 1
     }
     let c: [i32] = [1, 2, 3]
@@ -191,8 +194,8 @@ fn test_ops_i32() {
     let _and: i32 = a[0] & b[0]
     let _or: i32 = a[0] | b[0]
     let _xor: i32 = a[0] ^ b[0]
-    let _shl: i32 = a[0] << b[0]
-    let _shr: i32 = a[0] >> b[0]
+    let _shl: i32 = a[0] << sh[0]
+    let _shr: i32 = a[0] >> sh[0]
     let _lt: bool = c[0] < d[0]
     let _le: bool = c[0] <= d[0]
     let _gt: bool = c[0] > d[0]
@@ -204,6 +207,7 @@ fn test_ops_i32() {
 fn test_ops_i64() {
     let a: [i64] = [6, 7, 8]
     let b: [i64] = [3, 2, 1]
+    let sh: [u64] = [3, 2, 1]
     let exp_add: [i64] = [9, 9, 9]
     let exp_sub: [i64] = [3, 5, 7]
     let exp_mul: [i64] = [18, 14, 8]
@@ -226,8 +230,8 @@ fn test_ops_i64() {
         t.assert_eq!(x & y, exp_and[i])
         t.assert_eq!(x | y, exp_or[i])
         t.assert_eq!(x ^ y, exp_xor[i])
-        t.assert_eq!(x << y, exp_shl[i])
-        t.assert_eq!(x >> y, exp_shr[i])
+        t.assert_eq!(x << sh[i], exp_shl[i])
+        t.assert_eq!(x >> sh[i], exp_shr[i])
         i = i + 1
     }
     let c: [i64] = [1, 2, 3]
@@ -258,8 +262,8 @@ fn test_ops_i64() {
     let _and: i64 = a[0] & b[0]
     let _or: i64 = a[0] | b[0]
     let _xor: i64 = a[0] ^ b[0]
-    let _shl: i64 = a[0] << b[0]
-    let _shr: i64 = a[0] >> b[0]
+    let _shl: i64 = a[0] << sh[0]
+    let _shr: i64 = a[0] >> sh[0]
     let _lt: bool = c[0] < d[0]
     let _le: bool = c[0] <= d[0]
     let _gt: bool = c[0] > d[0]
@@ -539,6 +543,7 @@ fn test_ops_u64() {
 fn test_ops_isize() {
     let a: [isize] = [6, 7, 8]
     let b: [isize] = [3, 2, 1]
+    let sh: [usize] = [3, 2, 1]
     let exp_add: [isize] = [9, 9, 9]
     let exp_sub: [isize] = [3, 5, 7]
     let exp_mul: [isize] = [18, 14, 8]
@@ -561,8 +566,8 @@ fn test_ops_isize() {
         t.assert_eq!(x & y, exp_and[i])
         t.assert_eq!(x | y, exp_or[i])
         t.assert_eq!(x ^ y, exp_xor[i])
-        t.assert_eq!(x << y, exp_shl[i])
-        t.assert_eq!(x >> y, exp_shr[i])
+        t.assert_eq!(x << sh[i], exp_shl[i])
+        t.assert_eq!(x >> sh[i], exp_shr[i])
         i = i + 1
     }
     let c: [isize] = [1, 2, 3]
@@ -593,8 +598,8 @@ fn test_ops_isize() {
     let _and: isize = a[0] & b[0]
     let _or: isize = a[0] | b[0]
     let _xor: isize = a[0] ^ b[0]
-    let _shl: isize = a[0] << b[0]
-    let _shr: isize = a[0] >> b[0]
+    let _shl: isize = a[0] << sh[0]
+    let _shr: isize = a[0] >> sh[0]
     let _lt: bool = c[0] < d[0]
     let _le: bool = c[0] <= d[0]
     let _gt: bool = c[0] > d[0]
@@ -673,6 +678,7 @@ fn test_ops_usize() {
 fn test_ops_int() {
     let a: [int] = [6, 7, 8]
     let b: [int] = [3, 2, 1]
+    let sh: [u64] = [3, 2, 1]
     let exp_add: [int] = [9, 9, 9]
     let exp_sub: [int] = [3, 5, 7]
     let exp_mul: [int] = [18, 14, 8]
@@ -695,8 +701,8 @@ fn test_ops_int() {
         t.assert_eq!(x & y, exp_and[i])
         t.assert_eq!(x | y, exp_or[i])
         t.assert_eq!(x ^ y, exp_xor[i])
-        t.assert_eq!(x << y, exp_shl[i])
-        t.assert_eq!(x >> y, exp_shr[i])
+        t.assert_eq!(x << sh[i], exp_shl[i])
+        t.assert_eq!(x >> sh[i], exp_shr[i])
         i = i + 1
     }
     let c: [int] = [1, 2, 3]
@@ -727,8 +733,8 @@ fn test_ops_int() {
     let _and: int = a[0] & b[0]
     let _or: int = a[0] | b[0]
     let _xor: int = a[0] ^ b[0]
-    let _shl: int = a[0] << b[0]
-    let _shr: int = a[0] >> b[0]
+    let _shl: int = a[0] << sh[0]
+    let _shr: int = a[0] >> sh[0]
     let _lt: bool = c[0] < d[0]
     let _le: bool = c[0] <= d[0]
     let _gt: bool = c[0] > d[0]

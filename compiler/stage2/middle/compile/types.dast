@@ -343,6 +343,12 @@ fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
         }
         return true
     }
+    if expr.kind == EXPR_STRUCT_LIT && type_is_struct(e, &declared) {
+        let exp = type_resolve(e, &declared)
+        let db = type_strip_args(e, &exp)
+        let ab = type_strip_args(e, &expr.name)
+        if db != "" && db == ab { return true }
+    }
     return false
 }
 

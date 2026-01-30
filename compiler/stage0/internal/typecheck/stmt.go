@@ -137,7 +137,7 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 		} else if isUntypedFloat(initType) {
 			declType = Type{Kind: TypeFloat, Name: "f64"}
 		} else {
-			declType = initType
+			declType = defaultUntypedType(initType)
 		}
 	}
 	if s.Type != nil {
@@ -498,22 +498,35 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 		c.env.declare(p.Name, VarInfo{Type: scrut, Mutable: false})
 	case *ast.LiteralPattern:
 		litType := constValueType(p.Value)
+		if isUntypedInt(litType) && isInt(scrut) {
+			if p.Value.Kind == ast.ConstInt && intValueFitsType(p.Value.Int, intTypeName(scrut)) {
+				return
+			}
+		}
 		if !typesEqual(litType, scrut) && litType.Kind != TypeInvalid && scrut.Kind != TypeInvalid {
 			c.diag.Add(p.Span(), fmt.Sprintf("literal pattern expects %s, got %s", litType.String(), scrut.String()))
 		}
 	case *ast.RangePattern:
-		if !isInt(scrut) && scrut.Kind != TypeInvalid {
-			c.diag.Add(p.Span(), "range pattern requires int scrutinee")
+		if !isInt(scrut) && !isChar(scrut) && scrut.Kind != TypeInvalid {
+			c.diag.Add(p.Span(), "range pattern requires int or char scrutinee")
 		}
 		if p.Start != nil {
-			st := c.checkExpr(p.Start)
-			if !isInt(st) && st.Kind != TypeInvalid {
+			st := c.checkExprWithExpected(p.Start, scrut)
+			if isChar(scrut) {
+				if !isChar(st) && st.Kind != TypeInvalid {
+					c.diag.Add(p.Start.Span(), "range pattern start must be char")
+				}
+			} else if !isInt(st) && st.Kind != TypeInvalid {
 				c.diag.Add(p.Start.Span(), "range pattern start must be int")
 			}
 		}
 		if p.End != nil {
-			et := c.checkExpr(p.End)
-			if !isInt(et) && et.Kind != TypeInvalid {
+			et := c.checkExprWithExpected(p.End, scrut)
+			if isChar(scrut) {
+				if !isChar(et) && et.Kind != TypeInvalid {
+					c.diag.Add(p.End.Span(), "range pattern end must be char")
+				}
+			} else if !isInt(et) && et.Kind != TypeInvalid {
 				c.diag.Add(p.End.Span(), "range pattern end must be int")
 			}
 		}

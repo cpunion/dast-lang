@@ -154,30 +154,34 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 			return Type{Kind: TypeInvalid}
 		}
 	case *ast.BinaryExpr:
+		savedExpected := c.expectedStack
+		c.expectedStack = nil
 		lhs := c.checkExpr(e.Left)
 		rhs := c.checkExpr(e.Right)
-		lhsIntVal := int64(0)
-		rhsIntVal := int64(0)
-		lhsIsIntLit := false
-		rhsIsIntLit := false
-		if lit, ok := e.Left.(*ast.IntLit); ok {
-			lhsIntVal = lit.Value
-			lhsIsIntLit = true
-		} else if id, ok := e.Left.(*ast.IdentExpr); ok {
-			if cinfo, ok := c.consts[id.Name]; ok && isUntypedInt(cinfo.Type) && cinfo.Value.Kind == ast.ConstInt {
-				lhsIntVal = cinfo.Value.Int
-				lhsIsIntLit = true
+		c.expectedStack = savedExpected
+		var intLiteralValue func(ast.Expr) (int64, bool)
+		intLiteralValue = func(expr ast.Expr) (int64, bool) {
+			switch v := expr.(type) {
+			case *ast.IntLit:
+				return v.Value, true
+			case *ast.UnaryExpr:
+				if v.Op == "-" || v.Op == "+" {
+					if iv, ok := intLiteralValue(v.Expr); ok {
+						if v.Op == "-" {
+							return -iv, true
+						}
+						return iv, true
+					}
+				}
+			case *ast.IdentExpr:
+				if cinfo, ok := c.consts[v.Name]; ok && isUntypedInt(cinfo.Type) && cinfo.Value.Kind == ast.ConstInt {
+					return cinfo.Value.Int, true
+				}
 			}
+			return 0, false
 		}
-		if lit, ok := e.Right.(*ast.IntLit); ok {
-			rhsIntVal = lit.Value
-			rhsIsIntLit = true
-		} else if id, ok := e.Right.(*ast.IdentExpr); ok {
-			if cinfo, ok := c.consts[id.Name]; ok && isUntypedInt(cinfo.Type) && cinfo.Value.Kind == ast.ConstInt {
-				rhsIntVal = cinfo.Value.Int
-				rhsIsIntLit = true
-			}
-		}
+		lhsIntVal, lhsIsIntLit := intLiteralValue(e.Left)
+		rhsIntVal, rhsIsIntLit := intLiteralValue(e.Right)
 		intBinaryResult := func() (Type, bool) {
 			if isChar(lhs) || isChar(rhs) {
 				return Type{}, false

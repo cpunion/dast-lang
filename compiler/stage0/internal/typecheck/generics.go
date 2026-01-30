@@ -152,6 +152,20 @@ func (c *Checker) unifyType(pattern Type, actual Type, subst map[string]Type) bo
 	}
 	if pattern.Kind == TypeParam {
 		if bound, ok := subst[pattern.Name]; ok {
+			if isUntypedInt(bound) && isInt(actual) {
+				subst[pattern.Name] = actual
+				return true
+			}
+			if isUntypedFloat(bound) && isFloat(actual) {
+				subst[pattern.Name] = actual
+				return true
+			}
+			if isInt(bound) && isUntypedInt(actual) {
+				return true
+			}
+			if isFloat(bound) && isUntypedFloat(actual) {
+				return true
+			}
 			return typesEqual(bound, actual)
 		}
 		subst[pattern.Name] = actual

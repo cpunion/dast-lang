@@ -143,7 +143,7 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 		return &ast.LiteralPattern{Value: cv, SpanInfo: tok.Span}
 	case lexer.TokenChar:
 		tok := p.advance()
-		cv := ast.ConstValue{Kind: ast.ConstInt, Int: parseCharLiteral(tok.Lexeme), Span: tok.Span}
+		cv := ast.ConstValue{Kind: ast.ConstChar, Int: parseCharLiteral(tok.Lexeme), Span: tok.Span}
 		return &ast.LiteralPattern{Value: cv, SpanInfo: tok.Span}
 	}
 	if p.peek().Kind == lexer.TokenIdent {

@@ -26,7 +26,7 @@ fn main() {
     let v = (&mut c).add(2)
     println("v", v)
 
-    let mut x = 10
+    let mut x: i32 = 10
     let r = &mut x;
     *r = *r + 1
     println("x", x)

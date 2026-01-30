@@ -14,6 +14,8 @@ func (c *Compiler) compileOperand(expr ast.Expr) ir.Operand {
 	switch e := expr.(type) {
 	case *ast.IntLit:
 		return ir.IntOperand(e.Value)
+	case *ast.CharLit:
+		return ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: e.Value, IntType: "char"})
 	case *ast.FloatLit:
 		return ir.FloatOperand(e.Text)
 	case *ast.BoolLit:
@@ -166,6 +168,8 @@ func (c *Compiler) compileExpr(expr ast.Expr) int {
 		return dst
 	case *ast.IntLit:
 		return c.operandToTemp(ir.IntOperand(e.Value), "i64")
+	case *ast.CharLit:
+		return c.operandToTemp(ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: e.Value, IntType: "char"}), "char")
 	case *ast.BoolLit:
 		return c.operandToTemp(ir.BoolOperand(e.Value), "bool")
 	case *ast.StringLit:

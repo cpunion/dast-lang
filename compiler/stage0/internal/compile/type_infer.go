@@ -14,6 +14,8 @@ func (c *Compiler) inferExprType(e ast.Expr) string {
 	switch e := e.(type) {
 	case *ast.IntLit:
 		return "i64" // Default int type
+	case *ast.CharLit:
+		return "char"
 	case *ast.BoolLit:
 		return "bool"
 	case *ast.StringLit:
