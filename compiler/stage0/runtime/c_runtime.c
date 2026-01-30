@@ -74,6 +74,7 @@ static size_t g_alloc_max_bytes = 0;
 static size_t g_alloc_total_max_bytes = 0;
 static atomic_size_t g_alloc_total_bytes = 0;
 static atomic_size_t g_alloc_total_peak_bytes = 0;
+static int g_alloc_report = 0;
 static int g_array_debug_checked = 0;
 static int g_array_debug = 0;
 static int g_array_bt = 0;
@@ -84,6 +85,7 @@ static pthread_once_t g_alloc_debug_once = PTHREAD_ONCE_INIT;
 static pthread_once_t g_array_debug_once = PTHREAD_ONCE_INIT;
 
 static void dast_drop_debug_report(void);
+static void dast_alloc_report(void);
 
 static void dast_drop_debug_init_once(void) {
 	const char *env = getenv("DAST_DROP_DEBUG");
@@ -133,6 +135,11 @@ static void dast_alloc_debug_init_once(void) {
 		if (mb > 0) {
 			g_alloc_total_max_bytes = (size_t)mb * 1024u * 1024u;
 		}
+	}
+	const char *report = getenv("DAST_ALLOC_REPORT");
+	if (report && *report && strcmp(report, "0") != 0) {
+		g_alloc_report = 1;
+		atexit(dast_alloc_report);
 	}
 }
 
@@ -1305,6 +1312,21 @@ dast_int dast_exec(const DastString *cmd, DastArray *args) {
 		return (dast_int)WEXITSTATUS(status);
 	}
 	return 1;
+}
+
+static void dast_alloc_report(void) {
+	size_t cur = atomic_load_explicit(&g_alloc_total_bytes, memory_order_relaxed);
+	size_t peak = atomic_load_explicit(&g_alloc_total_peak_bytes, memory_order_relaxed);
+	fprintf(stderr, "stage0: <runtime>:0:0: alloc report total=%zu peak=%zu\n", cur, peak);
+}
+
+// Exposed helpers for tests/diagnostics.
+dast_int dast_alloc_total_bytes(void) {
+	return (dast_int)atomic_load_explicit(&g_alloc_total_bytes, memory_order_relaxed);
+}
+
+dast_int dast_alloc_total_peak_bytes(void) {
+	return (dast_int)atomic_load_explicit(&g_alloc_total_peak_bytes, memory_order_relaxed);
 }
 
 DastString *dast_int_to_string(dast_int v) {
