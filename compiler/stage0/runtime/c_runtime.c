@@ -1266,10 +1266,18 @@ dast_int dast_exec(const DastString *cmd, DastArray *args) {
 	}
 	size_t argc = args ? (size_t)args->len : 0;
 	char **argv = (char **)dast_xmalloc(sizeof(char *) * (argc + 2));
+	DastString **owned = NULL;
+	if (argc > 0) {
+		owned = (DastString **)dast_xmalloc(sizeof(DastString *) * argc);
+	}
 	argv[0] = cmd->data;
 	for (size_t i = 0; i < argc; i++) {
 		DastString *arg = (DastString *)(intptr_t)dast_array_get_u_unchecked(args, (dast_int)i);
-		argv[i + 1] = arg ? arg->data : "";
+		DastString *dup = arg ? dast_string_clone(arg) : NULL;
+		if (owned) {
+			owned[i] = dup;
+		}
+		argv[i + 1] = dup ? dup->data : "";
 	}
 	argv[argc + 1] = NULL;
 	pid_t pid = fork();
@@ -1280,6 +1288,14 @@ dast_int dast_exec(const DastString *cmd, DastArray *args) {
 	int status = 0;
 	if (pid > 0) {
 		waitpid(pid, &status, 0);
+	}
+	if (owned) {
+		for (size_t i = 0; i < argc; i++) {
+			if (owned[i]) {
+				dast_string_free(owned[i]);
+			}
+		}
+		dast_xfree(owned);
 	}
 	dast_xfree(argv);
 	if (pid <= 0) {

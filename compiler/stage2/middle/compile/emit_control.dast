@@ -426,7 +426,7 @@ fn build_entry_c(e: &Emitter, main_ret_t: &str) -> String {
     return out
 }
 
-fn run_exec(cmd: String, args: [String]) {
+fn run_exec(cmd: &str, args: [&str]) {
     let code = exec(cmd, args)
     if code != 0 {
         println("exec failed", code)
@@ -493,15 +493,15 @@ fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     write_file(qbe_path, qbe)
     write_file(entry_path, build_entry_c(&alias_e, &main_rt))
 
-    run_exec(string_clone("qbe"), [string_clone("-o"), string_clone(&asm_path), string_clone(&qbe_path)])
-    run_exec(string_clone("cc"), [
-        string_clone("-O2"),
-        string_clone("-std=c99"),
-        string_clone(&asm_path),
-        string_clone(runtime_path),
-        string_clone(&entry_path),
-        string_clone("-o"),
-        string_clone(&out_bin)
+    run_exec("qbe", ["-o", &asm_path, &qbe_path])
+    run_exec("cc", [
+        "-O2",
+        "-std=c99",
+        &asm_path,
+        runtime_path,
+        &entry_path,
+        "-o",
+        &out_bin
     ])
 }
 
@@ -544,20 +544,26 @@ fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64
     write_file(qbe_path, qbe)
     write_file(entry_path, build_entry_c(&alias_e, &main_rt))
 
-    run_exec(string_clone("qbe"), [string_clone("-o"), string_clone(&asm_path), string_clone(&qbe_path)])
-    run_exec(string_clone("cc"), [
-        string_clone("-O2"),
-        string_clone("-std=c99"),
-        string_clone(&asm_path),
-        string_clone(runtime_path),
-        string_clone(&entry_path),
-        string_clone("-o"),
-        string_clone(&out_bin)
+    run_exec("qbe", ["-o", &asm_path, &qbe_path])
+    run_exec("cc", [
+        "-O2",
+        "-std=c99",
+        &asm_path,
+        runtime_path,
+        &entry_path,
+        "-o",
+        &out_bin
     ])
 }
 
 fn compile_and_run_single(src_path: String, run_args: [String], ptr_width: i64) {
     let out_bin = "compiler/stage2/target/min/main"
     compile_native_single(src_path, string_clone(out_bin), ptr_width)
-    let _ = exec(out_bin, run_args)
+    let mut refs: [&str] = []
+    let mut i = 0
+    while i < len(&run_args) {
+        push(&mut refs, &run_args[i])
+        i = i + 1
+    }
+    let _ = exec(out_bin, refs)
 }

@@ -397,98 +397,14 @@ func intValueFitsType(val int64, name string) bool {
 func intPeerTypeName(a, b string) string {
 	la := strings.TrimSpace(a)
 	lb := strings.TrimSpace(b)
-	if intTypeWidth(la) == 0 || intTypeWidth(lb) == 0 {
-		return ""
+	if la == "int" {
+		la = "i64"
 	}
-	abits := intTypeWidth(la)
-	bbits := intTypeWidth(lb)
-	if isUnsignedIntName(la) && abits == 64 && intTypeMin(lb) < 0 {
-		return ""
-	}
-	if isUnsignedIntName(lb) && bbits == 64 && intTypeMin(la) < 0 {
-		return ""
+	if lb == "int" {
+		lb = "i64"
 	}
 	if la == lb {
 		return la
-	}
-	minAll := intTypeMin(la)
-	if intTypeMin(lb) < minAll {
-		minAll = intTypeMin(lb)
-	}
-	maxAll := intTypeMax(la)
-	if intTypeMax(lb) > maxAll {
-		maxAll = intTypeMax(lb)
-	}
-	if la == "int" || lb == "int" {
-		t := la
-		if t != "int" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	if la == "isize" || lb == "isize" {
-		t := la
-		if t != "isize" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	if la == "usize" || lb == "usize" {
-		t := la
-		if t != "usize" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	if la == "char" || lb == "char" {
-		t := la
-		if t != "char" {
-			t = lb
-		}
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	signed := []string{"i8", "i16", "i32"}
-	if ptrWidthBytes() == 4 {
-		signed = append(signed, "isize")
-	}
-	signed = append(signed, "i64")
-	if ptrWidthBytes() == 8 {
-		signed = append(signed, "isize")
-	}
-	signed = append(signed, "int")
-	unsigned := []string{"u8", "u16", "u32", "char"}
-	if ptrWidthBytes() == 4 {
-		unsigned = append(unsigned, "usize")
-	}
-	unsigned = append(unsigned, "u64")
-	if ptrWidthBytes() == 8 {
-		unsigned = append(unsigned, "usize")
-	}
-	if minAll < 0 {
-		for _, t := range signed {
-			if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-				return t
-			}
-		}
-		return ""
-	}
-	for _, t := range unsigned {
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
-	}
-	for _, t := range signed {
-		if intTypeMin(t) <= minAll && intTypeMax(t) >= maxAll {
-			return t
-		}
 	}
 	return ""
 }

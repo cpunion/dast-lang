@@ -246,6 +246,43 @@ fn test_double_ref_rejected() {
     }
 }
 
+fn test_int_peer_type_zip() {
+    let types = int_type_list()
+    let mut e = emitter_new()
+    let mut i = 0
+    while i < len(&types) {
+        let mut j = 0
+        while j < len(&types) {
+            let t1 = string_clone(&types[i])
+            let t2 = string_clone(&types[j])
+            let r1 = type_resolve(&e, &t1)
+            let r2 = type_resolve(&e, &t2)
+            let pt = int_peer_type(&e, &t1, &t2)
+            if r1 == r2 {
+                assert_str_eq(pt, r1)
+            } else {
+                if pt != "" {
+                    println("expected no peer type", t1, t2, pt)
+                    exit(1)
+                }
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+fn test_float_peer_type_zip() {
+    let mut e = setup_emitter_types("f32", "f64")
+    let lhs = expr_ident("a")
+    let rhs = expr_ident("b")
+    let pt = float_bin_result_type(&e, &lhs, &rhs)
+    if pt != "" {
+        println("expected no float peer type for f32/f64", pt)
+        exit(1)
+    }
+}
+
 fn assert_i64_eq(got: i64, exp: i64) {
     if got != exp {
         println("assert_i64_eq failed", got, exp)

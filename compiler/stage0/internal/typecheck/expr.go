@@ -54,7 +54,10 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		for _, elem := range e.Elems[1:] {
 			t := c.checkExpr(elem)
 			if !typesEqual(t, elemType) && t.Kind != TypeInvalid && elemType.Kind != TypeInvalid {
-				c.diag.Add(elem.Span(), fmt.Sprintf("array element expects %s, got %s", elemType.String(), t.String()))
+				// Allow mixing &String / &str in array literals (e.g. [&str] arguments).
+				if !(isString(t) && isString(elemType)) {
+					c.diag.Add(elem.Span(), fmt.Sprintf("array element expects %s, got %s", elemType.String(), t.String()))
+				}
 			}
 		}
 		return Type{Kind: TypeArray, Elem: &elemType}
@@ -700,12 +703,12 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				if !isString(cmdType) && cmdType.Kind != TypeInvalid {
 					c.diag.Add(e.Args[0].Span(), "exec expects String/str command")
 				}
-				argsType := c.checkExpr(e.Args[1])
-				if argsType.Kind != TypeArray || argsType.Elem == nil || argsType.Elem.Kind != TypeString {
-					if argsType.Kind != TypeInvalid {
-						c.diag.Add(e.Args[1].Span(), "exec expects [String] args")
-					}
-				}
+                argsType := c.checkExpr(e.Args[1])
+                if argsType.Kind != TypeArray || argsType.Elem == nil || !isString(*argsType.Elem) {
+                    if argsType.Kind != TypeInvalid {
+                        c.diag.Add(e.Args[1].Span(), "exec expects [&str] args")
+                    }
+                }
 				return Type{Kind: TypeInt, Name: "int"}
 			default:
 				for _, arg := range e.Args {

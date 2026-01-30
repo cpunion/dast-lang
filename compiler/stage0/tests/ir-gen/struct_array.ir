@@ -51,7 +51,7 @@ fn main() -> unit
     store_ref t13, 6
     t14: int = load a
     t15: i64 = load b
-    t16: int = + t14, t15
+    t16: i64 = + t14, t15
     t17: unit = call println("sum", t16)
     t18: [i64] = load arr
     call __drop_array_i64(t18)

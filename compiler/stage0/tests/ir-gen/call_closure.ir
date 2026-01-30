@@ -28,7 +28,7 @@ fn __drop__Env(v: $Env) -> unit
 
 fn add(a: int, b: int) -> int
   block entry0:
-    t0: int = + a, b
+    t0: i64 = + a, b
     return t0
 
 fn main() -> unit

@@ -132,7 +132,13 @@ fn main() {
     } else {
         compile_native_single(src_path, string_clone(&out_bin), ptr_width)
     }
-    let code = exec(out_bin, run_args)
+    let mut refs: [&str] = []
+    let mut i = 0
+    while i < len(&run_args) {
+        push(&mut refs, &run_args[i])
+        i = i + 1
+    }
+    let code = exec(&out_bin, refs)
     if code != 0 {
         println("run-exit", code)
         exit(code)

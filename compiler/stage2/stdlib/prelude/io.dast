@@ -30,7 +30,7 @@ fn read_bytes(count: i64) -> String {
     return string_clone("")
 }
 
-fn exec(cmd: &str, args: [String]) -> i64 {
+fn exec(cmd: &str, args: [&str]) -> i64 {
     return 0
 }
 
