@@ -908,10 +908,18 @@ fn type_strip_args(e: &Emitter, t: &str) -> String {
 
 fn qbe_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
+    if type_is_enum(e, &rt) {
+        if enum_has_payload(e, &rt) {
+            if e.ptr_size == 4 { return string_clone("w") }
+            return string_clone("l")
+        }
+        let tag_t = enum_tag_type(e, &rt)
+        return qbe_type(e, &tag_t)
+    }
     if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
+        if e.ptr_size == 4 { return string_clone("w") }
         return string_clone("l")
     }
-    if type_is_enum(e, &rt) { return string_clone("l") }
     if rt == "bool" { return string_clone("w") }
     if rt == "f32" { return string_clone("s") }
     if rt == "f64" { return string_clone("d") }
@@ -959,13 +967,17 @@ fn qbe_cmp_op(e: &Emitter, op: String, typ: String) -> String {
 
 fn store_op_for_type(e: &Emitter, t: &str) -> String {
     let rt = type_resolve(e, t)
-    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
-        return string_clone("storel")
-    }
     if type_is_enum(e, &rt) {
-        if enum_has_payload(e, &rt) { return string_clone("storel") }
+        if enum_has_payload(e, &rt) {
+            if e.ptr_size == 4 { return string_clone("storew") }
+            return string_clone("storel")
+        }
         let tag_t = enum_tag_type(e, &rt)
         return store_op_for_type(e, &tag_t)
+    }
+    if type_is_ref(e, &rt) || type_is_array(e, &rt) || type_is_string(e, &rt) || type_is_struct(e, &rt) {
+        if e.ptr_size == 4 { return string_clone("storew") }
+        return string_clone("storel")
     }
     if rt == "bool" { return string_clone("storeb") }
     if rt == "f32" { return string_clone("stores") }

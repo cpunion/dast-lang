@@ -839,6 +839,22 @@ fn test_type_size_align_basic() {
     assert_i64_eq(type_align(&e32, "str"), 4)
 }
 
+fn test_qbe_type_ptr_width() {
+    let mut e64 = emitter_new_with_target(64)
+    assert_str_eq(qbe_type(&e64, "&i32"), "l")
+    assert_str_eq(qbe_type(&e64, "String"), "l")
+    assert_str_eq(store_op_for_type(&e64, "&i32"), "storel")
+    add_enum_sig_simple(&mut e64, "Eptr64")
+    assert_str_eq(qbe_type(&e64, "Eptr64"), "w")
+
+    let mut e32 = emitter_new_with_target(32)
+    assert_str_eq(qbe_type(&e32, "&i32"), "w")
+    assert_str_eq(qbe_type(&e32, "String"), "w")
+    assert_str_eq(store_op_for_type(&e32, "&i32"), "storew")
+    add_enum_sig_simple(&mut e32, "Eptr32")
+    assert_str_eq(qbe_type(&e32, "Eptr32"), "w")
+}
+
 fn test_struct_layout_c() {
     let mut e = emitter_new_with_target(64)
     let mut fields_s: [StructFieldSig] = []

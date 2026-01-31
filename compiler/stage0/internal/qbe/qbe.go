@@ -1501,6 +1501,9 @@ func qbeType(typ string) string {
 		return "w"
 	}
 	if isRefType(typ) || isArrayType(typ) || isStructType(typ) || isStringType(typ) || isEnumType(typ) {
+		if ptrWidthBytesFromEnv() == 4 {
+			return "w"
+		}
 		return "l"
 	}
 	if typ == "bool" {
@@ -1523,12 +1526,29 @@ func qbeType(typ string) string {
 	return "l"
 }
 
+func ptrWidthBytesFromEnv() int64 {
+	if v := os.Getenv("DAST_TARGET_PTR_WIDTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n == 32 {
+				return 4
+			}
+			if n == 64 {
+				return 8
+			}
+		}
+	}
+	return 8
+}
+
 func storeOpForType(e *emitter, p *ir.Program, t string) string {
 	t = normalizeType(t)
 	if isRefType(t) || isArrayType(t) || isStructType(t) || isStringType(t) || isEnumType(t) {
 		if isEnumTypeName(p, t) && !enumHasPayload(p, t) {
 			tagT := enumTagType(p, t)
 			return storeOpForType(e, p, tagT)
+		}
+		if e.ptrSize == 4 {
+			return "storew"
 		}
 		return "storel"
 	}

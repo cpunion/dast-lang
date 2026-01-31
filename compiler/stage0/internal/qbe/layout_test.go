@@ -1,6 +1,7 @@
 package qbe
 
 import (
+	"os"
 	"testing"
 
 	"dastlang/internal/ir"
@@ -195,5 +196,29 @@ func TestStructLayoutC(t *testing.T) {
 	}
 	if got := structLayoutSize(e32, p, "P"); got != 12 {
 		t.Fatalf("P size (32-bit) = %d, want 12", got)
+	}
+}
+
+func TestQbePtrTypeWidth(t *testing.T) {
+	prev := os.Getenv("DAST_TARGET_PTR_WIDTH")
+	defer func() {
+		if prev == "" {
+			_ = os.Unsetenv("DAST_TARGET_PTR_WIDTH")
+		} else {
+			_ = os.Setenv("DAST_TARGET_PTR_WIDTH", prev)
+		}
+	}()
+
+	if err := os.Setenv("DAST_TARGET_PTR_WIDTH", "32"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if got := qbeType("*i32"); got != "w" {
+		t.Fatalf("qbeType ptr (32-bit) = %s, want w", got)
+	}
+	if err := os.Setenv("DAST_TARGET_PTR_WIDTH", "64"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	if got := qbeType("*i32"); got != "l" {
+		t.Fatalf("qbeType ptr (64-bit) = %s, want l", got)
 	}
 }
