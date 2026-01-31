@@ -1,5 +1,7 @@
 # IR v0 简化记录
 
+> 本文是 IR v0 的**设计演进笔记**与简化过程记录，规范以 `docs/19-ir-spec.md` 为准。
+
 ## 已完成的简化
 
 ### 1. 合并 IndexUnchecked/SetIndexUnchecked
