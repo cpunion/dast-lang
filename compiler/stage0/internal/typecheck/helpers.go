@@ -84,9 +84,13 @@ func (c *Checker) fromAstType(t ast.Type) Type {
 		c.diag.Add(t.Span, "use 'String' or 'str' instead of 'string'")
 		return Type{Kind: TypeInvalid}
 	}
+	if name == "i128" || name == "u128" {
+		c.diag.Add(t.Span, "type '"+name+"' is reserved but not supported yet")
+		return Type{Kind: TypeInvalid}
+	}
 	base := Type{Kind: TypeInvalid, Name: name}
 	switch name {
-	case "int", "i8", "i16", "i32", "i64", "i128", "u8", "u16", "u32", "u64", "u128", "isize", "usize", "char", "untyped-int":
+	case "int", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "isize", "usize", "char", "untyped-int":
 		base.Kind = TypeInt
 		base.Name = name
 	case "f32", "f64", "untyped-float":
@@ -440,6 +444,25 @@ func intValueFitsType(val int64, name string) bool {
 	return val >= intTypeMin(name) && val <= intTypeMax(name)
 }
 
+func intLiteralFitsFloat(val int64, name string) bool {
+	var maxExact int64
+	switch strings.TrimSpace(name) {
+	case "f32":
+		maxExact = 16777216
+	case "f64":
+		maxExact = 9007199254740992
+	default:
+		return false
+	}
+	if val == i64MinValue() {
+		return false
+	}
+	if val < 0 {
+		val = -val
+	}
+	return val <= maxExact
+}
+
 func intPeerTypeName(a, b string) string {
 	la := canonicalIntName(a)
 	lb := canonicalIntName(b)
@@ -471,8 +494,8 @@ func constValueType(v ast.ConstValue) Type {
 
 func isValidEnumRepr(name string) bool {
 	switch name {
-	case "i8", "i16", "i32", "i64", "i128",
-		"u8", "u16", "u32", "u64", "u128",
+	case "i8", "i16", "i32", "i64",
+		"u8", "u16", "u32", "u64",
 		"isize", "usize":
 		return true
 	default:

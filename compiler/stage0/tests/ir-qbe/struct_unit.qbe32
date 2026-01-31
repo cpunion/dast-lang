@@ -1,0 +1,27 @@
+data $str_data_0 = { b "Foo", b 0 }
+data $str_0 = { l $str_data_0, l 3, l 4 }
+data $str_data_1 = { b "a", b 0 }
+data $str_1 = { l $str_data_1, l 1, l 2 }
+data $str_data_2 = { b "u", b 0 }
+data $str_2 = { l $str_data_2, l 1, l 2 }
+data $str_data_3 = { b "b", b 0 }
+data $str_3 = { l $str_data_3, l 1, l 2 }
+
+export function l $dast_user_main() {
+@entry
+
+@entry
+  %t0 =l call $dast_alloc(l $str_data_0, l 16, l 8)
+  %t4 =l add %t0, 0
+  storel 1, %t4
+  %t5 =l add %t0, 8
+  storel 2, %t5
+  %t6 =l add %t0, 0
+  %t1 =l load %t6
+  %t7 =l add %t0, 8
+  %t2 =l load %t7
+  %t3 =l add %t1, %t2
+  ret %t3
+
+}
+

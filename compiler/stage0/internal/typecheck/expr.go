@@ -19,7 +19,11 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				return Type{Kind: TypeInvalid}
 			}
 			if isFloat(exp) {
-				return exp
+				if intLiteralFitsFloat(e.Value, exp.Name) {
+					return exp
+				}
+				c.diag.Add(e.Span(), fmt.Sprintf("int literal out of range for %s", exp.String()))
+				return Type{Kind: TypeInvalid}
 			}
 			if isChar(exp) {
 				c.diag.Add(e.Span(), "int literal cannot coerce to char")
@@ -254,19 +258,31 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 				return rhs, true
 			}
 			if lhsTyped && rhsIsIntLit {
-				return lhs, true
+				if intLiteralFitsFloat(rhsIntVal, lhs.Name) {
+					return lhs, true
+				}
+				return Type{}, false
 			}
 			if rhsTyped && lhsIsIntLit {
-				return rhs, true
+				if intLiteralFitsFloat(lhsIntVal, rhs.Name) {
+					return rhs, true
+				}
+				return Type{}, false
 			}
 			if lhsUntyped && rhsUntyped {
 				return Type{Kind: TypeFloat, Name: "untyped-float"}, true
 			}
 			if lhsUntyped && rhsIsIntLit {
-				return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+				if intLiteralFitsFloat(rhsIntVal, "f64") {
+					return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+				}
+				return Type{}, false
 			}
 			if rhsUntyped && lhsIsIntLit {
-				return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+				if intLiteralFitsFloat(lhsIntVal, "f64") {
+					return Type{Kind: TypeFloat, Name: "untyped-float"}, true
+				}
+				return Type{}, false
 			}
 			return Type{}, false
 		}

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"dastlang/internal/ast"
 	"dastlang/internal/compile"
@@ -22,6 +23,29 @@ import (
 	"dastlang/internal/source"
 	"dastlang/internal/typecheck"
 )
+
+func hostPtrWidth() int {
+	return int(unsafe.Sizeof(uintptr(0)) * 8)
+}
+
+func targetPtrWidthFromEnv() int {
+	if v := os.Getenv("DAST_TARGET_PTR_WIDTH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n == 32 || n == 64 {
+				return n
+			}
+		}
+	}
+	return 0
+}
+
+func shouldInterpret() bool {
+	target := targetPtrWidthFromEnv()
+	if target == 0 {
+		return false
+	}
+	return target != hostPtrWidth()
+}
 
 func main() {
 	applyMemLimit()
@@ -118,6 +142,16 @@ func run(args []string) {
 	if irProg == nil {
 		return
 	}
+	if shouldInterpret() {
+		rt := interp.New(irProg)
+		if len(progArgs) > 0 {
+			rt.Args = progArgs
+		}
+		if _, err := rt.Run(irProg.Entry); err != nil {
+			exitOnRunErr(err)
+		}
+		return
+	}
 	if err := buildAndRun(irProg, progArgs); err != nil {
 		exitOnExecErr(err)
 	}
@@ -167,9 +201,17 @@ func testCmd(args []string) {
 		irProg.Entry = entry
 	}
 	fmt.Fprintln(os.Stderr, "[test] run start")
-	if err := buildAndRun(irProg, nil); err != nil {
-		fmt.Fprintf(os.Stderr, "[test] run error: %v\n", err)
-		exitOnExecErr(err)
+	if shouldInterpret() {
+		rt := interp.New(irProg)
+		if _, err := rt.Run(irProg.Entry); err != nil {
+			fmt.Fprintf(os.Stderr, "[test] run error: %v\n", err)
+			exitOnRunErr(err)
+		}
+	} else {
+		if err := buildAndRun(irProg, nil); err != nil {
+			fmt.Fprintf(os.Stderr, "[test] run error: %v\n", err)
+			exitOnExecErr(err)
+		}
 	}
 	fmt.Fprintln(os.Stderr, "[test] run ok")
 }

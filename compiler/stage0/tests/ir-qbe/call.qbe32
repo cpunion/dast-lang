@@ -1,0 +1,26 @@
+data $str_data_0 = { b "func", b 0 }
+data $str_0 = { l $str_data_0, l 4, l 5 }
+data $str_data_1 = { b "env", b 0 }
+data $str_1 = { l $str_data_1, l 3, l 4 }
+
+export function l $dast_user_add(l %t0, l %t1) {
+@entry
+
+@entry
+  %t2 =l add %t0, %t1
+  ret %t2
+
+}
+
+export function l $dast_user_main() {
+@entry
+
+@entry
+  %t1 =l call $dast_mem_load_u(l 0, l 0, l 4)
+  %t2 =l call $dast_mem_load_u(l 0, l 4, l 4)
+  call %t1(l %t2)
+  %t0 =l call $dast_user_add(l 1, l 2)
+  ret %t0
+
+}
+

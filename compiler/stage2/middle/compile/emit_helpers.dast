@@ -716,7 +716,8 @@ fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str
 fn emit_mem_field_addr(e: &mut Emitter, base_expr: &str, off: i64, size: i64) -> String {
     let tmp = new_temp(e)
     let tn = temp_name(tmp)
-    emit_line(e, "  " + tn + " =l add " + string_clone(base_expr) + ", " + int_to_string(off))
+    let ptr_q = qbe_type(e, "&i8")
+    emit_line(e, "  " + tn + " =" + ptr_q + " add " + string_clone(base_expr) + ", " + int_to_string(off))
     return tn
 }
 

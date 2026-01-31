@@ -237,8 +237,8 @@ func tupleTypeName(elemTypes []string) string {
 
 func isIntTypeName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "int", "i8", "i16", "i32", "i64", "i128",
-		"u8", "u16", "u32", "u64", "u128",
+	case "int", "i8", "i16", "i32", "i64",
+		"u8", "u16", "u32", "u64",
 		"isize", "usize":
 		return true
 	default:

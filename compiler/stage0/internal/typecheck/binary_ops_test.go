@@ -130,6 +130,21 @@ fn main() {
 `)
 }
 
+func TestFloatIntLiteralRangeRejected(t *testing.T) {
+	checkTypeErr(t, `
+fn main() {
+    let a: f32 = 16777217
+    let _ = a
+}
+`, "out of range")
+	checkTypeErr(t, `
+fn main() {
+    let a: f64 = 9007199254740993
+    let _ = a
+}
+`, "out of range")
+}
+
 func TestShiftRequiresUnsigned(t *testing.T) {
 	checkTypeErr(t, `
 fn main() {

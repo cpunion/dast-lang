@@ -242,6 +242,7 @@ test-ir-qbe-simple: build-stage0
 		echo "[ir-qbe-simple] $$f"; \
 		tmp="/tmp/dast-ir-qbe-$$.qbe"; \
 		exp="$${f%.ir}.qbe"; \
+		if [ "$(DAST_TARGET_PTR_WIDTH)" = "32" ] && [ -f "$${f%.ir}.qbe32" ]; then exp="$${f%.ir}.qbe32"; fi; \
 		if [ ! -f "$$exp" ]; then echo "missing $$exp"; exit 1; fi; \
 		$(STAGE0_RUNNER) ir-qbe $$f > $$tmp || exit 1; \
 		diff -u "$$exp" "$$tmp" || exit 1; \
@@ -253,6 +254,7 @@ test-ir-qbe-combo: build-stage0
 		echo "[ir-qbe-combo] $$f"; \
 		tmp="/tmp/dast-ir-qbe-$$.qbe"; \
 		exp="$${f%.ir}.qbe"; \
+		if [ "$(DAST_TARGET_PTR_WIDTH)" = "32" ] && [ -f "$${f%.ir}.qbe32" ]; then exp="$${f%.ir}.qbe32"; fi; \
 		if [ ! -f "$$exp" ]; then echo "missing $$exp"; exit 1; fi; \
 		$(STAGE0_RUNNER) ir-qbe $$f > $$tmp || exit 1; \
 		diff -u "$$exp" "$$tmp" || exit 1; \
@@ -313,7 +315,7 @@ test-stage2v2: test-stage2
 
 test-stage2-bootstrap: build-stage0
 	@tmp=$$(mktemp); $(STAGE2_MEM_LIMIT_CMD) \
-	$(STAGE2_RUNNER) ir $(STAGE2_DIRS) > $$tmp || exit 1; \
+	$(STAGE2_RUNNER) ir $(STAGE2V2_FILES) > $$tmp || exit 1; \
 	for d in $(STAGE2_RUN_TEST_DIRS); do \
 		echo "[stage2-test] $$d"; \
 		out=$$($(STAGE2_RUNNER) ir-run $$tmp -- test --bootstrap $$d 2>&1); \
@@ -492,7 +494,12 @@ test-ir-opt: build-stage0
 test:
 	@echo "[test] start"
 	@$(MAKE) test-stage0
-	@$(MAKE) test-stage2
+	@if [ "$(DAST_TARGET_PTR_WIDTH)" = "32" ]; then \
+		echo "[test] ptr32: using stage2 bootstrap"; \
+		$(MAKE) test-stage2-bootstrap; \
+	else \
+		$(MAKE) test-stage2; \
+	fi
 	@$(MAKE) test-ir
 	@$(MAKE) test-ir-verify
 	@$(MAKE) test-ir-opt

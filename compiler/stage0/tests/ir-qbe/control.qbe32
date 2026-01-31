@@ -1,0 +1,19 @@
+export function l $dast_user_main(l %t0) {
+@entry
+
+@entry
+  %t1 =w ceql %t0, 0
+  jnz %t1, @then, @else
+
+@then
+  jmp @done
+
+@else
+  jmp @done
+
+@done
+  %t2 =l add 1, 2
+  ret %t2
+
+}
+

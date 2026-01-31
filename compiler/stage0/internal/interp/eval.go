@@ -646,6 +646,24 @@ func (rt *Runtime) builtinExec() Builtin {
 	}
 }
 
+func (rt *Runtime) builtinAllocTotalBytes() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 0 {
+			return ir.Value{Kind: ir.KindUnit}, fmt.Errorf("alloc_total_bytes expects 0 args")
+		}
+		return ir.Value{Kind: ir.KindInt, Int: 0}, nil
+	}
+}
+
+func (rt *Runtime) builtinAllocTotalPeakBytes() Builtin {
+	return func(args []ir.Value) (ir.Value, error) {
+		if len(args) != 0 {
+			return ir.Value{Kind: ir.KindUnit}, fmt.Errorf("alloc_total_peak_bytes expects 0 args")
+		}
+		return ir.Value{Kind: ir.KindInt, Int: 0}, nil
+	}
+}
+
 func (rt *Runtime) builtinAst(kind ir.AstKind) Builtin {
 	return func(args []ir.Value) (ir.Value, error) {
 		if len(args) != 1 && len(args) != 2 {

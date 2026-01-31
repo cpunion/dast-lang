@@ -1,0 +1,35 @@
+data $str_data_0 = { b "Point", b 0 }
+data $str_0 = { l $str_data_0, l 5, l 6 }
+data $str_data_1 = { b "x", b 0 }
+data $str_1 = { l $str_data_1, l 1, l 2 }
+data $str_data_2 = { b "y", b 0 }
+data $str_2 = { l $str_data_2, l 1, l 2 }
+
+export function l $dast_user_main() {
+@entry
+
+@entry
+  %t0 =l call $dast_alloc(l $str_data_0, l 16, l 8)
+  %t7 =l add %t0, 0
+  storel 1, %t7
+  %t8 =l add %t0, 8
+  storel 2, %t8
+  %t9 =l add %t0, 0
+  %t1 =l load %t9
+  %t10 =l add %t0, 8
+  storel 3, %t10
+  %t2 =l add %t0, 8
+  storel 4, %t2
+  %t3 =l call $dast_array_new(l 8, l 8, l 3)
+  call $dast_array_push(l %t3, l 1)
+  call $dast_array_push(l %t3, l 2)
+  call $dast_array_push(l %t3, l 3)
+  %t4 =l call $dast_array_get_s(l %t3, l 1)
+  call $dast_array_set(l %t3, l 2, l 5)
+  %t5 =l call $dast_array_index_addr(l %t3, l 0)
+  storel 6, %t5
+  %t6 =l add %t1, %t4
+  ret %t6
+
+}
+

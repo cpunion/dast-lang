@@ -43,8 +43,12 @@ std/
 
 ```dast
 // 整数
-i8, i16, i32, i64, i128, isize
-u8, u16, u32, u64, u128, usize
+i8, i16, i32, i64, isize
+u8, u16, u32, u64, usize
+int   // 等价于 i64
+
+// 预留（尚未实现）
+// i128, u128
 
 // 浮点数
 f32, f64

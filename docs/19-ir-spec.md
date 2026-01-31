@@ -105,7 +105,9 @@ IR v0 运行时值（解释器/IR 级语义）：
 - `ast`（宏系统用）
 
 **整数类型名集合**：
-`i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 isize usize char`
+`i8 i16 i32 i64 u8 u16 u32 u64 isize usize char int`
+
+> 注：`i128/u128` 为设计预留，当前 stage0/stage2 尚未实现。
 
 ---
 
@@ -261,4 +263,3 @@ IR v0 经历的主要简化：
    `addr_of` → `load_addr`；`load_ref/store_ref` 通过 `LoadVar/StoreVar` 标记
 4. **移除 UnaryOp/Const**  
    一元运算降级为二元；常量直接作为 operand
-

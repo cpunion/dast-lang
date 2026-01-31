@@ -199,8 +199,8 @@ fn test_untyped_binary_coercion_float() {
         exit(1)
     }
     let iexpr = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
-    if !type_compatible_expr(&e, "f64", &iexpr) {
-        println("expected untyped int binary to coerce to f64")
+    if type_compatible_expr(&e, "f64", &iexpr) {
+        println("expected untyped int binary to reject for float")
         exit(1)
     }
 }
@@ -218,8 +218,8 @@ fn test_untyped_unary_coercion() {
         exit(1)
     }
     let u3 = expr_unary(string_clone("-"), expr_int(1))
-    if !type_compatible_expr(&e, "f64", &u3) {
-        println("expected untyped int unary to coerce to f64")
+    if type_compatible_expr(&e, "f64", &u3) {
+        println("expected untyped int unary to reject for float")
         exit(1)
     }
 }
@@ -451,6 +451,14 @@ fn test_char_literal_type() {
     assert_str_eq(t, "char")
 }
 
+fn test_char_compare_allowed() {
+    let mut e = setup_emitter_types("char", "char")
+    let lt = bin_expr_types("<")
+    let eq = bin_expr_types("==")
+    assert_str_eq(expr_type(&e, &lt), "bool")
+    assert_str_eq(expr_type(&e, &eq), "bool")
+}
+
 fn test_len_ref_depth_guard() {
     let mut e = emitter_new()
     let t_arr = string_clone("&[i64]")
@@ -463,6 +471,45 @@ fn test_len_ref_depth_guard() {
         println("expected len to accept &str")
         exit(1)
     }
+}
+
+fn test_float_int_literal_allowed() {
+    let mut e = setup_emitter_types("f32", "i32")
+    let expr = expr_binary(string_clone("+"), expr_ident("a"), expr_int(1))
+    assert_str_eq(expr_type(&e, &expr), "f32")
+}
+
+fn test_float_int_literal_range() {
+    let mut e = setup_emitter_types("f32", "i32")
+    let lhs = expr_ident("a")
+    let rhs = expr_int(16777217)
+    let ft = float_bin_result_type(&e, &lhs, &rhs)
+    if ft != "" {
+        println("expected float literal range reject for f32", ft)
+        exit(1)
+    }
+    if type_compatible_expr(&e, "f32", &rhs) {
+        println("expected int literal not to fit f32")
+        exit(1)
+    }
+
+    let mut e2 = setup_emitter_types("f64", "i32")
+    let rhs2 = expr_int(9007199254740993)
+    let ft2 = float_bin_result_type(&e2, &lhs, &rhs2)
+    if ft2 != "" {
+        println("expected float literal range reject for f64", ft2)
+        exit(1)
+    }
+    if type_compatible_expr(&e2, "f64", &rhs2) {
+        println("expected int literal not to fit f64")
+        exit(1)
+    }
+}
+
+fn test_default_untyped_types() {
+    let mut e = emitter_new()
+    assert_str_eq(default_untyped_type(&e, "untyped-int"), "i64")
+    assert_str_eq(default_untyped_type(&e, "untyped-float"), "f64")
 }
 
 fn test_double_ref_rejected() {

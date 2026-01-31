@@ -165,6 +165,8 @@ func New(prog *ir.Program) *Runtime {
 		"read_line":     rt.builtinReadLine(),
 		"read_bytes":    rt.builtinReadBytes(),
 		"exec":          rt.builtinExec(),
+		"alloc_total_bytes":      rt.builtinAllocTotalBytes(),
+		"alloc_total_peak_bytes": rt.builtinAllocTotalPeakBytes(),
 		"ast_expr":      rt.builtinAst(ir.AstExpr),
 		"ast_stmt":      rt.builtinAst(ir.AstStmt),
 		"ast_item":      rt.builtinAst(ir.AstItem),

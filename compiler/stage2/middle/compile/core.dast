@@ -622,6 +622,10 @@ fn type_resolve(e: &Emitter, t: &str) -> String {
     let cur = string_clone(t)
     if cur == "" { return cur }
     if cur == "int" { return string_clone("i64") }
+    if cur == "i128" || cur == "u128" {
+        println("stage2: type", cur, "is reserved but not supported yet")
+        exit(1)
+    }
     if cur == "string" {
         println("stage2: use String/str instead of string")
         exit(1)
@@ -793,6 +797,22 @@ fn int_value_fits_type(e: &Emitter, val: i64, t: &str) -> bool {
     let min_t = int_type_min(e, t)
     let max_t = int_type_max(e, t)
     return val >= min_t && val <= max_t
+}
+
+fn int_value_fits_float(e: &Emitter, val: i64, t: &str) -> bool {
+    let rt = type_resolve(e, t)
+    let mut max_exact: i64 = 0
+    if rt == "f32" {
+        max_exact = 16777216
+    } else if rt == "f64" {
+        max_exact = 9007199254740992
+    } else {
+        return false
+    }
+    if val == i64_min_value() { return false }
+    let mut abs = val
+    if abs < 0 { abs = -abs }
+    return abs <= max_exact
 }
 
 fn int_peer_type(e: &Emitter, lt: &str, rt: &str) -> String {

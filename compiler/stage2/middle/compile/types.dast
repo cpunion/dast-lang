@@ -534,13 +534,20 @@ fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
         if base == "str" && actual_rt == "String" { return true }
     }
     if expr.kind == EXPR_STRING && declared == "String" { return true }
-    if actual_rt == "untyped-int" && (type_is_int(e, &declared) || type_is_float(e, &declared)) { return true }
+    if actual_rt == "untyped-int" {
+        if type_is_int(e, &declared) { return true }
+        if type_is_float(e, &declared) && expr_is_int_literal(expr) {
+            return int_value_fits_float(e, expr_int_literal_value(expr), &declared)
+        }
+    }
     if actual_rt == "untyped-float" && type_is_float(e, &declared) { return true }
     if expr_is_float_literal(expr) && type_is_float(e, &declared) { return true }
     if expr_is_int_literal(expr) && type_is_int(e, &declared) {
         return int_value_fits_type(e, expr_int_literal_value(expr), &declared)
     }
-    if expr_is_int_literal(expr) && type_is_float(e, &declared) { return true }
+    if expr_is_int_literal(expr) && type_is_float(e, &declared) {
+        return int_value_fits_float(e, expr_int_literal_value(expr), &declared)
+    }
     if type_is_array(e, &declared) && expr.kind == EXPR_ARRAY {
         let elem_t = type_array_elem(e, &declared)
         let mut i = 0
@@ -1192,11 +1199,23 @@ fn float_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     }
     if ltf && rtu { return string_clone(&lt) }
     if rtf && ltu { return string_clone(&rt) }
-    if ltf && expr_is_int_literal(rhs) { return string_clone(&lt) }
-    if rtf && expr_is_int_literal(lhs) { return string_clone(&rt) }
+    if ltf && expr_is_int_literal(rhs) {
+        if int_value_fits_float(e, expr_int_literal_value(rhs), &lt) { return string_clone(&lt) }
+        return string_clone("")
+    }
+    if rtf && expr_is_int_literal(lhs) {
+        if int_value_fits_float(e, expr_int_literal_value(lhs), &rt) { return string_clone(&rt) }
+        return string_clone("")
+    }
     if ltu && rtu { return string_clone("untyped-float") }
-    if ltu && expr_is_int_literal(rhs) { return string_clone("untyped-float") }
-    if rtu && expr_is_int_literal(lhs) { return string_clone("untyped-float") }
+    if ltu && expr_is_int_literal(rhs) {
+        if int_value_fits_float(e, expr_int_literal_value(rhs), "f64") { return string_clone("untyped-float") }
+        return string_clone("")
+    }
+    if rtu && expr_is_int_literal(lhs) {
+        if int_value_fits_float(e, expr_int_literal_value(lhs), "f64") { return string_clone("untyped-float") }
+        return string_clone("")
+    }
     return string_clone("")
 }
 

@@ -1,0 +1,113 @@
+data $str_data_0 = { b "_tag", b 0 }
+data $str_0 = { l $str_data_0, l 4, l 5 }
+data $str_data_1 = { b "_payload", b 0 }
+data $str_1 = { l $str_data_1, l 8, l 9 }
+data $str_data_2 = { b "OptBox", b 0 }
+data $str_2 = { l $str_data_2, l 6, l 7 }
+
+export function w $dast_user___drop_Box(w %t0) {
+@entry
+
+@entry0
+  %t1 =l add 0, 0
+  %t3 =l extsw %t0
+  %t2 =w ceql %t3, %t1
+  jnz %t2, @done2, @drop1
+
+@drop1
+  call $dast_free(w %t0)
+  jmp @done2
+
+@done2
+  ret
+
+}
+
+export function w $dast_user___drop_OptBox(w %t0) {
+@entry
+
+@entry0
+  %t1 =l add 0, 0
+  %t6 =l extsw %t0
+  %t2 =w ceql %t6, %t1
+  jnz %t2, @done2, @check1
+
+@check1
+  %t8 =l add %t0, 0
+  %t7 =w loadsw %t8
+  %t3 =w copy %t7
+  jmp @check_v5
+
+@done2
+  ret
+
+@free3
+  call $dast_free(w %t0)
+  jmp @done2
+
+@drop_v4
+  %t10 =l add %t0, 8
+  %t9 =l call $dast_alloc(l $str_data_3, l 8, l 8)
+  call $dast_mem_copy_field(l %t9, l 0, l %t10, l 8)
+  %t5 =w copy %t9
+  call $dast_user___drop_Box(w %t5)
+  jmp @free3
+
+@check_v5
+  %t4 =w ceqw %t3, 0
+  jnz %t4, @drop_v4, @free3
+
+}
+
+export function l $dast_user_main() {
+@entry
+  %v_a =l alloc4 4
+
+@entry0
+  %t0 =l call $dast_alloc(l $str_data_2, l 16, l 8)
+  %t11 =l add %t0, 0
+  storew 1, %t11
+  call $dast_mem_store(l %t0, l 8, l 8, l 0)
+  storew %t0, %v_a
+  %t1 =w load %v_a
+  %t13 =l add %t1, 0
+  %t12 =w loadsw %t13
+  %t2 =w copy %t12
+  %t3 =w ceqw %t2, 0
+  %t15 =l add %t1, 8
+  %t14 =l call $dast_alloc(l $str_data_3, l 8, l 8)
+  call $dast_mem_copy_field(l %t14, l 0, l %t15, l 8)
+  %t4 =w copy %t14
+  jnz %t3, @match_arm2, @match_next3
+
+@match_after1
+  %t10 =w load %v_a
+  call $dast_user___drop_OptBox(w %t10)
+  ret
+
+@match_arm2
+  %t17 =l add %t1, 8
+  %t16 =l call $dast_alloc(l $str_data_3, l 8, l 8)
+  call $dast_mem_copy_field(l %t16, l 0, l %t17, l 8)
+  %t5 =w copy %t16
+  %t6 =w load %v_a
+  call $dast_user___drop_OptBox(w %t6)
+  ret 1
+
+@match_next3
+  %t19 =l add %t1, 0
+  %t18 =w loadsw %t19
+  %t7 =w copy %t18
+  %t8 =w ceqw %t7, 1
+  jnz %t8, @match_arm4, @match_next5
+
+@match_arm4
+  %t9 =w load %v_a
+  call $dast_user___drop_OptBox(w %t9)
+  ret 0
+
+@match_next5
+  jmp @match_after1
+
+}
+
