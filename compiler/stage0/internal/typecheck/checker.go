@@ -26,6 +26,7 @@ type Checker struct {
 	current            *FuncSig
 	selfType           *Type
 	typeParams         map[string]ast.TypeParam
+	currentParamTypes  map[string]Type
 
 	inferReturn   bool
 	inferredType  Type
@@ -374,10 +375,12 @@ func (c *Checker) checkFunction(fn *ast.Function) {
 	}
 	restore := c.pushTypeParams(fn.TypeParams)
 	c.current = sig
+	c.currentParamTypes = map[string]Type{}
 	c.env = newEnv()
 	c.env.push()
 	for i, param := range fn.Params {
 		c.env.declare(param.Name, VarInfo{Type: sig.Params[i], Mutable: false})
+		c.currentParamTypes[param.Name] = sig.Params[i]
 	}
 	c.inferReturn = !sig.ReturnExplicit
 	c.inferredType = Type{Kind: TypeInvalid}
@@ -401,6 +404,7 @@ func (c *Checker) checkFunction(fn *ast.Function) {
 
 	c.env.pop()
 	c.current = nil
+	c.currentParamTypes = nil
 	c.popTypeParams(restore)
 }
 
@@ -442,11 +446,13 @@ func (c *Checker) checkMethod(selfType Type, fn *ast.Function) {
 	}
 
 	c.current = &FuncSig{Name: sig.FuncName, Params: sig.Params, Return: sig.Return, ReturnExplicit: sig.ReturnExplicit, TypeParams: sig.TypeParams}
+	c.currentParamTypes = map[string]Type{}
 	restore := c.pushTypeParams(sig.TypeParams)
 	c.env = newEnv()
 	c.env.push()
 	for i, param := range fn.Params {
 		c.env.declare(param.Name, VarInfo{Type: sig.Params[i], Mutable: false})
+		c.currentParamTypes[param.Name] = sig.Params[i]
 	}
 	c.inferReturn = !sig.ReturnExplicit
 	c.inferredType = Type{Kind: TypeInvalid}
@@ -472,5 +478,6 @@ func (c *Checker) checkMethod(selfType Type, fn *ast.Function) {
 
 	c.env.pop()
 	c.current = nil
+	c.currentParamTypes = nil
 	c.popTypeParams(restore)
 }

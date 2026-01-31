@@ -29,12 +29,12 @@ const (
 )
 
 type Type struct {
-	Kind Kind
-	Ref  bool
-	Mut  bool
-	Name string
-	Elem *Type
-	Args []Type
+	Kind  Kind
+	Ref   bool
+	Mut   bool
+	Name  string
+	Elem  *Type
+	Args  []Type
 	Elems []Type
 }
 
@@ -152,6 +152,7 @@ type MethodSig struct {
 }
 
 type VarInfo struct {
-	Type    Type
-	Mutable bool
+	Type      Type
+	Mutable   bool
+	RefOrigin string
 }

@@ -151,7 +151,13 @@ func (c *Checker) checkLet(s *ast.LetStmt) {
 			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", initType.String(), declType.String()))
 		}
 	}
-	c.env.declare(s.Name, VarInfo{Type: declType, Mutable: s.Mutable})
+	info := VarInfo{Type: declType, Mutable: s.Mutable}
+	if typeContainsRef(declType) {
+		if origin, ok := c.returnRefOrigin(s.Init); ok {
+			info.RefOrigin = origin
+		}
+	}
+	c.env.declare(s.Name, info)
 }
 
 func (c *Checker) checkLetPattern(s *ast.LetPatternStmt) {
@@ -316,6 +322,11 @@ func (c *Checker) checkReturn(s *ast.ReturnStmt) {
 		if expr, borrowed := c.tryAutoBorrow(s.Value, valType, retType); expr != s.Value {
 			s.Value = expr
 			valType = borrowed
+		}
+		if typeContainsRef(retType) && typeContainsRef(valType) && valType.Kind != TypeInvalid {
+			if _, ok := c.returnRefOrigin(s.Value); !ok {
+				c.diag.Add(s.Span(), "returning reference must be derived from reference parameter")
+			}
 		}
 		if retType.Kind == TypeUnit {
 			if valType.Kind != TypeUnit && valType.Kind != TypeInvalid {
