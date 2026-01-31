@@ -112,8 +112,12 @@ func (p *Parser) expect(kind lexer.TokenKind, msg string) lexer.Token {
 	if p.at(kind) {
 		return p.advance()
 	}
+	tok := p.peek()
 	p.errorCurrent(msg)
-	return lexer.Token{Kind: kind, Span: p.peek().Span}
+	if !p.at(lexer.TokenEOF) {
+		p.advance()
+	}
+	return lexer.Token{Kind: kind, Span: tok.Span}
 }
 
 func (p *Parser) parseQualifiedName() (string, source.Span) {

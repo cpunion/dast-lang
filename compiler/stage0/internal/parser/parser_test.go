@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"dastlang/internal/ast"
@@ -219,5 +220,27 @@ fn main() {
 	}
 	if len(sp.Fields) != 1 || sp.Fields[0].Name != "x" {
 		t.Fatalf("expected single field binding for x")
+	}
+}
+
+func TestParseInvalidAssignTarget(t *testing.T) {
+	src := `fn main() { 1 = 2 }`
+	_, diags := parser.Parse("test.dast", src)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse errors")
+	}
+	if !strings.Contains(diags.Error(), "invalid assignment target") {
+		t.Fatalf("unexpected error: %s", diags.Error())
+	}
+}
+
+func TestParseCallMissingRParen(t *testing.T) {
+	src := `fn main() { println(1 }`
+	_, diags := parser.Parse("test.dast", src)
+	if !diags.HasErrors() {
+		t.Fatalf("expected parse errors")
+	}
+	if !strings.Contains(diags.Error(), "expected ')' after arguments") {
+		t.Fatalf("unexpected error: %s", diags.Error())
 	}
 }
