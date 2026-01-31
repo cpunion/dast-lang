@@ -173,4 +173,27 @@ func TestStructLayoutC(t *testing.T) {
 	if got := structLayoutSize(e, p, "T"); got != 12 {
 		t.Fatalf("T size = %d, want 12", got)
 	}
+
+	p.TypeDecls["P"] = &ir.TypeDecl{
+		Name: "P",
+		Fields: []ir.Var{
+			{Name: "a", Type: "i8"},
+			{Name: "b", Type: "*i32"},
+			{Name: "c", Type: "u16"},
+		},
+	}
+	if got := structLayoutAlign(e, p, "P"); got != 8 {
+		t.Fatalf("P align = %d, want 8", got)
+	}
+	if got := structLayoutSize(e, p, "P"); got != 24 {
+		t.Fatalf("P size = %d, want 24", got)
+	}
+
+	e32 := &emitter{ptrSize: 4}
+	if got := structLayoutAlign(e32, p, "P"); got != 4 {
+		t.Fatalf("P align (32-bit) = %d, want 4", got)
+	}
+	if got := structLayoutSize(e32, p, "P"); got != 12 {
+		t.Fatalf("P size (32-bit) = %d, want 12", got)
+	}
 }

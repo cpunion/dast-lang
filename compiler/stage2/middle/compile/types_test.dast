@@ -855,4 +855,21 @@ fn test_struct_layout_c() {
     assert_i64_eq(struct_layout_size(&e, "S"), 8)
     assert_i64_eq(struct_layout_align(&e, "T"), 4)
     assert_i64_eq(struct_layout_size(&e, "T"), 12)
+
+    let mut fields_p: [StructFieldSig] = []
+    push(&mut fields_p, StructFieldSig { name: "a", typ: "i8" })
+    push(&mut fields_p, StructFieldSig { name: "b", typ: "&i32" })
+    push(&mut fields_p, StructFieldSig { name: "c", typ: "u16" })
+    add_struct_sig(&mut e, "P", fields_p)
+    assert_i64_eq(struct_layout_align(&e, "P"), 8)
+    assert_i64_eq(struct_layout_size(&e, "P"), 24)
+
+    let mut e32 = emitter_new_with_target(32)
+    let mut fields_p32: [StructFieldSig] = []
+    push(&mut fields_p32, StructFieldSig { name: "a", typ: "i8" })
+    push(&mut fields_p32, StructFieldSig { name: "b", typ: "&i32" })
+    push(&mut fields_p32, StructFieldSig { name: "c", typ: "u16" })
+    add_struct_sig(&mut e32, "P32", fields_p32)
+    assert_i64_eq(struct_layout_align(&e32, "P32"), 4)
+    assert_i64_eq(struct_layout_size(&e32, "P32"), 12)
 }
