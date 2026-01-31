@@ -36,6 +36,7 @@ See [docs/implementation-roadmap.md](docs/implementation-roadmap.md)
 - **Concurrency**: Sendable/Shareable traits (simplified Send/Sync)
 - **Testing**: Go-style (`*_test.dast`, `test_*` prefix)
 - **Tooling**: `dast` CLI (build/run/test); LSP is a stage3 prototype (not integrated yet)
+- **Runtime ABI**: C runtime lives in `compiler/stage0/runtime/c_runtime.c` (see `docs/20-bootstrap.md` for the ABI list)
 
 ## Implementation Status (high level)
 
