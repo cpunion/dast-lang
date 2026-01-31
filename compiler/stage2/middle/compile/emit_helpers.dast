@@ -246,10 +246,34 @@ fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
             println("stage2: type mismatch expected", rt, "got", actual)
             exit(1)
         }
-        let mut v = emit_expr(e, use_expr)
-        // Retag empty or literal arrays to the contextual element type.
-        v.typ = string_clone(&rt)
-        return v
+        let mut elem_t = type_array_elem(e, &rt)
+        if elem_t == "untyped-int" { elem_t = "i64" }
+        if elem_t == "untyped-float" { elem_t = "f64" }
+        let arr_name = "[" + string_clone(&elem_t) + "]"
+        let elem_size = type_size(e, &elem_t)
+        let elem_align = type_align(e, &elem_t)
+        let cap = len(&use_expr.args)
+        let tmp = new_temp(e)
+        let tn = temp_name(tmp)
+        emit_line(e, "  " + tn + " =l call $dast_array_new(l " + int_to_string(elem_size) + ", l " + int_to_string(elem_align) + ", l " + int_to_string(cap) + ")")
+        let mut i = 0
+        while i < len(&use_expr.args) {
+            let v = emit_typed_value(e, expr_arg_ref(use_expr, i, "emit_array_elem_typed"), &elem_t)
+            let casted = cast_to_type(e, v, &elem_t)
+            if type_is_float(e, &elem_t) {
+                emit_line(e, "  call $dast_array_push(l " + tn + ", l 0)")
+                let addr_tmp = new_temp(e)
+                let addr_tn = temp_name(addr_tmp)
+                emit_line(e, "  " + addr_tn + " =l call $dast_array_index_addr(l " + tn + ", l " + int_to_string(i) + ")")
+                let op = store_op_for_type(e, &elem_t)
+                emit_line(e, "  " + op + " " + casted + ", " + addr_tn)
+            } else {
+                let as_l = cast_to_l(e, qbe_value(string_clone(&elem_t), casted))
+                emit_line(e, "  call $dast_array_push(l " + tn + ", l " + as_l + ")")
+            }
+            i = i + 1
+        }
+        return qbe_value(arr_name, tn)
     }
     let v = emit_expr(e, use_expr)
     let at = type_resolve(e, &v.typ)

@@ -132,6 +132,20 @@ fn test_emit_typed_value_untyped_unary() {
     assert_true(body_contains(&e2.body, " =s sub "), "f32 unary opcode")
 }
 
+fn test_emit_array_literal_string_typed() {
+    let mut e = emitter_new()
+    let mut elems: [Expr] = []
+    push(&mut elems, expr_string(string_clone("a")))
+    push(&mut elems, expr_string(string_clone("b")))
+    let arr = expr_array(elems)
+    let v = emit_typed_value(&mut e, &arr, "[String]")
+    assert_true(v.typ == "[String]", "array literal uses expected [String] type")
+    if body_contains(&e.body, "str_ref_") {
+        println("expected [String] array literal to avoid &str refs")
+        exit(1)
+    }
+}
+
 fn test_emit_char_literal() {
     let mut e = emitter_new()
     let c = expr_char(97)

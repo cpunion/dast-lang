@@ -309,8 +309,33 @@ fn test_string_borrow_compat() {
         println("expected String to coerce to &str")
         exit(1)
     }
+    if !type_compatible_expr(&e, "str", &ident) {
+        println("expected String to be compatible with base str for borrow")
+        exit(1)
+    }
+    let lit = expr_string(string_clone("hi"))
+    if !type_compatible_expr(&e, "str", &lit) {
+        println("expected string literal to be compatible with base str for borrow")
+        exit(1)
+    }
     if type_compatible(&e, "str", "String") {
         println("expected String to not coerce to str value")
+        exit(1)
+    }
+}
+
+fn test_array_literal_string_expected() {
+    let mut e = emitter_new()
+    let mut elems: [Expr] = []
+    push(&mut elems, expr_string(string_clone("a")))
+    push(&mut elems, expr_string(string_clone("b")))
+    let arr = expr_array(elems)
+    if !type_compatible_expr(&e, "[String]", &arr) {
+        println("expected string literals to coerce in [String] array literal")
+        exit(1)
+    }
+    if !type_compatible_expr(&e, "[&str]", &arr) {
+        println("expected string literals to be valid in [&str] array literal")
         exit(1)
     }
 }

@@ -51,17 +51,27 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		}
 		return Type{Kind: TypeFloat, Name: "untyped-float"}
 	case *ast.ArrayLit:
+		if exp, ok := c.currentExpected(); ok && exp.Kind == TypeArray && exp.Elem != nil {
+			elemExp := *exp.Elem
+			if len(e.Elems) == 0 {
+				return exp
+			}
+			for _, elem := range e.Elems {
+				t := c.checkExprWithExpected(elem, elemExp)
+				if !typesAssignable(t, elemExp) && t.Kind != TypeInvalid && elemExp.Kind != TypeInvalid {
+					c.diag.Add(elem.Span(), fmt.Sprintf("array element expects %s, got %s", elemExp.String(), t.String()))
+				}
+			}
+			return exp
+		}
 		if len(e.Elems) == 0 {
 			return Type{Kind: TypeArray, Elem: &Type{Kind: TypeInvalid}}
 		}
 		elemType := c.checkExpr(e.Elems[0])
 		for _, elem := range e.Elems[1:] {
 			t := c.checkExpr(elem)
-			if !typesEqual(t, elemType) && t.Kind != TypeInvalid && elemType.Kind != TypeInvalid {
-				// Allow mixing &String / &str in array literals (e.g. [&str] arguments).
-				if !(isString(t) && isString(elemType)) {
-					c.diag.Add(elem.Span(), fmt.Sprintf("array element expects %s, got %s", elemType.String(), t.String()))
-				}
+			if !typesAssignable(t, elemType) && t.Kind != TypeInvalid && elemType.Kind != TypeInvalid {
+				c.diag.Add(elem.Span(), fmt.Sprintf("array element expects %s, got %s", elemType.String(), t.String()))
 			}
 		}
 		return Type{Kind: TypeArray, Elem: &elemType}

@@ -533,6 +533,10 @@ fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
         let base = type_ref_base(e, &declared)
         if base == "str" && actual_rt == "String" { return true }
     }
+    if declared == "str" {
+        if actual_rt == "String" { return true }
+        if expr.kind == EXPR_STRING { return true }
+    }
     if expr.kind == EXPR_STRING && declared == "String" { return true }
     if actual_rt == "untyped-int" {
         if type_is_int(e, &declared) { return true }
@@ -851,6 +855,9 @@ fn emit_auto_borrow(e: &mut Emitter, inner: &Expr, expected_ref: &str) -> QbeVal
     let want_mut = type_is_mut_ref_raw(expected_ref)
     let mut emit_base_t = string_clone(&base_t)
     if base_t == "str" {
+        if inner.kind == EXPR_STRING && !want_mut {
+            return emit_expr(e, inner)
+        }
         let inner_t = expr_type(e, inner)
         if type_resolve(e, &inner_t) == "String" {
             emit_base_t = string_clone("String")
