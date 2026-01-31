@@ -119,6 +119,31 @@ fn main() -> unit
 	}
 }
 
+func TestCharLiteralEscapesIR(t *testing.T) {
+	src := `fn main() {
+    let a = 'a'
+    let n = '\n'
+    let q = '\''
+    let b = '\\'
+    println(a)
+    println(n)
+    println(q)
+    println(b)
+}`
+	got := compileToIR(t, src)
+	want := []string{
+		"store a, char 97",
+		"store n, char 10",
+		"store q, char 39",
+		"store b, char 92",
+	}
+	for _, needle := range want {
+		if !strings.Contains(got, needle) {
+			t.Fatalf("expected %q in IR:\n%s", needle, got)
+		}
+	}
+}
+
 func TestLetBindingExpr(t *testing.T) {
 	src := `fn calc(a: i64, b: i64) -> i64 { let sum = a + b; sum * 2 }`
 
