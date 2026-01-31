@@ -939,7 +939,7 @@ func (c *Checker) checkExpr(expr ast.Expr) Type {
 		expected, hasExpected := c.currentExpected()
 		for i, arm := range e.Arms {
 			c.env.push()
-			c.checkPattern(scrutType, arm.Pattern)
+			c.checkPattern(scrutType, arm.Pattern, false)
 			if arm.Guard != nil {
 				guardType := c.checkExpr(arm.Guard)
 				if !isBool(guardType) && guardType.Kind != TypeInvalid {

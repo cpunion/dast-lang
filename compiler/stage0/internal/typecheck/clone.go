@@ -132,6 +132,10 @@ func (c *Checker) cloneStmt(stmt ast.Stmt, subst map[string]Type) ast.Stmt {
 	case *ast.LetPatternStmt:
 		out := *s
 		out.Pattern = c.clonePattern(s.Pattern, subst)
+		if s.Type != nil {
+			t := c.cloneType(*s.Type, subst)
+			out.Type = &t
+		}
 		out.Init = c.cloneExpr(s.Init, subst)
 		return &out
 	case *ast.AssignStmt:

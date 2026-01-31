@@ -30,6 +30,8 @@ func (s *LetStmt) Span() source.Span { return s.SpanInfo }
 
 type LetPatternStmt struct {
 	Pattern  Pattern
+	Mutable  bool
+	Type     *Type
 	Init     Expr
 	SpanInfo source.Span
 }

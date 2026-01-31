@@ -145,7 +145,7 @@ func astStmtEq(a, b ast.Stmt) bool {
 		return ok && ta.Name == tb.Name && ta.Mutable == tb.Mutable && typePtrEq(ta.Type, tb.Type) && astExprEq(ta.Init, tb.Init)
 	case *ast.LetPatternStmt:
 		tb, ok := b.(*ast.LetPatternStmt)
-		return ok && astPatternEq(ta.Pattern, tb.Pattern) && astExprEq(ta.Init, tb.Init)
+		return ok && ta.Mutable == tb.Mutable && typePtrEq(ta.Type, tb.Type) && astPatternEq(ta.Pattern, tb.Pattern) && astExprEq(ta.Init, tb.Init)
 	case *ast.AssignStmt:
 		tb, ok := b.(*ast.AssignStmt)
 		return ok && astExprEq(ta.Target, tb.Target) && astExprEq(ta.Value, tb.Value)

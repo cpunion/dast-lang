@@ -179,9 +179,9 @@ fn emit_iflet(e: &mut Emitter, stmt: &Stmt) {
         let hint = enum_var_hint(e, &stmt.expr.name)
         if hint != "" { enum_t = hint }
     }
-    if !type_is_enum(e, &enum_t) && enum_t == "" {
-        let guess = enum_name_for_variant(e, &stmt.pat_variant)
-        if guess != "" { enum_t = guess }
+    if !type_is_enum(e, &enum_t) && enum_t == "" && stmt.expr.kind == EXPR_CALL {
+        let ec = enum_call_parse(&stmt.expr.name)
+        if ec.ok { enum_t = string_clone(&ec.enum_name) }
     }
     if !type_is_enum(e, &enum_t) {
         println("stage2: if let requires enum expression")

@@ -66,6 +66,14 @@ fn pattern_struct(name: String, fields: [StructPatternField]) -> Pattern {
     return p
 }
 
+fn pattern_array(elems: [Pattern]) -> Pattern {
+    let mut p = pattern_empty()
+    p.kind = PAT_ARRAY
+    p.payload = elems
+    p.has_payload = len(&p.payload) > 0
+    return p
+}
+
 fn parse_variant_pattern(p: &mut Parser) -> Pattern {
     let _ = parser_expect(p, TK_DOT, ".")
     let variant = parser_expect(p, TK_IDENT, "variant").text
@@ -92,9 +100,11 @@ fn parse_struct_pattern(p: &mut Parser) -> Pattern {
         let mut done = false
         while !done {
             if parser_peek(p).kind == TK_DOTDOT {
-                parser_fail(p, "stage2: unsupported '..' in struct pattern")
                 let _ = parser_advance(p)
-                return pattern_wildcard()
+                // rest pattern: ignore remaining fields
+                if parser_peek(p).kind == TK_COMMA { let _ = parser_advance(p) }
+                done = true
+                continue
             }
             let fname = parser_expect(p, TK_IDENT, "field").text
             let mut pat = pattern_bind(string_clone(&fname))
@@ -143,6 +153,14 @@ fn pattern_binding_names_inner(out: &mut [String], pat: &Pattern) {
         }
         return
     }
+    if pat.kind == PAT_ARRAY {
+        let mut i = 0
+        while i < len(&pat.payload) {
+            pattern_binding_names_inner(out, &pat.payload[i])
+            i = i + 1
+        }
+        return
+    }
     if pat.kind == PAT_VARIANT && pat.has_payload && len(&pat.payload) > 0 {
         pattern_binding_names_inner(out, &pat.payload[0])
         return
@@ -171,6 +189,7 @@ fn pattern_range_end_terminator(kind: i32) -> bool {
     if kind == TK_FATARROW { return true }
     if kind == TK_RBRACE { return true }
     if kind == TK_RPAREN { return true }
+    if kind == TK_RBRACKET { return true }
     if kind == TK_IF { return true }
     if kind == TK_EOF { return true }
     return false
@@ -242,6 +261,23 @@ fn parse_pattern(p: &mut Parser) -> Pattern {
     }
     if t.kind == TK_DOT {
         return parse_variant_pattern(p)
+    }
+    if t.kind == TK_LBRACKET {
+        let _ = parser_advance(p)
+        let mut elems: [Pattern] = []
+        if parser_peek(p).kind != TK_RBRACKET {
+            let mut done = false
+            while !done {
+                push(&mut elems, parse_pattern(p))
+                if parser_peek(p).kind == TK_COMMA {
+                    let _ = parser_advance(p)
+                } else {
+                    done = true
+                }
+            }
+        }
+        let _ = parser_expect(p, TK_RBRACKET, "]")
+        return pattern_array(elems)
     }
     if t.kind == TK_IDENT && t.text == "_" {
         let _ = parser_advance(p)

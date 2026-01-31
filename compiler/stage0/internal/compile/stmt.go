@@ -88,7 +88,9 @@ func (c *Compiler) compileLetPattern(s *ast.LetPatternStmt) {
 	}
 	scrut := c.compileExpr(s.Init)
 	scrutType := c.tempTypes[scrut]
-	if scrutType == "" {
+	if s.Type != nil {
+		scrutType = formatType(*s.Type)
+	} else if scrutType == "" {
 		scrutType = c.inferExprType(s.Init)
 	}
 	scrutTemp := !isLvalueExpr(s.Init)
@@ -99,7 +101,7 @@ func (c *Compiler) compileLetPattern(s *ast.LetPatternStmt) {
 	}
 	cond, always := c.compilePatternCond(scrut, s.Pattern)
 	if always {
-		c.bindPattern(scrut, s.Pattern, false, moveScrut)
+		c.bindPattern(scrut, s.Pattern, s.Mutable, moveScrut)
 		if !scrutTemp && moveScrut {
 			c.emitClearLvalue(s.Init)
 		}
@@ -119,7 +121,7 @@ func (c *Compiler) compileLetPattern(s *ast.LetPatternStmt) {
 	c.emitTerm(&ir.Branch{Cond: cond, Then: thenBlock.Label, Else: elseBlock.Label})
 
 	c.setCurrentBlock(thenBlock)
-	c.bindPattern(scrut, s.Pattern, false, moveScrut)
+	c.bindPattern(scrut, s.Pattern, s.Mutable, moveScrut)
 	if !scrutTemp && moveScrut {
 		c.emitClearLvalue(s.Init)
 	}
@@ -279,32 +281,11 @@ func (c *Compiler) compileIfLet(s *ast.IfLetStmt) {
 	mergeBlock := c.newBlock("iflet_merge")
 	base := c.snapshotScopes()
 
-	switch p := s.Pattern.(type) {
-	case *ast.WildcardPattern:
+	cond, always := c.compilePatternCond(scrut, s.Pattern)
+	if always {
 		c.emitTerm(&ir.Jump{Target: thenBlock.Label})
-	case *ast.VariantPattern:
-		enumName := p.EnumName
-		if enumName == "" {
-			var ok bool
-			enumName, ok = c.resolveEnumName(p.Variant)
-			if !ok {
-				c.diag.Add(p.Span(), fmt.Sprintf("ambiguous or unknown variant '%s'", p.Variant))
-				return
-			}
-		}
-		tagVal, tagType, ok := c.enumTagInfo(enumName, p.Variant)
-		if !ok {
-			c.diag.Add(p.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", enumName, p.Variant))
-			return
-		}
-		tag := c.newTemp()
-		c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
-		cmp := c.newTemp()
-		c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
-		c.emitTerm(&ir.Branch{Cond: ir.TempOperand(cmp), Then: thenBlock.Label, Else: elseBlock.Label})
-	default:
-		c.diag.Add(s.Span(), "unsupported pattern in stage 0")
-		return
+	} else {
+		c.emitTerm(&ir.Branch{Cond: cond, Then: thenBlock.Label, Else: elseBlock.Label})
 	}
 
 	c.setCurrentBlock(thenBlock)
@@ -438,32 +419,11 @@ func (c *Compiler) compileWhileLet(s *ast.WhileLetStmt) {
 	if !scrutTemp && armMove {
 		c.markMovedExpr(s.Expr)
 	}
-	switch p := s.Pattern.(type) {
-	case *ast.WildcardPattern:
+	cond, always := c.compilePatternCond(scrut, s.Pattern)
+	if always {
 		c.emitTerm(&ir.Jump{Target: bodyBlock.Label})
-	case *ast.VariantPattern:
-		enumName := p.EnumName
-		if enumName == "" {
-			var ok bool
-			enumName, ok = c.resolveEnumName(p.Variant)
-			if !ok {
-				c.diag.Add(p.Span(), fmt.Sprintf("ambiguous or unknown variant '%s'", p.Variant))
-				return
-			}
-		}
-		tagVal, tagType, ok := c.enumTagInfo(enumName, p.Variant)
-		if !ok {
-			c.diag.Add(p.Span(), fmt.Sprintf("unknown enum variant '%s.%s'", enumName, p.Variant))
-			return
-		}
-		tag := c.newTemp()
-		c.emit(&ir.GetField{Dst: tag, Src: scrut, Field: "_tag"})
-		cmp := c.newTemp()
-		c.emit(&ir.BinOp{Dst: cmp, Op: "==", Lhs: ir.TempOperand(tag), Rhs: ir.ConstOperand(ir.Value{Kind: ir.KindInt, Int: tagVal, IntType: tagType})})
-		c.emitTerm(&ir.Branch{Cond: ir.TempOperand(cmp), Then: bodyBlock.Label, Else: afterBlock.Label})
-	default:
-		c.diag.Add(s.Span(), "unsupported pattern in stage 0")
-		return
+	} else {
+		c.emitTerm(&ir.Branch{Cond: cond, Then: bodyBlock.Label, Else: afterBlock.Label})
 	}
 
 	c.setCurrentBlock(bodyBlock)
@@ -1087,7 +1047,32 @@ func (c *Compiler) bindPattern(scrut int, pat ast.Pattern, mutable bool, moveScr
 			c.bindPattern(elemTemp, el, mutable, moveScrut)
 		}
 	case *ast.OrPattern:
-		// bindings in or-patterns are not supported
+		if len(p.Alts) == 0 {
+			return
+		}
+		done := c.newBlock("pat_or_done")
+		for i, alt := range p.Alts {
+			cond, always := c.compilePatternCond(scrut, alt)
+			if always {
+				c.bindPattern(scrut, alt, mutable, moveScrut)
+				c.emitTerm(&ir.Jump{Target: done.Label})
+				c.setCurrentBlock(done)
+				return
+			}
+			bindBlock := c.newBlock("pat_or_bind")
+			nextBlock := done
+			if i < len(p.Alts)-1 {
+				nextBlock = c.newBlock("pat_or_next")
+			}
+			c.emitTerm(&ir.Branch{Cond: cond, Then: bindBlock.Label, Else: nextBlock.Label})
+			c.setCurrentBlock(bindBlock)
+			c.bindPattern(scrut, alt, mutable, moveScrut)
+			if c.currentBlock().Term == nil {
+				c.emitTerm(&ir.Jump{Target: done.Label})
+			}
+			c.setCurrentBlock(nextBlock)
+		}
+		c.setCurrentBlock(done)
 	}
 }
 

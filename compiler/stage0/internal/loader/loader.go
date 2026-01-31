@@ -1133,6 +1133,10 @@ func rewriteStmt(s ast.Stmt, aliases map[string]struct{}) ast.Stmt {
 		return v
 	case *ast.LetPatternStmt:
 		v.Pattern = rewritePattern(v.Pattern, aliases)
+		if v.Type != nil {
+			t := rewriteType(*v.Type, aliases)
+			v.Type = &t
+		}
 		v.Init = rewriteExpr(v.Init, aliases)
 		return v
 	case *ast.AssignStmt:

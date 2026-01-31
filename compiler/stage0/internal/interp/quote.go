@@ -466,6 +466,9 @@ func (q *quoteCtx) replaceStmt(stmt ast.Stmt) (ast.Stmt, error) {
 		if err := q.replacePattern(s.Pattern); err != nil {
 			return s, err
 		}
+		if err := q.replaceType(s.Type); err != nil {
+			return s, err
+		}
 		repl, err := q.replaceExpr(s.Init)
 		if err != nil {
 			return s, err

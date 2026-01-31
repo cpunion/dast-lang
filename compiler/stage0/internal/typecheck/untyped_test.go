@@ -143,7 +143,7 @@ fn main() {
 	}
 	c.env = newEnv()
 	c.env.push()
-	c.checkPattern(Type{Kind: TypeEnum, Name: "OptionI32"}, pat)
+	c.checkPattern(Type{Kind: TypeEnum, Name: "OptionI32"}, pat, false)
 	info, ok := c.env.lookup("n")
 	c.env.pop()
 	if !ok {
@@ -228,6 +228,72 @@ fn main() {
 	}
 }
 
+func TestOrPatternBindingOk(t *testing.T) {
+	src := `
+enum OptionI32 {
+    Some(i32),
+    None,
+}
+
+fn main() {
+    let opt = OptionI32.Some(10)
+    match opt {
+        .Some(x) | .Some(x) => { let _ = x }
+        .None => {}
+    }
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
+	}
+}
+
+func TestOrPatternBindingMismatch(t *testing.T) {
+	src := `
+enum OptionI32 {
+    Some(i32),
+    None,
+}
+
+fn main() {
+    let opt = OptionI32.Some(10)
+    match opt {
+        .Some(x) | .Some(y) => { let _ = x }
+        .None => {}
+    }
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if !diags.HasErrors() {
+		t.Fatalf("expected type errors for mismatched or-pattern bindings")
+	}
+}
+
+func TestIfLetPatternNonEnum(t *testing.T) {
+	src := `
+fn main() {
+    let n = 1
+    if let 1 = n { let _ = n } else { }
+}
+`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	_, diags = CheckAndMonomorph(prog)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected type errors: %s", diags.Error())
+	}
+}
 func TestUntypedUnaryAssign(t *testing.T) {
 	src := `
 fn main() {

@@ -159,12 +159,39 @@ func (c *Checker) checkLetPattern(s *ast.LetPatternStmt) {
 		c.diag.Add(s.Span(), "let requires initializer in stage 0")
 		return
 	}
-	initType := c.checkExpr(s.Init)
-	if initType.Ref {
-		c.diag.Add(s.Span(), "let pattern requires non-reference value")
-		initType = derefType(initType)
+	declType := Type{}
+	initType := Type{}
+	if s.Type != nil {
+		declType = c.fromAstType(*s.Type)
+		if (declType.Kind == TypeStruct || declType.Kind == TypeEnum) && declType.Name != s.Type.Name {
+			s.Type.Name = declType.Name
+			s.Type.Args = nil
+		}
+		initType = c.checkExprWithExpected(s.Init, declType)
+		if expr, borrowed := c.tryAutoBorrow(s.Init, initType, declType); expr != s.Init {
+			s.Init = expr
+			initType = borrowed
+		}
+		if lit, ok := s.Init.(*ast.ArrayLit); ok && len(lit.Elems) == 0 && declType.Kind == TypeArray {
+			// allow empty array literal with explicit type
+		} else if !typesAssignable(initType, declType) && initType.Kind != TypeInvalid && declType.Kind != TypeInvalid {
+			c.diag.Add(s.Span(), fmt.Sprintf("cannot assign %s to %s", initType.String(), declType.String()))
+		}
+	} else {
+		initType = c.checkExpr(s.Init)
+		if isUntypedInt(initType) {
+			declType = Type{Kind: TypeInt, Name: "i64"}
+		} else if isUntypedFloat(initType) {
+			declType = Type{Kind: TypeFloat, Name: "f64"}
+		} else {
+			declType = defaultUntypedType(initType)
+		}
 	}
-	c.checkPattern(initType, s.Pattern)
+	if declType.Ref {
+		c.diag.Add(s.Span(), "let pattern requires non-reference value")
+		declType = derefType(declType)
+	}
+	c.checkPattern(declType, s.Pattern, s.Mutable)
 }
 
 func (c *Checker) checkAssign(s *ast.AssignStmt) {
@@ -360,14 +387,11 @@ func (c *Checker) checkWhile(s *ast.WhileStmt) {
 func (c *Checker) checkIfLet(s *ast.IfLetStmt) {
 	scrutType := c.checkExpr(s.Expr)
 	if scrutType.Ref {
-		c.diag.Add(s.Expr.Span(), "if let requires non-reference enum expression")
+		c.diag.Add(s.Expr.Span(), "if let requires non-reference expression")
 		scrutType = derefType(scrutType)
 	}
-	if scrutType.Kind != TypeEnum && scrutType.Kind != TypeInvalid {
-		c.diag.Add(s.Expr.Span(), "if let requires enum expression")
-	}
 	c.env.push()
-	c.checkPattern(scrutType, s.Pattern)
+	c.checkPattern(scrutType, s.Pattern, false)
 	c.checkBlock(s.Then)
 	c.env.pop()
 	if s.Else != nil {
@@ -378,15 +402,12 @@ func (c *Checker) checkIfLet(s *ast.IfLetStmt) {
 func (c *Checker) checkWhileLet(s *ast.WhileLetStmt) {
 	scrutType := c.checkExpr(s.Expr)
 	if scrutType.Ref {
-		c.diag.Add(s.Expr.Span(), "while let requires non-reference enum expression")
+		c.diag.Add(s.Expr.Span(), "while let requires non-reference expression")
 		scrutType = derefType(scrutType)
-	}
-	if scrutType.Kind != TypeEnum && scrutType.Kind != TypeInvalid {
-		c.diag.Add(s.Expr.Span(), "while let requires enum expression")
 	}
 	c.pushLoop(s.Label, false, Type{Kind: TypeInvalid})
 	c.env.push()
-	c.checkPattern(scrutType, s.Pattern)
+	c.checkPattern(scrutType, s.Pattern, false)
 	c.checkBlock(s.Body)
 	c.env.pop()
 	c.popLoop()
@@ -454,7 +475,7 @@ func (c *Checker) checkFor(s *ast.ForStmt) {
 	}
 	c.pushLoop(s.Label, false, Type{Kind: TypeInvalid})
 	c.env.push()
-	c.checkPattern(elemType, s.Pattern)
+	c.checkPattern(elemType, s.Pattern, false)
 	c.checkBlock(s.Body)
 	c.env.pop()
 	c.popLoop()
@@ -469,7 +490,7 @@ func (c *Checker) checkMatch(s *ast.MatchStmt) {
 
 	for _, arm := range s.Arms {
 		c.env.push()
-		c.checkPattern(scrutType, arm.Pattern)
+		c.checkPattern(scrutType, arm.Pattern, false)
 		if arm.Guard != nil {
 			guardType := c.checkExpr(arm.Guard)
 			if !isBool(guardType) && guardType.Kind != TypeInvalid {
@@ -490,7 +511,7 @@ func (c *Checker) checkTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 
 	for _, arm := range s.Arms {
 		c.env.push()
-		c.checkPattern(scrutType, arm.Pattern)
+		c.checkPattern(scrutType, arm.Pattern, false)
 		if arm.Guard != nil {
 			guardType := c.checkExpr(arm.Guard)
 			if !isBool(guardType) && guardType.Kind != TypeInvalid {
@@ -502,12 +523,25 @@ func (c *Checker) checkTailMatch(s *ast.MatchStmt, allowImplicit bool) {
 	}
 }
 
-func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
+func (c *Checker) checkPattern(scrut Type, pat ast.Pattern, mutable bool) {
 	switch p := pat.(type) {
 	case *ast.WildcardPattern:
 		// no bindings
 	case *ast.BindingPattern:
-		c.env.declare(p.Name, VarInfo{Type: scrut, Mutable: false})
+		if _, ok := c.consts[p.Name]; ok {
+			constType := c.consts[p.Name].Type
+			if isUntypedInt(constType) && isInt(scrut) {
+				return
+			}
+			if isUntypedFloat(constType) && isFloat(scrut) {
+				return
+			}
+			if !typesEqual(constType, scrut) && constType.Kind != TypeInvalid && scrut.Kind != TypeInvalid {
+				c.diag.Add(p.Span(), fmt.Sprintf("literal pattern expects %s, got %s", constType.String(), scrut.String()))
+			}
+			return
+		}
+		c.env.declare(p.Name, VarInfo{Type: scrut, Mutable: mutable})
 	case *ast.LiteralPattern:
 		litType := constValueType(p.Value)
 		if isUntypedInt(litType) && isInt(scrut) {
@@ -543,11 +577,40 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 			}
 		}
 	case *ast.OrPattern:
-		if c.patternHasBinding(p) {
-			c.diag.Add(p.Span(), "or-patterns with bindings are not supported in stage 0")
+		if len(p.Alts) == 0 {
+			return
 		}
-		for _, alt := range p.Alts {
-			c.checkPattern(scrut, alt)
+		var base map[string]Type
+		for i, alt := range p.Alts {
+			c.env.push()
+			c.checkPattern(scrut, alt, false)
+			scope := c.env.scopes[len(c.env.scopes)-1]
+			if i == 0 {
+				base = map[string]Type{}
+				for name, info := range scope {
+					base[name] = info.Type
+				}
+			} else {
+				if len(scope) != len(base) {
+					c.diag.Add(p.Span(), "or-patterns must bind same names")
+				} else {
+					for name, info := range scope {
+						bt, ok := base[name]
+						if !ok {
+							c.diag.Add(p.Span(), "or-patterns must bind same names")
+							break
+						}
+						if !typesEqual(info.Type, bt) && info.Type.Kind != TypeInvalid && bt.Kind != TypeInvalid {
+							c.diag.Add(p.Span(), "or-patterns must bind same names")
+							break
+						}
+					}
+				}
+			}
+			c.env.pop()
+		}
+		for name, typ := range base {
+			c.env.declare(name, VarInfo{Type: typ, Mutable: mutable})
 		}
 	case *ast.VariantPattern:
 		if scrut.Kind != TypeEnum && scrut.Kind != TypeInvalid {
@@ -585,7 +648,7 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 				return
 			}
 			payloadType := c.fromAstType(*variant.Payload)
-			c.checkPattern(payloadType, payloadPat)
+			c.checkPattern(payloadType, payloadPat, mutable)
 		}
 	case *ast.StructPattern:
 		if scrut.Kind != TypeStruct {
@@ -622,10 +685,10 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 				if binding == "" {
 					binding = f.Name
 				}
-				c.env.declare(binding, VarInfo{Type: fieldType, Mutable: false})
+				c.env.declare(binding, VarInfo{Type: fieldType, Mutable: mutable})
 				continue
 			}
-			c.checkPattern(fieldType, f.Pattern)
+			c.checkPattern(fieldType, f.Pattern, mutable)
 		}
 	case *ast.TuplePattern:
 		if scrut.Kind == TypeUnit && len(p.Elems) == 0 {
@@ -641,7 +704,7 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 				return
 			}
 			for i := range p.Elems {
-				c.checkPattern(scrut.Elems[i], p.Elems[i])
+				c.checkPattern(scrut.Elems[i], p.Elems[i], mutable)
 			}
 		}
 	case *ast.ArrayPattern:
@@ -654,7 +717,7 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 			elemType = *scrut.Elem
 		}
 		for _, el := range p.Elems {
-			c.checkPattern(elemType, el)
+			c.checkPattern(elemType, el, mutable)
 		}
 	default:
 		c.diag.Add(p.Span(), "unsupported pattern in stage 0")
@@ -664,6 +727,9 @@ func (c *Checker) checkPattern(scrut Type, pat ast.Pattern) {
 func (c *Checker) patternHasBinding(pat ast.Pattern) bool {
 	switch p := pat.(type) {
 	case *ast.BindingPattern:
+		if _, ok := c.consts[p.Name]; ok {
+			return false
+		}
 		return true
 	case *ast.VariantPattern:
 		if p.Payload != nil {

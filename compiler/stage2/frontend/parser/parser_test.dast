@@ -58,3 +58,45 @@ fn test_parse_where_non_nominal_bound_error() {
         exit(1)
     }
 }
+
+fn test_parse_array_pattern() {
+    let src = "fn main() { let xs = [1, 2]; match xs { [a, b] => { } _ => { } } }"
+    let prog = parse_program(src)
+    if len(&prog.functions) == 0 {
+        println("missing function")
+        exit(1)
+    }
+    let f = function_clone(&prog.functions[0])
+    let mut mi = 0
+    let mut found = false
+    while mi < len(&f.body.stmts) {
+        let s = f.body.stmts[mi]
+        if s.kind == STMT_MATCH {
+            found = true
+            if len(&s.arms) == 0 {
+                println("missing match arms")
+                exit(1)
+            }
+            let arm0 = s.arms[0]
+            if arm0.pattern.kind != PAT_ARRAY {
+                println("expected array pattern")
+                exit(1)
+            }
+            assert_i64_eq(len(&arm0.pattern.payload), 2)
+            if arm0.pattern.payload[0].kind != PAT_BIND || arm0.pattern.payload[1].kind != PAT_BIND {
+                println("expected bind patterns in array")
+                exit(1)
+            }
+        }
+        mi = mi + 1
+    }
+    if !found {
+        println("missing match statement")
+        exit(1)
+    }
+}
+
+fn test_parse_struct_rest_pattern() {
+    let src = "struct Point { x: i64, y: i64 } fn main() { let p = Point { x: 1, y: 2 }; match p { Point { x, .. } => { } _ => { } } }"
+    let _ = parse_program(src)
+}

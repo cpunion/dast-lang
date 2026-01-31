@@ -118,6 +118,18 @@ fn hygiene_pattern(ctx: &mut MacroCtx, m: &mut RenameMap, pat: &Pattern) -> Patt
         out.has_payload = len(&out.payload) > 0
         return out
     }
+    if pat.kind == PAT_ARRAY {
+        let mut out = pattern_clone(pat)
+        let mut elems: [Pattern] = []
+        let mut i = 0
+        while i < len(&pat.payload) {
+            push(&mut elems, hygiene_pattern(ctx, m, &pat.payload[i]))
+            i = i + 1
+        }
+        out.payload = elems
+        out.has_payload = len(&out.payload) > 0
+        return out
+    }
     if pat.kind == PAT_STRUCT {
         let mut out = pattern_clone(pat)
         let mut fields: [StructPatternField] = []
@@ -369,6 +381,18 @@ fn replace_pattern_splices(pat: &Pattern, splices: & [QuoteSplice]) -> Pattern {
             push(&mut payload, replace_pattern_splices(&pat.payload[0], splices))
         }
         out.payload = payload
+        out.has_payload = len(&out.payload) > 0
+        return out
+    }
+    if pat.kind == PAT_ARRAY {
+        let mut out = pattern_clone(pat)
+        let mut elems: [Pattern] = []
+        let mut i = 0
+        while i < len(&pat.payload) {
+            push(&mut elems, replace_pattern_splices(&pat.payload[i], splices))
+            i = i + 1
+        }
+        out.payload = elems
         out.has_payload = len(&out.payload) > 0
         return out
     }

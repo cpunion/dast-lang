@@ -380,6 +380,7 @@ fn enum_payload_from_value(e: &mut Emitter, v: &QbeValue, enum_t: &str, variant:
 
 fn pattern_needs_check(pat: &Pattern) -> bool {
     if pat.kind == PAT_BIND || pat.kind == PAT_WILDCARD { return false }
+    if pat.kind == PAT_ARRAY { return true }
     if pat.kind == PAT_STRUCT {
         let mut i = 0
         while i < len(&pat.struct_fields) {
@@ -552,6 +553,58 @@ fn emit_pattern_check(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &st
         }
         return
     }
+    if pat.kind == PAT_ARRAY {
+        let mut arr_v = qbe_value(string_clone(&val.typ), string_clone(&val.expr))
+        let mut arr_t = type_resolve(e, val_t)
+        if type_is_ref(e, &arr_t) {
+            let base = type_ref_base(e, &arr_t)
+            if type_is_array(e, &base) {
+                arr_v = emit_deref_value(e, arr_v)
+                arr_t = base
+            }
+        }
+        if !type_is_array(e, &arr_t) {
+            println("stage2: array pattern requires array scrutinee")
+            exit(1)
+        }
+        let elem_t = type_array_elem(e, &arr_t)
+        let len_tmp = new_temp(e)
+        let len_tn = temp_name(len_tmp)
+        emit_line(e, "  " + len_tn + " =l call $dast_array_len(l " + arr_v.expr + ")")
+        let cond_tmp = new_temp(e)
+        let cond_tn = temp_name(cond_tmp)
+        emit_line(e, "  " + cond_tn + " =w ceql " + len_tn + ", " + int_to_string(len(&pat.payload)))
+        let ok_label = new_label(e, "match_arr_")
+        emit_line(e, "  jnz " + cond_tn + ", @" + string_clone(&ok_label) + ", @" + string_clone(next_label))
+        emit_label(e, &ok_label)
+        let mut i = 0
+        while i < len(&pat.payload) {
+            let el = &pat.payload[i]
+            if pattern_needs_check(el) {
+                let idx = int_to_string(i)
+                let elem_val = if type_is_float(e, &elem_t) {
+                    let addr_tmp = new_temp(e)
+                    let addr_tn = temp_name(addr_tmp)
+                    emit_line(e, "  " + addr_tn + " =l call $dast_array_index_addr(l " + arr_v.expr + ", l " + idx + ")")
+                    let tmp = new_temp(e)
+                    let tn = temp_name(tmp)
+                    let op = load_op_for_type(e, &elem_t)
+                    let q = qbe_type(e, &elem_t)
+                    emit_line(e, "  " + tn + " =" + q + " " + op + " " + addr_tn)
+                    qbe_value(string_clone(&elem_t), tn)
+                } else {
+                    let get_fn = array_get_fn_for_type(e, &elem_t)
+                    let tmp = new_temp(e)
+                    let tn = temp_name(tmp)
+                    emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + arr_v.expr + ", l " + idx + ")")
+                    qbe_value(string_clone(&elem_t), tn)
+                }
+                emit_pattern_check(e, el, &elem_val, &elem_t, next_label)
+            }
+            i = i + 1
+        }
+        return
+    }
 }
 
 fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str) {
@@ -615,6 +668,46 @@ fn emit_pattern_bind(e: &mut Emitter, pat: &Pattern, val: &QbeValue, val_t: &str
             }
             emit_pattern_bind(e, &f.pattern, &field_val, &ftyp)
             fi = fi + 1
+        }
+        return
+    }
+    if pat.kind == PAT_ARRAY {
+        let mut arr_v = qbe_value(string_clone(&val.typ), string_clone(&val.expr))
+        let mut arr_t = type_resolve(e, val_t)
+        if type_is_ref(e, &arr_t) {
+            let base = type_ref_base(e, &arr_t)
+            if type_is_array(e, &base) {
+                arr_v = emit_deref_value(e, arr_v)
+                arr_t = base
+            }
+        }
+        if !type_is_array(e, &arr_t) {
+            println("stage2: array pattern requires array scrutinee")
+            exit(1)
+        }
+        let elem_t = type_array_elem(e, &arr_t)
+        let mut i = 0
+        while i < len(&pat.payload) {
+            let idx = int_to_string(i)
+            let elem_val = if type_is_float(e, &elem_t) {
+                let addr_tmp = new_temp(e)
+                let addr_tn = temp_name(addr_tmp)
+                emit_line(e, "  " + addr_tn + " =l call $dast_array_index_addr(l " + arr_v.expr + ", l " + idx + ")")
+                let tmp = new_temp(e)
+                let tn = temp_name(tmp)
+                let op = load_op_for_type(e, &elem_t)
+                let q = qbe_type(e, &elem_t)
+                emit_line(e, "  " + tn + " =" + q + " " + op + " " + addr_tn)
+                qbe_value(string_clone(&elem_t), tn)
+            } else {
+                let get_fn = array_get_fn_for_type(e, &elem_t)
+                let tmp = new_temp(e)
+                let tn = temp_name(tmp)
+                emit_line(e, "  " + tn + " =l call $" + get_fn + "(l " + arr_v.expr + ", l " + idx + ")")
+                qbe_value(string_clone(&elem_t), tn)
+            }
+            emit_pattern_bind(e, &pat.payload[i], &elem_val, &elem_t)
+            i = i + 1
         }
         return
     }

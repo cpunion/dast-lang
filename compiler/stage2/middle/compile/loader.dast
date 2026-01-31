@@ -769,6 +769,16 @@ fn rewrite_pattern(pat: &Pattern, aliases: & [String]) -> Pattern {
         }
         return out
     }
+    if out.kind == PAT_ARRAY {
+        let mut elems: [Pattern] = []
+        let mut i = 0
+        while i < len(&out.payload) {
+            push(&mut elems, rewrite_pattern(&out.payload[i], aliases))
+            i = i + 1
+        }
+        out.payload = elems
+        return out
+    }
     if out.kind == PAT_STRUCT {
         out.struct_name = strip_alias_prefix(&out.struct_name, aliases)
         let mut fields: [StructPatternField] = []

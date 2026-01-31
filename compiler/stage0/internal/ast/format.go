@@ -127,7 +127,16 @@ func FormatStmt(s Stmt) string {
 		out += " = " + FormatExpr(v.Init) + ";"
 		return out
 	case *LetPatternStmt:
-		return "let " + FormatPattern(v.Pattern) + " = " + FormatExpr(v.Init) + ";"
+		out := "let "
+		if v.Mutable {
+			out += "mut "
+		}
+		out += FormatPattern(v.Pattern)
+		if v.Type != nil {
+			out += ": " + FormatType(*v.Type)
+		}
+		out += " = " + FormatExpr(v.Init) + ";"
+		return out
 	case *AssignStmt:
 		return FormatExpr(v.Target) + " = " + FormatExpr(v.Value) + ";"
 	case *ExprStmt:

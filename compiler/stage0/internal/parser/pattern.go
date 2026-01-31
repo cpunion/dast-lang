@@ -38,14 +38,13 @@ func (p *Parser) parsePatternSingle() ast.Pattern {
 		}
 		return &ast.RangePattern{Start: nil, End: endExpr, Inclusive: inclusive, SpanInfo: mergeSpan(startSpan, endSpan)}
 	}
-	pat := p.parsePatternAtom()
-	if p.match(lexer.TokenDotDot) || p.match(lexer.TokenDotDotEq) {
-		inclusive := p.prev().Kind == lexer.TokenDotDotEq
-		startExpr, ok := patternToRangeExpr(pat)
-		if !ok {
-			p.diag.Add(p.prev().Span, "range pattern requires simple start")
-			return pat
+	if p.rangeOperatorAhead() {
+		startExpr := p.parseRangeExpr()
+		if !p.match(lexer.TokenDotDot) && !p.match(lexer.TokenDotDotEq) {
+			p.diag.Add(p.peek().Span, "expected range operator '..' in pattern")
+			return &ast.WildcardPattern{SpanInfo: p.peek().Span}
 		}
+		inclusive := p.prev().Kind == lexer.TokenDotDotEq
 		var endExpr ast.Expr
 		if !p.rangeEndTerminator() {
 			endExpr = p.parseRangeExpr()
@@ -56,9 +55,9 @@ func (p *Parser) parsePatternSingle() ast.Pattern {
 		if endExpr != nil {
 			endSpan = endExpr.Span()
 		}
-		return &ast.RangePattern{Start: startExpr, End: endExpr, Inclusive: inclusive, SpanInfo: mergeSpan(pat.Span(), endSpan)}
+		return &ast.RangePattern{Start: startExpr, End: endExpr, Inclusive: inclusive, SpanInfo: mergeSpan(startExpr.Span(), endSpan)}
 	}
-	return pat
+	return p.parsePatternAtom()
 }
 
 func (p *Parser) parsePatternAtom() ast.Pattern {
@@ -220,29 +219,35 @@ func (p *Parser) rangeEndTerminator() bool {
 	return false
 }
 
-func (p *Parser) parseRangeExpr() ast.Expr {
-	return p.parseExpr(0)
-}
-
-func patternToRangeExpr(pat ast.Pattern) (ast.Expr, bool) {
-	switch p := pat.(type) {
-	case *ast.BindingPattern:
-		return &ast.IdentExpr{Name: p.Name, SpanInfo: p.SpanInfo}, true
-	case *ast.LiteralPattern:
-		switch p.Value.Kind {
-		case ast.ConstInt:
-			return &ast.IntLit{Value: p.Value.Int, SpanInfo: p.SpanInfo}, true
-		case ast.ConstChar:
-			return &ast.CharLit{Value: p.Value.Int, SpanInfo: p.SpanInfo}, true
-		case ast.ConstBool:
-			return &ast.BoolLit{Value: p.Value.Bool, SpanInfo: p.SpanInfo}, true
-		case ast.ConstString:
-			return &ast.StringLit{Value: p.Value.Str, SpanInfo: p.SpanInfo}, true
-		case ast.ConstFloat:
-			return &ast.FloatLit{Text: p.Value.FloatText, SpanInfo: p.SpanInfo}, true
+func (p *Parser) rangeOperatorAhead() bool {
+	depth := 0
+	for i := p.pos; i < len(p.tokens); i++ {
+		tok := p.tokens[i]
+		switch tok.Kind {
+		case lexer.TokenLParen, lexer.TokenLBracket, lexer.TokenLBrace:
+			depth++
+		case lexer.TokenRParen, lexer.TokenRBracket, lexer.TokenRBrace:
+			if depth > 0 {
+				depth--
+			}
+		case lexer.TokenDotDot, lexer.TokenDotDotEq:
+			if depth == 0 {
+				return true
+			}
+		default:
+			if depth == 0 {
+				switch tok.Kind {
+				case lexer.TokenComma, lexer.TokenPipe, lexer.TokenFatArrow, lexer.TokenRParen, lexer.TokenRBrace, lexer.TokenIf, lexer.TokenEOF:
+					return false
+				}
+			}
 		}
 	}
-	return nil, false
+	return false
+}
+
+func (p *Parser) parseRangeExpr() ast.Expr {
+	return p.parseExpr(0)
 }
 
 func (p *Parser) parseStructFieldPattern(fieldTok lexer.Token) ast.StructFieldPattern {

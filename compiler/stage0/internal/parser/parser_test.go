@@ -96,3 +96,35 @@ func TestParseWhereNonNominalBound(t *testing.T) {
 		t.Fatalf("expected parse errors for non-nominal bound")
 	}
 }
+
+func TestParseRangePatternExprStart(t *testing.T) {
+	src := `fn main() {
+    let x = 3
+    match x {
+        1 + 2 ..= 10 => {}
+        _ => {}
+    }
+}`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	fn, ok := prog.Items[0].(*ast.Function)
+	if !ok {
+		t.Fatalf("expected function item")
+	}
+	if len(fn.Body.Stmts) < 2 {
+		t.Fatalf("expected match statement")
+	}
+	matchStmt, ok := fn.Body.Stmts[1].(*ast.MatchStmt)
+	if !ok || len(matchStmt.Arms) == 0 {
+		t.Fatalf("expected match statement with arms")
+	}
+	rp, ok := matchStmt.Arms[0].Pattern.(*ast.RangePattern)
+	if !ok {
+		t.Fatalf("expected range pattern")
+	}
+	if _, ok := rp.Start.(*ast.BinaryExpr); !ok {
+		t.Fatalf("expected binary expr range start, got %T", rp.Start)
+	}
+}

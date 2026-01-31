@@ -84,47 +84,41 @@ func (p *Parser) parseLet() ast.Stmt {
 	}
 	if p.at(lexer.TokenDot) || p.at(lexer.TokenLParen) || p.at(lexer.TokenLBracket) || (p.at(lexer.TokenIdent) && p.peek().Lexeme == "_") {
 		pat := p.parsePattern()
-		if mutable {
-			p.diag.Add(start.Span, "let pattern does not support 'mut' in stage 0")
-		}
+		var typ *ast.Type
 		if p.match(lexer.TokenColon) {
-			p.diag.Add(p.prev().Span, "let pattern type annotation not supported in stage 0")
-			_ = p.parseType()
+			t := p.parseType()
+			typ = &t
 		}
 		p.expect(lexer.TokenAssign, "expected '=' in let pattern")
 		init := p.parseExpr(0)
 		p.maybeConsumeSemicolon()
-		return &ast.LetPatternStmt{Pattern: pat, Init: init, SpanInfo: mergeSpan(start.Span, init.Span())}
+		return &ast.LetPatternStmt{Pattern: pat, Mutable: mutable, Type: typ, Init: init, SpanInfo: mergeSpan(start.Span, init.Span())}
 	}
 	if p.at(lexer.TokenIdent) {
 		if end, name, _, ok := p.peekQualifiedName(); ok {
 			if end < len(p.tokens) && p.tokens[end].Kind == lexer.TokenLBrace {
 				pat := p.parsePattern()
-				if mutable {
-					p.diag.Add(start.Span, "let pattern does not support 'mut' in stage 0")
-				}
+				var typ *ast.Type
 				if p.match(lexer.TokenColon) {
-					p.diag.Add(p.prev().Span, "let pattern type annotation not supported in stage 0")
-					_ = p.parseType()
+					t := p.parseType()
+					typ = &t
 				}
 				p.expect(lexer.TokenAssign, "expected '=' in let pattern")
 				init := p.parseExpr(0)
 				p.maybeConsumeSemicolon()
-				return &ast.LetPatternStmt{Pattern: pat, Init: init, SpanInfo: mergeSpan(start.Span, init.Span())}
+				return &ast.LetPatternStmt{Pattern: pat, Mutable: mutable, Type: typ, Init: init, SpanInfo: mergeSpan(start.Span, init.Span())}
 			}
 			if strings.Contains(name, ".") {
 				pat := p.parsePattern()
-				if mutable {
-					p.diag.Add(start.Span, "let pattern does not support 'mut' in stage 0")
-				}
+				var typ *ast.Type
 				if p.match(lexer.TokenColon) {
-					p.diag.Add(p.prev().Span, "let pattern type annotation not supported in stage 0")
-					_ = p.parseType()
+					t := p.parseType()
+					typ = &t
 				}
 				p.expect(lexer.TokenAssign, "expected '=' in let pattern")
 				init := p.parseExpr(0)
 				p.maybeConsumeSemicolon()
-				return &ast.LetPatternStmt{Pattern: pat, Init: init, SpanInfo: mergeSpan(start.Span, init.Span())}
+				return &ast.LetPatternStmt{Pattern: pat, Mutable: mutable, Type: typ, Init: init, SpanInfo: mergeSpan(start.Span, init.Span())}
 			}
 		}
 	}

@@ -182,11 +182,24 @@ fn desugar_loop_expr(p: &mut Parser, name: String, mutable: bool, has_type: bool
     return stmt_let(name, mutable, has_type, typ, expr_block(Block { stmts: stmts }))
 }
 
-fn desugar_while_let(p: &mut Parser, scrut: Expr, pat: Pattern, body: Block, binding: String, has_binding: bool) -> Stmt {
+fn desugar_while_let(p: &mut Parser, scrut: Expr, pat: Pattern, body: Block) -> Stmt {
     let mut else_stmts: [Stmt] = []
     push(&mut else_stmts, stmt_break())
     let else_block = Block { stmts: else_stmts }
-    let iflet = stmt_iflet(scrut, string_clone(&pat.variant), binding, has_binding, body, else_block, true)
+    let mut arms = match_arm_list_empty()
+    push(&mut arms, MatchArm { pattern: pat, has_guard: false, guard: expr_int(0), block: body })
+    push(&mut arms, MatchArm { pattern: pattern_wildcard(), has_guard: false, guard: expr_int(0), block: else_block })
+    let m = stmt_match(scrut, arms)
+    let mut loop_stmts: [Stmt] = []
+    push(&mut loop_stmts, m)
+    return stmt_loop(Block { stmts: loop_stmts })
+}
+
+fn desugar_while_let_variant(scrut: Expr, variant: String, binding: String, has_binding: bool, body: Block) -> Stmt {
+    let mut else_stmts: [Stmt] = []
+    push(&mut else_stmts, stmt_break())
+    let else_block = Block { stmts: else_stmts }
+    let iflet = stmt_iflet(scrut, variant, binding, has_binding, body, else_block, true)
     let mut loop_stmts: [Stmt] = []
     push(&mut loop_stmts, iflet)
     return stmt_loop(Block { stmts: loop_stmts })

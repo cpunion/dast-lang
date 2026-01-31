@@ -168,6 +168,10 @@ func (c *Checker) expandAliasesInStmt(stmt ast.Stmt) {
 		}
 		c.expandAliasesInExpr(s.Init)
 	case *ast.LetPatternStmt:
+		if s.Type != nil {
+			t := c.expandAliasType(*s.Type)
+			s.Type = &t
+		}
 		c.expandAliasesInExpr(s.Init)
 	case *ast.AssignStmt:
 		c.expandAliasesInExpr(s.Target)

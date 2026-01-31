@@ -110,6 +110,20 @@ fn collect_vars_from_pattern(e: &mut Emitter, pat: &Pattern, scrut_t: &str) {
         }
         return
     }
+    if pat.kind == PAT_ARRAY {
+        let arr_t = type_strip_ref(e, scrut_t)
+        if !type_is_array(e, &arr_t) {
+            println("stage2: array pattern requires array scrutinee")
+            exit(1)
+        }
+        let elem_t = type_array_elem(e, &arr_t)
+        let mut i = 0
+        while i < len(&pat.payload) {
+            collect_vars_from_pattern(e, &pat.payload[i], &elem_t)
+            i = i + 1
+        }
+        return
+    }
 }
 
 fn collect_var_add(e: &mut Emitter, name: &str, typ: &str, mutable: bool) {
@@ -278,14 +292,16 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     let hint = enum_var_hint(e, &s.expr.name)
                     if hint != "" { enum_t = hint }
                 }
-                if !type_is_enum(e, &enum_t) && enum_t == "" {
-                    let guess = enum_name_for_variant(e, &s.pat_variant)
-                    if guess != "" { enum_t = guess }
+                if !type_is_enum(e, &enum_t) && enum_t == "" && s.expr.kind == EXPR_CALL {
+                    let ec = enum_call_parse(&s.expr.name)
+                    if ec.ok { enum_t = string_clone(&ec.enum_name) }
+                }
+                if !type_is_enum(e, &enum_t) {
+                    println("stage2: if let requires enum expression")
+                    exit(1)
                 }
                 let mut bt = string_clone("i64")
-                if type_is_enum(e, &enum_t) {
-                    bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
-                }
+                bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
                 collect_var_add(e, &s.pat_binding, bt, false)
             }
             collect_vars_from_block(e, &s.block)
@@ -727,6 +743,14 @@ fn collect_strings_from_pattern(e: &mut Emitter, pat: &Pattern) {
     if pat.kind == PAT_VARIANT {
         if pat.has_payload && len(&pat.payload) > 0 {
             collect_strings_from_pattern(e, &pat.payload[0])
+        }
+        return
+    }
+    if pat.kind == PAT_ARRAY {
+        let mut i = 0
+        while i < len(&pat.payload) {
+            collect_strings_from_pattern(e, &pat.payload[i])
+            i = i + 1
         }
         return
     }
