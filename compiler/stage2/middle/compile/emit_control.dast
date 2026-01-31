@@ -290,7 +290,7 @@ fn emit_compiled_function(glob: &mut Emitter, f: &Function) -> FuncEmitResult {
     let mut e = emitter_with_globals(glob)
     let eff_rt = effective_ret_type(&e, f)
     e.cur_ret_type = string_clone(&eff_rt)
-    validate_block_args(&f.body, &f.name)
+    validate_block_args(&mut e, &f.body, &f.name)
     collect_vars(&mut e, f)
     infer_untyped_vars(&mut e, f, &eff_rt)
     let stmt_count = len(&f.body.stmts)

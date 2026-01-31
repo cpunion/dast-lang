@@ -78,8 +78,8 @@ fn collect_vars_from_pattern(e: &mut Emitter, pat: &Pattern, scrut_t: &str) {
             if guess != "" { enum_t = guess }
         }
         if !type_is_enum(e, &enum_t) {
-            println("stage2: enum pattern requires enum expression")
-            exit(1)
+            emit_fail(e, "stage2: enum pattern requires enum expression")
+            return
         }
         if pat.has_payload && len(&pat.payload) > 0 {
             let payload_t = enum_variant_payload_type(e, &enum_t, &pat.variant)
@@ -90,20 +90,24 @@ fn collect_vars_from_pattern(e: &mut Emitter, pat: &Pattern, scrut_t: &str) {
     if pat.kind == PAT_STRUCT {
         let st_name = type_strip_ref(e, scrut_t)
         if !type_is_struct(e, &st_name) {
-            println("stage2: struct pattern requires struct scrutinee")
-            exit(1)
+            emit_fail(e, "stage2: struct pattern requires struct scrutinee")
+            return
         }
         if pat.struct_name != "" && pat.struct_name != st_name {
-            println("stage2: struct pattern type mismatch", pat.struct_name, "vs", st_name)
-            exit(1)
+            let mut msg = string_clone("stage2: struct pattern type mismatch ")
+            msg = msg + pat.struct_name + " vs " + st_name
+            emit_fail(e, msg)
+            return
         }
         let mut fi = 0
         while fi < len(&pat.struct_fields) {
             let f = &pat.struct_fields[fi]
             let ftyp = struct_field_type(e, &st_name, &f.name)
             if ftyp == "" {
-                println("stage2: unknown struct field", f.name)
-                exit(1)
+                let mut msg = string_clone("stage2: unknown struct field ")
+                msg = msg + f.name
+                emit_fail(e, msg)
+                return
             }
             collect_vars_from_pattern(e, &f.pattern, &ftyp)
             fi = fi + 1
@@ -113,8 +117,8 @@ fn collect_vars_from_pattern(e: &mut Emitter, pat: &Pattern, scrut_t: &str) {
     if pat.kind == PAT_ARRAY {
         let arr_t = type_strip_ref(e, scrut_t)
         if !type_is_array(e, &arr_t) {
-            println("stage2: array pattern requires array scrutinee")
-            exit(1)
+            emit_fail(e, "stage2: array pattern requires array scrutinee")
+            return
         }
         let elem_t = type_array_elem(e, &arr_t)
         let mut i = 0
@@ -149,75 +153,81 @@ fn collect_var_add(e: &mut Emitter, name: &str, typ: &str, mutable: bool) {
     e.var_untyped_has_value = has_values
 }
 
-fn validate_expr_args(expr: &Expr, ctx: &String) {
+fn validate_expr_args(e: &mut Emitter, expr: &Expr, ctx: &String) {
     let n = len(&expr.args)
     if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH {
         if n < 1 {
-            println("stage2: bad expr args", expr.kind, "len", n, expr.name, ctx)
-            exit(1)
+            let mut msg = string_clone("stage2: bad expr args len ")
+            msg = msg + int_to_string(n)
+            msg = msg + " " + expr.name + " " + ctx
+            emit_fail(e, msg)
+            return
         }
     }
     if expr.kind == EXPR_INDEX || expr.kind == EXPR_BINARY {
         if n < 2 {
-            println("stage2: bad expr args", expr.kind, "len", n, expr.name, ctx)
-            exit(1)
+            let mut msg = string_clone("stage2: bad expr args len ")
+            msg = msg + int_to_string(n)
+            msg = msg + " " + expr.name + " " + ctx
+            emit_fail(e, msg)
+            return
         }
     }
     let mut i = 0
     while i < n {
-        validate_expr_args(expr_arg_ref(expr, i, "validate_expr_arg"), ctx)
+        validate_expr_args(e, expr_arg_ref(expr, i, "validate_expr_arg"), ctx)
         i = i + 1
     }
     let mut fi = 0
     while fi < len(&expr.fields) {
-        validate_expr_args(&expr.fields[fi].value, ctx)
+        validate_expr_args(e, &expr.fields[fi].value, ctx)
         fi = fi + 1
     }
     if expr.kind == EXPR_BLOCK || expr.kind == EXPR_CLOSURE {
-        validate_block_args(&expr.block, ctx)
+        validate_block_args(e, &expr.block, ctx)
     }
     if expr.kind == EXPR_MATCH {
         let mut ai = 0
         while ai < len(&expr.match_arms) {
             if expr.match_arms[ai].has_guard {
-                validate_expr_args(&expr.match_arms[ai].guard, ctx)
+                validate_expr_args(e, &expr.match_arms[ai].guard, ctx)
             }
-            validate_block_args(&expr.match_arms[ai].block, ctx)
+            validate_block_args(e, &expr.match_arms[ai].block, ctx)
             ai = ai + 1
         }
     }
 }
 
-fn validate_stmt_args(stmt: &Stmt, ctx: &String) {
+fn validate_stmt_args(e: &mut Emitter, stmt: &Stmt, ctx: &String) {
     if stmt.kind == STMT_LET || stmt.kind == STMT_EXPR || stmt.kind == STMT_RETURN || stmt.kind == STMT_ASSIGN {
-        validate_expr_args(&stmt.expr, ctx)
+        validate_expr_args(e, &stmt.expr, ctx)
         return
     }
     if stmt.kind == STMT_IF || stmt.kind == STMT_WHILE || stmt.kind == STMT_LOOP {
-        validate_expr_args(&stmt.expr, ctx)
-        validate_block_args(&stmt.block, ctx)
-        if stmt.has_else { validate_block_args(&stmt.else_block, ctx) }
+        validate_expr_args(e, &stmt.expr, ctx)
+        validate_block_args(e, &stmt.block, ctx)
+        if stmt.has_else { validate_block_args(e, &stmt.else_block, ctx) }
         return
     }
     if stmt.kind == STMT_IFLET || stmt.kind == STMT_MATCH {
-        validate_expr_args(&stmt.expr, ctx)
+        validate_expr_args(e, &stmt.expr, ctx)
         let mut ai = 0
         while ai < len(&stmt.arms) {
             if stmt.arms[ai].has_guard {
-                validate_expr_args(&stmt.arms[ai].guard, ctx)
+                validate_expr_args(e, &stmt.arms[ai].guard, ctx)
             }
-            validate_block_args(&stmt.arms[ai].block, ctx)
+            validate_block_args(e, &stmt.arms[ai].block, ctx)
             ai = ai + 1
         }
-        if stmt.kind == STMT_IFLET && stmt.has_else { validate_block_args(&stmt.else_block, ctx) }
+        if stmt.kind == STMT_IFLET && stmt.has_else { validate_block_args(e, &stmt.else_block, ctx) }
         return
     }
 }
 
-fn validate_block_args(b: &Block, ctx: &String) {
+fn validate_block_args(e: &mut Emitter, b: &Block, ctx: &String) {
     let mut i = 0
     while i < len(&b.stmts) {
-        validate_stmt_args(&b.stmts[i], ctx)
+        validate_stmt_args(e, &b.stmts[i], ctx)
         i = i + 1
     }
 }
@@ -248,8 +258,9 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     let actual = type_resolve(e, &typ)
                     if declared != "" && actual != "" && declared != actual {
                         if !type_compatible_expr(e, &declared, expr) {
-                            println("stage2: let type mismatch expected", declared, "got", actual)
-                            exit(1)
+                            let mut msg = string_clone("stage2: let type mismatch expected ")
+                            msg = msg + declared + " got " + actual
+                            emit_fail(e, msg)
                         }
                     }
                     typ = declared
@@ -271,8 +282,11 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     untyped_kind = UNTYPED_FLOAT
                 }
                 if typ == "" {
-                    println("stage2: let missing type for", s.name, "expr", expr.kind, expr.name)
-                    exit(1)
+                    let mut msg = string_clone("stage2: let missing type for ")
+                    msg = msg + s.name + " expr " + expr.name
+                    emit_fail(e, msg)
+                    i = i + 1
+                    continue
                 }
                 collect_var_add(e, &s.name, &typ, s.mutable)
                 if untyped_kind != UNTYPED_NONE {
@@ -297,12 +311,12 @@ fn collect_vars_from_stmts(e: &mut Emitter, items: & [Stmt]) {
                     if ec.ok { enum_t = string_clone(&ec.enum_name) }
                 }
                 if !type_is_enum(e, &enum_t) {
-                    println("stage2: if let requires enum expression")
-                    exit(1)
+                    emit_fail(e, "stage2: if let requires enum expression")
+                } else {
+                    let mut bt = string_clone("i64")
+                    bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
+                    collect_var_add(e, &s.pat_binding, bt, false)
                 }
-                let mut bt = string_clone("i64")
-                bt = enum_variant_payload_type(e, &enum_t, &s.pat_variant)
-                collect_var_add(e, &s.pat_binding, bt, false)
             }
             collect_vars_from_block(e, &s.block)
             if s.has_else { collect_vars_from_block(e, &s.else_block) }
@@ -611,8 +625,7 @@ fn finalize_untyped_vars(e: &mut Emitter) {
                 let v = e.var_untyped_value[i]
                 let t = "i64"
                 if !int_value_fits_type(e, v, t) {
-                    println("stage2: integer literal out of range for i64")
-                    exit(1)
+                    emit_fail(e, "stage2: integer literal out of range for i64")
                 }
             }
             e.var_types[i] = "i64"
