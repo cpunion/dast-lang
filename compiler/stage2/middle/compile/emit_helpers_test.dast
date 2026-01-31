@@ -140,10 +140,7 @@ fn test_emit_array_literal_string_typed() {
     let arr = expr_array(elems)
     let v = emit_typed_value(&mut e, &arr, "[String]")
     assert_true(v.typ == "[String]", "array literal uses expected [String] type")
-    if body_contains(&e.body, "str_ref_") {
-        println("expected [String] array literal to avoid &str refs")
-        exit(1)
-    }
+    assert_true(!body_contains(&e.body, "str_ref_"), "expected [String] array literal to avoid &str refs")
 }
 
 fn test_emit_char_literal() {

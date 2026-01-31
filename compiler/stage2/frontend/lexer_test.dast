@@ -3,10 +3,10 @@
 fn test_lexer_char_literals() {
     let src = string_clone("'a' '\\n' '\\'' '\\\\'")
     let toks = lexer_all(&src)
-    if len(&toks) != 5 { println("bad token count", len(&toks)); exit(1) }
-    if toks[0].kind != TK_CHAR || toks[0].int_value != 97 { println("bad a"); exit(1) }
-    if toks[1].kind != TK_CHAR || toks[1].int_value != 10 { println("bad n"); exit(1) }
-    if toks[2].kind != TK_CHAR || toks[2].int_value != 39 { println("bad q"); exit(1) }
-    if toks[3].kind != TK_CHAR || toks[3].int_value != 92 { println("bad b"); exit(1) }
-    if toks[4].kind != TK_EOF { println("missing eof"); exit(1) }
+    assert_true(len(&toks) == 5, "bad token count")
+    assert_true(toks[0].kind == TK_CHAR && toks[0].int_value == 97, "bad a")
+    assert_true(toks[1].kind == TK_CHAR && toks[1].int_value == 10, "bad n")
+    assert_true(toks[2].kind == TK_CHAR && toks[2].int_value == 39, "bad q")
+    assert_true(toks[3].kind == TK_CHAR && toks[3].int_value == 92, "bad b")
+    assert_true(toks[4].kind == TK_EOF, "missing eof")
 }

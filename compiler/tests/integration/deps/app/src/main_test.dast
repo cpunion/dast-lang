@@ -1,7 +1,14 @@
 import "util"
 import "math"
 
+fn assert_true(cond: bool, msg: String) {
+    if !cond {
+        println("assert_true failed", msg)
+        exit(1)
+    }
+}
+
 fn test_deps() {
-    if util_value() != 41 { exit(1) }
-    if add_base(2) != 42 { exit(1) }
+    assert_true(util_value() == 41, "expected util_value == 41")
+    assert_true(add_base(2) == 42, "expected add_base(2) == 42")
 }

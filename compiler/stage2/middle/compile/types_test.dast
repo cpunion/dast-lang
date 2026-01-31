@@ -136,10 +136,7 @@ fn test_int_bin_cross_type_reject() {
             let r2 = type_resolve(&e, &t2)
             if r1 != r2 {
                 let res = int_bin_result_type(&mut e, &lhs, &rhs)
-                if res != "" {
-                    println("expected int_bin_result_type reject", t1, t2, res)
-                    exit(1)
-                }
+                assert_true(res == "", "expected int_bin_result_type reject")
             }
             j = j + 1
         }
@@ -160,10 +157,7 @@ fn test_shift_result_reject_signed_rhs() {
             let rhs_t = string_clone(&signed[j])
             let mut e = setup_emitter_types(lhs_t, rhs_t)
             let st = shift_result_type(&mut e, &lhs, &rhs)
-            if st != "" {
-                println("expected shift_result_type reject signed rhs", all[i], signed[j], st)
-                exit(1)
-            }
+            assert_true(st == "", "expected shift_result_type reject signed rhs")
             j = j + 1
         }
         i = i + 1
@@ -185,43 +179,25 @@ fn test_literal_coercion() {
 fn test_untyped_binary_coercion_int() {
     let mut e = emitter_new()
     let expr = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
-    if !type_compatible_expr(&mut e, "i32", &expr) {
-        println("expected untyped int binary to coerce to i32")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "i32", &expr), "expected untyped int binary to coerce to i32")
 }
 
 fn test_untyped_binary_coercion_float() {
     let mut e = emitter_new()
     let fexpr = expr_binary(string_clone("+"), expr_float("1.0"), expr_float("2.0"))
-    if !type_compatible_expr(&mut e, "f32", &fexpr) {
-        println("expected untyped float binary to coerce to f32")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "f32", &fexpr), "expected untyped float binary to coerce to f32")
     let iexpr = expr_binary(string_clone("+"), expr_int(1), expr_int(2))
-    if type_compatible_expr(&mut e, "f64", &iexpr) {
-        println("expected untyped int binary to reject for float")
-        exit(1)
-    }
+    assert_true(!type_compatible_expr(&mut e, "f64", &iexpr), "expected untyped int binary to reject for float")
 }
 
 fn test_untyped_unary_coercion() {
     let mut e = emitter_new()
     let u1 = expr_unary(string_clone("-"), expr_int(1))
-    if !type_compatible_expr(&mut e, "i32", &u1) {
-        println("expected untyped int unary to coerce to i32")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "i32", &u1), "expected untyped int unary to coerce to i32")
     let u2 = expr_unary(string_clone("-"), expr_float("1.0"))
-    if !type_compatible_expr(&mut e, "f32", &u2) {
-        println("expected untyped float unary to coerce to f32")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "f32", &u2), "expected untyped float unary to coerce to f32")
     let u3 = expr_unary(string_clone("-"), expr_int(1))
-    if type_compatible_expr(&mut e, "f64", &u3) {
-        println("expected untyped int unary to reject for float")
-        exit(1)
-    }
+    assert_true(!type_compatible_expr(&mut e, "f64", &u3), "expected untyped int unary to reject for float")
 }
 
 fn test_bool_ops() {
@@ -241,27 +217,27 @@ fn test_binop_try_rejects_mixed_kinds() {
     let lhs1 = expr_ident("a")
     let rhs1 = expr_ident("b")
     let r1 = binary_op_result_type_try(&mut e1, "&&", &lhs1, &rhs1)
-    if r1 != "" { println("expected && reject i32/bool", r1); exit(1) }
+    assert_true(r1 == "", "expected && reject i32/bool")
     let r2 = binary_op_result_type_try(&mut e1, "==", &lhs1, &rhs1)
-    if r2 != "" { println("expected == reject i32/bool", r2); exit(1) }
+    assert_true(r2 == "", "expected == reject i32/bool")
 
     let mut e2 = setup_emitter_types("String", "i32")
     let lhs2 = expr_ident("a")
     let rhs2 = expr_ident("b")
     let r3 = binary_op_result_type_try(&mut e2, "+", &lhs2, &rhs2)
-    if r3 != "" { println("expected + reject String/i32", r3); exit(1) }
+    assert_true(r3 == "", "expected + reject String/i32")
 
     let mut e3 = setup_emitter_types("char", "char")
     let lhs3 = expr_ident("a")
     let rhs3 = expr_ident("b")
     let r4 = binary_op_result_type_try(&mut e3, "+", &lhs3, &rhs3)
-    if r4 != "" { println("expected + reject char/char", r4); exit(1) }
+    assert_true(r4 == "", "expected + reject char/char")
 
     let mut e4 = setup_emitter_types("f32", "i32")
     let lhs4 = expr_ident("a")
     let rhs4 = expr_ident("b")
     let r5 = binary_op_result_type_try(&mut e4, "+", &lhs4, &rhs4)
-    if r5 != "" { println("expected + reject f32/i32", r5); exit(1) }
+    assert_true(r5 == "", "expected + reject f32/i32")
 }
 
 fn test_string_ops() {
@@ -280,10 +256,7 @@ fn test_string_ref_ops() {
     let rhs1 = expr_ident("b")
     assert_str_eq(binary_op_result_type_try(&mut e1, "+", &lhs1, &rhs1), "String")
     assert_str_eq(binary_op_result_type_try(&mut e1, "==", &lhs1, &rhs1), "bool")
-    if binary_op_result_type_try(&mut e1, "<", &lhs1, &rhs1) != "" {
-        println("expected < to reject &str")
-        exit(1)
-    }
+    assert_true(binary_op_result_type_try(&mut e1, "<", &lhs1, &rhs1) == "", "expected < to reject &str")
 
     let mut e2 = setup_emitter_types("String", "&str")
     let lhs2 = expr_ident("a")
@@ -296,32 +269,17 @@ fn test_string_literal_type() {
     let mut e = emitter_new()
     let lit = expr_string(string_clone("hi"))
     assert_str_eq(expr_type(&mut e, &lit), "&str")
-    if !type_compatible_expr(&mut e, "String", &lit) {
-        println("expected string literal to coerce to String when required")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "String", &lit), "expected string literal to coerce to String when required")
 }
 
 fn test_string_borrow_compat() {
     let mut e = setup_emitter_types("String", "String")
     let ident = expr_ident("a")
-    if !type_compatible_expr(&mut e, "&str", &ident) {
-        println("expected String to coerce to &str")
-        exit(1)
-    }
-    if !type_compatible_expr(&mut e, "str", &ident) {
-        println("expected String to be compatible with base str for borrow")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "&str", &ident), "expected String to coerce to &str")
+    assert_true(type_compatible_expr(&mut e, "str", &ident), "expected String to be compatible with base str for borrow")
     let lit = expr_string(string_clone("hi"))
-    if !type_compatible_expr(&mut e, "str", &lit) {
-        println("expected string literal to be compatible with base str for borrow")
-        exit(1)
-    }
-    if type_compatible(&e, "str", "String") {
-        println("expected String to not coerce to str value")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "str", &lit), "expected string literal to be compatible with base str for borrow")
+    assert_true(!type_compatible(&e, "str", "String"), "expected String to not coerce to str value")
 }
 
 fn test_array_literal_string_expected() {
@@ -330,26 +288,14 @@ fn test_array_literal_string_expected() {
     push(&mut elems, expr_string(string_clone("a")))
     push(&mut elems, expr_string(string_clone("b")))
     let arr = expr_array(elems)
-    if !type_compatible_expr(&mut e, "[String]", &arr) {
-        println("expected string literals to coerce in [String] array literal")
-        exit(1)
-    }
-    if !type_compatible_expr(&mut e, "[&str]", &arr) {
-        println("expected string literals to be valid in [&str] array literal")
-        exit(1)
-    }
+    assert_true(type_compatible_expr(&mut e, "[String]", &arr), "expected string literals to coerce in [String] array literal")
+    assert_true(type_compatible_expr(&mut e, "[&str]", &arr), "expected string literals to be valid in [&str] array literal")
 }
 
 fn test_ref_covariance() {
     let mut e = emitter_new()
-    if !type_compatible(&e, "&i32", "&mut i32") {
-        println("expected &mut i32 to coerce to &i32")
-        exit(1)
-    }
-    if type_compatible(&e, "&mut i32", "&i32") {
-        println("expected &i32 to not coerce to &mut i32")
-        exit(1)
-    }
+    assert_true(type_compatible(&e, "&i32", "&mut i32"), "expected &mut i32 to coerce to &i32")
+    assert_true(!type_compatible(&e, "&mut i32", "&i32"), "expected &i32 to not coerce to &mut i32")
 }
 
 fn test_char_ops() {
@@ -369,10 +315,7 @@ fn test_char_ops() {
 
     let lhs = expr_ident("a")
     let rhs = expr_ident("b")
-    if int_bin_result_type(&mut e, &lhs, &rhs) != "" {
-        println("expected char arithmetic to be rejected")
-        exit(1)
-    }
+    assert_true(int_bin_result_type(&mut e, &lhs, &rhs) == "", "expected char arithmetic to be rejected")
 }
 
 fn test_float_ops() {
@@ -448,20 +391,11 @@ fn test_float_cross_type_reject() {
                 let t2 = string_clone(&types[j])
                 let mut e = setup_emitter_types(string_clone(&t1), string_clone(&t2))
                 let ft = float_bin_result_type(&mut e, &lhs, &rhs)
-                if ft != "" {
-                    println("expected float bin reject", t1, t2, ft)
-                    exit(1)
-                }
+                assert_true(ft == "", "expected float bin reject")
                 let radd = binary_op_result_type_try(&mut e, "+", &lhs, &rhs)
-                if radd != "" {
-                    println("expected + reject float types", t1, t2, radd)
-                    exit(1)
-                }
+                assert_true(radd == "", "expected + reject float types")
                 let rcmp = binary_op_result_type_try(&mut e, "<", &lhs, &rhs)
-                if rcmp != "" {
-                    println("expected < reject float types", t1, t2, rcmp)
-                    exit(1)
-                }
+                assert_true(rcmp == "", "expected < reject float types")
             }
             j = j + 1
         }
@@ -488,14 +422,8 @@ fn test_len_ref_depth_guard() {
     let mut e = emitter_new()
     let t_arr = string_clone("&[i64]")
     let t_str = string_clone("&str")
-    if !type_is_single_ref_to_string_or_array(&e, &t_arr) {
-        println("expected len to accept &[i64]")
-        exit(1)
-    }
-    if !type_is_single_ref_to_string_or_array(&e, &t_str) {
-        println("expected len to accept &str")
-        exit(1)
-    }
+    assert_true(type_is_single_ref_to_string_or_array(&e, &t_arr), "expected len to accept &[i64]")
+    assert_true(type_is_single_ref_to_string_or_array(&e, &t_str), "expected len to accept &str")
 }
 
 fn test_float_int_literal_allowed() {
@@ -509,26 +437,14 @@ fn test_float_int_literal_range() {
     let lhs = expr_ident("a")
     let rhs = expr_int(16777217)
     let ft = float_bin_result_type(&mut e, &lhs, &rhs)
-    if ft != "" {
-        println("expected float literal range reject for f32", ft)
-        exit(1)
-    }
-    if type_compatible_expr(&mut e, "f32", &rhs) {
-        println("expected int literal not to fit f32")
-        exit(1)
-    }
+    assert_true(ft == "", "expected float literal range reject for f32")
+    assert_true(!type_compatible_expr(&mut e, "f32", &rhs), "expected int literal not to fit f32")
 
     let mut e2 = setup_emitter_types("f64", "i32")
     let rhs2 = expr_int(9007199254740993)
     let ft2 = float_bin_result_type(&mut e2, &lhs, &rhs2)
-    if ft2 != "" {
-        println("expected float literal range reject for f64", ft2)
-        exit(1)
-    }
-    if type_compatible_expr(&mut e2, "f64", &rhs2) {
-        println("expected int literal not to fit f64")
-        exit(1)
-    }
+    assert_true(ft2 == "", "expected float literal range reject for f64")
+    assert_true(!type_compatible_expr(&mut e2, "f64", &rhs2), "expected int literal not to fit f64")
 }
 
 fn test_default_untyped_types() {
@@ -541,14 +457,8 @@ fn test_double_ref_rejected() {
     let mut e = emitter_new()
     let t_double = "&&i64"
     let t_single = "&i64"
-    if !type_is_double_ref(&e, t_double) {
-        println("expected &&i64 to be double ref")
-        exit(1)
-    }
-    if type_is_double_ref(&e, t_single) {
-        println("expected &i64 to not be double ref")
-        exit(1)
-    }
+    assert_true(type_is_double_ref(&e, t_double), "expected &&i64 to be double ref")
+    assert_true(!type_is_double_ref(&e, t_single), "expected &i64 to not be double ref")
 }
 
 fn test_int_peer_type_zip() {
@@ -566,10 +476,7 @@ fn test_int_peer_type_zip() {
             if r1 == r2 {
                 assert_str_eq(pt, r1)
             } else {
-                if pt != "" {
-                    println("expected no peer type", t1, t2, pt)
-                    exit(1)
-                }
+                assert_true(pt == "", "expected no peer type")
             }
             j = j + 1
         }
@@ -582,10 +489,7 @@ fn test_float_peer_type_zip() {
     let lhs = expr_ident("a")
     let rhs = expr_ident("b")
     let pt = float_bin_result_type(&mut e, &lhs, &rhs)
-    if pt != "" {
-        println("expected no float peer type for f32/f64", pt)
-        exit(1)
-    }
+    assert_true(pt == "", "expected no float peer type for f32/f64")
 }
 
 fn assert_i64_eq(got: i64, exp: i64) {
@@ -637,17 +541,11 @@ fn test_enum_eq_ops() {
     let rhs = expr_ident("b")
     assert_str_eq(binary_op_result_type_try(&mut e1, "==", &lhs, &rhs), "bool")
     assert_str_eq(binary_op_result_type_try(&mut e1, "!=", &lhs, &rhs), "bool")
-    if binary_op_result_type_try(&mut e1, "<", &lhs, &rhs) != "" {
-        println("expected enum < to be rejected")
-        exit(1)
-    }
+    assert_true(binary_op_result_type_try(&mut e1, "<", &lhs, &rhs) == "", "expected enum < to be rejected")
 
     let mut e2 = setup_enum_emitter("E1", "E2")
     let r = binary_op_result_type_try(&mut e2, "==", &lhs, &rhs)
-    if r != "" {
-        println("expected enum eq reject for mismatched enums", r)
-        exit(1)
-    }
+    assert_true(r == "", "expected enum eq reject for mismatched enums")
 }
 
 fn test_trait_impl_validation() {
@@ -670,20 +568,14 @@ fn test_trait_impl_validation() {
     let mut impls: [ImplDecl] = []
     push(&mut impls, ImplDecl { trait_name: "T", for_type: "Foo", type_params: generic_param_list_empty(), methods: imethods })
     e.impls = impls
-    if !validate_trait_impls_impl(&mut e, true) {
-        println("expected trait impl validation ok")
-        exit(1)
-    }
+    assert_true(validate_trait_impls_impl(&mut e, true), "expected trait impl validation ok")
 
     let mut e2 = emitter_new()
     e2.traits = trait_decl_list_clone(&e.traits)
     let mut bad_impls: [ImplDecl] = []
     push(&mut bad_impls, ImplDecl { trait_name: "T", for_type: "Foo", type_params: generic_param_list_empty(), methods: trait_method_list_empty() })
     e2.impls = bad_impls
-    if validate_trait_impls_impl(&mut e2, true) {
-        println("expected trait impl validation failure")
-        exit(1)
-    }
+    assert_true(!validate_trait_impls_impl(&mut e2, true), "expected trait impl validation failure")
 }
 
 fn test_trait_impl_args_validation() {
@@ -710,10 +602,7 @@ fn test_trait_impl_args_validation() {
     let mut ok_impls: [ImplDecl] = []
     push(&mut ok_impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: ok_methods })
     e.impls = ok_impls
-    if !validate_trait_impls_impl(&mut e, true) {
-        println("expected trait impl with args ok")
-        exit(1)
-    }
+    assert_true(validate_trait_impls_impl(&mut e, true), "expected trait impl with args ok")
 
     let mut e2 = emitter_new()
     e2.traits = trait_decl_list_clone(&e.traits)
@@ -726,10 +615,7 @@ fn test_trait_impl_args_validation() {
     let mut bad_impls: [ImplDecl] = []
     push(&mut bad_impls, ImplDecl { trait_name: "PartialEq[i32]", for_type: "Foo", type_params: generic_param_list_empty(), methods: bad_methods })
     e2.impls = bad_impls
-    if validate_trait_impls_impl(&mut e2, true) {
-        println("expected trait impl args mismatch to fail")
-        exit(1)
-    }
+    assert_true(!validate_trait_impls_impl(&mut e2, true), "expected trait impl args mismatch to fail")
 
     let mut e3 = emitter_new()
     e3.traits = trait_decl_list_clone(&e.traits)
@@ -742,10 +628,7 @@ fn test_trait_impl_args_validation() {
     push(&mut miss_methods, miss_method)
     push(&mut miss_impls, ImplDecl { trait_name: "PartialEq", for_type: "Foo", type_params: generic_param_list_empty(), methods: miss_methods })
     e3.impls = miss_impls
-    if validate_trait_impls_impl(&mut e3, true) {
-        println("expected trait impl missing args to fail")
-        exit(1)
-    }
+    assert_true(!validate_trait_impls_impl(&mut e3, true), "expected trait impl missing args to fail")
 }
 
 fn test_type_param_bounds_with_args() {
@@ -829,10 +712,7 @@ fn test_type_param_bounds_errors() {
     let f1 = Function { name: "f1", type_params: fparams1, params: param_list_empty(), ret_type: "", body: block_empty(), is_macro: false }
     let mut vals1: [String] = []
     push(&mut vals1, string_clone("Foo"))
-    if check_type_param_bounds_impl(&mut e, &f1, &vals1, true) {
-        println("expected unknown trait bound to fail")
-        exit(1)
-    }
+    assert_true(!check_type_param_bounds_impl(&mut e, &f1, &vals1, true), "expected unknown trait bound to fail")
 
     // trait arg count mismatch
     let mut b2: [String] = []
@@ -842,10 +722,7 @@ fn test_type_param_bounds_errors() {
     let f2 = Function { name: "f2", type_params: fparams2, params: param_list_empty(), ret_type: "", body: block_empty(), is_macro: false }
     let mut vals2: [String] = []
     push(&mut vals2, string_clone("Foo"))
-    if check_type_param_bounds_impl(&mut e, &f2, &vals2, true) {
-        println("expected trait arg mismatch to fail")
-        exit(1)
-    }
+    assert_true(!check_type_param_bounds_impl(&mut e, &f2, &vals2, true), "expected trait arg mismatch to fail")
 
     // missing impl for bound
     let mut b3: [String] = []
@@ -855,10 +732,7 @@ fn test_type_param_bounds_errors() {
     let f3 = Function { name: "f3", type_params: fparams3, params: param_list_empty(), ret_type: "", body: block_empty(), is_macro: false }
     let mut vals3: [String] = []
     push(&mut vals3, string_clone("Foo"))
-    if check_type_param_bounds_impl(&mut e, &f3, &vals3, true) {
-        println("expected missing impl to fail")
-        exit(1)
-    }
+    assert_true(!check_type_param_bounds_impl(&mut e, &f3, &vals3, true), "expected missing impl to fail")
 }
 
 fn test_type_size_align_basic() {

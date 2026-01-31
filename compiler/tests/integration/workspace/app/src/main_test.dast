@@ -1,5 +1,10 @@
-fn test_util() {
-    if util_value() != 42 {
+fn assert_true(cond: bool, msg: String) {
+    if !cond {
+        println("assert_true failed", msg)
         exit(1)
     }
+}
+
+fn test_util() {
+    assert_true(util_value() == 42, "expected util_value == 42")
 }

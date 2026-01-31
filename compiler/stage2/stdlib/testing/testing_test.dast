@@ -5,5 +5,5 @@ fn test_assert_ast_eq_basic() {
 fn test_escape_str_lit_quotes() {
     let s = "a\"b\\c"
     let esc = escape_str_lit(string_clone(s))
-    if esc != "a\\\"b\\\\c" { exit(1) }
+    assert_true(esc == "a\\\"b\\\\c", "escape_str_lit_quotes")
 }

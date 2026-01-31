@@ -1,10 +1,7 @@
 fn test_parse_where_fn_bounds() {
     let src = "fn f[T: Clone](x: T) where T: Display + Iter[i32] { } fn main() { }"
     let prog = parse_program_or_exit(src)
-    if len(&prog.functions) == 0 {
-        println("missing functions")
-        exit(1)
-    }
+    assert_true(len(&prog.functions) > 0, "missing functions")
     let mut fi = 0
     let mut found = false
     let mut f = function_clone(&prog.functions[0])
@@ -15,10 +12,7 @@ fn test_parse_where_fn_bounds() {
         }
         fi = fi + 1
     }
-    if !found {
-        println("missing function f")
-        exit(1)
-    }
+    assert_true(found, "missing function f")
     assert_i64_eq(len(&f.type_params), 1)
     let tp = f.type_params[0]
     assert_i64_eq(len(&tp.bounds), 3)
@@ -30,10 +24,7 @@ fn test_parse_where_fn_bounds() {
 fn test_parse_where_struct_bounds() {
     let src = "struct Box[T] where T: Clone { v: T } fn main() { }"
     let prog = parse_program_or_exit(src)
-    if len(&prog.structs) == 0 {
-        println("missing struct")
-        exit(1)
-    }
+    assert_true(len(&prog.structs) > 0, "missing struct")
     let s = struct_decl_clone(&prog.structs[0])
     assert_i64_eq(len(&s.type_params), 1)
     let tp = s.type_params[0]
@@ -44,28 +35,19 @@ fn test_parse_where_struct_bounds() {
 fn test_parse_where_unknown_param_error() {
     let src = "fn f[T](x: T) where U: Clone { } fn main() { }"
     let res = parse_program(src)
-    if !string_list_contains(&res.errors, "stage2: unknown type param in where clause") {
-        println("expected unknown param error")
-        exit(1)
-    }
+    assert_true(string_list_contains(&res.errors, "stage2: unknown type param in where clause"), "expected unknown param error")
 }
 
 fn test_parse_where_non_nominal_bound_error() {
     let src = "fn f[T](x: T) where T: &str { } fn main() { }"
     let res = parse_program(src)
-    if !string_list_contains(&res.errors, "stage2: trait bound must be nominal type") {
-        println("expected non-nominal bound error")
-        exit(1)
-    }
+    assert_true(string_list_contains(&res.errors, "stage2: trait bound must be nominal type"), "expected non-nominal bound error")
 }
 
 fn test_parse_array_pattern() {
     let src = "fn main() { let xs = [1, 2]; match xs { [a, b] => { } _ => { } } }"
     let prog = parse_program_or_exit(src)
-    if len(&prog.functions) == 0 {
-        println("missing function")
-        exit(1)
-    }
+    assert_true(len(&prog.functions) > 0, "missing function")
     let f = function_clone(&prog.functions[0])
     let mut mi = 0
     let mut found = false
@@ -73,27 +55,15 @@ fn test_parse_array_pattern() {
         let s = f.body.stmts[mi]
         if s.kind == STMT_MATCH {
             found = true
-            if len(&s.arms) == 0 {
-                println("missing match arms")
-                exit(1)
-            }
+            assert_true(len(&s.arms) > 0, "missing match arms")
             let arm0 = s.arms[0]
-            if arm0.pattern.kind != PAT_ARRAY {
-                println("expected array pattern")
-                exit(1)
-            }
+            assert_true(arm0.pattern.kind == PAT_ARRAY, "expected array pattern")
             assert_i64_eq(len(&arm0.pattern.payload), 2)
-            if arm0.pattern.payload[0].kind != PAT_BIND || arm0.pattern.payload[1].kind != PAT_BIND {
-                println("expected bind patterns in array")
-                exit(1)
-            }
+            assert_true(arm0.pattern.payload[0].kind == PAT_BIND && arm0.pattern.payload[1].kind == PAT_BIND, "expected bind patterns in array")
         }
         mi = mi + 1
     }
-    if !found {
-        println("missing match statement")
-        exit(1)
-    }
+    assert_true(found, "missing match statement")
 }
 
 fn test_parse_struct_rest_pattern() {
@@ -103,26 +73,83 @@ fn test_parse_struct_rest_pattern() {
 
 fn test_parse_expr_error() {
     let res = parse_expr_string("1 +")
-    if len(&res.errors) == 0 {
-        println("expected parse error")
-        exit(1)
-    }
+    assert_true(len(&res.errors) > 0, "expected parse error")
 }
 
 fn test_parse_reserved_int_width_error() {
     let src = "fn main() { let x: i128 = 1 }"
     let res = parse_program(src)
-    if !string_list_contains(&res.errors, "parse error: i128/u128 are reserved but not supported") {
-        println("expected reserved int width error")
-        exit(1)
-    }
+    assert_true(string_list_contains(&res.errors, "parse error: i128/u128 are reserved but not supported"), "expected reserved int width error")
 }
 
 fn test_parse_double_ref_error() {
     let src = "fn main() { let x: &&i32 = 0 }"
     let res = parse_program(src)
-    if len(&res.errors) == 0 {
-        println("expected parse error for double ref")
-        exit(1)
-    }
+    assert_true(len(&res.errors) > 0, "expected parse error for double ref")
+}
+
+fn test_parse_missing_main_error() {
+    let src = "fn f() { }"
+    let res = parse_program(src)
+    assert_true(string_list_contains(&res.errors, "parse error: missing fn main"), "expected missing main error")
+}
+
+fn test_parse_string_type_error() {
+    let src = "fn main() { let s: string = \"\" }"
+    let res = parse_program(src)
+    assert_true(string_list_contains(&res.errors, "parse error: use String/str instead of string"), "expected string type error")
+}
+
+fn test_parse_if_expr_missing_else() {
+    let res = parse_expr_string("if true { 1 }")
+    assert_true(string_list_contains(&res.errors, "parse error: if expression requires else"), "expected if expr missing else error")
+}
+
+fn test_parse_quote_unknown_kind() {
+    let res = parse_expr_string("quote bad { }")
+    assert_true(string_list_contains(&res.errors, "parse error: unknown quote kind"), "expected unknown quote kind error")
+}
+
+fn test_parse_struct_rest_extra_field_error() {
+    let src = "struct Point { x: i64, y: i64 } fn main() { let p = Point { x: 1, y: 2 }; match p { Point { .., x } => { } _ => { } } }"
+    let res = parse_program(src)
+    assert_true(len(&res.errors) > 0, "expected struct rest extra field parse error")
+}
+
+fn test_parse_call_target_error() {
+    let res = parse_expr_string("1()")
+    assert_true(string_list_contains(&res.errors, "parse error: call target"), "expected call target error")
+}
+
+fn test_parse_macro_call_target_error() {
+    let res = parse_expr_string("1!()")
+    assert_true(string_list_contains(&res.errors, "parse error: macro call target"), "expected macro call target error")
+}
+
+fn test_parse_expected_field_error() {
+    let res = parse_expr_string("a.")
+    assert_true(string_list_contains(&res.errors, "parse error: expected field"), "expected field error")
+}
+
+fn test_parse_label_requires_loop_error() {
+    let src = "fn main() { label: if true { } }"
+    let res = parse_program(src)
+    assert_true(string_list_contains(&res.errors, "parse error: label must prefix loop"), "expected label loop error")
+}
+
+fn test_parse_unsupported_pattern_error() {
+    let src = "fn main() { match 1 { 1 + 2 => { } } }"
+    let res = parse_program(src)
+    assert_true(string_list_contains(&res.errors, "parse error: unsupported pattern"), "expected unsupported pattern error")
+}
+
+fn test_parse_unexpected_token_in_program() {
+    let src = "let x = 1"
+    let res = parse_program(src)
+    assert_true(len(&res.errors) > 0, "expected unexpected token in program error")
+}
+
+fn test_parse_unexpected_token_in_expr() {
+    let res = parse_expr_string(")")
+    assert_true(len(&res.errors) > 0, "expected unexpected token in expr error")
 }

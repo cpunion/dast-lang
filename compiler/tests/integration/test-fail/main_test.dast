@@ -1,6 +1,10 @@
-fn test_should_fail() {
-    if 1 == 1 {
-        println("test fail")
+fn assert_true(cond: bool, msg: String) {
+    if !cond {
+        println("assert_true failed", msg)
         exit(1)
     }
+}
+
+fn test_should_fail() {
+    assert_true(false, "test fail")
 }

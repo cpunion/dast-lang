@@ -6,31 +6,18 @@ fn find_main_func_macro(p: &Program) -> Function {
         if p.functions[i].name == "main" { return p.functions[i] }
         i = i + 1
     }
-    println("missing main")
-    exit(1)
+    assert_true(false, "missing main")
     return p.functions[0]
 }
 
 fn expect_int_expr(e: &Expr, v: i64) {
-    if e.kind != EXPR_INT {
-        println("expected int expr", e.kind)
-        exit(1)
-    }
-    if e.int_value != v {
-        println("int value mismatch", e.int_value, v)
-        exit(1)
-    }
+    assert_true(e.kind == EXPR_INT, "expected int expr")
+    assert_true(e.int_value == v, "int value mismatch")
 }
 
 fn expect_binary_add(e: &Expr, lhs: i64, rhs: i64) {
-    if e.kind != EXPR_BINARY || e.name != "+" {
-        println("expected binary +", e.kind, e.name)
-        exit(1)
-    }
-    if len(&e.args) != 2 {
-        println("expected 2 args", len(&e.args))
-        exit(1)
-    }
+    assert_true(e.kind == EXPR_BINARY && e.name == "+", "expected binary +")
+    assert_true(len(&e.args) == 2, "expected 2 args")
     expect_int_expr(&e.args[0], lhs)
     expect_int_expr(&e.args[1], rhs)
 }
@@ -39,20 +26,11 @@ fn test_macro_quote_expr_expand() {
     let src = string_clone("macro fn add1(x: AstExpr) -> AstExpr { quote expr { $x + 1 } } fn main() { let v = add1!(quote expr { 40 }); }")
     let prog = parse_program_or_exit(&src)
     let res = macro_expand_program(prog)
-    if len(&res.errors) > 0 {
-        println("unexpected macro expand errors")
-        exit(1)
-    }
+    assert_true(len(&res.errors) == 0, "unexpected macro expand errors")
     let main_fn = find_main_func_macro(&res.prog)
-    if len(&main_fn.body.stmts) == 0 {
-        println("missing stmts")
-        exit(1)
-    }
+    assert_true(len(&main_fn.body.stmts) > 0, "missing stmts")
     let stmt = &main_fn.body.stmts[0]
-    if stmt.kind != STMT_LET {
-        println("expected let stmt", stmt.kind)
-        exit(1)
-    }
+    assert_true(stmt.kind == STMT_LET, "expected let stmt")
     expect_binary_add(&stmt.expr, 40, 1)
 }
 
@@ -60,8 +38,5 @@ fn test_macro_expand_compile_item_error() {
     let src = string_clone("macro fn bad() -> AstExpr { quote expr { 1 } } compile!(bad!()) fn main() { }")
     let prog = parse_program_or_exit(&src)
     let res = macro_expand_program(prog)
-    if len(&res.errors) == 0 {
-        println("expected macro expand error")
-        exit(1)
-    }
+    assert_true(len(&res.errors) > 0, "expected macro expand error")
 }

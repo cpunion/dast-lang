@@ -6,22 +6,21 @@ fn find_main_func(p: &Program) -> Function {
         if p.functions[i].name == "main" { return p.functions[i] }
         i = i + 1
     }
-    println("missing main")
-    exit(1)
+    assert_true(false, "missing main")
     return p.functions[0]
 }
 
 fn expect_char_let(stmt: &Stmt, v: i64) {
-    if stmt.kind != STMT_LET { println("expected let"); exit(1) }
-    if stmt.expr.kind != EXPR_CHAR { println("expected char expr"); exit(1) }
-    if stmt.expr.int_value != v { println("char value mismatch", stmt.expr.int_value, v); exit(1) }
+    assert_true(stmt.kind == STMT_LET, "expected let")
+    assert_true(stmt.expr.kind == EXPR_CHAR, "expected char expr")
+    assert_true(stmt.expr.int_value == v, "char value mismatch")
 }
 
 fn test_parser_char_literals() {
     let src = string_clone("fn main() { let a = 'a'; let n = '\\n'; let q = '\\''; let b = '\\\\'; }")
     let prog = parse_program_or_exit(&src)
     let main_fn = find_main_func(&prog)
-    if len(&main_fn.body.stmts) < 4 { println("missing stmts", len(&main_fn.body.stmts)); exit(1) }
+    assert_true(len(&main_fn.body.stmts) >= 4, "missing stmts")
     expect_char_let(&main_fn.body.stmts[0], 97)
     expect_char_let(&main_fn.body.stmts[1], 10)
     expect_char_let(&main_fn.body.stmts[2], 39)
