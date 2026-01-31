@@ -267,6 +267,9 @@ fn parse_type_name(p: &mut Parser) -> String {
     if base == "string" {
         parser_fail(p, "parse error: use String/str instead of string")
     }
+    if base == "i128" || base == "u128" {
+        parser_fail(p, "parse error: i128/u128 are reserved but not supported")
+    }
     if is_ref {
         if is_mut { return string_clone("&mut ") + base }
         return string_clone("&") + base

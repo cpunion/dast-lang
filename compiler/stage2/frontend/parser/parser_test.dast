@@ -108,3 +108,12 @@ fn test_parse_expr_error() {
         exit(1)
     }
 }
+
+fn test_parse_reserved_int_width_error() {
+    let src = "fn main() { let x: i128 = 1 }"
+    let res = parse_program(src)
+    if !string_list_contains(&res.errors, "parse error: i128/u128 are reserved but not supported") {
+        println("expected reserved int width error")
+        exit(1)
+    }
+}
