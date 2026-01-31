@@ -65,6 +65,7 @@ type ConstValue struct {
 type ConstDecl struct {
 	Name     string
 	Type     *Type
+	Expr     Expr
 	Value    ConstValue
 	Vis      Visibility
 	SpanInfo source.Span

@@ -709,6 +709,13 @@ func (q *quoteCtx) replaceItem(item ast.Item) (ast.Item, error) {
 		if err := q.replaceType(v.Type); err != nil {
 			return v, err
 		}
+		if v.Expr != nil {
+			repl, err := q.replaceExpr(v.Expr)
+			if err != nil {
+				return v, err
+			}
+			v.Expr = repl
+		}
 		return v, nil
 	case *ast.ImplDecl:
 		if idx, ok := placeholderIndex(v.TypeName); ok {

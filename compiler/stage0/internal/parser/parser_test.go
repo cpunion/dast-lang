@@ -118,23 +118,23 @@ const F = "a" + "b"`
 		}
 		return c
 	}
-	if d := decl(0); d.Value.Int != 7 {
-		t.Fatalf("const A expected 7 got %d", d.Value.Int)
+	if d := decl(0); ast.FormatExpr(d.Expr) != "(1 + (2 * 3))" {
+		t.Fatalf("const A expr mismatch: %s", ast.FormatExpr(d.Expr))
 	}
-	if d := decl(1); d.Value.Int != -9 {
-		t.Fatalf("const B expected -9 got %d", d.Value.Int)
+	if d := decl(1); ast.FormatExpr(d.Expr) != "-((4 + 5))" {
+		t.Fatalf("const B expr mismatch: %s", ast.FormatExpr(d.Expr))
 	}
-	if d := decl(2); !d.Value.Bool {
-		t.Fatalf("const C expected true")
+	if d := decl(2); ast.FormatExpr(d.Expr) != "!false" {
+		t.Fatalf("const C expr mismatch: %s", ast.FormatExpr(d.Expr))
 	}
-	if d := decl(3); d.Value.FloatText != "3.5" {
-		t.Fatalf("const D expected 3.5 got %s", d.Value.FloatText)
+	if d := decl(3); ast.FormatExpr(d.Expr) != "(1.5 + 2.0)" {
+		t.Fatalf("const D expr mismatch: %s", ast.FormatExpr(d.Expr))
 	}
-	if d := decl(4); !d.Value.Bool {
-		t.Fatalf("const E expected true")
+	if d := decl(4); ast.FormatExpr(d.Expr) != "(1 < 2)" {
+		t.Fatalf("const E expr mismatch: %s", ast.FormatExpr(d.Expr))
 	}
-	if d := decl(5); d.Value.Str != "ab" {
-		t.Fatalf("const F expected ab got %s", d.Value.Str)
+	if d := decl(5); ast.FormatExpr(d.Expr) != "(\"a\" + \"b\")" {
+		t.Fatalf("const F expr mismatch: %s", ast.FormatExpr(d.Expr))
 	}
 }
 

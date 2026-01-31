@@ -199,7 +199,17 @@ func (c *Checker) collectConsts(prog *ast.Program) {
 		if _, exists := c.enums[decl.Name]; exists {
 			c.diag.Add(decl.Span(), fmt.Sprintf("name '%s' already used by enum", decl.Name))
 		}
-		valueType := constValueType(decl.Value)
+		if decl.Expr == nil {
+			c.diag.Add(decl.Span(), "const expression is missing")
+			continue
+		}
+		value, ok := evalConstExpr(decl.Expr)
+		if !ok {
+			c.diag.Add(decl.Expr.Span(), "unsupported const expression in stage 0")
+			continue
+		}
+		decl.Value = value
+		valueType := constValueType(value)
 		finalType := valueType
 		if decl.Type != nil {
 			finalType = c.fromAstType(*decl.Type)
@@ -207,7 +217,7 @@ func (c *Checker) collectConsts(prog *ast.Program) {
 				c.diag.Add(decl.Span(), fmt.Sprintf("const '%s' expects %s, got %s", decl.Name, finalType.String(), valueType.String()))
 			}
 		}
-		c.consts[decl.Name] = ConstInfo{Type: finalType, Value: decl.Value}
+		c.consts[decl.Name] = ConstInfo{Type: finalType, Value: value}
 	}
 }
 

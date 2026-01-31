@@ -283,7 +283,11 @@ func FormatItem(i Item) string {
 		if v.Type != nil {
 			out += ": " + FormatType(*v.Type)
 		}
-		out += " = " + formatConstValue(v.Value) + ";"
+		if v.Expr != nil {
+			out += " = " + FormatExpr(v.Expr) + ";"
+		} else {
+			out += " = " + formatConstValue(v.Value) + ";"
+		}
 		return out
 	case *ImplDecl:
 		var methods []string

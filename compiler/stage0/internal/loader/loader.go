@@ -1102,6 +1102,9 @@ func rewriteItem(item ast.Item, aliases map[string]struct{}) {
 			t := rewriteType(*v.Type, aliases)
 			v.Type = &t
 		}
+		if v.Expr != nil {
+			v.Expr = rewriteExpr(v.Expr, aliases)
+		}
 	case *ast.ImplDecl:
 		v.TypeName = stripPrefix(v.TypeName, aliases)
 		for i := range v.Methods {
