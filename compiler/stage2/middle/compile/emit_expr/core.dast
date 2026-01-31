@@ -163,8 +163,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         EXPR_STRUCT_LIT => {
             let st_name = string_clone(&expr.name)
             if struct_index(e, &st_name) < 0 {
-                println("stage2: unknown struct", st_name)
-                exit(1)
+                let mut msg = string_clone("stage2: unknown struct ")
+                msg = msg + st_name
+                emit_fail(e, msg)
+                return qbe_value("i64", "0")
             }
             let name_ptr = string_data_ptr(e, &st_name)
             let size = struct_layout_size(e, &st_name)
@@ -178,8 +180,11 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                 let fname = string_clone(&f.name)
                 let ftyp = struct_field_type(e, &st_name, &fname)
                 if ftyp == "" {
-                    println("stage2: unknown struct field", fname)
-                    exit(1)
+                    let mut msg = string_clone("stage2: unknown struct field ")
+                    msg = msg + fname
+                    emit_fail(e, msg)
+                    i = i + 1
+                    continue
                 }
                 let v = emit_typed_value(e, &f.value, &ftyp)
                 let casted = cast_to_type(e, v, &ftyp)
@@ -191,8 +196,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         }
         EXPR_FIELD => {
             if len(&expr.args) == 0 {
-                println("stage2: field access missing receiver")
-                exit(1)
+                emit_fail(e, "stage2: field access missing receiver")
+                return qbe_value("i64", "0")
             }
             if is_digit_str(&expr.name) {
                 let idx = parse_int_simple(&expr.name)
@@ -227,8 +232,10 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let fname = string_clone(&expr.name)
             let ftyp = struct_field_type(e, &recv_base, &fname)
             if ftyp == "" {
-                println("stage2: unknown field", fname, "in", recv_base)
-                exit(1)
+                let mut msg = string_clone("stage2: unknown field ")
+                msg = msg + fname + " in " + recv_base
+                emit_fail(e, msg)
+                return qbe_value("i64", "0")
             }
             let off = struct_field_offset(e, &recv_base, &fname)
             if type_is_struct(e, &ftyp) {
@@ -244,8 +251,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             let ci = closure_index(e, &expr.name)
             if ci >= 0 {
                 if len(&expr.args) > 0 {
-                    println("stage2: closure args not supported yet")
-                    exit(1)
+                    emit_fail(e, "stage2: closure args not supported yet")
                 }
                 emit_block(e, &e.closure_blocks[ci])
                 return qbe_value("unit", "0")
@@ -486,8 +492,9 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                                 let ok_params = len(&call_type_params) > 0 && type_matches_pattern(e, &pt, &arg_t, &call_type_params)
                                 let ok_base = type_base_match(e, &pt, &arg_t)
                                 if !ok_generic && !ok_params && !ok_base {
-                                    println("stage2: call arg type mismatch expected", pt, "got", arg_t)
-                                    exit(1)
+                                    let mut msg = string_clone("stage2: call arg type mismatch expected ")
+                                    msg = msg + pt + " got " + arg_t
+                                    emit_fail(e, msg)
                                 }
                             }
                             v = emit_expr(e, arg_expr)
@@ -499,8 +506,9 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                                 let ok_params = len(&call_type_params) > 0 && type_matches_pattern(e, &base_t, &actual, &call_type_params)
                                 let ok_base = type_base_match(e, &base_t, &actual)
                                 if !ok_generic && !ok_params && !ok_base {
-                                    println("stage2: call arg type mismatch expected", base_t, "got", actual)
-                                    exit(1)
+                                    let mut msg = string_clone("stage2: call arg type mismatch expected ")
+                                    msg = msg + base_t + " got " + actual
+                                    emit_fail(e, msg)
                                 }
                             }
                             v = emit_auto_borrow(e, arg_expr, &pt)
@@ -512,8 +520,9 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
                             let ok_params = len(&call_type_params) > 0 && type_matches_pattern(e, &pt, &actual, &call_type_params)
                             let ok_base = type_base_match(e, &pt, &actual)
                             if !ok_generic && !ok_params && !ok_base {
-                                println("stage2: call arg type mismatch expected", pt, "got", actual)
-                                exit(1)
+                                let mut msg = string_clone("stage2: call arg type mismatch expected ")
+                                msg = msg + pt + " got " + actual
+                                emit_fail(e, msg)
                             }
                         }
                         v = emit_typed_value(e, arg_expr, &pt)
@@ -533,8 +542,7 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             return qbe_value(ret_t, tn)
         }
         _ => {
-            println("stage2: unsupported expr kind", expr.kind)
-            exit(1)
+            emit_fail(e, "stage2: unsupported expr kind")
             return qbe_value("i64", "0")
         }
     }

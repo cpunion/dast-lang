@@ -2,8 +2,10 @@ fn emit_store_let(e: &mut Emitter, name: &str, expr: &Expr) {
     let typ = var_type(e, name)
     let declared = type_resolve(e, &typ)
     if declared == "" {
-        println("stage2: let missing type for", name)
-        exit(1)
+        let mut msg = string_clone("stage2: let missing type for ")
+        msg = msg + name
+        emit_fail(e, msg)
+        return
     }
     if expr.kind == EXPR_CLOSURE {
         closure_add(e, name, &expr.block)
@@ -55,8 +57,10 @@ fn block_ends_with_terminator(b: &Block) -> bool {
 fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
     if lhs.kind == EXPR_IDENT {
         if !var_is_mut(e, &lhs.name) {
-            println("stage2: cannot assign to immutable value", lhs.name)
-            exit(1)
+            let mut msg = string_clone("stage2: cannot assign to immutable value ")
+            msg = msg + lhs.name
+            emit_fail(e, msg)
+            return
         }
         emit_store_let(e, &lhs.name, expr)
         return
@@ -65,12 +69,14 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let base_name = expr_lvalue_base(lhs)
         let base_t = var_type(e, &base_name)
         if base_name != "" && !var_is_mut(e, &base_name) && !type_is_mut_ref(e, &base_t) {
-            println("stage2: cannot assign to immutable value", base_name)
-            exit(1)
+            let mut msg = string_clone("stage2: cannot assign to immutable value ")
+            msg = msg + base_name
+            emit_fail(e, msg)
+            return
         }
         if len(&lhs.args) == 0 {
-            println("stage2: field assignment missing receiver")
-            exit(1)
+            emit_fail(e, "stage2: field assignment missing receiver")
+            return
         }
         let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_field_recv"))
         let mut recv_expr = recv.expr
@@ -89,8 +95,10 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let fname = string_clone(&lhs.name)
         let ftyp = struct_field_type(e, &recv_base, &fname)
         if ftyp == "" {
-            println("stage2: unknown field", fname)
-            exit(1)
+            let mut msg = string_clone("stage2: unknown field ")
+            msg = msg + fname
+            emit_fail(e, msg)
+            return
         }
         let v = emit_typed_value(e, expr, &ftyp)
         let casted = cast_to_type(e, v, &ftyp)
@@ -102,12 +110,14 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         let base_name = expr_lvalue_base(lhs)
         let base_t = var_type(e, &base_name)
         if base_name != "" && !var_is_mut(e, &base_name) && !type_is_mut_ref(e, &base_t) {
-            println("stage2: cannot assign to immutable value", base_name)
-            exit(1)
+            let mut msg = string_clone("stage2: cannot assign to immutable value ")
+            msg = msg + base_name
+            emit_fail(e, msg)
+            return
         }
         if len(&lhs.args) < 2 {
-            println("stage2: index assignment missing args")
-            exit(1)
+            emit_fail(e, "stage2: index assignment missing args")
+            return
         }
         let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_index_recv"))
         let idxv = emit_expr(e, expr_arg_ref(lhs, 1, "assign_index_idx"))
@@ -130,8 +140,8 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
     if lhs.kind == EXPR_DEREF && len(&lhs.args) > 0 {
         let ptr = emit_expr(e, expr_arg_ref(lhs, 0, "assign_deref_ptr"))
         if !type_is_mut_ref(e, &ptr.typ) {
-            println("stage2: assignment through & requires &mut")
-            exit(1)
+            emit_fail(e, "stage2: assignment through & requires &mut")
+            return
         }
         let target_t = expr_type(e, lhs)
         let v = emit_typed_value(e, expr, &target_t)
@@ -140,8 +150,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         emit_line(e, "  " + op + " " + casted + ", " + ptr.expr)
         return
     }
-    println("stage2: unsupported assignment target")
-    exit(1)
+    emit_fail(e, "stage2: unsupported assignment target")
 }
 
 fn emit_if(e: &mut Emitter, stmt: &Stmt) {
@@ -184,8 +193,8 @@ fn emit_iflet(e: &mut Emitter, stmt: &Stmt) {
         if ec.ok { enum_t = string_clone(&ec.enum_name) }
     }
     if !type_is_enum(e, &enum_t) {
-        println("stage2: if let requires enum expression")
-        exit(1)
+        emit_fail(e, "stage2: if let requires enum expression")
+        return
     }
     let tag_t = enum_tag_type(e, &enum_t)
     let tagv = enum_tag_from_value(e, &scrut, &enum_t)
@@ -254,8 +263,7 @@ fn emit_match(e: &mut Emitter, stmt: &Stmt) {
         if arm.has_guard {
             let gt = expr_type(e, &arm.guard)
             if !type_is_bool(e, &gt) {
-                println("stage2: match guard must be bool")
-                exit(1)
+                emit_fail(e, "stage2: match guard must be bool")
             }
             let gv = emit_expr(e, &arm.guard)
             let cond = ensure_bool_expr(e, gv)

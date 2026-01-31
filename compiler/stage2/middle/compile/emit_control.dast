@@ -41,8 +41,7 @@ fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         if arm.has_guard {
             let gt = expr_type(e, &arm.guard)
             if !type_is_bool(e, &gt) {
-                println("stage2: match guard must be bool")
-                exit(1)
+                emit_fail(e, "stage2: match guard must be bool")
             }
             let gv = emit_expr(e, &arm.guard)
             let cond = ensure_bool_expr(e, gv)
@@ -113,8 +112,8 @@ fn emit_loop(e: &mut Emitter, stmt: &Stmt) {
 fn emit_break(e: &mut Emitter) {
     let target = top_break_label(e)
     if target == "" {
-        println("stage2: break outside loop")
-        exit(1)
+        emit_fail(e, "stage2: break outside loop")
+        return
     }
     emit_line(e, "  jmp @" + target)
 }
@@ -122,8 +121,8 @@ fn emit_break(e: &mut Emitter) {
 fn emit_continue(e: &mut Emitter) {
     let target = top_continue_label(e)
     if target == "" {
-        println("stage2: continue outside loop")
-        exit(1)
+        emit_fail(e, "stage2: continue outside loop")
+        return
     }
     emit_line(e, "  jmp @" + target)
 }
@@ -174,8 +173,8 @@ fn emit_stmt(e: &mut Emitter, stmt: &Stmt) {
         return
     }
     if stmt.kind == STMT_BREAK_VALUE {
-        println("stage2: break value only allowed in loop expression desugar")
-        exit(1)
+        emit_fail(e, "stage2: break value only allowed in loop expression desugar")
+        return
     }
     if stmt.kind == STMT_CONTINUE {
         emit_continue(e)
