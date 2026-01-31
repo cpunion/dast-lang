@@ -1,20 +1,20 @@
 fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH || expr.kind == EXPR_UNARY {
         if len(&expr.args) < 1 {
-            println("stage2: bad expr args", expr.kind, "len", len(&expr.args), expr.name)
-            exit(1)
+            emit_fail(e, "stage2: bad expr args")
+            return qbe_value("i64", "0")
         }
     }
     if expr.kind == EXPR_INDEX || expr.kind == EXPR_BINARY {
         if len(&expr.args) < 2 {
-            println("stage2: bad expr args", expr.kind, "len", len(&expr.args), expr.name)
-            exit(1)
+            emit_fail(e, "stage2: bad expr args")
+            return qbe_value("i64", "0")
         }
     }
     if expr.kind == EXPR_CALL && len(&expr.args) == 0 {
         if expr.name == "" {
-            println("stage2: empty callee for call")
-            exit(1)
+            emit_fail(e, "stage2: empty callee for call")
+            return qbe_value("i64", "0")
         }
     }
     match expr.kind {
@@ -32,21 +32,19 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         EXPR_BLOCK => { return emit_block_expr(e, &expr.block) }
         EXPR_MATCH => { return emit_match_expr(e, expr) }
         EXPR_MACRO_CALL => {
-            println("stage2: unexpanded macro call")
-            exit(1)
+            emit_fail(e, "stage2: unexpanded macro call")
             return qbe_value("i64", "0")
         }
         EXPR_QUOTE => {
-            println("stage2: unexpanded quote")
-            exit(1)
+            emit_fail(e, "stage2: unexpanded quote")
             return qbe_value("i64", "0")
         }
         EXPR_IDENT => {
             let ci = const_index(e, &expr.name)
             if ci >= 0 {
                 if ci >= len(&e.const_exprs) {
-                    println("stage2: const expr missing", expr.name, "idx", ci, "names", len(&e.const_names), "exprs", len(&e.const_exprs))
-                    exit(1)
+                    emit_fail(e, "stage2: const expr missing " + string_clone(&expr.name))
+                    return qbe_value("i64", "0")
                 }
                 return emit_const_expr(e, &e.const_exprs[ci])
             }
@@ -91,8 +89,8 @@ fn emit_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             if len(&expr.args) == 0 { return qbe_value("i64", "0") }
             let ptr = emit_expr(e, expr_arg_ref(expr, 0, "emit_deref"))
             if !type_is_ref(e, &ptr.typ) {
-                println("stage2: deref requires reference")
-                exit(1)
+                emit_fail(e, "stage2: deref requires reference")
+                return qbe_value("i64", "0")
             }
             let base_t = expr_type(e, expr)
             let op = load_op_for_type(e, &base_t)

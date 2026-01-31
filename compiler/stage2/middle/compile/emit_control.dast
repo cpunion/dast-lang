@@ -348,7 +348,7 @@ fn compile_to_qbe_with_stats(prog: Program, ptr_width: i64, stats: &mut CompileS
     collect_funcs(&mut glob, &prog)
     collect_traits(&mut glob, &prog)
     collect_impls(&mut glob, &prog)
-    validate_trait_impls(&glob)
+    validate_trait_impls(&mut glob)
     collect_consts(&mut glob, &prog)
     collect_strings(&mut glob, &prog)
     stats.string_count = len(&glob.strings)

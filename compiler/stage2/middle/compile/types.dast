@@ -203,7 +203,7 @@ fn bind_type_params(e: &Emitter, pat: &str, act: &str, params: & [String], value
     }
 }
 
-fn func_ret_type_for_call(e: &Emitter, name: &str, args: & [Expr]) -> String {
+fn func_ret_type_for_call(e: &mut Emitter, name: &str, args: & [Expr]) -> String {
     let di = func_decl_index(e, name)
     if di < 0 { return func_ret_type(e, name) }
     let f = &e.func_decls[di]
@@ -365,19 +365,19 @@ fn trait_method_sig_match(e: &Emitter, tm: &TraitMethod, im: &TraitMethod, for_t
     return true
 }
 
-fn validate_trait_impls(e: &Emitter) {
+fn validate_trait_impls(e: &mut Emitter) {
     let _ = validate_trait_impls_impl(e, false)
 }
 
-fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
+fn validate_trait_impls_impl(e: &mut Emitter, allow_fail: bool) -> bool {
     let mut names: [String] = []
     let mut i = 0
     while i < len(&e.traits) {
         let tn = &e.traits[i].name
         if list_index(&names, tn) >= 0 {
             if allow_fail { return false }
-            println("stage2: duplicate trait", tn)
-            exit(1)
+            emit_fail(e, "stage2: duplicate trait " + string_clone(tn))
+            return false
         }
         push(&mut names, string_clone(tn))
         i = i + 1
@@ -392,14 +392,14 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
             let ti = trait_decl_index(e, &trait_base)
             if ti < 0 {
                 if allow_fail { return false }
-                println("stage2: unknown trait", imp.trait_name)
-                exit(1)
+                emit_fail(e, "stage2: unknown trait " + string_clone(&imp.trait_name))
+                return false
             }
             let key = type_strip_args(e, &imp.trait_name) + "|" + type_resolve(e, &imp.for_type)
             if list_index(&keys, &key) >= 0 {
                 if allow_fail { return false }
-                println("stage2: duplicate impl of trait", imp.trait_name, "for", imp.for_type)
-                exit(1)
+                emit_fail(e, "stage2: duplicate impl of trait " + string_clone(&imp.trait_name) + " for " + string_clone(&imp.for_type))
+                return false
             }
             push(&mut keys, key)
             let tr = &e.traits[ti]
@@ -407,13 +407,13 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
             if parsed.has {
                 if len(&parsed.args) != len(&tparams) {
                     if allow_fail { return false }
-                    println("stage2: trait", tr.name, "expects", len(&tparams), "type args got", len(&parsed.args))
-                    exit(1)
+                    emit_fail(e, "stage2: trait " + string_clone(&tr.name) + " expects type args")
+                    return false
                 }
             } else if len(&tparams) > 0 {
                 if allow_fail { return false }
-                println("stage2: trait", tr.name, "requires type args")
-                exit(1)
+                emit_fail(e, "stage2: trait " + string_clone(&tr.name) + " requires type args")
+                return false
             }
             let targs = parsed.args
             let mut mi = 0
@@ -427,8 +427,8 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
                         found = true
                         if !trait_method_sig_match(e, tm, im, &imp.for_type, &tparams, &targs) {
                             if allow_fail { return false }
-                            println("stage2: trait method signature mismatch", tm.name, "for", imp.for_type)
-                            exit(1)
+                            emit_fail(e, "stage2: trait method signature mismatch " + string_clone(&tm.name) + " for " + string_clone(&imp.for_type))
+                            return false
                         }
                         break
                     }
@@ -436,8 +436,8 @@ fn validate_trait_impls_impl(e: &Emitter, allow_fail: bool) -> bool {
                 }
                 if !found {
                     if allow_fail { return false }
-                    println("stage2: missing trait method", tm.name, "for", imp.for_type)
-                    exit(1)
+                    emit_fail(e, "stage2: missing trait method " + string_clone(&tm.name) + " for " + string_clone(&imp.for_type))
+                    return false
                 }
                 mi = mi + 1
             }
@@ -524,7 +524,7 @@ fn block_expr_int_literal_value(b: &Block) -> i64 {
     return expr_int_literal_value(&last.expr)
 }
 
-fn type_compatible_expr(e: &Emitter, expected: &str, expr: &Expr) -> bool {
+fn type_compatible_expr(e: &mut Emitter, expected: &str, expr: &Expr) -> bool {
     let declared = type_resolve(e, expected)
     let actual = expr_type(e, expr)
     let actual_rt = type_resolve(e, &actual)
@@ -713,15 +713,15 @@ fn impl_has_trait(e: &Emitter, trait_name: &str, for_type: &str) -> bool {
     return false
 }
 
-fn check_type_param_bounds_impl(e: &Emitter, f: &Function, values: & [String], allow_fail: bool) -> bool {
+fn check_type_param_bounds_impl(e: &mut Emitter, f: &Function, values: & [String], allow_fail: bool) -> bool {
     let mut i = 0
     while i < len(&f.type_params) {
         let tp = &f.type_params[i]
         if len(&tp.bounds) > 0 {
             if i >= len(values) || (*values)[i] == "" {
                 if allow_fail { return false }
-                println("stage2: cannot infer type for", tp.name)
-                exit(1)
+                emit_fail(e, "stage2: cannot infer type for " + string_clone(&tp.name))
+                return false
             }
             let val = &(*values)[i]
             let mut bi = 0
@@ -732,8 +732,8 @@ fn check_type_param_bounds_impl(e: &Emitter, f: &Function, values: & [String], a
                 let tidx = trait_decl_index(e, &bound)
                 if tidx < 0 {
                     if allow_fail { return false }
-                    println("stage2: unknown trait", bound)
-                    exit(1)
+                    emit_fail(e, "stage2: unknown trait " + string_clone(&bound))
+                    return false
                 }
                 let decl = &e.traits[tidx]
                 let parsed = type_args_parse(&bound)
@@ -742,13 +742,13 @@ fn check_type_param_bounds_impl(e: &Emitter, f: &Function, values: & [String], a
                 if parsed.has { have = len(&parsed.args) }
                 if want != have {
                     if allow_fail { return false }
-                    println("stage2: trait", decl.name, "expects", want, "type args, got", have)
-                    exit(1)
+                    emit_fail(e, "stage2: trait " + string_clone(&decl.name) + " expects type args")
+                    return false
                 }
                 if !impl_has_trait(e, &bound, val) {
                     if allow_fail { return false }
-                    println("stage2: type", val, "does not implement trait", bound)
-                    exit(1)
+                    emit_fail(e, "stage2: type " + string_clone(val) + " does not implement trait " + string_clone(&bound))
+                    return false
                 }
                 bi = bi + 1
             }
@@ -758,11 +758,11 @@ fn check_type_param_bounds_impl(e: &Emitter, f: &Function, values: & [String], a
     return true
 }
 
-fn check_type_param_bounds(e: &Emitter, f: &Function, values: & [String]) {
+fn check_type_param_bounds(e: &mut Emitter, f: &Function, values: & [String]) {
     let _ = check_type_param_bounds_impl(e, f, values, false)
 }
 
-fn func_type_args_for_call(e: &Emitter, f: &Function, args: & [Expr]) -> [String] {
+fn func_type_args_for_call(e: &mut Emitter, f: &Function, args: & [Expr]) -> [String] {
     let params = func_type_param_names(f)
     let mut values: [String] = []
     let mut vi = 0
@@ -978,8 +978,8 @@ fn var_set_type(e: &mut Emitter, name: &str, new_t: &str) -> bool {
         if e.var_untyped_kind[idx] == UNTYPED_INT && e.var_untyped_has_value[idx] {
             let v = e.var_untyped_value[idx]
             if !int_value_fits_type(e, v, &nt) {
-                println("stage2: integer literal out of range for", nt)
-                exit(1)
+                emit_fail(e, "stage2: integer literal out of range for " + string_clone(&nt))
+                return false
             }
         }
         e.var_types[idx] = string_clone(&nt)
@@ -1011,7 +1011,7 @@ fn closure_index(e: &Emitter, name: &str) -> i64 {
     return -1
 }
 
-fn int_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
+fn int_bin_result_type(e: &mut Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let lt = expr_type(e, lhs)
     let rt = expr_type(e, rhs)
     let lhs_untyped = type_is_untyped_int(e, &lt)
@@ -1038,7 +1038,7 @@ fn int_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     return pt
 }
 
-fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
+fn shift_result_type(e: &mut Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let lt = expr_type(e, lhs)
     let rt = expr_type(e, rhs)
     let lhs_untyped = type_is_untyped_int(e, &lt)
@@ -1056,15 +1056,15 @@ fn shift_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
     return string_clone(&lt)
 }
 
-fn binary_op_result_type_try(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
+fn binary_op_result_type_try(e: &mut Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
     return binary_op_result_type_impl(e, op, lhs, rhs, true)
 }
 
-fn binary_op_result_type(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
+fn binary_op_result_type(e: &mut Emitter, op: &str, lhs: &Expr, rhs: &Expr) -> String {
     return binary_op_result_type_impl(e, op, lhs, rhs, false)
 }
 
-fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, allow_fail: bool) -> String {
+fn binary_op_result_type_impl(e: &mut Emitter, op: &str, lhs: &Expr, rhs: &Expr, allow_fail: bool) -> String {
     let lt0 = expr_type(e, lhs)
     let rt0 = expr_type(e, rhs)
     if op == "&&" || op == "||" {
@@ -1072,8 +1072,8 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         let rt = rt0
         if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
             if allow_fail { return string_clone("") }
-            println("stage2: binary op", op, "requires bool operands got", lt, "and", rt)
-            exit(1)
+            emit_fail(e, "stage2: binary op " + string_clone(op) + " requires bool operands")
+            return string_clone("")
         }
         return string_clone("bool")
     }
@@ -1083,39 +1083,39 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         if type_is_string(e, &lt) || type_is_string(e, &rt) {
             if !type_is_string(e, &lt) || !type_is_string(e, &rt) {
                 if allow_fail { return string_clone("") }
-                println("stage2: binary op", op, "requires both String operands got", lt, "and", rt)
-                exit(1)
+                emit_fail(e, "stage2: binary op " + string_clone(op) + " requires both String operands")
+                return string_clone("")
             }
             return string_clone("bool")
         }
         if type_is_char(e, &lt) || type_is_char(e, &rt) {
             if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
                 if allow_fail { return string_clone("") }
-                println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
-                exit(1)
+                emit_fail(e, "stage2: binary op " + string_clone(op) + " requires both char operands")
+                return string_clone("")
             }
             return string_clone("bool")
         }
         if type_is_enum(e, &lt) || type_is_enum(e, &rt) {
             if !type_is_enum(e, &lt) || !type_is_enum(e, &rt) {
                 if allow_fail { return string_clone("") }
-                println("stage2: binary op", op, "requires both enum operands got", lt, "and", rt)
-                exit(1)
+                emit_fail(e, "stage2: binary op " + string_clone(op) + " requires both enum operands")
+                return string_clone("")
             }
             let lb = type_strip_args(e, &lt)
             let rb = type_strip_args(e, &rt)
             if lb != rb {
                 if allow_fail { return string_clone("") }
-                println("stage2: binary op", op, "requires matching enum types got", lt, "and", rt)
-                exit(1)
+                emit_fail(e, "stage2: binary op " + string_clone(op) + " requires matching enum types")
+                return string_clone("")
             }
             return string_clone("bool")
         }
         if type_is_bool(e, &lt) || type_is_bool(e, &rt) {
             if !type_is_bool(e, &lt) || !type_is_bool(e, &rt) {
                 if allow_fail { return string_clone("") }
-                println("stage2: binary op", op, "requires both bool operands got", lt, "and", rt)
-                exit(1)
+                emit_fail(e, "stage2: binary op " + string_clone(op) + " requires both bool operands")
+                return string_clone("")
             }
             return string_clone("bool")
         }
@@ -1124,8 +1124,8 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             if allow_fail { return string_clone("") }
-            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
-            exit(1)
+            emit_fail(e, "stage2: binary op " + string_clone(op) + " requires compatible int operands")
+            return string_clone("")
         }
         return string_clone("bool")
     }
@@ -1135,8 +1135,8 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         if type_is_char(e, &lt) || type_is_char(e, &rt) {
             if !type_is_char(e, &lt) || !type_is_char(e, &rt) {
                 if allow_fail { return string_clone("") }
-                println("stage2: binary op", op, "requires both char operands got", lt, "and", rt)
-                exit(1)
+                emit_fail(e, "stage2: binary op " + string_clone(op) + " requires both char operands")
+                return string_clone("")
             }
             return string_clone("bool")
         }
@@ -1145,8 +1145,8 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             if allow_fail { return string_clone("") }
-            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
-            exit(1)
+            emit_fail(e, "stage2: binary op " + string_clone(op) + " requires compatible int operands")
+            return string_clone("")
         }
         return string_clone("bool")
     }
@@ -1159,8 +1159,8 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             if allow_fail { return string_clone("") }
-            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
-            exit(1)
+            emit_fail(e, "stage2: binary op " + string_clone(op) + " requires compatible int operands")
+            return string_clone("")
         }
         return pt
     }
@@ -1174,8 +1174,8 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         let pt = int_bin_result_type(e, lhs, rhs)
         if pt == "" {
             if allow_fail { return string_clone("") }
-            println("stage2: binary op", op, "requires compatible int operands got", lt, "and", rt)
-            exit(1)
+            emit_fail(e, "stage2: binary op " + string_clone(op) + " requires compatible int operands")
+            return string_clone("")
         }
         return pt
     }
@@ -1185,15 +1185,15 @@ fn binary_op_result_type_impl(e: &Emitter, op: &str, lhs: &Expr, rhs: &Expr, all
         let st = shift_result_type(e, lhs, rhs)
         if st == "" {
             if allow_fail { return string_clone("") }
-            println("stage2: binary op", op, "requires int lhs and unsigned rhs got", lt, "and", rt)
-            exit(1)
+            emit_fail(e, "stage2: binary op " + string_clone(op) + " requires int lhs and unsigned rhs")
+            return string_clone("")
         }
         return st
     }
     return string_clone("i64")
 }
 
-fn float_bin_result_type(e: &Emitter, lhs: &Expr, rhs: &Expr) -> String {
+fn float_bin_result_type(e: &mut Emitter, lhs: &Expr, rhs: &Expr) -> String {
     let lt = expr_type(e, lhs)
     let rt = expr_type(e, rhs)
     let ltf = type_is_float(e, &lt)
@@ -1382,7 +1382,7 @@ fn escape_qbe_string(s: &str) -> String {
     return out
 }
 
-fn expr_type(e: &Emitter, expr: &Expr) -> String {
+fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
     match expr.kind {
         EXPR_INT => { return string_clone("untyped-int") }
         EXPR_FLOAT => { return string_clone("untyped-float") }
@@ -1403,8 +1403,8 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             if len(&expr.args) == 0 { return string_clone("&i64") }
             let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_ref"))
             if type_is_ref(e, &base) {
-                println("stage2: cannot take reference to reference")
-                exit(1)
+                emit_fail(e, "stage2: cannot take reference to reference")
+                return string_clone("&i64")
             }
             if expr.ref_mut {
                 return string_clone("&mut ") + type_resolve(e, &base)
@@ -1465,8 +1465,8 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
                         out = b
                         out_is_lit = false
                     } else {
-                        println("stage2: match arms must have same type:", a, "vs", b)
-                        exit(1)
+                        emit_fail(e, "stage2: match arms must have same type: " + string_clone(&a) + " vs " + string_clone(&b))
+                        return string_clone("unit")
                     }
                 }
                 i = i + 1
@@ -1513,20 +1513,20 @@ fn expr_type(e: &Emitter, expr: &Expr) -> String {
             if expr.name == "print" || expr.name == "println" { return string_clone("unit") }
             if expr.name == "len" {
                 if len(&expr.args) != 1 {
-                    println("stage2: len expects 1 argument")
-                    exit(1)
+                    emit_fail(e, "stage2: len expects 1 argument")
+                    return string_clone("i64")
                 }
                 let t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_len_arg"))
                 if !type_is_single_ref_to_string_or_array(e, &t) {
-                    println("stage2: len expects reference to String/str or array")
-                    exit(1)
+                    emit_fail(e, "stage2: len expects reference to String/str or array")
+                    return string_clone("i64")
                 }
                 return string_clone("i64")
             }
             if expr.name == "getenv" {
                 if len(&expr.args) != 1 {
-                    println("stage2: getenv expects 1 argument")
-                    exit(1)
+                    emit_fail(e, "stage2: getenv expects 1 argument")
+                    return string_clone("String")
                 }
                 return string_clone("String")
             }

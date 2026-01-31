@@ -255,6 +255,10 @@ struct Emitter {
     body: [String],
     // Emitted line count.
     emit_lines: i64,
+    // Error handling.
+    soft_errors: bool,
+    had_error: bool,
+    errors: [String],
 }
 
 fn emitter_new() -> Emitter {
@@ -294,6 +298,9 @@ fn emitter_new() -> Emitter {
         continue_labels: string_list_empty(),
         body: string_list_empty(),
         emit_lines: 0,
+        soft_errors: false,
+        had_error: false,
+        errors: string_list_empty(),
     }
 }
 
@@ -326,6 +333,18 @@ fn emitter_with_globals(glob: &Emitter) -> Emitter {
     e.enum_var_names = string_list_empty()
     e.enum_var_types = string_list_empty()
     return e
+}
+
+fn emit_fail(e: &mut Emitter, msg: String) {
+    if e.soft_errors {
+        let mut errs = e.errors
+        push(&mut errs, msg)
+        e.errors = errs
+        e.had_error = true
+        return
+    }
+    println(msg)
+    exit(1)
 }
 
 fn emitter_new_with_target(ptr_width: i64) -> Emitter {
@@ -687,7 +706,7 @@ fn type_is_unit(e: &Emitter, t: &str) -> bool {
     return type_resolve(e, t) == "unit"
 }
 
-fn block_expr_type(e: &Emitter, b: &Block) -> String {
+fn block_expr_type(e: &mut Emitter, b: &Block) -> String {
     let n = len(&b.stmts)
     if n == 0 { return string_clone("unit") }
     let last = &b.stmts[n - 1]
