@@ -464,7 +464,7 @@ struct ImportLoad {
 fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(string_clone(prelude_dir))
-    let prelude_prog = parse_program_loose(&prelude)
+    let prelude_prog = parse_program_loose_or_exit(&prelude)
     let load = load_program_from_path(&src_path, false)
     if !load.ok {
         println("stage2:", load.err)
@@ -510,7 +510,7 @@ fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
 fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64) {
     let prelude_dir = "compiler/stage2/stdlib/prelude"
     let prelude = load_prelude_dir(string_clone(prelude_dir))
-    let prelude_prog = parse_program_loose(&prelude)
+    let prelude_prog = parse_program_loose_or_exit(&prelude)
     let load = load_program_from_path(&src_path, false)
     if !load.ok {
         println("stage2:", load.err)

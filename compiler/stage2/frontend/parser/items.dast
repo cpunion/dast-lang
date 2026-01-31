@@ -497,7 +497,7 @@ fn parse_program_internal(p: &mut Parser, require_main: bool) -> Program {
     return Program { imports: imports, structs: structs, enums: enums, type_aliases: type_aliases, consts: consts, functions: funcs, compile_items: compile_items, traits: traits, impls: impls }
 }
 
-fn parse_program_with_errors(src: &str) -> ParseResult {
+fn parse_program(src: &str) -> ParseResult {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     p.soft_errors = true
@@ -505,7 +505,7 @@ fn parse_program_with_errors(src: &str) -> ParseResult {
     return ParseResult { program: prog, errors: ast_string_list_clone(&p.errors) }
 }
 
-fn parse_program(src: &str) -> Program {
+fn parse_program_or_exit(src: &str) -> Program {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     let prog = parse_program_internal(&mut p, true)
@@ -521,7 +521,16 @@ fn parse_program(src: &str) -> Program {
 }
 
 // Parse a program without requiring fn main (used by macro expansion).
-fn parse_program_loose(src: &str) -> Program {
+fn parse_program_loose(src: &str) -> ParseResult {
+    let toks = lexer_all(src)
+    let mut p = parser_new(toks)
+    p.soft_errors = true
+    let prog = parse_program_internal(&mut p, false)
+    return ParseResult { program: prog, errors: ast_string_list_clone(&p.errors) }
+}
+
+// Parse a program without requiring fn main and exit on error.
+fn parse_program_loose_or_exit(src: &str) -> Program {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     let prog = parse_program_internal(&mut p, false)

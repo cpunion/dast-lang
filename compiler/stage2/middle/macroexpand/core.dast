@@ -525,28 +525,60 @@ fn eval_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue 
                 let v = eval_expr(ctx, env, &arg0)
                 let s = macro_value_expect_string(&v)
                 let e = parse_expr_string(&s)
-                return macro_value_expr(e, s)
+                if len(&e.errors) > 0 {
+                    let mut ei = 0
+                    while ei < len(&e.errors) {
+                        println(e.errors[ei])
+                        ei = ei + 1
+                    }
+                    exit(1)
+                }
+                return macro_value_expr(e.expr, s)
             }
             if name == "ast_stmt" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
                 let s = macro_value_expect_string(&v)
                 let st = parse_stmt_string(&s)
-                return macro_value_stmt(st, s)
+                if len(&st.errors) > 0 {
+                    let mut ei = 0
+                    while ei < len(&st.errors) {
+                        println(st.errors[ei])
+                        ei = ei + 1
+                    }
+                    exit(1)
+                }
+                return macro_value_stmt(st.stmt, s)
             }
             if name == "ast_item" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
                 let s = macro_value_expect_string(&v)
                 let p = parse_program_loose(&s)
-                return macro_value_item(p, s)
+                if len(&p.errors) > 0 {
+                    let mut ei = 0
+                    while ei < len(&p.errors) {
+                        println(p.errors[ei])
+                        ei = ei + 1
+                    }
+                    exit(1)
+                }
+                return macro_value_item(p.program, s)
             }
             if name == "ast_block" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
                 let s = macro_value_expect_string(&v)
                 let b = parse_block_string(&s)
-                return macro_value_block(b, s)
+                if len(&b.errors) > 0 {
+                    let mut ei = 0
+                    while ei < len(&b.errors) {
+                        println(b.errors[ei])
+                        ei = ei + 1
+                    }
+                    exit(1)
+                }
+                return macro_value_block(b.block, s)
             }
             if name == "ast_to_string" {
                 let arg0 = expr_clone(&expr.args[0])

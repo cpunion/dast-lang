@@ -447,16 +447,32 @@ fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> Macro
     }
     if expr.quote_kind == QUOTE_EXPR {
         let parsed = parse_expr_string(&out)
+        if len(&parsed.errors) > 0 {
+            let mut ei = 0
+            while ei < len(&parsed.errors) {
+                println(parsed.errors[ei])
+                ei = ei + 1
+            }
+            exit(1)
+        }
         let mut map = rename_map_new()
-        let renamed = hygiene_expr(ctx, &map, &parsed)
+        let renamed = hygiene_expr(ctx, &map, &parsed.expr)
         let final_expr = replace_expr_splices(&renamed, &splices)
         return macro_value_expr(final_expr, out)
     }
     if expr.quote_kind == QUOTE_STMT {
         let parsed = parse_stmt_string(&out)
+        if len(&parsed.errors) > 0 {
+            let mut ei = 0
+            while ei < len(&parsed.errors) {
+                println(parsed.errors[ei])
+                ei = ei + 1
+            }
+            exit(1)
+        }
         let mut map = rename_map_new()
         let mut tmp: [Stmt] = []
-        push(&mut tmp, parsed)
+        push(&mut tmp, parsed.stmt)
         let blk = Block { stmts: tmp }
         let renamed = hygiene_block(ctx, &mut map, &blk)
         let stmt0 = renamed.stmts[0]
@@ -465,7 +481,15 @@ fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> Macro
     }
     if expr.quote_kind == QUOTE_ITEM {
         let parsed = parse_program_loose(&out)
-        return macro_value_item(parsed, out)
+        if len(&parsed.errors) > 0 {
+            let mut ei = 0
+            while ei < len(&parsed.errors) {
+                println(parsed.errors[ei])
+                ei = ei + 1
+            }
+            exit(1)
+        }
+        return macro_value_item(parsed.program, out)
     }
     println("stage2: unknown quote kind")
     exit(1)

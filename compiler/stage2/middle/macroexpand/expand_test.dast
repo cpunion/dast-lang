@@ -37,7 +37,7 @@ fn expect_binary_add(e: &Expr, lhs: i64, rhs: i64) {
 
 fn test_macro_quote_expr_expand() {
     let src = string_clone("macro fn add1(x: AstExpr) -> AstExpr { quote expr { $x + 1 } } fn main() { let v = add1!(quote expr { 40 }); }")
-    let prog = parse_program(&src)
+    let prog = parse_program_or_exit(&src)
     let expanded = macro_expand_program(prog)
     let main_fn = find_main_func_macro(&expanded)
     if len(&main_fn.body.stmts) == 0 {

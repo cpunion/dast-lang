@@ -1,6 +1,6 @@
 fn test_parse_where_fn_bounds() {
     let src = "fn f[T: Clone](x: T) where T: Display + Iter[i32] { } fn main() { }"
-    let prog = parse_program(src)
+    let prog = parse_program_or_exit(src)
     if len(&prog.functions) == 0 {
         println("missing functions")
         exit(1)
@@ -29,7 +29,7 @@ fn test_parse_where_fn_bounds() {
 
 fn test_parse_where_struct_bounds() {
     let src = "struct Box[T] where T: Clone { v: T } fn main() { }"
-    let prog = parse_program(src)
+    let prog = parse_program_or_exit(src)
     if len(&prog.structs) == 0 {
         println("missing struct")
         exit(1)
@@ -43,7 +43,7 @@ fn test_parse_where_struct_bounds() {
 
 fn test_parse_where_unknown_param_error() {
     let src = "fn f[T](x: T) where U: Clone { } fn main() { }"
-    let res = parse_program_with_errors(src)
+    let res = parse_program(src)
     if !string_list_contains(&res.errors, "stage2: unknown type param in where clause") {
         println("expected unknown param error")
         exit(1)
@@ -52,7 +52,7 @@ fn test_parse_where_unknown_param_error() {
 
 fn test_parse_where_non_nominal_bound_error() {
     let src = "fn f[T](x: T) where T: &str { } fn main() { }"
-    let res = parse_program_with_errors(src)
+    let res = parse_program(src)
     if !string_list_contains(&res.errors, "stage2: trait bound must be nominal type") {
         println("expected non-nominal bound error")
         exit(1)
@@ -61,7 +61,7 @@ fn test_parse_where_non_nominal_bound_error() {
 
 fn test_parse_array_pattern() {
     let src = "fn main() { let xs = [1, 2]; match xs { [a, b] => { } _ => { } } }"
-    let prog = parse_program(src)
+    let prog = parse_program_or_exit(src)
     if len(&prog.functions) == 0 {
         println("missing function")
         exit(1)
@@ -98,11 +98,11 @@ fn test_parse_array_pattern() {
 
 fn test_parse_struct_rest_pattern() {
     let src = "struct Point { x: i64, y: i64 } fn main() { let p = Point { x: 1, y: 2 }; match p { Point { x, .. } => { } _ => { } } }"
-    let _ = parse_program(src)
+    let _ = parse_program_or_exit(src)
 }
 
 fn test_parse_expr_error() {
-    let res = parse_expr_with_errors("1 +")
+    let res = parse_expr_string("1 +")
     if len(&res.errors) == 0 {
         println("expected parse error")
         exit(1)

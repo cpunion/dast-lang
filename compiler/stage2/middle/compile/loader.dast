@@ -970,7 +970,18 @@ fn load_module(ctx: &mut LoadCtx, pkg: &PackageInfo, dir: &str, files_override: 
         let path = files[fi]
         // Parse once to read imports.
         let src = read_file(string_clone(&path))
-        let prog = parse_program_loose(&src)
+        let parsed = parse_program_loose(&src)
+        if len(&parsed.errors) > 0 {
+            let mut msg = string_clone("")
+            let mut ei = 0
+            while ei < len(&parsed.errors) {
+                if msg != "" { msg = msg + "\n" }
+                msg = msg + parsed.errors[ei]
+                ei = ei + 1
+            }
+            return ImportLoad { ok: false, imports: "", source: "", err: msg }
+        }
+        let prog = parsed.program
         let mut aliases: [String] = []
         let mut ii = 0
         while ii < len(&prog.imports) {

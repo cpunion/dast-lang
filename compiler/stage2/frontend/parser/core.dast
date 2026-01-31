@@ -120,24 +120,6 @@ fn parser_gensym(p: &mut Parser, prefix: String) -> String {
 }
 
 // Parse helpers from raw strings for macro expansion.
-fn parse_expr_string(src: &str) -> Expr {
-    let toks = lexer_all(src)
-    let mut p = parser_new(toks)
-    return parse_expr(&mut p)
-}
-
-fn parse_stmt_string(src: &str) -> Stmt {
-    let toks = lexer_all(src)
-    let mut p = parser_new(toks)
-    return parse_stmt(&mut p)
-}
-
-fn parse_block_string(src: &str) -> Block {
-    let toks = lexer_all(src)
-    let mut p = parser_new(toks)
-    return parse_block(&mut p)
-}
-
 struct ExprParseResult {
     expr: Expr,
     errors: [String],
@@ -154,7 +136,7 @@ struct BlockParseResult {
 }
 
 // Parse helpers that collect errors instead of exiting.
-fn parse_expr_with_errors(src: &str) -> ExprParseResult {
+fn parse_expr_string(src: &str) -> ExprParseResult {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     p.soft_errors = true
@@ -162,7 +144,7 @@ fn parse_expr_with_errors(src: &str) -> ExprParseResult {
     return ExprParseResult { expr: expr, errors: ast_string_list_clone(&p.errors) }
 }
 
-fn parse_stmt_with_errors(src: &str) -> StmtParseResult {
+fn parse_stmt_string(src: &str) -> StmtParseResult {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     p.soft_errors = true
@@ -170,7 +152,7 @@ fn parse_stmt_with_errors(src: &str) -> StmtParseResult {
     return StmtParseResult { stmt: stmt, errors: ast_string_list_clone(&p.errors) }
 }
 
-fn parse_block_with_errors(src: &str) -> BlockParseResult {
+fn parse_block_string(src: &str) -> BlockParseResult {
     let toks = lexer_all(src)
     let mut p = parser_new(toks)
     p.soft_errors = true
