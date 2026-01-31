@@ -1,236 +1,264 @@
 # Dast IR v0 规范（稳定核心）
 
-> 目标：**稳定**且**最小**的 IR，当前由 stage0 使用；stage2 暂未输出 IR v0，后续如需跨阶段互操作再对齐。
+> 目标：**稳定**且**最小**的 IR。当前由 **stage0** 使用；stage2 暂未输出 IR v0（直接生成 QBE），未来如需互操作再对齐。
 
-## 设计原则
+## 0. 范围与版本
 
-1. **语法糖前端展开**
-   绝大多数语言特性在前端阶段降解为 v0 IR（泛型、trait、async、宏、解构等）。
-2. **指令集稳定**
-   v0 指令集保持稳定，必要信息通过**可选元数据**补充（如整数位宽、枚举 tag 位宽）。
-3. **版本显式**
-   Program 带 `version` 与 `features`，当前只允许 `v0`。
-4. **语义稳定**
-   IR 语义优先“可解释器运行”，便于自举与调试。
+- 仅支持 `v0`。
+- 本文档同时包含**规范**与**必要的背景说明**；历史简化过程记录在文末“设计演进记录”。
 
-## Program 结构
+---
 
-```
-Program {
-  version: "v0",
-  features: [String],   // 可选，当前必须为空
-  functions: [Function],
-  entry: String,
-  meta?: {...}          // 可选，stage0 可忽略
-}
-```
-
-### Function
-
-```
-Function {
-  name: String,
-  params: [String],
-  param_types: [String],   // 可选（与 params 等长）
-  return_type: String,     // 可选
-  blocks: [Block],
-  temp_count: i32
-}
-```
-
-### Block
-
-```
-Block {
-  label: String,
-  instrs: [Instr],
-  term: Term
-}
-```
-
-## IR v0 文本格式（ir_program_format）
-
-> 该文本格式目前用于 **stage0 工具链**：
->
-> - `dast ir` 输出此格式
-> - `dast ir-run` 读取并解释执行
-> - `dast ir-verify` / `dast ir-opt` / `dast ir-qbe` 处理该格式
->
-> stage2 当前不输出 IR v0；若未来需要互操作，再补齐相关链路。
+## 1. 文本格式总览（ir v0）
 
 ### 顶层结构
 
 ```
 ir v0
-fn <name>(<param0>, <param1>, ...)
-  block <label>:
-    <instr>
-    <term>
 
-fn <name>(...)
-  block <label>:
-    ...
+enum Option[T] tag i32
+  variant None = 1 : unit
+  variant Some = 0 : T
+
+type Point = { x: i64, y: i64 }
+
+fn add(a: i64, b: i64) -> i64
+  block entry0:
+    t0: i64 = + a, b
+    return t0
 ```
 
-函数签名支持可选类型标注：
+**顺序约定**：
+1) `ir v0` 头  
+2) `enum` 声明（可选）  
+3) `type` 声明（可选）  
+4) `fn` 函数（至少一个）  
+
+### 函数签名
 
 ```
-fn add(a: i32, b: i32) -> i32
-fn main()
+fn name(param: Type, ...) -> ReturnType
 ```
 
-- 以 `ir v0` 开头
-- 每个函数以 `fn name(params)` 开始
-- 每个 block 以 `block label:` 开始
-- 指令/终结符是缩进行
-- 函数之间用空行分隔
+- 返回类型缺省时视为 `unit`。  
+- 参数名是**变量名**，可在函数体内直接 `load/store`。
 
-### IR 校验（ir-verify）
+### 临时变量与类型标注
 
-可用 `dast ir-verify <file.ir>` 对 IR v0 做静态校验，主要规则：
-
-- `version` 必须为 `v0`，`features` 必须为空
-- `entry` 若存在，必须指向已定义函数
-- 函数名/块标签不能为空且唯一
-- 每个 block 必须有终结符（`jump/branch/return`）
-- `jump/branch` 目标必须存在
-- `tN` 必须满足 `0 <= N < temp_count`（`call` 的 `dst` 与 `enum` 的 `payload` 允许 `-1` 表示无值）
-- `binop` 操作符必须属于 v0 定义集合
-- `struct` 字段名不能为空且不可重复
-- `term` 必须是 block 的最后一行（终结符后不能再出现指令）
-- `load/addr_of` 变量名必须已声明（函数参数或出现过 `store`）
-- `load/addr_of` 在所有可达路径上必须已赋值（否则报“可能未初始化”）
-
-### IR 优化（ir-opt）
-
-`ir-opt` 是一个**保守优化**工具，保证 v0 语义不变：
-
-- 常量折叠：`binop` 在常量输入时直接折叠为字面量 operand（不生成指令）
-- 分支折叠：`branch` 条件为常量 `bool` 时改写为 `jump`
-- 删除不可达块：从函数首块出发的可达性分析
-- 变量常量传播（局部）
-- 越界检查消除（安全数组）
-- 简单内联（单块、无调用的函数）
-
-### 指令文本形态（与 v0 指令一一对应）
+指令可带**可选**类型标注：
 
 ```
-<operand> := tN | <literal>
+t3: i64 = + t1, t2
+t7 = call foo(t0)
+```
 
+`tN: <Type>` 只作为**调试/后端提示**；解析器接受无标注形式。
+
+---
+
+## 2. Program 结构（语义模型）
+
+```
+Program {
+  Version: "v0",
+  Features: [],               // 目前必须为空
+  Enums:    [EnumDecl],
+  TypeDecls: { name -> TypeDecl },
+  Functions: { name -> Function },
+  Entry: String               // 可选
+}
+```
+
+### EnumDecl
+
+```
+enum Name[T] tag i32
+  variant A = 0 : unit
+  variant B = 1 : T
+```
+
+> 仅作为**类型与 tag 元数据**；IR 指令层面不包含专用 enum 指令（见“枚举表示”）。
+
+### TypeDecl（结构体）
+
+```
+type Point = { x: i64, y: i64 }
+```
+
+仅用于 **struct** 类型。
+
+---
+
+## 3. 值模型（Value）
+
+IR v0 运行时值（解释器/IR 级语义）：
+
+- `int`（可带位宽标注，如 `i32 7`）
+- `float`（文本形式存储，如 `3.14`）
+- `bool`
+- `string`
+- `unit`
+- `ref`
+- `struct`
+- `enum`（解释器层可见；IR 指令表现为 struct）
+- `array`
+- `ast`（宏系统用）
+
+**整数类型名集合**：
+`i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 isize usize char`
+
+---
+
+## 4. 指令集（当前实现）
+
+> 下面为**真实实现**的 IR v0 指令集合与文本语法。
+
+### 4.1 变量与引用
+
+```
 tN = load <name>
-store <name>, <operand>
-
-tN = addr_of <name>
+tN = load_addr <name>
 tN = load_ref tM
+
+store <name>, <operand>
 store_ref tM, <operand>
-
-tN = <op> <operand>, <operand>
-
-tN = call <callee>(<operand>, <operand>)
-call <callee>(<operand>, <operand>)      # 无返回值
-
-tN = array [<operand>, <operand>]
-tN = index <operand>[<operand>] [@unchecked]
-set_index <operand>[<operand>] = <operand> [@unchecked]
-
-tN = struct <Name> { field: <operand>, other: <operand> }
-tN = get_field tA.field
-set_field tA.field = <operand>
-
-tN = enum <Name>.<Variant>@<tag>:<tag_type>(<operand>)
-tN = enum <Name>.<Variant>@<tag>:<tag_type>
-
-tN = enum_tag <operand>
-tN = enum_payload <operand>
 ```
 
-终结符：
+说明：
+- 变量名由**参数**与**首次 store** 引入。
+- `load_ref/store_ref` 通过引用 temp 读写。
+
+### 4.2 二元运算
+
+```
+tN = <op> <lhs>, <rhs>
+```
+
+支持的 `op`：
+`+ - * / % == != < <= > >= && || & | ^ << >>`
+
+> 一元运算在 IR 中降级为二元：  
+> `-x` → `0 - x`，`!x` → `x == false`。
+
+### 4.3 调用
+
+```
+tN = call <callee>(arg0, arg1, ...)
+call <callee>(arg0, arg1, ...)
+
+tN = call_closure <closure>(args...)
+call_closure <closure>(args...)
+```
+
+### 4.4 数组
+
+```
+tN = array [e0, e1, ...]
+tN = index <array>[<idx>] [@unchecked]
+set_index <array>[<idx>] = <value> [@unchecked]
+
+tN = addr_index tM[<idx>]
+```
+
+### 4.5 结构体
+
+```
+tN = struct <Name> { field: <op>, ... }
+tN = tM.field
+tM.field = <op>
+
+tN = addr_field tM.field
+```
+
+### 4.6 控制流
 
 ```
 jump <label>
-branch <operand>, <then>, <else>
+branch <cond>, <then>, <else>
 return
 return <operand>
 ```
 
-常量 `value`：
-- `int`（十进制）
-- `true` / `false`
-- `"string"`（支持转义：`\n`, `\t`, `\r`, `\"`, `\\`）
-- `unit`
-- `&N` / `struct#N` / `enum#N` / `array#N`（仅用于调试输出）
+---
 
-> 注意：IR 文本 **需要转义字符串内容**，解析时应进行反转义。
+## 5. 枚举表示（重要）
 
-## 值模型（Value）
+**IR v0 不包含专用 enum 指令**。枚举在 IR 中表示为：
 
-v0 支持 8 种运行时值：
+```
+type Option = { _tag: i32, _payload: T }
+```
 
-- `int`（有符号整数，**可选**携带位宽元数据）
-- `bool`
-- `string`
-- `unit`
-- `ref`（指向 heap slot）
-- `struct`
-- `enum`
-- `array`
+构造与访问通过 struct 指令完成：
 
-整数类型名集合：
+```
+t0 = struct Option { _tag: 0, _payload: x }
+t1 = t0._tag
+t2 = t0._payload
+```
 
-`i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 isize usize char`
+**EnumDecl** 仅提供 tag 与 payload 类型信息，用于验证与后端生成。
 
-> 位宽元数据不改变解释器语义，但可用于后续优化/后端选择。
+---
 
-## 指令集（v0）
+## 6. 校验规则（ir-verify）
 
-### 变量
+验证器主要检查：
 
-- 常量通过 operand 直接内联，不再作为指令出现
-- `LoadVar dst, name`
-  - `@addr`（文本语法 `load_addr`）：返回指向变量的引用
-  - `@ref`（文本语法 `load_ref tX`）：从引用 temp 解引用读取
-- `StoreVar name, src`
-  - `@ref`（文本语法 `store_ref tX, src`）：通过引用 temp 写入
+- `version` 必须为 `v0`，`features` 为空
+- `entry` 若存在必须指向已定义函数
+- block 标签非空且唯一
+- 每个 block 必须有终结符
+- `jump/branch` 目标必须存在
+- temp 号必须合法（`tN` 且 `0 <= N < temp_count`）
+- `call/call_closure` 的 `dst` 可为 `-1` 表示无返回值
+- `binop` 必须属于 v0 操作符集合
+- `struct` 字段名非空且不可重复
+- `load` 的变量必须先声明（参数或首次 store）
+- `load` 在所有可达路径上必须已赋值（“可能未初始化”检查）
 
-### 二元运算
+> `temp_count` 在文本格式中不显式出现，由解析器扫描 `tN` 自动推导。
 
-- `BinOp dst, op, lhs, rhs`
+---
 
-`op` 取值：`+ - * / % == != < <= > >= && ||`
+## 7. 优化（ir-opt）
 
-> 一元运算在 IR 中降级为二元：`-x` → `0 - x`，`!x` → `x == false`。
+`ir-opt` 为保守优化，保持语义不变，当前包含：
 
-### 调用
+- 常量折叠（int/bool/string）
+- 分支折叠（常量条件）
+- 数组边界检查消除（静态可证安全）
+- 删除不可达块
+- 单块、无调用函数的内联
 
-- `Call dst, callee, args`
+---
 
-> 约定：方法调用降为 `Type.method`，并把 `self` 作为第一个参数。
+## 8. 与 Dast 语法对照（示例）
 
-### 数组
+| Dast | IR |
+|------|-----|
+| `let x = 1` | `store x, 1` |
+| `let mut x = 1` | `store x, 1`（变量可变性由前端保证） |
+| `x = x + 1` | `t0 = load x` → `t1 = + t0, 1` → `store x, t1` |
+| `&mut x` | `t0 = load_addr x` |
+| `*p` | `t0 = load_ref p` |
+| `p.x` | `t0 = t1.x` |
+| `Point { x: 0 }` | `t0 = struct Point { x: 0, ... }` |
+| `if c { } else { }` | `branch` + blocks |
+| `while c { }` | `jump` + `branch` + blocks |
 
-- `MakeArray dst, elems`
-- `Index dst, array, index`（可选 `@unchecked` 表示忽略边界检查）
-- `SetIndex array, index, src`（可选 `@unchecked`）
+---
 
-### 结构体
+## 9. 设计演进记录（摘要）
 
-- `MakeStruct dst, name, fields`
-- `GetField dst, src, field`
-- `SetField src, field, value`
+IR v0 经历的主要简化：
 
-> 字段以**名称**索引，保证语义稳定。
-> 布局与偏移属于可选 meta。
+1. **Index/SetIndex 合并 unchecked 版本**  
+   `IndexUnchecked/SetIndexUnchecked` → `@unchecked` 标记
+2. **Enum 降解为 Struct**  
+   移除 `MakeEnum/EnumTag/EnumPayload`，改用 `struct + _tag/_payload`
+3. **地址获取与引用合并**  
+   `addr_of` → `load_addr`；`load_ref/store_ref` 通过 `LoadVar/StoreVar` 标记
+4. **移除 UnaryOp/Const**  
+   一元运算降级为二元；常量直接作为 operand
 
-### 枚举
-
-- `MakeEnum dst, name, variant, payload, tag, tag_type`
-- `EnumTag dst, src`   → `int`（可携带 `tag_type`）
-- `EnumPayload dst, src`
-
-> `@repr(...)` 在 IR 中体现为 `tag_type` 元数据。
-
-### 控制流
-
-- `Jump target`
-- `Branch cond, then_label, else_label`
-- `Return [value]`
