@@ -450,10 +450,9 @@ fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> Macro
         if len(&parsed.errors) > 0 {
             let mut ei = 0
             while ei < len(&parsed.errors) {
-                println(parsed.errors[ei])
+                macro_fail(ctx, parsed.errors[ei])
                 ei = ei + 1
             }
-            exit(1)
         }
         let mut map = rename_map_new()
         let renamed = hygiene_expr(ctx, &map, &parsed.expr)
@@ -465,10 +464,9 @@ fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> Macro
         if len(&parsed.errors) > 0 {
             let mut ei = 0
             while ei < len(&parsed.errors) {
-                println(parsed.errors[ei])
+                macro_fail(ctx, parsed.errors[ei])
                 ei = ei + 1
             }
-            exit(1)
         }
         let mut map = rename_map_new()
         let mut tmp: [Stmt] = []
@@ -484,34 +482,31 @@ fn eval_quote_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> Macro
         if len(&parsed.errors) > 0 {
             let mut ei = 0
             while ei < len(&parsed.errors) {
-                println(parsed.errors[ei])
+                macro_fail(ctx, parsed.errors[ei])
                 ei = ei + 1
             }
-            exit(1)
         }
         return macro_value_item(parsed.program, out)
     }
-    println("stage2: unknown quote kind")
-    exit(1)
+    macro_fail(ctx, "stage2: unknown quote kind")
     return macro_value_unit()
 }
 
 fn expand_expr(ctx: &mut MacroCtx, expr: Expr) -> Expr {
     if (expr.kind == EXPR_REF || expr.kind == EXPR_DEREF || expr.kind == EXPR_FIELD || expr.kind == EXPR_MATCH) && len(&expr.args) < 1 {
-        println("stage2: expand bad expr args", expr.kind, "len", len(&expr.args), expr.name)
-        exit(1)
+        macro_fail(ctx, "stage2: expand bad expr args")
+        return expr_clone(&expr)
     }
     if (expr.kind == EXPR_INDEX || expr.kind == EXPR_BINARY) && len(&expr.args) < 2 {
-        println("stage2: expand bad expr args", expr.kind, "len", len(&expr.args), expr.name)
-        exit(1)
+        macro_fail(ctx, "stage2: expand bad expr args")
+        return expr_clone(&expr)
     }
     if expr.kind == EXPR_MACRO_CALL {
         let mut env = macro_env_new()
         let v = eval_expr(ctx, &mut env, &expr)
         if v.kind == MV_AST_EXPR { return expr_clone(&v.expr) }
         if v.kind == MV_AST_STMT {
-            println("stage2: macro returned stmt in expr context")
-            exit(1)
+            macro_fail(ctx, "stage2: macro returned stmt in expr context")
         }
         return expr_clone(&expr)
     }
@@ -519,8 +514,8 @@ fn expand_expr(ctx: &mut MacroCtx, expr: Expr) -> Expr {
         let mut env = macro_env_new()
         let v = eval_quote_expr(ctx, &mut env, &expr)
         if v.kind == MV_AST_EXPR { return expr_clone(&v.expr) }
-        println("stage2: quote in expr context did not yield expr")
-        exit(1)
+        macro_fail(ctx, "stage2: quote in expr context did not yield expr")
+        return expr_clone(&expr)
     }
     let mut out = expr_clone(&expr)
     let mut i = 0
@@ -654,8 +649,14 @@ fn expand_block(ctx: &mut MacroCtx, block: Block) -> Block {
     return Block { stmts: out }
 }
 
-fn macro_expand_program(prog: Program) -> Program {
+struct MacroExpandResult {
+    prog: Program,
+    errors: [String],
+}
+
+fn macro_expand_program(prog: Program) -> MacroExpandResult {
     let mut ctx = macro_ctx_new(&prog)
+    ctx.soft_errors = true
     let mut out = program_clone(&prog)
     // Remove macro functions and expand bodies.
     let mut funcs: [Function] = []
@@ -676,12 +677,26 @@ fn macro_expand_program(prog: Program) -> Program {
         let mut env = macro_env_new()
         let v = eval_expr(&mut ctx, &mut env, &out.compile_items[ci].expr)
         if v.kind != MV_AST_ITEM {
-            println("stage2: compile! expects ast_item")
-            exit(1)
+            macro_fail(&mut ctx, "stage2: compile! expects ast_item")
+            ci = ci + 1
+            continue
         }
         program_merge(&mut out, &v.prog)
         ci = ci + 1
     }
     out.compile_items = compile_item_list_empty()
-    return out
+    return MacroExpandResult { prog: out, errors: ast_string_list_clone(&ctx.errors) }
+}
+
+fn macro_expand_program_or_exit(prog: Program) -> Program {
+    let res = macro_expand_program(prog)
+    if len(&res.errors) > 0 {
+        let mut i = 0
+        while i < len(&res.errors) {
+            println(res.errors[i])
+            i = i + 1
+        }
+        exit(1)
+    }
+    return res.prog
 }

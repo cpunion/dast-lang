@@ -473,7 +473,7 @@ fn compile_native_single(src_path: String, out_bin: String, ptr_width: i64) {
     }
     let mut prog = program_clone(&prelude_prog)
     program_merge(&mut prog, &load.prog)
-    prog = macro_expand_program(prog)
+    prog = macro_expand_program_or_exit(prog)
     if !program_has_main(&prog) {
         println("parse error: missing fn main")
         exit(1)
@@ -519,7 +519,7 @@ fn compile_native_single_stats(src_path: String, out_bin: String, ptr_width: i64
     }
     let mut prog = program_clone(&prelude_prog)
     program_merge(&mut prog, &load.prog)
-    prog = macro_expand_program(prog)
+    prog = macro_expand_program_or_exit(prog)
     if !program_has_main(&prog) {
         println("parse error: missing fn main")
         exit(1)

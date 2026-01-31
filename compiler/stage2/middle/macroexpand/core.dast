@@ -186,7 +186,7 @@ fn macro_env_new() -> MacroEnv {
     return MacroEnv { names: names, values: values }
 }
 
-fn macro_env_get(env: &MacroEnv, name: &str) -> MacroValue {
+fn macro_env_get(ctx: &mut MacroCtx, env: &MacroEnv, name: &str) -> MacroValue {
     let mut i = len(&env.names) - 1
     while i >= 0 {
         if env.names[i] == name {
@@ -195,8 +195,7 @@ fn macro_env_get(env: &MacroEnv, name: &str) -> MacroValue {
         if i == 0 { break }
         i = i - 1
     }
-    println("stage2: macro unknown identifier", name)
-    exit(1)
+    macro_fail(ctx, "stage2: macro unknown identifier " + string_clone(name))
     return macro_value_unit()
 }
 
@@ -210,11 +209,15 @@ struct MacroCtx {
     macro_names: [String],
     macro_funcs: [Function],
     gensym_count: i64,
+    soft_errors: bool,
+    had_error: bool,
+    errors: [String],
 }
 
 fn macro_ctx_new(prog: &Program) -> MacroCtx {
     let mut names: [String] = []
     let mut funcs: [Function] = []
+    let mut errs: [String] = []
     let mut i = 0
     while i < len(&prog.functions) {
         let f = &prog.functions[i]
@@ -224,7 +227,19 @@ fn macro_ctx_new(prog: &Program) -> MacroCtx {
         }
         i = i + 1
     }
-    return MacroCtx { macro_names: names, macro_funcs: funcs, gensym_count: 0 }
+    return MacroCtx { macro_names: names, macro_funcs: funcs, gensym_count: 0, soft_errors: false, had_error: false, errors: errs }
+}
+
+fn macro_fail(ctx: &mut MacroCtx, msg: String) {
+    if ctx.soft_errors {
+        let mut errs = ctx.errors
+        push(&mut errs, msg)
+        ctx.errors = errs
+        ctx.had_error = true
+        return
+    }
+    println(msg)
+    exit(1)
 }
 
 fn macro_find_fn(ctx: &MacroCtx, name: &str) -> i64 {
@@ -285,32 +300,28 @@ fn eval_stmt(ctx: &mut MacroCtx, env: &mut MacroEnv, stmt: &Stmt) -> EvalResult 
         let v = eval_expr(ctx, env, &stmt.expr)
         return eval_result(v, false)
     }
-    println("stage2: unsupported macro stmt")
-    exit(1)
+    macro_fail(ctx, "stage2: unsupported macro stmt")
     return eval_result(macro_value_unit(), false)
 }
 
-fn macro_value_expect_string(v: &MacroValue) -> String {
+fn macro_value_expect_string(ctx: &mut MacroCtx, v: &MacroValue) -> String {
     if v.kind == MV_STRING { return string_clone(&v.str_value) }
-    println("stage2: macro expects String/str")
-    exit(1)
+    macro_fail(ctx, "stage2: macro expects String/str")
     return string_clone("")
 }
 
-fn macro_value_to_string(v: &MacroValue) -> String {
+fn macro_value_to_string(ctx: &mut MacroCtx, v: &MacroValue) -> String {
     if v.kind == MV_STRING { return string_clone(&v.str_value) }
     if v.kind == MV_AST_EXPR || v.kind == MV_AST_STMT || v.kind == MV_AST_ITEM || v.kind == MV_AST_BLOCK {
         if v.ast_src != "" { return string_clone(&v.ast_src) }
     }
-    println("stage2: ast_to_string unsupported value")
-    exit(1)
+    macro_fail(ctx, "stage2: ast_to_string unsupported value")
     return string_clone("")
 }
 
-fn macro_value_expect_expr(v: &MacroValue) -> Expr {
+fn macro_value_expect_expr(ctx: &mut MacroCtx, v: &MacroValue) -> Expr {
     if v.kind == MV_AST_EXPR { return expr_clone(&v.expr) }
-    println("stage2: ast_eq expects AstExpr")
-    exit(1)
+    macro_fail(ctx, "stage2: ast_eq expects AstExpr")
     return expr_int(0)
 }
 
@@ -468,8 +479,8 @@ fn ast_expr_eq(a: &Expr, b: &Expr) -> bool {
 
 fn eval_macro_fn(ctx: &mut MacroCtx, f: &Function, args: [MacroValue]) -> MacroValue {
     if len(&args) != len(&f.params) {
-        println("stage2: macro arg mismatch", f.name, len(&args), len(&f.params))
-        exit(1)
+        macro_fail(ctx, "stage2: macro arg mismatch")
+        return macro_value_unit()
     }
     let mut env = macro_env_new()
     let mut i = 0
@@ -484,8 +495,8 @@ fn eval_macro_fn(ctx: &mut MacroCtx, f: &Function, args: [MacroValue]) -> MacroV
 fn eval_macro_call(ctx: &mut MacroCtx, name: &str, args: [MacroValue]) -> MacroValue {
     let idx = macro_find_fn(ctx, name)
     if idx < 0 {
-        println("stage2: unknown macro", name)
-        exit(1)
+        macro_fail(ctx, "stage2: unknown macro " + string_clone(name))
+        return macro_value_unit()
     }
     return eval_macro_fn(ctx, &ctx.macro_funcs[idx], args)
 }
@@ -496,7 +507,7 @@ fn eval_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue 
         EXPR_BOOL => { return macro_value_bool(expr.bool_value) }
         EXPR_CHAR => { return macro_value_int(expr.int_value) }
         EXPR_STRING => { return macro_value_string(string_clone(&expr.name)) }
-        EXPR_IDENT => { return macro_env_get(env, &expr.name) }
+        EXPR_IDENT => { return macro_env_get(ctx, env, &expr.name) }
         EXPR_BLOCK => {
             let res = eval_block(ctx, env, &expr.block)
             return res.value
@@ -505,7 +516,10 @@ fn eval_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue 
         EXPR_MACRO_CALL => {
             let name = string_clone(&expr.name)
             if name == "compile" {
-                if len(&expr.args) != 1 { println("stage2: compile! expects 1 arg"); exit(1) }
+                if len(&expr.args) != 1 {
+                    macro_fail(ctx, "stage2: compile! expects 1 arg")
+                    return macro_value_unit()
+                }
                 let arg0 = expr_clone(&expr.args[0])
                 return eval_expr(ctx, env, &arg0)
             }
@@ -523,113 +537,113 @@ fn eval_expr(ctx: &mut MacroCtx, env: &mut MacroEnv, expr: &Expr) -> MacroValue 
             if name == "ast_expr" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                let s = macro_value_expect_string(&v)
+                let s = macro_value_expect_string(ctx, &v)
                 let e = parse_expr_string(&s)
                 if len(&e.errors) > 0 {
                     let mut ei = 0
                     while ei < len(&e.errors) {
-                        println(e.errors[ei])
+                        macro_fail(ctx, e.errors[ei])
                         ei = ei + 1
                     }
-                    exit(1)
                 }
                 return macro_value_expr(e.expr, s)
             }
             if name == "ast_stmt" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                let s = macro_value_expect_string(&v)
+                let s = macro_value_expect_string(ctx, &v)
                 let st = parse_stmt_string(&s)
                 if len(&st.errors) > 0 {
                     let mut ei = 0
                     while ei < len(&st.errors) {
-                        println(st.errors[ei])
+                        macro_fail(ctx, st.errors[ei])
                         ei = ei + 1
                     }
-                    exit(1)
                 }
                 return macro_value_stmt(st.stmt, s)
             }
             if name == "ast_item" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                let s = macro_value_expect_string(&v)
+                let s = macro_value_expect_string(ctx, &v)
                 let p = parse_program_loose(&s)
                 if len(&p.errors) > 0 {
                     let mut ei = 0
                     while ei < len(&p.errors) {
-                        println(p.errors[ei])
+                        macro_fail(ctx, p.errors[ei])
                         ei = ei + 1
                     }
-                    exit(1)
                 }
                 return macro_value_item(p.program, s)
             }
             if name == "ast_block" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                let s = macro_value_expect_string(&v)
+                let s = macro_value_expect_string(ctx, &v)
                 let b = parse_block_string(&s)
                 if len(&b.errors) > 0 {
                     let mut ei = 0
                     while ei < len(&b.errors) {
-                        println(b.errors[ei])
+                        macro_fail(ctx, b.errors[ei])
                         ei = ei + 1
                     }
-                    exit(1)
                 }
                 return macro_value_block(b.block, s)
             }
             if name == "ast_to_string" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                return macro_value_string(macro_value_to_string(&v))
+                return macro_value_string(macro_value_to_string(ctx, &v))
             }
             if name == "ast_eq" {
-                if len(&expr.args) != 2 { println("stage2: ast_eq expects 2 args"); exit(1) }
+                if len(&expr.args) != 2 {
+                    macro_fail(ctx, "stage2: ast_eq expects 2 args")
+                    return macro_value_bool(false)
+                }
                 let a0 = expr_clone(&expr.args[0])
                 let a1 = expr_clone(&expr.args[1])
                 let v0 = eval_expr(ctx, env, &a0)
                 let v1 = eval_expr(ctx, env, &a1)
-                let e0 = macro_value_expect_expr(&v0)
-                let e1 = macro_value_expect_expr(&v1)
+                let e0 = macro_value_expect_expr(ctx, &v0)
+                let e1 = macro_value_expect_expr(ctx, &v1)
                 let ok = ast_expr_eq(&e0, &e1)
                 return macro_value_bool(ok)
             }
             if name == "ast_assert_eq" {
-                if len(&expr.args) != 2 { println("stage2: ast_assert_eq expects 2 args"); exit(1) }
+                if len(&expr.args) != 2 {
+                    macro_fail(ctx, "stage2: ast_assert_eq expects 2 args")
+                    return macro_value_unit()
+                }
                 let a0 = expr_clone(&expr.args[0])
                 let a1 = expr_clone(&expr.args[1])
                 let v0 = eval_expr(ctx, env, &a0)
                 let v1 = eval_expr(ctx, env, &a1)
-                let e0 = macro_value_expect_expr(&v0)
-                let e1 = macro_value_expect_expr(&v1)
+                let e0 = macro_value_expect_expr(ctx, &v0)
+                let e1 = macro_value_expect_expr(ctx, &v1)
                 let ok = ast_expr_eq(&e0, &e1)
                 if !ok {
-                    let s0 = macro_value_to_string(&v0)
-                    let s1 = macro_value_to_string(&v1)
-                    println("stage2: assert_ast_eq failed", s0, s1)
-                    exit(1)
+                    let s0 = macro_value_to_string(ctx, &v0)
+                    let s1 = macro_value_to_string(ctx, &v1)
+                    macro_fail(ctx, "stage2: assert_ast_eq failed " + s0 + " " + s1)
                 }
                 return macro_value_unit()
             }
             if name == "gensym" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                let prefix = macro_value_expect_string(&v)
+                let prefix = macro_value_expect_string(ctx, &v)
                 let name = macro_gensym(ctx, &prefix)
                 return macro_value_string(name)
             }
             if name == "bind" {
                 let arg0 = expr_clone(&expr.args[0])
                 let v = eval_expr(ctx, env, &arg0)
-                let name = macro_value_expect_string(&v)
+                let name = macro_value_expect_string(ctx, &v)
                 return macro_value_bind(name)
             }
         }
     }
-    println("stage2: unsupported macro expr")
-    exit(1)
+    macro_fail(ctx, "stage2: unsupported macro expr")
     return macro_value_unit()
 }
 

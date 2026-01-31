@@ -38,8 +38,12 @@ fn expect_binary_add(e: &Expr, lhs: i64, rhs: i64) {
 fn test_macro_quote_expr_expand() {
     let src = string_clone("macro fn add1(x: AstExpr) -> AstExpr { quote expr { $x + 1 } } fn main() { let v = add1!(quote expr { 40 }); }")
     let prog = parse_program_or_exit(&src)
-    let expanded = macro_expand_program(prog)
-    let main_fn = find_main_func_macro(&expanded)
+    let res = macro_expand_program(prog)
+    if len(&res.errors) > 0 {
+        println("unexpected macro expand errors")
+        exit(1)
+    }
+    let main_fn = find_main_func_macro(&res.prog)
     if len(&main_fn.body.stmts) == 0 {
         println("missing stmts")
         exit(1)
@@ -50,4 +54,14 @@ fn test_macro_quote_expr_expand() {
         exit(1)
     }
     expect_binary_add(&stmt.expr, 40, 1)
+}
+
+fn test_macro_expand_compile_item_error() {
+    let src = string_clone("macro fn bad() -> AstExpr { quote expr { 1 } } compile!(bad!()) fn main() { }")
+    let prog = parse_program_or_exit(&src)
+    let res = macro_expand_program(prog)
+    if len(&res.errors) == 0 {
+        println("expected macro expand error")
+        exit(1)
+    }
 }
