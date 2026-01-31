@@ -25,7 +25,7 @@ Dast 是一门**编译型系统编程语言**，目标是:
 | 异步模型 | async/await Pull 模式 |
 | 宏系统 | Comptime + AST 宏 |
 | FFI | C FFI 核心，WASM 互操作 |
-| 工具链 | 统一 `dast` CLI + 内置 LSP |
+| 工具链 | 统一 `dast` CLI（build/run/test）；LSP 为 stage3 原型 |
 
 ## 安全性定位
 
@@ -76,12 +76,11 @@ C++: 20% → Dast: 99% → Rust: 100%
 
 **核心策略**: 渐进式自举
 
-- **Stage 0** (9 个月): Bootstrap 编译器（最小特性集）
-- **Stage 1** (6 个月): 完整核心语言
-- **Stage 2** (12 个月): 标准库 + 工具链
-- **Stage 3+** (12 个月): 高级特性 + 多平台
+- **Stage 0** (Go): Bootstrap 编译器（最小可用子集）
+- **Stage 2** (Dast): 逐步覆盖完整语言规范（当前仍为子集）
+- **Stage 3**: 工具链与优化（LSP/fmt/lint/优化等原型阶段）
 
-**第一年目标**: Stage 0 自举 + 基础工具链 + 核心标准库
+**目标**: 以 Stage0 的 IR v0 稳定基座为支撑，持续扩展 Stage2 覆盖面与工具链能力（Stage2 当前直接生成 QBE）
 
 ## 设计完成度
 

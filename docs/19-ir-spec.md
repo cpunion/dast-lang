@@ -1,6 +1,6 @@
 # Dast IR v0 规范（稳定核心）
 
-> 目标：**稳定**且**最小**的 IR，使 stage0 只需支持 v0 即可运行 stage2，即便上层语法持续演进。
+> 目标：**稳定**且**最小**的 IR，当前由 stage0 使用；stage2 暂未输出 IR v0，后续如需跨阶段互操作再对齐。
 
 ## 设计原则
 
@@ -50,11 +50,13 @@ Block {
 
 ## IR v0 文本格式（ir_program_format）
 
-> 该文本格式是 **stage0/stage2 的互操作桥梁**：
+> 该文本格式目前用于 **stage0 工具链**：
 >
 > - `dast ir` 输出此格式
 > - `dast ir-run` 读取并解释执行
-> - stage2 可直接生成该格式，交给 stage0 运行
+> - `dast ir-verify` / `dast ir-opt` / `dast ir-qbe` 处理该格式
+>
+> stage2 当前不输出 IR v0；若未来需要互操作，再补齐相关链路。
 
 ### 顶层结构
 

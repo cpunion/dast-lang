@@ -226,30 +226,18 @@ target/doc/
 
 ## 其他工具
 
-### LSP 服务器（内置）
+### LSP 服务器（stage3 原型）
+
+当前 LSP 位于 `compiler/stage3/lsp/`，为**原型实现**，尚未接入 `dast` CLI。
 
 ```bash
-# LSP 服务器内置在编译器中
-$ dast lsp
-
-# 编辑器自动调用
-# 无需单独安装
-
-# 功能
-- 代码补全
-- 跳转定义
-- 查找引用
-- 重命名
-- 实时诊断
-- 悬停提示
-- 代码操作
+# 运行原型（开发用途）
+./compiler/stage3/lsp/dast-lsp.sh
 ```
 
-**优势**:
-- 无需单独安装
-- 与编译器共享代码
-- 始终保持同步
-- 类似 Go 的 `gopls`
+**说明**：
+- 目前不提供 `dast lsp` 命令
+- 功能与稳定性以原型为准（诊断/跳转/补全等逐步完善）
 
 ### dast expand (宏展开)
 
@@ -276,13 +264,11 @@ $ dast check
 
 | 工具 | Rust | Go | Dast |
 |------|------|-----|------|
-| 格式化 | rustfmt | gofmt | dastfmt |
-| Linter | clippy | golint | dastlint |
-| 文档 | rustdoc | godoc | dastdoc |
-| LSP | rust-analyzer (独立) | gopls (内置) | 内置 |
-| 包管理 | cargo | go mod | dast |
-
-**优势**: LSP 内置在编译器中，无需单独安装
+| 格式化 | rustfmt | gofmt | planned |
+| Linter | clippy | golint | planned |
+| 文档 | rustdoc | godoc | planned |
+| LSP | rust-analyzer (独立) | gopls (内置) | stage3 原型 |
+| 包管理 | cargo | go mod | dast（stage0/stage2） |
 
 ---
 
@@ -298,15 +284,15 @@ $ dast check
 }
 ```
 
-**LSP 自动启动**: 编辑器调用 `dast lsp`
+**当前**：暂无 `dast lsp`，LSP 为 stage3 原型
 
 ### Vim/Neovim
 
 ```vim
-" 使用内置 LSP
+" LSP 原型（非内置）
 lua << EOF
 require'lspconfig'.dast.setup{
-  cmd = {'dast', 'lsp'}
+  cmd = {'./compiler/stage3/lsp/dast-lsp.sh'}
 }
 EOF
 ```
@@ -327,17 +313,8 @@ jobs:
       - uses: actions/checkout@v2
       - uses: dast-lang/setup-dast@v1
 
-      - name: Format check
-        run: dast fmt --check
-
-      - name: Lint
-        run: dast lint
-
       - name: Test
-        run: dast test
-
-      - name: Build
-        run: dast build --release
+        run: make test
 ```
 
 ---
