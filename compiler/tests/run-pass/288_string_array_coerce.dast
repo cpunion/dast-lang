@@ -1,0 +1,13 @@
+fn takes(s: &str) -> i64 {
+    return len(s)
+}
+
+fn main() {
+    let s = string_clone("hi")
+    let n = takes(s)
+    if n != 2 { exit(1) }
+
+    let xs: [String] = ["a", "b"]
+    if len(&xs) != 2 { exit(1) }
+    if xs[0] != "a" { exit(1) }
+}
