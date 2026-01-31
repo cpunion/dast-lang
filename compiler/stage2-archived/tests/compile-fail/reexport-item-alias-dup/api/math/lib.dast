@@ -1,2 +1,0 @@
-pub fn add(a: int, b: int) -> int { a + b }
-pub fn sub(a: int, b: int) -> int { a - b }

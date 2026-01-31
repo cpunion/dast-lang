@@ -1,6 +1,0 @@
-import "./foo" as m
-import "./bar" as m
-
-fn main() {
-    println("dup")
-}

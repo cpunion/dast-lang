@@ -1,5 +1,0 @@
-import "util"
-
-fn main() {
-    println("build", util_add(1, 2))
-}

@@ -1,9 +1,0 @@
-// Test simple type alias
-import "std/testing" as t
-
-type IntList = [int]
-
-fn test_main() {
-    let nums: IntList = [1, 2, 3]
-    t.assert_eq!(len(nums), 3)
-}

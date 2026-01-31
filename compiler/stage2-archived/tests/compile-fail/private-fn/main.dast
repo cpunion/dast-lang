@@ -1,6 +1,0 @@
-import { hidden } from "foo"
-
-fn main() {
-    let v = hidden()
-    println(v)
-}

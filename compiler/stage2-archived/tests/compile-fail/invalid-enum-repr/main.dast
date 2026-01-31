@@ -1,4 +1,0 @@
-@repr(f32)
-enum Bad { A }
-
-fn main() {}

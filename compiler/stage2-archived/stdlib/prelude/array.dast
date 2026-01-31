@@ -1,4 +1,0 @@
-// Array functions - intrinsic implementations provided by runtime
-
-pub fn len[T](arr: [T]) -> int { return 0 }
-pub fn push[T](arr: &mut [T], item: T) {}

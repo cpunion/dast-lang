@@ -1,5 +1,0 @@
-pub struct Token {
-    pub value: i32,
-}
-
-pub fn make_token(v: i32) -> Token { Token { value: v } }

@@ -1,5 +1,0 @@
-import "./a/n1" as api
-
-fn main() {
-    println("v", api.missing())
-}

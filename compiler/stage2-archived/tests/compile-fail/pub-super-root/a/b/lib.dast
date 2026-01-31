@@ -1,1 +1,0 @@
-pub(super) fn super_fn() -> i32 { 7 }

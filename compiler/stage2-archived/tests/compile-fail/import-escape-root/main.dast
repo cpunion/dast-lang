@@ -1,5 +1,0 @@
-import "../outside"
-
-fn main() {
-    println("x")
-}

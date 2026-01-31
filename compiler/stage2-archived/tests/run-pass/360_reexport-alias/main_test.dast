@@ -1,6 +1,0 @@
-import "a" as api
-import "std/testing" as t
-
-fn test_main() {
-    t.assert_eq!(api.add(3, 4), 7)
-}

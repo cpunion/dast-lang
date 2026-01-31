@@ -1,9 +1,0 @@
-fn test_add() {
-    let v = add(2, 3)
-    println("test_add", v)
-}
-
-fn test_add_check() {
-    let v = add(1, 4)
-    println("add_check", v)
-}

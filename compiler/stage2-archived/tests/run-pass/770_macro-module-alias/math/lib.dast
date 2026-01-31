@@ -1,3 +1,0 @@
-pub macro fn inc(x: AstExpr) -> AstExpr {
-    quote expr { $x + 1 }
-}

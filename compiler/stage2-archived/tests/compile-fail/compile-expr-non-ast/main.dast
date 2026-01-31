@@ -1,4 +1,0 @@
-fn main() {
-    let v = compile!(1)
-    println("v", v)
-}

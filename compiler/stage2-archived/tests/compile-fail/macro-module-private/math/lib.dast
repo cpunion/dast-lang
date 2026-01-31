@@ -1,3 +1,0 @@
-macro fn hidden(x: AstExpr) -> AstExpr {
-    quote expr { $x }
-}

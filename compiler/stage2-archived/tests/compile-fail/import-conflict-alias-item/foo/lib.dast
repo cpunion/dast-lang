@@ -1,1 +1,0 @@
-pub fn foo() -> int { return 1 }

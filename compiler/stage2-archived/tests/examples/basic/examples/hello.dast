@@ -1,6 +1,0 @@
-import "basic"
-
-fn main() {
-    let v = basic.add(2, 3)
-    println("hello", v)
-}

@@ -1,7 +1,0 @@
-import { Box } from "foo"
-
-fn main() {
-    let b = Box { x: 3 }
-    let v = b.hidden()
-    println(v)
-}

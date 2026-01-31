@@ -1,5 +1,0 @@
-import "./empty"
-
-fn main() {
-    println("x")
-}

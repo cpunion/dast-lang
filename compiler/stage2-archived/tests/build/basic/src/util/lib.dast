@@ -1,3 +1,0 @@
-pub fn util_add(a: int, b: int) -> int {
-    a + b
-}

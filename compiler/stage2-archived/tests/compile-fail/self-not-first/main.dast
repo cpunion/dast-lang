@@ -1,7 +1,0 @@
-struct Foo { x: int }
-
-impl Foo {
-    fn bad(x: int, self: &Self) -> int { x }
-}
-
-fn main() {}

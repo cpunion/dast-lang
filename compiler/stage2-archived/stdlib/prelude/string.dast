@@ -1,9 +1,0 @@
-// String functions - intrinsic implementations provided by runtime
-
-pub fn char_at(s: &str, idx: int) -> int { return 0 }
-pub fn substr(s: &str, start: int, length: int) -> String { return "" }
-pub fn find_char(s: &str, c: int, start: int) -> int { return -1 }
-pub fn string_eq(a: &str, b: &str) -> bool { return false }
-pub fn string_concat(a: &str, b: &str) -> String { return "" }
-pub fn string_len(s: &str) -> int { return 0 }
-pub fn string_clone(s: &str) -> String { return "" }

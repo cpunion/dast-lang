@@ -1,7 +1,0 @@
-import { add as sum, mul } from "math"
-import "std/testing" as t
-
-fn test_main() {
-    t.assert_eq!(sum(2, 3), 5)
-    t.assert_eq!(mul(3, 4), 12)
-}

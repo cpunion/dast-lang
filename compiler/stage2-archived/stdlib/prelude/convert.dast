@@ -1,8 +1,0 @@
-// Type conversion functions - intrinsic implementations provided by runtime
-
-pub fn int_to_string(n: int) -> String { return "" }
-pub fn string_to_int(s: &str) -> int { return 0 }
-pub fn bool_to_string(b: bool) -> String { return "" }
-
-// Panic function - runtime intrinsic
-pub fn panic(msg: &str) {}

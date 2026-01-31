@@ -1,6 +1,0 @@
-import { X } from "a"
-import { X } from "b"
-
-fn main() {
-    println(X)
-}

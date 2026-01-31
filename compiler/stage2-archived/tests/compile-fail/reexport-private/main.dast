@@ -1,5 +1,0 @@
-import { hidden } from "a"
-
-fn main() {
-    println("noop")
-}

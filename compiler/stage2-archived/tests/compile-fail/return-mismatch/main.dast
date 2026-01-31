@@ -1,5 +1,0 @@
-fn f() -> int { true }
-
-fn main() {
-    f()
-}

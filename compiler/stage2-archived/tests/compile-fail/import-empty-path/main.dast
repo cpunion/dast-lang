@@ -1,5 +1,0 @@
-import ""
-
-fn main() {
-    println("x")
-}

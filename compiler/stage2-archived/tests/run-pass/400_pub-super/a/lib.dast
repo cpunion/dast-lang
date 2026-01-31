@@ -1,5 +1,0 @@
-import { super_fn } from "./b"
-
-pub fn call_super() -> i32 {
-    super_fn()
-}
