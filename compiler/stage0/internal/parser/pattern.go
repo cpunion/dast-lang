@@ -152,6 +152,12 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 				p.expect(lexer.TokenLBrace, "expected '{' in struct pattern")
 				pat := &ast.StructPattern{StructName: fullName, SpanInfo: span}
 				for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
+					if p.match(lexer.TokenDotDot) {
+						if p.match(lexer.TokenComma) {
+							// allow trailing comma after rest
+						}
+						break
+					}
 					fieldTok := p.expect(lexer.TokenIdent, "expected field name")
 					field := p.parseStructFieldPattern(fieldTok)
 					pat.Fields = append(pat.Fields, field)
@@ -194,6 +200,12 @@ func (p *Parser) parsePatternAtom() ast.Pattern {
 			p.expect(lexer.TokenLBrace, "expected '{' in struct pattern")
 			pat := &ast.StructPattern{StructName: nameTok.Lexeme, SpanInfo: nameTok.Span}
 			for !p.at(lexer.TokenRBrace) && !p.at(lexer.TokenEOF) {
+				if p.match(lexer.TokenDotDot) {
+					if p.match(lexer.TokenComma) {
+						// allow trailing comma after rest
+					}
+					break
+				}
 				fieldTok := p.expect(lexer.TokenIdent, "expected field name")
 				field := p.parseStructFieldPattern(fieldTok)
 				pat.Fields = append(pat.Fields, field)

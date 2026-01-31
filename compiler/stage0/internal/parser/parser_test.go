@@ -128,3 +128,36 @@ func TestParseRangePatternExprStart(t *testing.T) {
 		t.Fatalf("expected binary expr range start, got %T", rp.Start)
 	}
 }
+
+func TestParseStructPatternRest(t *testing.T) {
+	src := `struct Point { x: i64, y: i64 }
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    match p {
+        Point { x, .. } => {}
+        _ => {}
+    }
+}`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	if len(prog.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(prog.Items))
+	}
+	fn, ok := prog.Items[1].(*ast.Function)
+	if !ok {
+		t.Fatalf("expected function item")
+	}
+	matchStmt, ok := fn.Body.Stmts[1].(*ast.MatchStmt)
+	if !ok || len(matchStmt.Arms) == 0 {
+		t.Fatalf("expected match statement with arms")
+	}
+	sp, ok := matchStmt.Arms[0].Pattern.(*ast.StructPattern)
+	if !ok {
+		t.Fatalf("expected struct pattern")
+	}
+	if len(sp.Fields) != 1 || sp.Fields[0].Name != "x" {
+		t.Fatalf("expected single field binding for x")
+	}
+}
