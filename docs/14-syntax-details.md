@@ -185,7 +185,7 @@ let flags = 0b1010 | 0b0101  // 0b1111
 ### 指针宽度来源
 
 - stage2：`--target-ptr-width <32|64>` 或默认 64。
-- stage0：环境变量 `DAST_TARGET_PTR_WIDTH=32|64`（默认 64）。
+- stage0：`--target-ptr-width <32|64>` / `--target <arch>`，或环境变量 `DAST_TARGET_PTR_WIDTH=32|64`（默认 64）。
 
 ---
 

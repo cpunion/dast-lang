@@ -81,14 +81,25 @@ func parseMemLimitBytes() int64 {
 func usage() {
 	fmt.Fprintln(os.Stderr, "dast - stage0 prototype")
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  dast build [--emit-ir|--emit-qbe] <dir|file.dast ...> [-o output]")
-	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [-- args...]")
-	fmt.Fprintln(os.Stderr, "  dast test [dir|file.dast ...]")
-	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...]")
-	fmt.Fprintln(os.Stderr, "  dast ir-run <file.ir> [-- args...]")
+	fmt.Fprintln(os.Stderr, "  dast build [--emit-ir|--emit-qbe] <dir|file.dast ...> [-o output] [--target <arch>] [--target-ptr-width <32|64>]")
+	fmt.Fprintln(os.Stderr, "  dast run <file.dast> [more.dast ...] [--target <arch>] [--target-ptr-width <32|64>] [-- args...]")
+	fmt.Fprintln(os.Stderr, "  dast test [dir|file.dast ...] [--target <arch>] [--target-ptr-width <32|64>]")
+	fmt.Fprintln(os.Stderr, "  dast ir <file.dast> [more.dast ...] [--target <arch>] [--target-ptr-width <32|64>]")
+	fmt.Fprintln(os.Stderr, "  dast ir-run <file.ir> [--target <arch>] [--target-ptr-width <32|64>] [-- args...]")
 	fmt.Fprintln(os.Stderr, "  dast ir-verify <file.ir>")
 	fmt.Fprintln(os.Stderr, "  dast ir-opt <file.ir>")
 	fmt.Fprintln(os.Stderr, "  dast ir-qbe <file.ir>")
+}
+
+func targetPtrWidthFromName(name string) int {
+	switch name {
+	case "x86_64", "amd64", "aarch64", "arm64":
+		return 64
+	case "i386", "x86", "armv7", "arm", "wasm32":
+		return 32
+	default:
+		return 0
+	}
 }
 
 func run(args []string) {
@@ -385,6 +396,7 @@ func parseLoadArgs(args []string) ([]string, []string, loader.LoadOptions) {
 		return files, progArgs, opts
 	}
 	out := []string{}
+	ptrWidth := 0
 	for _, f := range files {
 		if f == "--bootstrap" {
 			opts.AllowMultiDir = true
@@ -392,7 +404,36 @@ func parseLoadArgs(args []string) ([]string, []string, loader.LoadOptions) {
 		}
 		out = append(out, f)
 	}
-	return out, progArgs, opts
+	// Second pass: strip target flags while preserving file order.
+	filtered := []string{}
+	for i := 0; i < len(out); i++ {
+		arg := out[i]
+		if arg == "--target-ptr-width" && i+1 < len(out) {
+			n, err := strconv.Atoi(out[i+1])
+			if err == nil {
+				if n == 32 || n == 64 {
+					ptrWidth = n
+				}
+			}
+			i++
+			continue
+		}
+		if arg == "--target" && i+1 < len(out) {
+			pw := targetPtrWidthFromName(out[i+1])
+			if pw == 0 {
+				printStage0Error("", 0, 0, fmt.Sprintf("unknown target: %s", out[i+1]))
+				os.Exit(1)
+			}
+			ptrWidth = pw
+			i++
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	if ptrWidth != 0 {
+		_ = os.Setenv("DAST_TARGET_PTR_WIDTH", fmt.Sprintf("%d", ptrWidth))
+	}
+	return filtered, progArgs, opts
 }
 
 func writeExecutable(outPath string, prog *ir.Program) error {
