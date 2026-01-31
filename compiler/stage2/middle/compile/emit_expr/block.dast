@@ -66,7 +66,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         return
     }
     if lhs.kind == EXPR_FIELD {
-        let base_name = expr_lvalue_base(lhs)
+        let base_name = expr_lvalue_base(e, lhs)
         let base_t = var_type(e, &base_name)
         if base_name != "" && !var_is_mut(e, &base_name) && !type_is_mut_ref(e, &base_t) {
             let mut msg = string_clone("stage2: cannot assign to immutable value ")
@@ -78,7 +78,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
             emit_fail(e, "stage2: field assignment missing receiver")
             return
         }
-        let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_field_recv"))
+        let recv = emit_expr(e, expr_arg_ref(e, lhs, 0, "assign_field_recv"))
         let mut recv_expr = recv.expr
         let mut recv_base = recv.typ
         if type_is_ref(e, &recv_base) {
@@ -107,7 +107,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         return
     }
     if lhs.kind == EXPR_INDEX {
-        let base_name = expr_lvalue_base(lhs)
+        let base_name = expr_lvalue_base(e, lhs)
         let base_t = var_type(e, &base_name)
         if base_name != "" && !var_is_mut(e, &base_name) && !type_is_mut_ref(e, &base_t) {
             let mut msg = string_clone("stage2: cannot assign to immutable value ")
@@ -119,8 +119,8 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
             emit_fail(e, "stage2: index assignment missing args")
             return
         }
-        let recv = emit_expr(e, expr_arg_ref(lhs, 0, "assign_index_recv"))
-        let idxv = emit_expr(e, expr_arg_ref(lhs, 1, "assign_index_idx"))
+        let recv = emit_expr(e, expr_arg_ref(e, lhs, 0, "assign_index_recv"))
+        let idxv = emit_expr(e, expr_arg_ref(e, lhs, 1, "assign_index_idx"))
         let idx = cast_to_l(e, idxv)
         let elem_t = expr_type(e, lhs)
         let v = emit_typed_value(e, expr, &elem_t)
@@ -138,7 +138,7 @@ fn emit_store_assign(e: &mut Emitter, lhs: &Expr, expr: &Expr) {
         return
     }
     if lhs.kind == EXPR_DEREF && len(&lhs.args) > 0 {
-        let ptr = emit_expr(e, expr_arg_ref(lhs, 0, "assign_deref_ptr"))
+        let ptr = emit_expr(e, expr_arg_ref(e, lhs, 0, "assign_deref_ptr"))
         if !type_is_mut_ref(e, &ptr.typ) {
             emit_fail(e, "stage2: assignment through & requires &mut")
             return

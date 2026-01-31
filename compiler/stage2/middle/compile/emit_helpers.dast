@@ -17,24 +17,24 @@ fn emit_string_data(e: &Emitter) -> String {
     return out
 }
 
-fn expr_lvalue_base(expr: &Expr) -> String {
+fn expr_lvalue_base(e: &mut Emitter, expr: &Expr) -> String {
     if expr.kind == EXPR_IDENT { return string_clone(&expr.name) }
     if (expr.kind == EXPR_FIELD || expr.kind == EXPR_INDEX) && len(&expr.args) > 0 {
-        return expr_lvalue_base(expr_arg_ref(expr, 0, "expr_lvalue_base_recv"))
+        return expr_lvalue_base(e, expr_arg_ref(e, expr, 0, "expr_lvalue_base_recv"))
     }
     return string_clone("")
 }
 
-fn expr_is_lvalue(expr: &Expr) -> bool {
-    return expr_lvalue_base(expr) != ""
+fn expr_is_lvalue(e: &mut Emitter, expr: &Expr) -> bool {
+    return expr_lvalue_base(e, expr) != ""
 }
 
 fn check_ref_target(e: &mut Emitter, inner: &Expr, want_mut: bool) {
-    if !expr_is_lvalue(inner) {
+    if !expr_is_lvalue(e, inner) {
         emit_fail(e, "stage2: reference target must be identifier, field, or index")
         return
     }
-    let base = expr_lvalue_base(inner)
+    let base = expr_lvalue_base(e, inner)
     if base != "" && const_index(e, &base) >= 0 {
         emit_fail(e, "stage2: cannot take reference to const " + string_clone(&base))
         return
@@ -201,7 +201,7 @@ fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
     if use_expr.kind == EXPR_UNARY && (expr_rt == "untyped-int" || expr_rt == "untyped-float") {
         let op = string_clone(&use_expr.name)
         if op == "-" && (type_is_int(e, &rt) || type_is_float(e, &rt)) {
-            let inner = expr_arg_ref(use_expr, 0, "emit_unary_typed_inner")
+            let inner = expr_arg_ref(e, use_expr, 0, "emit_unary_typed_inner")
             let inner_v = emit_typed_value(e, inner, &rt)
             let tmp = new_temp(e)
             let tn = temp_name(tmp)
@@ -257,7 +257,7 @@ fn emit_typed_value(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
         emit_line(e, "  " + tn + " =l call $dast_array_new(l " + int_to_string(elem_size) + ", l " + int_to_string(elem_align) + ", l " + int_to_string(cap) + ")")
         let mut i = 0
         while i < len(&use_expr.args) {
-            let v = emit_typed_value(e, expr_arg_ref(use_expr, i, "emit_array_elem_typed"), &elem_t)
+            let v = emit_typed_value(e, expr_arg_ref(e, use_expr, i, "emit_array_elem_typed"), &elem_t)
             let casted = cast_to_type(e, v, &elem_t)
             if type_is_float(e, &elem_t) {
                 emit_line(e, "  call $dast_array_push(l " + tn + ", l 0)")
@@ -814,8 +814,8 @@ fn array_get_fn_for_type(e: &Emitter, t: &str) -> String {
 fn emit_binary_expr_typed(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeValue {
     if len(&expr.args) < 2 { return qbe_value(string_clone(target_t), "0") }
     let op = string_clone(&expr.name)
-    let lhs_expr = expr_arg_ref(expr, 0, "emit_binary_typed_lhs_expr")
-    let rhs_expr = expr_arg_ref(expr, 1, "emit_binary_typed_rhs_expr")
+    let lhs_expr = expr_arg_ref(e, expr, 0, "emit_binary_typed_lhs_expr")
+    let rhs_expr = expr_arg_ref(e, expr, 1, "emit_binary_typed_rhs_expr")
     let lhs = emit_expr(e, lhs_expr)
     let rhs = emit_expr(e, rhs_expr)
     let rt = type_resolve(e, target_t)
@@ -907,11 +907,11 @@ fn emit_binary_expr_typed(e: &mut Emitter, expr: &Expr, target_t: &str) -> QbeVa
 fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(&expr.args) < 2 { return qbe_value("i64", "0") }
     let op = string_clone(&expr.name)
-    let lhs_expr = expr_arg_ref(expr, 0, "emit_binary_lhs_expr")
-    let rhs_expr = expr_arg_ref(expr, 1, "emit_binary_rhs_expr")
+    let lhs_expr = expr_arg_ref(e, expr, 0, "emit_binary_lhs_expr")
+    let rhs_expr = expr_arg_ref(e, expr, 1, "emit_binary_rhs_expr")
     if op == "&&" || op == "||" {
         let _ = binary_op_result_type(e, &op, lhs_expr, rhs_expr)
-        let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
+        let lhs = emit_expr(e, expr_arg_ref(e, expr, 0, "emit_binary_lhs"))
         let lhs_cond = ensure_bool_expr(e, lhs)
         let res_tmp = new_temp(e)
         let res_ptr = temp_name(res_tmp)
@@ -925,7 +925,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  storew 0, " + res_ptr)
             emit_line(e, "  jmp @" + string_clone(&end_label))
             emit_label(e, &rhs_label)
-            let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+            let rhs = emit_expr(e, expr_arg_ref(e, expr, 1, "emit_binary_rhs"))
             let rhs_cond = ensure_bool_expr(e, rhs)
             emit_line(e, "  storew " + rhs_cond + ", " + res_ptr)
         } else {
@@ -934,7 +934,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
             emit_line(e, "  storew 1, " + res_ptr)
             emit_line(e, "  jmp @" + string_clone(&end_label))
             emit_label(e, &rhs_label)
-            let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+            let rhs = emit_expr(e, expr_arg_ref(e, expr, 1, "emit_binary_rhs"))
             let rhs_cond = ensure_bool_expr(e, rhs)
             emit_line(e, "  storew " + rhs_cond + ", " + res_ptr)
         }
@@ -945,8 +945,8 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
         return qbe_value("bool", out_tn)
     }
     let _ = binary_op_result_type(e, &op, lhs_expr, rhs_expr)
-    let lhs = emit_expr(e, expr_arg_ref(expr, 0, "emit_binary_lhs"))
-    let rhs = emit_expr(e, expr_arg_ref(expr, 1, "emit_binary_rhs"))
+    let lhs = emit_expr(e, expr_arg_ref(e, expr, 0, "emit_binary_lhs"))
+    let rhs = emit_expr(e, expr_arg_ref(e, expr, 1, "emit_binary_rhs"))
     let lhs_t = type_resolve(e, &lhs.typ)
     let rhs_t = type_resolve(e, &rhs.typ)
     let mut float_t = float_bin_result_type(e, lhs_expr, rhs_expr)
@@ -1119,7 +1119,7 @@ fn emit_binary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
 
 fn emit_unary_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(&expr.args) < 1 { return qbe_value("i64", "0") }
-    let inner = emit_expr(e, expr_arg_ref(expr, 0, "emit_unary_inner"))
+    let inner = emit_expr(e, expr_arg_ref(e, expr, 0, "emit_unary_inner"))
     let op = string_clone(&expr.name)
     if op == "-" {
         if !type_is_int(e, &inner.typ) && !type_is_float(e, &inner.typ) {

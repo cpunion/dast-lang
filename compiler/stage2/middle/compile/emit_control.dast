@@ -1,6 +1,6 @@
 fn emit_match_expr(e: &mut Emitter, expr: &Expr) -> QbeValue {
     if len(&expr.args) == 0 { return qbe_value("unit", "0") }
-    let scrut_expr = expr_clone(expr_arg_ref(expr, 0, "emit_match_scrut"))
+    let scrut_expr = expr_clone(expr_arg_ref(e, expr, 0, "emit_match_scrut"))
     let scrut = emit_expr(e, &scrut_expr)
     let mut scrut_t = expr_type(e, &scrut_expr)
     if scrut_expr.kind == EXPR_IDENT {

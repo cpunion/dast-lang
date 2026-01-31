@@ -13,11 +13,11 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
     }
     if expr.kind == EXPR_MATCH {
         if len(&expr.args) > 0 {
-            collect_vars_from_expr(e, expr_arg_ref(expr, 0, "collect_vars_field_recv"))
+            collect_vars_from_expr(e, expr_arg_ref(e, expr, 0, "collect_vars_field_recv"))
         }
-        let mut scrut_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(expr, 0, "collect_vars_enum_recv")) } else { string_clone("") }
+        let mut scrut_t = if len(&expr.args) > 0 { expr_type(e, expr_arg_ref(e, expr, 0, "collect_vars_enum_recv")) } else { string_clone("") }
         if len(&expr.args) > 0 {
-            let scrut = expr_arg_ref(expr, 0, "collect_vars_enum_recv_hint")
+            let scrut = expr_arg_ref(e, expr, 0, "collect_vars_enum_recv_hint")
             if scrut.kind == EXPR_IDENT {
                 let hint = enum_var_hint(e, &scrut.name)
                 if hint != "" { scrut_t = hint }
@@ -53,7 +53,7 @@ fn collect_vars_from_expr(e: &mut Emitter, expr: &Expr) {
     }
     let mut i = 0
     while i < len(&expr.args) {
-        collect_vars_from_expr(e, expr_arg_ref(expr, i, "collect_vars_arg"))
+        collect_vars_from_expr(e, expr_arg_ref(e, expr, i, "collect_vars_arg"))
         i = i + 1
     }
     let mut fi = 0
@@ -175,7 +175,7 @@ fn validate_expr_args(e: &mut Emitter, expr: &Expr, ctx: &String) {
     }
     let mut i = 0
     while i < n {
-        validate_expr_args(e, expr_arg_ref(expr, i, "validate_expr_arg"), ctx)
+        validate_expr_args(e, expr_arg_ref(e, expr, i, "validate_expr_arg"), ctx)
         i = i + 1
     }
     let mut fi = 0
@@ -383,7 +383,7 @@ fn constrain_expr_to_type(e: &mut Emitter, expr: &Expr, expected: &String) -> bo
     if (expr.kind == EXPR_REF || expr.kind == EXPR_DEREF) && len(&expr.args) > 0 {
         if type_is_ref(e, &exp) {
             let base = type_ref_base(e, &exp)
-            return constrain_expr_to_type(e, expr_arg_ref(expr, 0, "constrain_ref_inner"), &base)
+            return constrain_expr_to_type(e, expr_arg_ref(e, expr, 0, "constrain_ref_inner"), &base)
         }
     }
     if expr.kind == EXPR_BLOCK {
@@ -403,7 +403,7 @@ fn infer_untyped_call_args(e: &mut Emitter, expr: &Expr) -> bool {
     let ec = enum_call_parse(&expr.name)
     if ec.ok && len(&expr.args) > 0 {
         let payload_t = enum_variant_payload_type(e, &ec.enum_name, &ec.variant)
-        changed = constrain_expr_to_type(e, expr_arg_ref(expr, 0, "infer_enum_payload"), &payload_t) || changed
+        changed = constrain_expr_to_type(e, expr_arg_ref(e, expr, 0, "infer_enum_payload"), &payload_t) || changed
         return changed
     }
     let di = func_decl_index(e, &expr.name)
@@ -419,7 +419,7 @@ fn infer_untyped_call_args(e: &mut Emitter, expr: &Expr) -> bool {
     while i < len(&expr.args) && i < len(&param_types) {
         let pt = &param_types[i]
         if pt != "" && list_index(&params, pt) < 0 {
-            if constrain_expr_to_type(e, expr_arg_ref(expr, i, "infer_call_arg"), pt) {
+            if constrain_expr_to_type(e, expr_arg_ref(e, expr, i, "infer_call_arg"), pt) {
                 changed = true
             }
         }
@@ -452,8 +452,8 @@ fn infer_untyped_expr(e: &mut Emitter, expr: &Expr) -> bool {
         }
     }
     if expr.kind == EXPR_BINARY && len(&expr.args) >= 2 {
-        let lhs = expr_arg_ref(expr, 0, "infer_bin_lhs")
-        let rhs = expr_arg_ref(expr, 1, "infer_bin_rhs")
+        let lhs = expr_arg_ref(e, expr, 0, "infer_bin_lhs")
+        let rhs = expr_arg_ref(e, expr, 1, "infer_bin_rhs")
         let lt = expr_type(e, lhs)
         let rt = expr_type(e, rhs)
         if type_is_int(e, &lt) && type_is_untyped_int(e, &rt) {
@@ -464,7 +464,7 @@ fn infer_untyped_expr(e: &mut Emitter, expr: &Expr) -> bool {
     }
     let mut i = 0
     while i < len(&expr.args) {
-        if infer_untyped_expr(e, expr_arg_ref(expr, i, "infer_expr_arg")) {
+        if infer_untyped_expr(e, expr_arg_ref(e, expr, i, "infer_expr_arg")) {
             changed = true
         }
         i = i + 1
@@ -498,13 +498,13 @@ fn infer_untyped_expr_expected(e: &mut Emitter, expr: &Expr, expected: &String) 
     let mut changed = false
     if constrain_expr_to_type(e, expr, expected) { changed = true }
     if expr.kind == EXPR_BINARY && (type_is_int(e, expected) || type_is_float(e, expected)) && len(&expr.args) >= 2 {
-        let lhs = expr_arg_ref(expr, 0, "infer_bin_lhs_exp")
-        let rhs = expr_arg_ref(expr, 1, "infer_bin_rhs_exp")
+        let lhs = expr_arg_ref(e, expr, 0, "infer_bin_lhs_exp")
+        let rhs = expr_arg_ref(e, expr, 1, "infer_bin_rhs_exp")
         if constrain_expr_to_type(e, lhs, expected) { changed = true }
         if constrain_expr_to_type(e, rhs, expected) { changed = true }
     }
     if expr.kind == EXPR_UNARY && (type_is_int(e, expected) || type_is_float(e, expected)) && len(&expr.args) >= 1 {
-        let inner = expr_arg_ref(expr, 0, "infer_unary_inner_exp")
+        let inner = expr_arg_ref(e, expr, 0, "infer_unary_inner_exp")
         if constrain_expr_to_type(e, inner, expected) { changed = true }
     }
     if infer_untyped_expr(e, expr) { changed = true }
@@ -700,7 +700,7 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
     }
     if expr.kind == EXPR_MATCH {
         if len(&expr.args) > 0 {
-            collect_strings_from_expr(e, expr_arg_ref(expr, 0, "collect_strings_field_recv"))
+            collect_strings_from_expr(e, expr_arg_ref(e, expr, 0, "collect_strings_field_recv"))
         }
         let mut ai = 0
         while ai < len(&expr.match_arms) {
@@ -731,13 +731,13 @@ fn collect_strings_from_expr(e: &mut Emitter, expr: &Expr) {
     if expr.kind == EXPR_FIELD {
         let _ = ensure_string(e, string_clone(&expr.name))
         if len(&expr.args) > 0 {
-            collect_strings_from_expr(e, expr_arg_ref(expr, 0, "collect_strings_enum_recv"))
+            collect_strings_from_expr(e, expr_arg_ref(e, expr, 0, "collect_strings_enum_recv"))
         }
         return
     }
     let mut i = 0
     while i < len(&expr.args) {
-        collect_strings_from_expr(e, expr_arg_ref(expr, i, "collect_strings_arg"))
+        collect_strings_from_expr(e, expr_arg_ref(e, expr, i, "collect_strings_arg"))
         i = i + 1
     }
     let mut j = 0

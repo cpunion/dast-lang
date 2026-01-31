@@ -14,6 +14,7 @@ fn collect_type_aliases(e: &mut Emitter, prog: &Program) {
     let mut j = 0
     while j < len(&e.type_alias_targets) {
         e.type_alias_targets[j] = type_resolve(e, &e.type_alias_targets[j])
+        type_check_valid(e, &e.type_alias_targets[j])
         j = j + 1
     }
 }
@@ -32,7 +33,9 @@ fn collect_structs(e: &mut Emitter, prog: &Program) {
         let mut fi = 0
         while fi < len(&s.fields) {
             let f = &s.fields[fi]
-            push(&mut fields, StructFieldSig { name: string_clone(&f.name), typ: type_resolve(e, &f.typ) })
+            let ft = type_resolve(e, &f.typ)
+            type_check_valid(e, &ft)
+            push(&mut fields, StructFieldSig { name: string_clone(&f.name), typ: ft })
             fi = fi + 1
         }
         let mut sigs = e.struct_sigs
@@ -56,11 +59,15 @@ fn collect_enums(e: &mut Emitter, prog: &Program) {
         let mut vi = 0
         while vi < len(&en.variants) {
             let v = &en.variants[vi]
-            push(&mut variants, EnumVariantSig { name: string_clone(&v.name), value: vi, has_payload: v.has_payload, payload_type: type_resolve(e, &v.payload_type) })
+            let pt = type_resolve(e, &v.payload_type)
+            type_check_valid(e, &pt)
+            push(&mut variants, EnumVariantSig { name: string_clone(&v.name), value: vi, has_payload: v.has_payload, payload_type: pt })
             vi = vi + 1
         }
         let mut sigs = e.enum_sigs
-        push(&mut sigs, EnumSig { name: string_clone(&en.name), type_params: tparams, tag_type: type_resolve(e, &en.tag_type), variants: variants })
+        let tag_t = type_resolve(e, &en.tag_type)
+        type_check_valid(e, &tag_t)
+        push(&mut sigs, EnumSig { name: string_clone(&en.name), type_params: tparams, tag_type: tag_t, variants: variants })
         e.enum_sigs = sigs
         i = i + 1
     }
@@ -71,9 +78,19 @@ fn collect_funcs(e: &mut Emitter, prog: &Program) {
     while i < len(&prog.functions) {
         let f = &prog.functions[i]
         if f.is_macro { i = i + 1; continue }
+        let mut pi = 0
+        while pi < len(&f.params) {
+            let p = &f.params[pi]
+            if p.has_type {
+                let pt = type_resolve(e, &p.typ)
+                type_check_valid(e, &pt)
+            }
+            pi = pi + 1
+        }
         let mut sigs = e.func_sigs
         let mut decls = e.func_decls
         let rt = effective_ret_type(e, f)
+        if rt != "" { type_check_valid(e, &rt) }
         push(&mut sigs, FuncSig { name: string_clone(&f.name), ret_type: rt })
         push(&mut decls, function_clone(f))
         e.func_sigs = sigs

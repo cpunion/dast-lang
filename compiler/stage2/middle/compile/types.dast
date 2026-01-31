@@ -1401,7 +1401,7 @@ fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
         }
         EXPR_REF => {
             if len(&expr.args) == 0 { return string_clone("&i64") }
-            let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_ref"))
+            let base = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_ref"))
             if type_is_ref(e, &base) {
                 emit_fail(e, "stage2: cannot take reference to reference")
                 return string_clone("&i64")
@@ -1413,18 +1413,18 @@ fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
         }
         EXPR_DEREF => {
             if len(&expr.args) == 0 { return string_clone("i64") }
-            let base = expr_type(e, expr_arg_ref(expr, 0, "expr_type_deref"))
+            let base = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_deref"))
             if type_is_ref(e, &base) { return type_ref_base(e, &base) }
             return type_resolve(e, &base)
         }
         EXPR_ARRAY => {
             if len(&expr.args) == 0 { return string_clone("[untyped-int]") }
-            let elem = expr_type(e, expr_arg_ref(expr, 0, "expr_type_array"))
+            let elem = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_array"))
             return string_clone("[") + type_resolve(e, &elem) + "]"
         }
         EXPR_INDEX => {
             if len(&expr.args) < 1 { return string_clone("i64") }
-            let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_index_recv"))
+            let mut recv_t = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_index_recv"))
             if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
             if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
             return string_clone("i64")
@@ -1477,12 +1477,12 @@ fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
         EXPR_FIELD => {
             if len(&expr.args) == 0 { return string_clone("i64") }
             if is_digit_str(&expr.name) {
-                let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_digit"))
+                let mut recv_t = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_field_digit"))
                 if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
                 if type_is_array(e, &recv_t) { return type_array_elem(e, &recv_t) }
                 return string_clone("i64")
             }
-            let recv_expr = expr_arg_ref(expr, 0, "expr_type_field_recv_expr")
+            let recv_expr = expr_arg_ref(e, expr, 0, "expr_type_field_recv_expr")
             if recv_expr.kind == EXPR_IDENT {
                 let recv_name = type_resolve(e, &recv_expr.name)
                 let ct = const_type(e, &recv_name)
@@ -1492,7 +1492,7 @@ fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
                     if vi >= 0 { return recv_name }
                 }
             }
-            let mut recv_t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_field_recv"))
+            let mut recv_t = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_field_recv"))
             if type_is_ref(e, &recv_t) { recv_t = type_ref_base(e, &recv_t) }
             let ft = struct_field_type(e, &recv_t, &expr.name)
             if ft != "" { return type_resolve(e, &ft) }
@@ -1500,13 +1500,13 @@ fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
         }
         EXPR_BINARY => {
             if len(&expr.args) < 2 { return string_clone("i64") }
-            let lhs = expr_arg_ref(expr, 0, "expr_type_binary_lhs")
-            let rhs = expr_arg_ref(expr, 1, "expr_type_binary_rhs")
+            let lhs = expr_arg_ref(e, expr, 0, "expr_type_binary_lhs")
+            let rhs = expr_arg_ref(e, expr, 1, "expr_type_binary_rhs")
             return binary_op_result_type(e, &expr.name, lhs, rhs)
         }
         EXPR_UNARY => {
             if expr.name == "!" { return string_clone("bool") }
-            if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(expr, 0, "expr_type_unary_inner")) }
+            if len(&expr.args) > 0 { return expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_unary_inner")) }
             return string_clone("i64")
         }
         EXPR_CALL => {
@@ -1516,7 +1516,7 @@ fn expr_type(e: &mut Emitter, expr: &Expr) -> String {
                     emit_fail(e, "stage2: len expects 1 argument")
                     return string_clone("i64")
                 }
-                let t = expr_type(e, expr_arg_ref(expr, 0, "expr_type_len_arg"))
+                let t = expr_type(e, expr_arg_ref(e, expr, 0, "expr_type_len_arg"))
                 if !type_is_single_ref_to_string_or_array(e, &t) {
                     emit_fail(e, "stage2: len expects reference to String/str or array")
                     return string_clone("i64")

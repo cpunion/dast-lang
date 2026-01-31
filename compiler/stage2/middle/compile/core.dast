@@ -259,6 +259,8 @@ struct Emitter {
     soft_errors: bool,
     had_error: bool,
     errors: [String],
+    // Dummy expr for error recovery.
+    dummy_expr: Expr,
 }
 
 fn emitter_new() -> Emitter {
@@ -301,6 +303,7 @@ fn emitter_new() -> Emitter {
         soft_errors: false,
         had_error: false,
         errors: string_list_empty(),
+        dummy_expr: expr_int(0),
     }
 }
 
@@ -332,6 +335,7 @@ fn emitter_with_globals(glob: &Emitter) -> Emitter {
     e.var_untyped_has_value = bool_list_empty()
     e.enum_var_names = string_list_empty()
     e.enum_var_types = string_list_empty()
+    e.dummy_expr = expr_clone(&glob.dummy_expr)
     return e
 }
 
@@ -503,10 +507,12 @@ fn emit_label(e: &mut Emitter, label: &str) {
     emit_line(e, "@" + label)
 }
 
-fn expr_arg_ref(expr: &Expr, idx: i64, ctx: String) -> &Expr {
+fn expr_arg_ref(e: &mut Emitter, expr: &Expr, idx: i64, ctx: String) -> &Expr {
     if idx < 0 || idx >= len(&expr.args) {
-        println("stage2: expr args oob", expr.kind, "len", len(&expr.args), "idx", idx, expr.name, ctx)
-        exit(1)
+        let mut msg = string_clone("stage2: expr args oob ")
+        msg = msg + ctx
+        emit_fail(e, msg)
+        return &e.dummy_expr
     }
     return &expr.args[idx]
 }
@@ -642,20 +648,14 @@ fn type_resolve(e: &Emitter, t: &str) -> String {
     if cur == "" { return cur }
     if cur == "int" { return string_clone("i64") }
     if cur == "i128" || cur == "u128" {
-        println("stage2: type", cur, "is reserved but not supported yet")
-        exit(1)
+        return cur
     }
     if cur == "string" {
-        println("stage2: use String/str instead of string")
-        exit(1)
+        return cur
     }
     if type_is_ref_raw(&cur) {
         let base = type_ref_base_raw(&cur)
         let resolved = type_resolve(e, &base)
-        if type_is_ref_raw(&resolved) {
-            println("stage2: double ref not allowed")
-            exit(1)
-        }
         if type_is_mut_ref_raw(&cur) {
             return string_clone("&mut ") + resolved
         }
@@ -674,6 +674,21 @@ fn type_resolve(e: &Emitter, t: &str) -> String {
         steps = steps + 1
     }
     return out
+}
+
+fn type_check_valid(e: &mut Emitter, t: &str) {
+    let rt = type_resolve(e, t)
+    if rt == "string" {
+        emit_fail(e, "stage2: use String/str instead of string")
+    }
+    if rt == "i128" || rt == "u128" {
+        let mut msg = string_clone("stage2: type ")
+        msg = msg + rt + " is reserved but not supported yet"
+        emit_fail(e, msg)
+    }
+    if type_is_double_ref(e, &rt) {
+        emit_fail(e, "stage2: double ref not allowed")
+    }
 }
 
 fn type_is_bool(e: &Emitter, t: &str) -> bool {
