@@ -648,6 +648,13 @@ func (q *quoteCtx) replaceItem(item ast.Item) (ast.Item, error) {
 			}
 			v.Name = name
 		}
+		if idx, ok := placeholderIndex(v.Repr); ok {
+			name, err := q.spliceIdent(idx)
+			if err != nil {
+				return v, err
+			}
+			v.Repr = name
+		}
 		for i := range v.Fields {
 			if idx, ok := placeholderIndex(v.Fields[i].Name); ok {
 				name, err := q.spliceIdent(idx)

@@ -97,6 +97,66 @@ func TestParseWhereNonNominalBound(t *testing.T) {
 	}
 }
 
+func TestParseConstExprBinary(t *testing.T) {
+	src := `const A = 1 + 2 * 3
+const B = -(4 + 5)
+const C = !false
+const D = 1.5 + 2.0
+const E = 1 < 2
+const F = "a" + "b"`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	if len(prog.Items) != 6 {
+		t.Fatalf("expected 6 items, got %d", len(prog.Items))
+	}
+	decl := func(idx int) *ast.ConstDecl {
+		c, ok := prog.Items[idx].(*ast.ConstDecl)
+		if !ok {
+			t.Fatalf("expected const decl at %d", idx)
+		}
+		return c
+	}
+	if d := decl(0); d.Value.Int != 7 {
+		t.Fatalf("const A expected 7 got %d", d.Value.Int)
+	}
+	if d := decl(1); d.Value.Int != -9 {
+		t.Fatalf("const B expected -9 got %d", d.Value.Int)
+	}
+	if d := decl(2); !d.Value.Bool {
+		t.Fatalf("const C expected true")
+	}
+	if d := decl(3); d.Value.FloatText != "3.5" {
+		t.Fatalf("const D expected 3.5 got %s", d.Value.FloatText)
+	}
+	if d := decl(4); !d.Value.Bool {
+		t.Fatalf("const E expected true")
+	}
+	if d := decl(5); d.Value.Str != "ab" {
+		t.Fatalf("const F expected ab got %s", d.Value.Str)
+	}
+}
+
+func TestParseStructReprC(t *testing.T) {
+	src := `@repr(C)
+struct Point { x: i32, y: i32 }`
+	prog, diags := parser.Parse("test.dast", src)
+	if diags.HasErrors() {
+		t.Fatalf("unexpected parse errors: %s", diags.Error())
+	}
+	if len(prog.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(prog.Items))
+	}
+	s, ok := prog.Items[0].(*ast.StructDecl)
+	if !ok {
+		t.Fatalf("expected struct decl")
+	}
+	if s.Repr != "C" {
+		t.Fatalf("expected struct repr C, got %q", s.Repr)
+	}
+}
+
 func TestParseRangePatternExprStart(t *testing.T) {
 	src := `fn main() {
     let x = 3

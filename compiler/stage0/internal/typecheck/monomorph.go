@@ -13,7 +13,7 @@ func newChecker() *Checker {
 		funcs:              map[string]*FuncSig{},
 		funcDecls:          map[string]*ast.Function{},
 		methods:            map[string]map[string]*MethodSig{},
-	builtins:           map[string]struct{}{"print": {}, "println": {}, "eprint": {}, "eprintln": {}, "len": {}, "push": {}, "pop": {}, "exit": {}, "read_file": {}, "read_dir": {}, "write_file": {}, "mkdir": {}, "args": {}, "getenv": {}, "char_at": {}, "substr": {}, "string_clone": {}, "read_line": {}, "read_bytes": {}, "exec": {}, "alloc_total_bytes": {}, "alloc_total_peak_bytes": {}, "ast_expr": {}, "ast_stmt": {}, "ast_item": {}, "ast_block": {}, "ast_to_string": {}, "ast_eq": {}, "ast_assert_eq": {}, "gensym": {}, "bind": {}},
+		builtins:           map[string]struct{}{"print": {}, "println": {}, "eprint": {}, "eprintln": {}, "len": {}, "push": {}, "pop": {}, "exit": {}, "read_file": {}, "read_dir": {}, "write_file": {}, "mkdir": {}, "args": {}, "getenv": {}, "char_at": {}, "substr": {}, "string_clone": {}, "read_line": {}, "read_bytes": {}, "exec": {}, "alloc_total_bytes": {}, "alloc_total_peak_bytes": {}, "ast_expr": {}, "ast_stmt": {}, "ast_item": {}, "ast_block": {}, "ast_to_string": {}, "ast_eq": {}, "ast_assert_eq": {}, "gensym": {}, "bind": {}},
 		consts:             map[string]ConstInfo{},
 		structs:            map[string]*ast.StructDecl{},
 		enums:              map[string]*ast.EnumDecl{},
@@ -148,6 +148,7 @@ func (c *Checker) instantiateStruct(prog *ast.Program, inst typeInst) {
 		Name:     instName,
 		Fields:   nil,
 		Vis:      decl.Vis,
+		Repr:     decl.Repr,
 		SpanInfo: decl.SpanInfo,
 	}
 	for _, f := range decl.Fields {

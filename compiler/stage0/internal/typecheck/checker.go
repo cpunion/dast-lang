@@ -8,24 +8,24 @@ import (
 )
 
 type Checker struct {
-	diag     *diag.Bag
-	funcs    map[string]*FuncSig
-	funcDecls map[string]*ast.Function
-	methods  map[string]map[string]*MethodSig
-	builtins map[string]struct{}
-	consts   map[string]ConstInfo
-	structs  map[string]*ast.StructDecl
-	enums    map[string]*ast.EnumDecl
-	aliases  map[string]*ast.TypeAlias
-	traits   map[string]*TraitSig
-	implTraits []*ast.ImplTraitDecl
-	traitImpls map[string]map[string]struct{}
-	implTemplates map[string][]*ast.ImplDecl
+	diag               *diag.Bag
+	funcs              map[string]*FuncSig
+	funcDecls          map[string]*ast.Function
+	methods            map[string]map[string]*MethodSig
+	builtins           map[string]struct{}
+	consts             map[string]ConstInfo
+	structs            map[string]*ast.StructDecl
+	enums              map[string]*ast.EnumDecl
+	aliases            map[string]*ast.TypeAlias
+	traits             map[string]*TraitSig
+	implTraits         []*ast.ImplTraitDecl
+	traitImpls         map[string]map[string]struct{}
+	implTemplates      map[string][]*ast.ImplDecl
 	implTraitTemplates map[string][]*ast.ImplTraitDecl
-	env      *env
-	current  *FuncSig
-	selfType *Type
-	typeParams map[string]ast.TypeParam
+	env                *env
+	current            *FuncSig
+	selfType           *Type
+	typeParams         map[string]ast.TypeParam
 
 	inferReturn   bool
 	inferredType  Type
@@ -33,9 +33,9 @@ type Checker struct {
 	hasBareReturn bool
 	loopStack     []loopContext
 
-	funcInsts   map[string]string
-	structInsts map[string]string
-	enumInsts   map[string]string
+	funcInsts      map[string]string
+	structInsts    map[string]string
+	enumInsts      map[string]string
 	structInstBase map[string]string
 	enumInstBase   map[string]string
 	structInstArgs map[string][]Type
@@ -79,6 +79,9 @@ func (c *Checker) collectDecls(prog *ast.Program) {
 			if _, exists := c.traits[t.Name]; exists {
 				c.diag.Add(t.Span(), fmt.Sprintf("name '%s' already used by trait", t.Name))
 				continue
+			}
+			if t.Repr != "" && t.Repr != "C" {
+				c.diag.Add(t.Span(), fmt.Sprintf("unsupported repr '%s'", t.Repr))
 			}
 			c.structs[t.Name] = t
 		case *ast.EnumDecl:

@@ -208,7 +208,7 @@ func astItemEq(a, b ast.Item) bool {
 		return ok && ta.Path == tb.Path && ta.Alias == tb.Alias
 	case *ast.StructDecl:
 		tb, ok := b.(*ast.StructDecl)
-		return ok && ta.Name == tb.Name && typeParamListEq(ta.TypeParams, tb.TypeParams) && fieldDefListEq(ta.Fields, tb.Fields) && ta.Vis == tb.Vis
+		return ok && ta.Name == tb.Name && ta.Repr == tb.Repr && typeParamListEq(ta.TypeParams, tb.TypeParams) && fieldDefListEq(ta.Fields, tb.Fields) && ta.Vis == tb.Vis
 	case *ast.ConstDecl:
 		tb, ok := b.(*ast.ConstDecl)
 		return ok && ta.Name == tb.Name && typePtrEq(ta.Type, tb.Type) && constValueEq(ta.Value, tb.Value) && ta.Vis == tb.Vis

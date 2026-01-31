@@ -89,31 +89,28 @@ func (p *Parser) parseItem() ast.Item {
 			// allow "macro fn" for readability
 		}
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseFunction(vis, true)
 	}
 	if p.match(lexer.TokenFn) {
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseFunction(vis, false)
 	}
 	if p.match(lexer.TokenImport) {
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseImport()
 	}
 	if p.match(lexer.TokenStruct) {
-		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
-		}
-		return p.parseStructDecl(vis)
+		return p.parseStructDecl(repr, vis)
 	}
 	if p.match(lexer.TokenTrait) {
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseTraitDecl(vis)
 	}
@@ -122,24 +119,24 @@ func (p *Parser) parseItem() ast.Item {
 	}
 	if p.match(lexer.TokenConst) {
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseConstDecl(vis)
 	}
 	if p.match(lexer.TokenType) {
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseTypeAlias(vis)
 	}
 	if p.match(lexer.TokenImpl) {
 		if repr != "" {
-			p.diag.Add(p.peek().Span, "@repr only valid on enum")
+			p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 		}
 		return p.parseImplDecl(vis)
 	}
 	if repr != "" {
-		p.diag.Add(p.peek().Span, "@repr only valid on enum")
+		p.diag.Add(p.peek().Span, "@repr only valid on enum or struct")
 	}
 	if p.peek().Kind == lexer.TokenIdent {
 		expr := p.parseExpr(0)

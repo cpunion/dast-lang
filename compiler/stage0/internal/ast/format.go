@@ -240,7 +240,11 @@ func FormatItem(i Item) string {
 		out += " " + FormatBlock(v.Body)
 		return out
 	case *StructDecl:
-		out := formatVisibility(v.Vis) + "struct " + v.Name
+		out := ""
+		if v.Repr != "" {
+			out += "@repr(" + v.Repr + ") "
+		}
+		out += formatVisibility(v.Vis) + "struct " + v.Name
 		if len(v.TypeParams) > 0 {
 			out += "[" + formatTypeParams(v.TypeParams) + "]"
 		}

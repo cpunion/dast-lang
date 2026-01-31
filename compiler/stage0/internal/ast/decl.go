@@ -30,11 +30,12 @@ func (i *ImportDecl) Span() source.Span {
 }
 
 type StructDecl struct {
-	Name     string
+	Name       string
 	TypeParams []TypeParam
-	Fields   []FieldDef
-	Vis      Visibility
-	SpanInfo source.Span
+	Repr       string
+	Fields     []FieldDef
+	Vis        Visibility
+	SpanInfo   source.Span
 }
 
 func (s *StructDecl) itemNode() {}
@@ -45,20 +46,20 @@ func (s *StructDecl) Span() source.Span {
 type ConstKind int
 
 const (
-    ConstInt ConstKind = iota
-    ConstBool
-    ConstString
-    ConstChar
-    ConstFloat
+	ConstInt ConstKind = iota
+	ConstBool
+	ConstString
+	ConstChar
+	ConstFloat
 )
 
 type ConstValue struct {
-	Kind ConstKind
-	Int  int64
-	Bool bool
-	Str  string
+	Kind      ConstKind
+	Int       int64
+	Bool      bool
+	Str       string
 	FloatText string
-	Span source.Span
+	Span      source.Span
 }
 
 type ConstDecl struct {
@@ -75,12 +76,12 @@ func (c *ConstDecl) Span() source.Span {
 }
 
 type EnumDecl struct {
-	Name     string
+	Name       string
 	TypeParams []TypeParam
-	Repr     string
-	Variants []VariantDef
-	Vis      Visibility
-	SpanInfo source.Span
+	Repr       string
+	Variants   []VariantDef
+	Vis        Visibility
+	SpanInfo   source.Span
 }
 
 func (e *EnumDecl) itemNode() {}
@@ -89,12 +90,12 @@ func (e *EnumDecl) Span() source.Span {
 }
 
 type ImplDecl struct {
-	TypeName string
-	TypeArgs []Type
+	TypeName   string
+	TypeArgs   []Type
 	TypeParams []TypeParam
-	Methods  []*Function
-	Vis      Visibility
-	SpanInfo source.Span
+	Methods    []*Function
+	Vis        Visibility
+	SpanInfo   source.Span
 }
 
 func (i *ImplDecl) itemNode() {}
