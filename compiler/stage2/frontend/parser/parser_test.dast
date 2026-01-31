@@ -117,3 +117,12 @@ fn test_parse_reserved_int_width_error() {
         exit(1)
     }
 }
+
+fn test_parse_double_ref_error() {
+    let src = "fn main() { let x: &&i32 = 0 }"
+    let res = parse_program(src)
+    if len(&res.errors) == 0 {
+        println("expected parse error for double ref")
+        exit(1)
+    }
+}
